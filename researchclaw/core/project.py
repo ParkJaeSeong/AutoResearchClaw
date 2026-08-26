@@ -49,3 +49,8 @@ class ResearchProject:
 
     def status_dict(self) -> dict[str, object]:
         return self.state.to_dict()
+
+    def persist_state(self, state: ProjectState) -> "ResearchProject":
+        """Persist a replacement state and return the refreshed project value."""
+        StateStore(self.root / ".researchclaw").save(state)
+        return type(self)(root=self.root, state=state)

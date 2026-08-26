@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.task_packets import prepare_task_packet
+from researchclaw.core.validation import validate_current_stage
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,11 +31,15 @@ def build_parser() -> argparse.ArgumentParser:
     prepare = stage_commands.add_parser("prepare", help="prepare a stage task packet")
     prepare.add_argument("root", metavar="ROOT")
     prepare.add_argument("--json", action="store_true", help="emit JSON")
+    validate = stage_commands.add_parser("validate", help="validate and advance the current stage")
+    validate.add_argument("root", metavar="ROOT")
+    validate.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    exit_code = 0
     try:
         args = parser.parse_args(argv)
         if args.command == "init":
@@ -43,9 +48,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "status":
             project = ResearchProject.open(args.root)
             payload = project.status_dict()
-        else:
+        elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(project).to_dict()
+        else:
+            project = ResearchProject.open(args.root)
+            report = validate_current_stage(project)
+            payload = report.to_dict()
+            exit_code = 0 if report.valid else 2
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -53,11 +63,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
-        if args.command == "stage":
+        if args.command == "stage" and args.stage_command == "prepare":
             print(f"{payload['project_id']}: stage {payload['stage_id']} ({payload['name']})")
+        elif args.command == "stage":
+            print(f"stage {payload['stage_id']}: {'valid' if payload['valid'] else 'invalid'}")
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
