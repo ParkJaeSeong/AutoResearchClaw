@@ -189,6 +189,18 @@ class TestCheckUrlSsrf:
         assert error is not None
         assert "internal" in error.lower() or "private" in error.lower()
 
+    @patch("researchclaw.web._ssrf.socket.getaddrinfo")
+    def test_rejects_well_known_nat64_for_shared_ipv4(self, mock_getaddrinfo):
+        """A NAT64 address embedding carrier-grade NAT space is not public."""
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::6440:1", 0, 0, 0)),
+        ]
+
+        error = check_url_ssrf("https://shared.example/service")
+
+        assert error is not None
+        assert "internal" in error.lower() or "private" in error.lower()
+
     def test_rejects_file_scheme(self):
         err = check_url_ssrf("file:///etc/passwd")
         assert err is not None
