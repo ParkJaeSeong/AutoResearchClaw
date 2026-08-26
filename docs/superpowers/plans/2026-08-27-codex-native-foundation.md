@@ -889,6 +889,7 @@ git commit -m "feat(core): resume research from durable handoff state"
 - Create: `researchclaw/core/events.py`
 - Create: `evaluation/rubrics/foundation-v1.yaml`
 - Modify: `researchclaw/core/project.py`
+- Modify: `researchclaw/core/task_packets.py`
 - Modify: `researchclaw/core/validation.py`
 - Modify: `researchclaw/core/approval.py`
 - Modify: `researchclaw/codex/cli.py`
@@ -1008,7 +1009,7 @@ def test_plugin_manifest_and_skill_are_explicit_and_api_free():
     skill = (ROOT / "skills" / "researchclaw" / "SKILL.md").read_text()
 
     assert manifest["name"] == "autoresearchclaw-codex"
-    assert "researchclaw" in manifest["skills"]
+    assert manifest["skills"] == "./skills/"
     assert "explicit" in skill.lower()
     forbidden = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "acpx", "--auto-approve")
     assert not any(token in skill for token in forbidden)
