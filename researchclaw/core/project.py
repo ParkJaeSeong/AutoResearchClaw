@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from .models import ProjectState
 from .profiles import load_profile
 from .state import StateStore
+
+if TYPE_CHECKING:
+    from .handoff import HandoffSummary
 
 
 @dataclass(frozen=True)
@@ -54,3 +58,9 @@ class ResearchProject:
         """Persist a replacement state and return the refreshed project value."""
         StateStore(self.root / ".researchclaw").save(state)
         return type(self)(root=self.root, state=state)
+
+    def build_handoff(self) -> "HandoffSummary":
+        """Reconstruct a durable handoff after reopening project files."""
+        from .handoff import build_handoff
+
+        return build_handoff(self)

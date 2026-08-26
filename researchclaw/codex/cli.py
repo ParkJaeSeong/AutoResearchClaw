@@ -27,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("root", metavar="ROOT")
     status.add_argument("--json", action="store_true", help="emit JSON")
 
+    resume = subcommands.add_parser("resume", help="reconstruct the next durable project action")
+    resume.add_argument("root", metavar="ROOT")
+    resume.add_argument("--json", action="store_true", help="emit JSON")
+
     approve = subcommands.add_parser("approve", help="record a decision for the current approval gate")
     approve.add_argument("root", metavar="ROOT")
     approve.add_argument("--decision", required=True, choices=("approve", "reject"))
@@ -55,6 +59,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "status":
             project = ResearchProject.open(args.root)
             payload = project.status_dict()
+        elif args.command == "resume":
+            project = ResearchProject.open(args.root)
+            payload = project.build_handoff().to_dict()
         elif args.command == "approve":
             project = ResearchProject.open(args.root)
             payload = approve_current_gate(project, args.decision, args.note).to_dict()
