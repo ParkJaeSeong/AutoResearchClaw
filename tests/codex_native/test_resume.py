@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+from hashlib import sha256
 from dataclasses import replace
 
 from researchclaw.core.approval import approve_current_gate
@@ -19,6 +20,15 @@ def _resume(root):
     )
     assert result.returncode == 0
     return json.loads(result.stdout)
+
+
+def _approved_project(root):
+    project = ResearchProject.create(root, "Formation energy", "materials_ai")
+    complete_first_four_stages(project)
+    write_valid_fixture_artifacts(project.root, 5)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    approve_current_gate(ResearchProject.open(project.root), "approve", "Approved")
+    return project
 
 
 def test_resume_uses_only_project_files(tmp_path):
@@ -80,11 +90,7 @@ def test_resume_rejects_artifact_paths_outside_the_project(tmp_path):
 
 
 def test_resume_rechecks_completed_gate_approval_records(tmp_path):
-    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
-    complete_first_four_stages(project)
-    write_valid_fixture_artifacts(project.root, 5)
-    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
-    approve_current_gate(ResearchProject.open(project.root), "approve", "Approved")
+    project = _approved_project(tmp_path / "demo")
     approval_path = project.root / "approvals" / "stage-05.json"
     approval = json.loads(approval_path.read_text(encoding="utf-8"))
     approval["artifact_hashes"]["literature/shortlist.jsonl"] = "0" * 64
@@ -94,3 +100,53 @@ def test_resume_rechecks_completed_gate_approval_records(tmp_path):
 
     assert payload["status"] == "needs_revision"
     assert payload["next_command"].endswith("stage validate")
+
+
+def test_resume_rejects_a_valid_different_stage_approval_record(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    stage_nine_artifact = project.root / "experiment" / "design.json"
+    stage_nine_artifact.parent.mkdir()
+    stage_nine_artifact.write_text("{}", encoding="utf-8")
+    state = ResearchProject.open(project.root).state
+    ResearchProject.open(project.root).persist_state(
+        replace(
+            state,
+            artifacts={
+                **state.artifacts,
+                "experiment/design.json": ArtifactRef(
+                    path="experiment/design.json",
+                    sha256=sha256(b"{}").hexdigest(),
+                    size=2,
+                ),
+            },
+        )
+    )
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["stage_id"] = 9
+    approval["artifact_hashes"] = {"experiment/design.json": sha256(b"{}").hexdigest()}
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    payload = _resume(project.root)
+
+    assert payload["status"] == "needs_revision"
+
+
+def test_resume_returns_revision_json_for_malformed_approval_hashes(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["artifact_hashes"] = []
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "researchclaw.codex.cli", "resume", str(project.root), "--json"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "needs_revision"
+    assert result.stderr == ""

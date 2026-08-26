@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,15 +73,30 @@ def _load_approval(root: Path, stage_id: int) -> ApprovalRecord | None:
             data = json.load(handle)
         if not isinstance(data, dict):
             return None
-        return ApprovalRecord(
-            schema_version=int(data["schema_version"]),
-            project_id=str(data["project_id"]),
-            stage_id=int(data["stage_id"]),
-            decision=str(data["decision"]),
-            artifact_hashes={str(key): str(value) for key, value in data["artifact_hashes"].items()},
-            decided_at=str(data["decided_at"]),
-            note=str(data["note"]),
+        artifact_hashes = data["artifact_hashes"]
+        if (
+            not isinstance(data["schema_version"], int)
+            or isinstance(data["schema_version"], bool)
+            or not isinstance(data["project_id"], str)
+            or not isinstance(data["stage_id"], int)
+            or isinstance(data["stage_id"], bool)
+            or not isinstance(data["decision"], str)
+            or not isinstance(artifact_hashes, Mapping)
+            or not all(isinstance(key, str) and isinstance(value, str) for key, value in artifact_hashes.items())
+            or not isinstance(data["decided_at"], str)
+            or not isinstance(data["note"], str)
+        ):
+            return None
+        record = ApprovalRecord(
+            schema_version=data["schema_version"],
+            project_id=data["project_id"],
+            stage_id=data["stage_id"],
+            decision=data["decision"],
+            artifact_hashes=dict(artifact_hashes),
+            decided_at=data["decided_at"],
+            note=data["note"],
         )
+        return record if record.stage_id == stage_id else None
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
         return None
 
