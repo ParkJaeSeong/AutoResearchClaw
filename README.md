@@ -85,6 +85,43 @@
 
 ---
 
+## AutoResearchClaw Codex — Foundation Quick Start
+
+**AutoResearchClaw Codex** is an explicit-invocation Codex plugin built on the upstream [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw) project and its MIT-licensed work. Invoke it by name with `$researchclaw`; ordinary research requests do not activate the skill implicitly.
+
+In the first Codex-native milestone, Codex creates research artifacts while a local, deterministic CLI persists state, validates stages 1–5, binds the literature-screen approval to artifact hashes, resumes from disk, and reports evaluation metrics. This path makes no external LLM calls and needs no external LLM credentials by default. Experiment design and execution, later research stages, and full-paper production are upcoming Codex-native work rather than capabilities of this milestone.
+
+From a checkout, install the package and start the explicit skill:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# In Codex: $researchclaw Start a materials research project on formation energy.
+python -m researchclaw.codex.cli init ./demo-research \
+  --topic "Formation energy prediction" --profile materials_ai --json
+```
+
+The skill runs this manual CLI loop for each implemented stage. Between `prepare` and `validate`, Codex reads every required input and creates only the packet's declared outputs:
+
+```bash
+python -m researchclaw.codex.cli status ./demo-research --json
+python -m researchclaw.codex.cli stage prepare ./demo-research --json
+# Create only required_outputs from the returned packet.
+python -m researchclaw.codex.cli stage validate ./demo-research --json
+
+# Repeat prepare/create/validate through stage 5, then wait for user review.
+python -m researchclaw.codex.cli approve ./demo-research \
+  --decision approve --note "Literature corpus accepted" --json
+python -m researchclaw.codex.cli resume ./demo-research --json
+python -m researchclaw.codex.cli evaluate ./demo-research --json
+```
+
+At stage 5, approval must come from the user; changing the validated shortlist invalidates the hash-bound approval. After approval, `resume` reports stage 6, which marks the end of the currently implemented foundation milestone.
+
+---
+
 ## ⚡ One Command. One Paper.
 
 ```bash

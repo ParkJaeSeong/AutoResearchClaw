@@ -1,0 +1,18 @@
+# Foundation evaluation rubric
+
+Run `python -m researchclaw.codex.cli evaluate ROOT --json` whenever reporting a milestone. Preserve the returned JSON in the report or test evidence instead of reconstructing metrics from memory.
+
+The foundation rubric interprets metrics as follows:
+
+| Metric | Direction | Meaning |
+| --- | --- | --- |
+| `stage_completion_rate` | Higher | Completed contracts divided by all 23 declared stages. Approved stage 5 is `5 / 23`, not a complete research run. |
+| `validation_failure_count` | Lower | Invalid validation attempts recorded in the event log. |
+| `retry_count` | Lower | Validation attempts beyond the first attempt for each stage. |
+| `approval_count` | Higher | User approvals recorded at gates. |
+| `resume_count` | Lower | Durable resume operations; report the observed count without treating all resumes as errors. |
+| `artifact_count` | Higher | Artifacts tracked in durable state. |
+| `external_llm_calls` | Lower | Must remain zero for the Codex-native foundation engine. |
+| `nested_agent_processes` | Lower | Must remain zero for this workflow. |
+
+Metrics are workflow evidence, not a claim of scientific quality. Summarize validation failures and approvals alongside the completion rate, and state that experiment execution is deferred.

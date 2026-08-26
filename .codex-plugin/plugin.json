@@ -1,0 +1,32 @@
+{
+  "name": "autoresearchclaw-codex",
+  "version": "0.1.0",
+  "description": "Codex performs research through a durable, locally validated AutoResearchClaw workflow.",
+  "author": {
+    "name": "AutoResearchClaw contributors",
+    "url": "https://github.com/aiming-lab/AutoResearchClaw"
+  },
+  "homepage": "https://github.com/aiming-lab/AutoResearchClaw",
+  "repository": "https://github.com/aiming-lab/AutoResearchClaw",
+  "license": "MIT",
+  "keywords": [
+    "research",
+    "codex",
+    "literature-review"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AutoResearchClaw Codex",
+    "shortDescription": "Run durable Codex-native research milestones.",
+    "longDescription": "Codex creates declared research artifacts while AutoResearchClaw persists state, validates outputs, binds approvals to artifact hashes, and reports local workflow metrics.",
+    "developerName": "AutoResearchClaw contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/aiming-lab/AutoResearchClaw",
+    "defaultPrompt": "Use $researchclaw to start or resume a research milestone."
+  }
+}
