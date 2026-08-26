@@ -4,10 +4,10 @@
   "description": "Codex performs research through a durable, locally validated AutoResearchClaw workflow.",
   "author": {
     "name": "AutoResearchClaw contributors",
-    "url": "https://github.com/aiming-lab/AutoResearchClaw"
+    "url": "https://github.com/ParkJaeSeong/AutoResearchClaw"
   },
-  "homepage": "https://github.com/aiming-lab/AutoResearchClaw",
-  "repository": "https://github.com/aiming-lab/AutoResearchClaw",
+  "homepage": "https://github.com/ParkJaeSeong/AutoResearchClaw",
+  "repository": "https://github.com/ParkJaeSeong/AutoResearchClaw",
   "license": "MIT",
   "keywords": [
     "research",
@@ -26,7 +26,7 @@
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/aiming-lab/AutoResearchClaw",
+    "websiteURL": "https://github.com/ParkJaeSeong/AutoResearchClaw",
     "defaultPrompt": "Use $researchclaw to start or resume a research milestone."
   }
 }

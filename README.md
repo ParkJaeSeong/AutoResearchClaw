@@ -91,16 +91,23 @@
 
 In the first Codex-native milestone, Codex creates research artifacts while a local, deterministic CLI persists state, validates stages 1–5, binds the literature-screen approval to artifact hashes, resumes from disk, and reports evaluation metrics. This path makes no external LLM calls and needs no external LLM credentials by default. Experiment design and execution, later research stages, and full-paper production are upcoming Codex-native work rather than capabilities of this milestone.
 
-From a checkout, install the package and start the explicit skill:
+The CLI package and the Codex plugin are separate installation surfaces. An editable Python install provides the `researchclaw-codex` CLI only; it does not install or enable the plugin and does not make `$researchclaw` available.
+
+For a CLI-only smoke flow from a checkout:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 
-# In Codex: $researchclaw Start a materials research project on formation energy.
 python -m researchclaw.codex.cli init ./demo-research \
   --topic "Formation energy prediction" --profile materials_ai --json
+```
+
+To use the skill, install and enable this repository's Codex plugin through a separate, explicit Codex plugin workflow. Marketplace installation or publishing is not part of this quick start and is not performed by the editable Python install. After the plugin is installed and enabled, invoke it explicitly in Codex:
+
+```text
+$researchclaw Start a materials research project on formation energy.
 ```
 
 The skill runs this manual CLI loop for each implemented stage. Between `prepare` and `validate`, Codex reads every required input and creates only the packet's declared outputs:
