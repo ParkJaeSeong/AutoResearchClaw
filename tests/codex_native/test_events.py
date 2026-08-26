@@ -39,3 +39,19 @@ def test_event_log_reports_malformed_line_number(tmp_path):
 
     with pytest.raises(ValueError, match="line 2"):
         EventLog(path).read_all()
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ["not-a-timestamp", "2026-08-27T12:00:00+09:00"],
+    ids=["invalid_iso8601", "non_utc_offset"],
+)
+def test_event_log_rejects_non_utc_timestamps_with_line_number(tmp_path, timestamp):
+    """Accepting malformed or non-UTC timestamps would corrupt ordered event data."""
+    path = tmp_path / "events.jsonl"
+    record = EvaluationEvent.create("project_created", "rc-test", {"profile": "materials_ai"}).to_dict()
+    record["timestamp"] = timestamp
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="line 1"):
+        EventLog(path).read_all()

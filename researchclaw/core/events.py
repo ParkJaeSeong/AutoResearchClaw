@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -58,6 +58,12 @@ class EvaluationEvent:
             raise ValueError(f"unsupported event schema: {schema_version}")
         if not isinstance(timestamp, str) or not timestamp:
             raise ValueError("event timestamp must be a non-empty string")
+        try:
+            parsed_timestamp = datetime.fromisoformat(timestamp)
+        except ValueError as error:
+            raise ValueError("event timestamp must be ISO-8601") from error
+        if parsed_timestamp.tzinfo is None or parsed_timestamp.utcoffset() != timedelta(0):
+            raise ValueError("event timestamp must use a UTC offset")
         if not isinstance(event_type, str) or not event_type:
             raise ValueError("event type must be a non-empty string")
         if not isinstance(project_id, str) or not project_id:
@@ -109,8 +115,11 @@ def event_log_for(project_root: Path) -> EventLog:
 
 def build_foundation_report(project: "ResearchProject") -> dict[str, object]:
     """Summarize foundation workflow metrics from durable project state and events."""
-    events = event_log_for(project.root).read_all()
-    state = project.state
+    from .project import ResearchProject
+
+    current_project = ResearchProject.open(project.root)
+    events = event_log_for(current_project.root).read_all()
+    state = current_project.state
     validation_failures = sum(
         event.type == "validation_result" and event.payload.get("valid") is False for event in events
     )
@@ -118,11 +127,16 @@ def build_foundation_report(project: "ResearchProject") -> dict[str, object]:
         event.type == "approval_decision" and event.payload.get("decision") == "approve" for event in events
     )
     resumes = sum(event.type == "resume" for event in events)
+    validation_attempts: dict[int, int] = {}
+    for event in events:
+        stage_id = event.payload.get("stage_id")
+        if event.type == "validation_result" and isinstance(stage_id, int) and not isinstance(stage_id, bool):
+            validation_attempts[stage_id] = validation_attempts.get(stage_id, 0) + 1
     return {
         "project_id": state.project_id,
         "stage_completion_rate": len(state.completed_stages) / _TOTAL_STAGES,
         "validation_failure_count": validation_failures,
-        "retry_count": sum(state.retry_counts.values()),
+        "retry_count": sum(attempts - 1 for attempts in validation_attempts.values()),
         "approval_count": approvals,
         "resume_count": resumes,
         "artifact_count": len(state.artifacts),
