@@ -156,20 +156,20 @@ def verify_current_approval(project: Path, record: ApprovalRecord) -> bool:
             record.schema_version != _SCHEMA_VERSION
             or record.decision not in _ALLOWED_DECISIONS
             or record.project_id != state.project_id
-            or not get_contract(record.stage_id).requires_approval
         ):
             return False
-        expected_hashes = {
-            path: artifact.sha256
-            for path, artifact in state.artifacts.items()
-            if path in get_contract(record.stage_id).required_outputs
-        }
-        if record.artifact_hashes != expected_hashes:
+        contract = get_contract(record.stage_id)
+        if not contract.requires_approval or set(record.artifact_hashes) != set(contract.required_outputs):
             return False
-        return all(
-            (root / relative_path).is_file()
-            and _sha256(root / relative_path) == expected_hash
-            for relative_path, expected_hash in record.artifact_hashes.items()
-        )
+        for relative_path in contract.required_outputs:
+            artifact = state.artifacts.get(relative_path)
+            if artifact is None or artifact.path != relative_path:
+                return False
+            path = root / relative_path
+            if not path.is_file() or artifact.sha256 != record.artifact_hashes[relative_path]:
+                return False
+            if _sha256(path) != record.artifact_hashes[relative_path]:
+                return False
+        return True
     except (OSError, ValueError):
         return False

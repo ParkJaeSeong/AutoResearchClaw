@@ -80,6 +80,54 @@ def test_verification_rejects_a_record_with_an_unknown_decision(tmp_path):
     assert verify_current_approval(project.root, replace(record, decision="defer")) is False
 
 
+def test_verification_rejects_missing_record_hashes(tmp_path):
+    project, _ = _project_at_stage_five_gate(tmp_path / "demo")
+    record = approve_current_gate(project, "approve", "Use this corpus")
+
+    assert verify_current_approval(project.root, replace(record, artifact_hashes={})) is False
+
+
+def test_verification_rejects_missing_persisted_stage_artifact(tmp_path):
+    project, _ = _project_at_stage_five_gate(tmp_path / "demo")
+    record = approve_current_gate(project, "approve", "Use this corpus")
+    reopened = ResearchProject.open(project.root)
+    state_without_shortlist = replace(
+        reopened.state,
+        artifacts={
+            path: artifact
+            for path, artifact in reopened.state.artifacts.items()
+            if path != "literature/shortlist.jsonl"
+        },
+    )
+    reopened.persist_state(state_without_shortlist)
+
+    assert verify_current_approval(project.root, record) is False
+
+
+def test_verification_rejects_future_gate_record_with_empty_hashes(tmp_path):
+    project, _ = _project_at_stage_five_gate(tmp_path / "demo")
+    record = approve_current_gate(project, "approve", "Use this corpus")
+
+    assert verify_current_approval(project.root, replace(record, stage_id=9, artifact_hashes={})) is False
+
+
+def test_verification_rejects_empty_record_when_stage_artifact_is_missing(tmp_path):
+    project, _ = _project_at_stage_five_gate(tmp_path / "demo")
+    record = approve_current_gate(project, "approve", "Use this corpus")
+    reopened = ResearchProject.open(project.root)
+    state_without_shortlist = replace(
+        reopened.state,
+        artifacts={
+            path: artifact
+            for path, artifact in reopened.state.artifacts.items()
+            if path != "literature/shortlist.jsonl"
+        },
+    )
+    reopened.persist_state(state_without_shortlist)
+
+    assert verify_current_approval(project.root, replace(record, artifact_hashes={})) is False
+
+
 def test_approve_cli_emits_only_json(tmp_path, capsys):
     project, _ = _project_at_stage_five_gate(tmp_path / "demo")
 
