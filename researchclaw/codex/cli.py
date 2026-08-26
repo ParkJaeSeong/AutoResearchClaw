@@ -8,6 +8,7 @@ import sys
 from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.task_packets import prepare_task_packet
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,6 +24,12 @@ def build_parser() -> argparse.ArgumentParser:
     status = subcommands.add_parser("status", help="show project status")
     status.add_argument("root", metavar="ROOT")
     status.add_argument("--json", action="store_true", help="emit JSON")
+
+    stage = subcommands.add_parser("stage", help="prepare a research stage")
+    stage_commands = stage.add_subparsers(dest="stage_command", required=True)
+    prepare = stage_commands.add_parser("prepare", help="prepare a stage task packet")
+    prepare.add_argument("root", metavar="ROOT")
+    prepare.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -32,17 +39,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         args = parser.parse_args(argv)
         if args.command == "init":
             project = ResearchProject.create(args.root, topic=args.topic, profile=args.profile)
+            payload = project.status_dict()
+        elif args.command == "status":
+            project = ResearchProject.open(args.root)
+            payload = project.status_dict()
         else:
             project = ResearchProject.open(args.root)
+            payload = prepare_task_packet(project).to_dict()
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    payload = project.status_dict()
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
-        print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
+        if args.command == "stage":
+            print(f"{payload['project_id']}: stage {payload['stage_id']} ({payload['name']})")
+        else:
+            print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
     return 0
 
 
