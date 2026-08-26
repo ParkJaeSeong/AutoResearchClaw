@@ -8,6 +8,7 @@ import sys
 from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -25,6 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     status = subcommands.add_parser("status", help="show project status")
     status.add_argument("root", metavar="ROOT")
     status.add_argument("--json", action="store_true", help="emit JSON")
+
+    approve = subcommands.add_parser("approve", help="record a decision for the current approval gate")
+    approve.add_argument("root", metavar="ROOT")
+    approve.add_argument("--decision", required=True, choices=("approve", "reject"))
+    approve.add_argument("--note", default="", metavar="TEXT")
+    approve.add_argument("--json", action="store_true", help="emit JSON")
 
     stage = subcommands.add_parser("stage", help="prepare a research stage")
     stage_commands = stage.add_subparsers(dest="stage_command", required=True)
@@ -48,6 +55,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "status":
             project = ResearchProject.open(args.root)
             payload = project.status_dict()
+        elif args.command == "approve":
+            project = ResearchProject.open(args.root)
+            payload = approve_current_gate(project, args.decision, args.note).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(project).to_dict()
@@ -65,6 +75,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     else:
         if args.command == "stage" and args.stage_command == "prepare":
             print(f"{payload['project_id']}: stage {payload['stage_id']} ({payload['name']})")
+        elif args.command == "approve":
+            print(f"stage {payload['stage_id']}: {payload['decision']}")
         elif args.command == "stage":
             print(f"stage {payload['stage_id']}: {'valid' if payload['valid'] else 'invalid'}")
         else:

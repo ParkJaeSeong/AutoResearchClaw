@@ -1,0 +1,175 @@
+"""Hash-bound approvals for human-gated research stages."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .contracts import get_contract
+from .models import ProjectState, StageStatus
+from .project import ResearchProject
+
+_HASH_CHUNK_SIZE = 1024 * 1024
+_SCHEMA_VERSION = 1
+_ALLOWED_DECISIONS = frozenset({"approve", "reject"})
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    schema_version: int
+    project_id: str
+    stage_id: int
+    decision: str
+    artifact_hashes: dict[str, str]
+    decided_at: str
+    note: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "project_id": self.project_id,
+            "stage_id": self.stage_id,
+            "decision": self.decision,
+            "artifact_hashes": self.artifact_hashes,
+            "decided_at": self.decided_at,
+            "note": self.note,
+        }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_HASH_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _stage_artifact_hashes(root: Path, state: ProjectState, stage_id: int) -> dict[str, str]:
+    contract = get_contract(stage_id)
+    hashes: dict[str, str] = {}
+    for relative_path in contract.required_outputs:
+        artifact = state.artifacts.get(relative_path)
+        if artifact is None or artifact.path != relative_path:
+            raise ValueError(f"persisted artifact hash is missing for {relative_path}")
+        path = root / relative_path
+        if not path.is_file() or _sha256(path) != artifact.sha256:
+            raise ValueError(f"artifact has changed since validation: {relative_path}")
+        hashes[relative_path] = artifact.sha256
+    return hashes
+
+
+def _approval_path(root: Path, stage_id: int) -> Path:
+    return root / "approvals" / f"stage-{stage_id:02d}.json"
+
+
+def _save_record(path: Path, record: ApprovalRecord) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix=f"{path.stem}-",
+        suffix=".tmp",
+        delete=False,
+        dir=path.parent,
+    ) as handle:
+        json.dump(record.to_dict(), handle, ensure_ascii=False, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary_path = Path(handle.name)
+    temporary_path.replace(path)
+
+
+def approve_current_gate(project: ResearchProject, decision: str, note: str) -> ApprovalRecord:
+    """Persist an approval decision after confirming validated artifacts are unchanged."""
+    if decision not in _ALLOWED_DECISIONS:
+        raise ValueError("decision must be either 'approve' or 'reject'")
+
+    current_project = ResearchProject.open(project.root)
+    state = current_project.state
+    if state.status is not StageStatus.AWAITING_APPROVAL:
+        raise ValueError("project is not awaiting approval")
+
+    contract = get_contract(state.current_stage)
+    if not contract.requires_approval:
+        raise ValueError(f"stage {state.current_stage} does not require approval")
+
+    artifact_hashes = _stage_artifact_hashes(current_project.root, state, contract.id)
+    record = ApprovalRecord(
+        schema_version=_SCHEMA_VERSION,
+        project_id=state.project_id,
+        stage_id=contract.id,
+        decision=decision,
+        artifact_hashes=artifact_hashes,
+        decided_at=datetime.now(timezone.utc).isoformat(),
+        note=note,
+    )
+    _save_record(_approval_path(current_project.root, contract.id), record)
+
+    if decision == "approve":
+        completed_stages = state.completed_stages
+        if contract.id not in completed_stages:
+            completed_stages = (*completed_stages, contract.id)
+        updated_state = ProjectState(
+            schema_version=state.schema_version,
+            project_id=state.project_id,
+            topic=state.topic,
+            profile=state.profile,
+            current_stage=contract.id + 1,
+            status=StageStatus.READY,
+            completed_stages=completed_stages,
+            next_action="prepare_stage",
+            execution_policy=state.execution_policy,
+            artifacts=state.artifacts,
+            retry_counts=state.retry_counts,
+            last_error=state.last_error,
+        )
+    else:
+        updated_state = ProjectState(
+            schema_version=state.schema_version,
+            project_id=state.project_id,
+            topic=state.topic,
+            profile=state.profile,
+            current_stage=state.current_stage,
+            status=StageStatus.NEEDS_REVISION,
+            completed_stages=state.completed_stages,
+            next_action="prepare_stage",
+            execution_policy=state.execution_policy,
+            artifacts=state.artifacts,
+            retry_counts=state.retry_counts,
+            last_error=state.last_error,
+        )
+    current_project.persist_state(updated_state)
+    return record
+
+
+def verify_current_approval(project: Path, record: ApprovalRecord) -> bool:
+    """Return whether a record still matches the persisted artifacts on disk."""
+    try:
+        root = Path(project)
+        state = ResearchProject.open(root).state
+        if (
+            record.schema_version != _SCHEMA_VERSION
+            or record.decision not in _ALLOWED_DECISIONS
+            or record.project_id != state.project_id
+            or not get_contract(record.stage_id).requires_approval
+        ):
+            return False
+        expected_hashes = {
+            path: artifact.sha256
+            for path, artifact in state.artifacts.items()
+            if path in get_contract(record.stage_id).required_outputs
+        }
+        if record.artifact_hashes != expected_hashes:
+            return False
+        return all(
+            (root / relative_path).is_file()
+            and _sha256(root / relative_path) == expected_hash
+            for relative_path, expected_hash in record.artifact_hashes.items()
+        )
+    except (OSError, ValueError):
+        return False
