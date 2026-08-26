@@ -116,3 +116,121 @@ def test_complete_first_four_stages_helper_reaches_stage_five_prerequisites(tmp_
     assert project.state.completed_stages == (1, 2, 3, 4)
     assert prepare_task_packet(project).required_inputs == ("literature/candidates.jsonl",)
     assert prepare_task_packet(project).required_outputs == ("literature/shortlist.jsonl",)
+
+
+def test_validation_rejects_output_symlink_even_when_content_is_valid(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    write_valid_fixture_artifacts(project.root, 1)
+    goal = project.root / "scope" / "goal.md"
+    outside = tmp_path / "outside-goal.md"
+    outside.write_bytes(goal.read_bytes())
+    goal.unlink()
+    goal.symlink_to(outside)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert {issue.code for issue in report.issues} == {"unsafe_artifact_path"}
+    assert "scope/goal.md" not in report.artifact_refs
+
+
+def test_validation_records_failure_evidence_and_enforces_retry_limit(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+
+    first = validate_current_stage(project)
+    second = validate_current_stage(ResearchProject.open(project.root))
+
+    assert first.attempt_number == 1
+    assert first.retry_state == "retry_available"
+    assert first.recommended_action == "revise_declared_outputs_and_validate_again"
+    assert second.attempt_number == 2
+    assert second.retry_state == "retry_limit_reached"
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.status.value == "blocked"
+    assert reopened.state.retry_counts == {"1": 2}
+    assert reopened.state.last_error == {
+        "error_class": "blocked",
+        "stage_id": 1,
+        "attempt_number": 2,
+        "issues": [issue.to_dict() for issue in second.issues],
+        "artifact_hashes": {},
+        "recommended_action": "review_failures_with_user",
+        "retry_state": "retry_limit_reached",
+    }
+
+
+def test_validation_event_is_detailed_without_duplicate_prepare_event(tmp_path):
+    from researchclaw.core.events import EventLog
+
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+
+    report = validate_current_stage(project)
+
+    events = EventLog(project.root / "evaluation" / "events.jsonl").read_all()
+    assert [event.type for event in events] == ["project_created", "validation_result"]
+    payload = events[-1].payload
+    assert payload["attempt_number"] == report.attempt_number
+    assert payload["issues"] == [issue.to_dict() for issue in report.issues]
+    assert payload["recommended_action"] == report.recommended_action
+    assert payload["artifact_hashes"] == {}
+    assert payload["retry_state"] == report.retry_state
+    assert payload["error_state"] == "needs_revision"
+
+
+def test_validation_reports_successful_retry_and_clears_last_error(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    assert validate_current_stage(project).valid is False
+    write_valid_fixture_artifacts(project.root, 1)
+
+    report = validate_current_stage(ResearchProject.open(project.root))
+
+    assert report.valid is True
+    assert report.attempt_number == 2
+    assert report.retry_state == "succeeded_after_retry"
+    assert ResearchProject.open(project.root).state.last_error is None
+
+
+def test_stage_three_rejects_yaml_sequence_instead_of_a_mapping(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    for stage_id in range(1, 3):
+        write_valid_fixture_artifacts(project.root, stage_id)
+        assert validate_current_stage(project).valid is True
+        project = ResearchProject.open(project.root)
+    search_plan = project.root / "literature" / "search_plan.yaml"
+    search_plan.parent.mkdir(parents=True, exist_ok=True)
+    search_plan.write_text("- query one\n- query two\n", encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert [issue.code for issue in report.issues] == ["invalid_format"]
+
+
+def test_stage_four_rejects_non_string_source_metadata(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    for stage_id in range(1, 4):
+        write_valid_fixture_artifacts(project.root, stage_id)
+        assert validate_current_stage(project).valid is True
+        project = ResearchProject.open(project.root)
+    candidates = project.root / "literature" / "candidates.jsonl"
+    candidates.write_text('{"title":42,"doi":123}\n', encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert [issue.code for issue in report.issues] == ["invalid_format"]
+
+
+def test_stage_five_rejects_non_string_screening_metadata(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    project = complete_first_four_stages(project)
+    shortlist = project.root / "literature" / "shortlist.jsonl"
+    shortlist.write_text(
+        '{"title":42,"decision":"include","reason":99}\n',
+        encoding="utf-8",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert [issue.code for issue in report.issues] == ["invalid_format"]

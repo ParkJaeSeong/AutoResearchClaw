@@ -19,7 +19,8 @@ The current foundation milestone supports stages 1–5 through the literature-sc
 
 ## Workflow
 
-Use `python -m researchclaw.codex.cli` from the AutoResearchClaw checkout.
+Use the installed `researchclaw-codex` command. During checkout-only
+development, `python -m researchclaw.codex.cli` is an equivalent fallback.
 
 1. For a new project, run `init ROOT --topic TOPIC --profile materials_ai --json`.
 2. Before acting on an existing project, run either `status ROOT --json` or `resume ROOT --json`. Follow the persisted status and next action; conversation history is not project state.

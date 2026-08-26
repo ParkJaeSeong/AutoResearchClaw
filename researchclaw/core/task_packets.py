@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 
-from .contracts import get_contract
+from .contracts import FOUNDATION_STAGE_IDS, get_contract
+from .models import StageStatus
+from .paths import resolve_project_artifact
 from .profiles import load_profile
 from .project import ResearchProject
 
-_STAGE_ARTIFACTS: dict[int, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    1: ((), ("scope/goal.md", "scope/hardware_profile.json")),
-    2: (("scope/goal.md", "scope/hardware_profile.json"), ("scope/problem_tree.md",)),
-    3: (("scope/problem_tree.md",), ("literature/search_plan.yaml",)),
-    4: (("literature/search_plan.yaml",), ("literature/candidates.jsonl",)),
-    5: (("literature/candidates.jsonl",), ("literature/shortlist.jsonl",)),
-}
+_HASH_CHUNK_SIZE = 1024 * 1024
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_HASH_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -30,7 +36,6 @@ class TaskPacket:
     allowed_tool_classes: tuple[str, ...]
     requires_approval: bool
     profile_context: dict[str, tuple[str, ...]]
-    artifact_root: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -45,36 +50,45 @@ class TaskPacket:
             "allowed_tool_classes": list(self.allowed_tool_classes),
             "requires_approval": self.requires_approval,
             "profile_context": {key: list(value) for key, value in self.profile_context.items()},
-            "artifact_root": self.artifact_root,
         }
 
 
-def prepare_task_packet(project: ResearchProject) -> TaskPacket:
-    """Build a stage packet without changing persisted project state."""
+def build_task_packet(project: ResearchProject) -> TaskPacket:
+    """Build a task packet without observable workflow side effects."""
     state = project.state
-    if state.status.value == "completed" or state.current_stage > 23:
+    if state.status is StageStatus.COMPLETED or state.current_stage > 23:
         raise ValueError("project is complete")
+    if state.status is StageStatus.BLOCKED:
+        raise ValueError("validation retry limit reached; user review is required")
+    if state.status is StageStatus.AWAITING_APPROVAL:
+        raise ValueError("project is awaiting approval")
+    if state.current_stage not in FOUNDATION_STAGE_IDS:
+        raise ValueError(f"task packets are not defined for stage: {state.current_stage}")
     contract = get_contract(state.current_stage)
-    try:
-        required_inputs, required_outputs = _STAGE_ARTIFACTS[state.current_stage]
-    except KeyError as exc:
-        raise ValueError(f"task packets are not defined for stage: {state.current_stage}") from exc
-    missing = [
-        path
-        for path in required_inputs
-        if not any(key == path or artifact.path == path for key, artifact in state.artifacts.items())
-    ]
+    missing: list[str] = []
+    for relative_path in contract.required_inputs:
+        artifact = state.artifacts.get(relative_path)
+        if artifact is None or artifact.path != relative_path:
+            missing.append(relative_path)
+            continue
+        artifact_path = resolve_project_artifact(project.root, relative_path)
+        if not artifact_path.is_file():
+            missing.append(relative_path)
+            continue
+        stat = artifact_path.stat()
+        if stat.st_size != artifact.size or _sha256(artifact_path) != artifact.sha256:
+            raise ValueError(f"required input artifact changed since validation: {relative_path}")
     if missing:
         raise ValueError(f"required input artifacts are missing: {', '.join(missing)}")
     profile = load_profile(state.profile)
-    packet = TaskPacket(
+    return TaskPacket(
         schema_version=1,
         project_id=state.project_id,
         stage_id=contract.id,
         name=contract.name,
         objective=contract.objective,
-        required_inputs=required_inputs,
-        required_outputs=required_outputs,
+        required_inputs=contract.required_inputs,
+        required_outputs=contract.required_outputs,
         acceptance_criteria=contract.acceptance_criteria,
         allowed_tool_classes=contract.allowed_tool_classes,
         requires_approval=contract.requires_approval,
@@ -83,14 +97,19 @@ def prepare_task_packet(project: ResearchProject) -> TaskPacket:
             "quality_checks": profile.quality_checks,
             "metric_guidance": profile.metric_guidance,
         },
-        artifact_root="artifacts",
     )
+
+
+def prepare_task_packet(project: ResearchProject) -> TaskPacket:
+    """Build a packet and record the explicit prepare action."""
+    current_project = ResearchProject.open(project.root)
+    packet = build_task_packet(current_project)
     from .events import EvaluationEvent, event_log_for
 
-    event_log_for(project.root).append(
+    event_log_for(current_project.root).append(
         EvaluationEvent.create(
             "task_packet_prepared",
-            state.project_id,
+            packet.project_id,
             {
                 "stage_id": packet.stage_id,
                 "name": packet.name,

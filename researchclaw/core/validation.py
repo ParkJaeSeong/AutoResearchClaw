@@ -13,8 +13,9 @@ import yaml
 
 from .contracts import StageContract, get_contract
 from .models import ArtifactRef, StageStatus
+from .paths import resolve_project_artifact
 from .project import ResearchProject
-from .task_packets import TaskPacket, prepare_task_packet
+from .task_packets import TaskPacket, build_task_packet
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -35,6 +36,10 @@ class ValidationReport:
     valid: bool
     issues: tuple[ValidationIssue, ...]
     artifact_refs: dict[str, ArtifactRef]
+    attempt_number: int
+    recommended_action: str
+    retry_state: str
+    error_state: str | None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -45,6 +50,10 @@ class ValidationReport:
                 path: {"path": ref.path, "sha256": ref.sha256, "size": ref.size}
                 for path, ref in self.artifact_refs.items()
             },
+            "attempt_number": self.attempt_number,
+            "recommended_action": self.recommended_action,
+            "retry_state": self.retry_state,
+            "error_state": self.error_state,
         }
 
 
@@ -68,13 +77,16 @@ def _invalid(issues: list[ValidationIssue], path: str, message: str) -> None:
     issues.append(ValidationIssue("invalid_format", path, message))
 
 
-def _validate_stage_one(contents: dict[str, str], issues: list[ValidationIssue]) -> None:
-    goal_path = "scope/goal.md"
+def _validate_stage_one(
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    goal_path, hardware_path = contract.required_outputs
     goal_lines = (line.strip() for line in contents[goal_path].splitlines())
     if not any(line and not line.startswith("#") and re.search(r"[.!?]", line) for line in goal_lines):
         _invalid(issues, goal_path, "goal.md must contain a non-heading sentence")
 
-    hardware_path = "scope/hardware_profile.json"
     try:
         hardware = json.loads(contents[hardware_path])
     except json.JSONDecodeError:
@@ -84,15 +96,23 @@ def _validate_stage_one(contents: dict[str, str], issues: list[ValidationIssue])
             _invalid(issues, hardware_path, "hardware_profile.json must contain a JSON object")
 
 
-def _validate_stage_two(contents: dict[str, str], issues: list[ValidationIssue]) -> None:
-    path = "scope/problem_tree.md"
+def _validate_stage_two(
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (path,) = contract.required_outputs
     questions = re.findall(r"(?m)^\s*(?:[-*+]\s+|\d+[.)]\s+).+\?\s*$", contents[path])
     if len(questions) < 3:
         _invalid(issues, path, "problem_tree.md must contain at least three numbered or bullet questions")
 
 
-def _validate_stage_three(contents: dict[str, str], issues: list[ValidationIssue]) -> None:
-    path = "literature/search_plan.yaml"
+def _validate_stage_three(
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (path,) = contract.required_outputs
     try:
         plan = yaml.safe_load(contents[path])
     except yaml.YAMLError:
@@ -122,10 +142,16 @@ def _validate_jsonl(
         if not isinstance(record, dict):
             _invalid(issues, path, f"line {line_number} must be a JSON object")
             return
-        if any(not record.get(field) for field in required_fields):
-            _invalid(issues, path, f"line {line_number} is missing required fields")
+        if any(
+            not isinstance(record.get(field), str) or not record[field].strip()
+            for field in required_fields
+        ):
+            _invalid(issues, path, f"line {line_number} requires non-empty string fields")
             return
-        if identifier_required and not any(record.get(field) for field in ("doi", "arxiv_id", "url")):
+        if identifier_required and not any(
+            isinstance(record.get(field), str) and record[field].strip()
+            for field in ("doi", "arxiv_id", "url")
+        ):
             _invalid(issues, path, f"line {line_number} requires doi, arxiv_id, or url")
             return
         if decisions_required and record["decision"] not in {"include", "exclude"}:
@@ -133,33 +159,39 @@ def _validate_jsonl(
             return
 
 
-def _validate_format(stage_id: int, contents: dict[str, str], issues: list[ValidationIssue]) -> None:
-    if stage_id == 1:
-        _validate_stage_one(contents, issues)
-    elif stage_id == 2:
-        _validate_stage_two(contents, issues)
-    elif stage_id == 3:
-        _validate_stage_three(contents, issues)
-    elif stage_id == 4:
+def _validate_format(
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    if contract.id == 1:
+        _validate_stage_one(contract, contents, issues)
+    elif contract.id == 2:
+        _validate_stage_two(contract, contents, issues)
+    elif contract.id == 3:
+        _validate_stage_three(contract, contents, issues)
+    elif contract.id == 4:
+        (path,) = contract.required_outputs
         _validate_jsonl(
             contents,
             issues,
-            "literature/candidates.jsonl",
+            path,
             ("title",),
             identifier_required=True,
         )
-    elif stage_id == 5:
+    elif contract.id == 5:
+        (path,) = contract.required_outputs
         _validate_jsonl(
             contents,
             issues,
-            "literature/shortlist.jsonl",
+            path,
             ("title", "decision", "reason"),
             decisions_required=True,
         )
 
 
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
-    packet = prepare_task_packet(project)
+    packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
     if contract.id != packet.stage_id:
         raise ValueError(f"task packet stage does not match its contract: {packet.stage_id}")
@@ -168,13 +200,19 @@ def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, 
 
 def validate_current_stage(project: ResearchProject) -> ValidationReport:
     """Validate the current task packet's outputs and persist its resulting state."""
-    packet, _contract = _current_packet_and_contract(project)
+    current_project = ResearchProject.open(project.root)
+    packet, contract = _current_packet_and_contract(current_project)
+    attempt_number = current_project.state.retry_counts.get(str(packet.stage_id), 0) + 1
     issues: list[ValidationIssue] = []
     artifact_refs: dict[str, ArtifactRef] = {}
     contents: dict[str, str] = {}
 
     for relative_path in packet.required_outputs:
-        path = project.root / relative_path
+        try:
+            path = resolve_project_artifact(current_project.root, relative_path)
+        except ValueError as error:
+            issues.append(ValidationIssue("unsafe_artifact_path", relative_path, str(error)))
+            continue
         if not path.is_file():
             issues.append(ValidationIssue("missing_artifact", relative_path, "required artifact is missing"))
             continue
@@ -195,26 +233,50 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         contents[relative_path] = text
 
     if not issues and len(contents) == len(packet.required_outputs):
-        _validate_format(packet.stage_id, contents, issues)
+        _validate_format(contract, contents, issues)
+
+    if issues:
+        if attempt_number > contract.max_retries:
+            retry_state = "retry_limit_reached"
+            recommended_action = "review_failures_with_user"
+            error_state = StageStatus.BLOCKED.value
+        else:
+            retry_state = "retry_available"
+            recommended_action = "revise_declared_outputs_and_validate_again"
+            error_state = StageStatus.NEEDS_REVISION.value
+    else:
+        retry_state = "succeeded_after_retry" if attempt_number > 1 else "succeeded"
+        recommended_action = "request_approval" if contract.requires_approval else "prepare_next_stage"
+        error_state = None
 
     report = ValidationReport(
         stage_id=packet.stage_id,
         valid=not issues,
         issues=tuple(issues),
         artifact_refs=artifact_refs,
+        attempt_number=attempt_number,
+        recommended_action=recommended_action,
+        retry_state=retry_state,
+        error_state=error_state,
     )
-    advance_validated_stage(project, report)
+    advance_validated_stage(current_project, report)
     from .events import EvaluationEvent, event_log_for
 
-    event_log_for(project.root).append(
+    event_log_for(current_project.root).append(
         EvaluationEvent.create(
             "validation_result",
-            project.state.project_id,
+            current_project.state.project_id,
             {
                 "stage_id": report.stage_id,
                 "valid": report.valid,
-                "issue_count": len(report.issues),
-                "artifact_count": len(report.artifact_refs),
+                "issues": [issue.to_dict() for issue in report.issues],
+                "attempt_number": report.attempt_number,
+                "recommended_action": report.recommended_action,
+                "artifact_hashes": {
+                    path: artifact.sha256 for path, artifact in report.artifact_refs.items()
+                },
+                "retry_state": report.retry_state,
+                "error_state": report.error_state,
             },
         )
     )
@@ -228,7 +290,32 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
         raise ValueError("validation report does not match the current stage")
 
     if not report.valid:
-        return project.persist_state(replace(state, status=StageStatus.NEEDS_REVISION))
+        retry_counts = {**state.retry_counts, str(report.stage_id): report.attempt_number}
+        error_status = (
+            StageStatus.BLOCKED
+            if report.retry_state == "retry_limit_reached"
+            else StageStatus.NEEDS_REVISION
+        )
+        last_error: dict[str, object] = {
+            "error_class": error_status.value,
+            "stage_id": report.stage_id,
+            "attempt_number": report.attempt_number,
+            "issues": [issue.to_dict() for issue in report.issues],
+            "artifact_hashes": {
+                path: artifact.sha256 for path, artifact in report.artifact_refs.items()
+            },
+            "recommended_action": report.recommended_action,
+            "retry_state": report.retry_state,
+        }
+        return project.persist_state(
+            replace(
+                state,
+                status=error_status,
+                next_action=report.recommended_action,
+                retry_counts=retry_counts,
+                last_error=last_error,
+            )
+        )
 
     contract = get_contract(report.stage_id)
     artifacts = {**state.artifacts, **report.artifact_refs}
@@ -238,6 +325,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             status=StageStatus.AWAITING_APPROVAL,
             next_action="await_approval",
             artifacts=artifacts,
+            last_error=None,
         )
     else:
         completed_stages = state.completed_stages
@@ -250,5 +338,6 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             status=StageStatus.READY,
             next_action="prepare_stage",
             artifacts=artifacts,
+            last_error=None,
         )
     return project.persist_state(updated_state)

@@ -12,3 +12,23 @@ def test_literature_gate_contract_is_hash_approved():
     assert contract.requires_approval is True
     assert contract.required_outputs == ("literature/shortlist.jsonl",)
     assert "literature/candidates.jsonl" in contract.required_inputs
+
+
+def test_foundation_contracts_are_the_resolved_packet_and_validation_source():
+    expected = {
+        1: ((), ("scope/goal.md", "scope/hardware_profile.json")),
+        2: (("scope/goal.md", "scope/hardware_profile.json"), ("scope/problem_tree.md",)),
+        3: (("scope/problem_tree.md",), ("literature/search_plan.yaml",)),
+        4: (("literature/search_plan.yaml",), ("literature/candidates.jsonl",)),
+        5: (("literature/candidates.jsonl",), ("literature/shortlist.jsonl",)),
+    }
+
+    for stage_id, (required_inputs, required_outputs) in expected.items():
+        contract = get_contract(stage_id)
+        assert contract.required_inputs == required_inputs
+        assert contract.required_outputs == required_outputs
+        assert contract.acceptance_criteria
+        assert contract.acceptance_criteria != (
+            "all required outputs exist",
+            "outputs are project-relative artifacts",
+        )

@@ -7,6 +7,8 @@ from researchclaw.core.models import StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
 from researchclaw.core.task_packets import prepare_task_packet
+from researchclaw.core.validation import validate_current_stage
+from tests.codex_native.helpers import write_valid_fixture_artifacts
 
 
 def test_prepare_stage_one_packet_contains_no_model_backend(tmp_path):
@@ -52,4 +54,45 @@ def test_stage_prepare_cli_emits_packet_json(tmp_path, capsys):
     assert main(["stage", "prepare", str(root), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["stage_id"] == 1
-    assert payload["artifact_root"] == "artifacts"
+    assert "artifact_root" not in payload
+
+
+def test_prepare_rejects_required_input_symlink_even_when_content_matches(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    write_valid_fixture_artifacts(project.root, 1)
+    assert validate_current_stage(project).valid is True
+    project = ResearchProject.open(project.root)
+    goal = project.root / "scope" / "goal.md"
+    outside = tmp_path / "outside-goal.md"
+    outside.write_bytes(goal.read_bytes())
+    goal.unlink()
+    goal.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsafe artifact path"):
+        prepare_task_packet(project)
+
+
+def test_prepare_rejects_required_input_changed_since_validation(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    write_valid_fixture_artifacts(project.root, 1)
+    assert validate_current_stage(project).valid is True
+    project = ResearchProject.open(project.root)
+    goal = project.root / "scope" / "goal.md"
+    goal.write_text(
+        goal.read_text(encoding="utf-8").replace("public", "secret"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="changed since validation"):
+        prepare_task_packet(project)
+
+
+def test_prepare_reopens_durable_state_instead_of_using_a_stale_project_value(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    write_valid_fixture_artifacts(project.root, 1)
+    assert validate_current_stage(project).valid is True
+
+    packet = prepare_task_packet(project)
+
+    assert packet.stage_id == 2
+    assert packet.required_inputs == ("scope/goal.md", "scope/hardware_profile.json")

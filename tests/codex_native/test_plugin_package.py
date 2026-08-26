@@ -1,11 +1,12 @@
 import json
 from pathlib import Path
+import tomllib
 
 import yaml
 
 
 ROOT = Path(__file__).parents[2]
-FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw"
+FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
 
 
 def test_plugin_manifest_and_skill_are_explicit_and_api_free():
@@ -37,10 +38,24 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
     ]
 
     assert any(
-        "python -m researchclaw.codex.cli" in block
+        "researchclaw-codex" in block
         for block in editable_install_blocks
     )
     assert plugin_invocation_blocks
     assert all(
         "$researchclaw" not in block for block in editable_install_blocks
     )
+
+
+def test_distribution_and_plugin_share_codex_native_identity_and_version():
+    import researchclaw
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+
+    assert project["name"] == "researchclaw-codex"
+    assert project["version"] == manifest["version"] == "0.1.0"
+    assert researchclaw.__version__ == project["version"]
+    assert "Codex-native" in project["description"]
+    assert project["urls"]["Repository"] == FORK_URL
+    assert project["urls"]["Upstream"] == "https://github.com/aiming-lab/AutoResearchClaw"

@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "description": "Codex performs research through a durable, locally validated AutoResearchClaw workflow.",
   "author": {
-    "name": "AutoResearchClaw contributors",
-    "url": "https://github.com/ParkJaeSeong/AutoResearchClaw"
+    "name": "AutoResearchClaw Codex contributors",
+    "url": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
   },
-  "homepage": "https://github.com/ParkJaeSeong/AutoResearchClaw",
-  "repository": "https://github.com/ParkJaeSeong/AutoResearchClaw",
+  "homepage": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex",
+  "repository": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex",
   "license": "MIT",
   "keywords": [
     "research",
@@ -19,14 +19,14 @@
     "displayName": "AutoResearchClaw Codex",
     "shortDescription": "Run durable Codex-native research milestones.",
     "longDescription": "Codex creates declared research artifacts while AutoResearchClaw persists state, validates outputs, binds approvals to artifact hashes, and reports local workflow metrics.",
-    "developerName": "AutoResearchClaw contributors",
+    "developerName": "AutoResearchClaw Codex contributors",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Read",
       "Write"
     ],
-    "websiteURL": "https://github.com/ParkJaeSeong/AutoResearchClaw",
+    "websiteURL": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex",
     "defaultPrompt": "Use $researchclaw to start or resume a research milestone."
   }
 }

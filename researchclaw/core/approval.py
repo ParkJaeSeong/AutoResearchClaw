@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .contracts import get_contract
 from .models import ProjectState, StageStatus
+from .paths import resolve_project_artifact
+from .persistence import atomic_write_json
 from .project import ResearchProject
 
 _HASH_CHUNK_SIZE = 1024 * 1024
@@ -56,7 +55,7 @@ def _stage_artifact_hashes(root: Path, state: ProjectState, stage_id: int) -> di
         artifact = state.artifacts.get(relative_path)
         if artifact is None or artifact.path != relative_path:
             raise ValueError(f"persisted artifact hash is missing for {relative_path}")
-        path = root / relative_path
+        path = resolve_project_artifact(root, relative_path)
         if not path.is_file() or _sha256(path) != artifact.sha256:
             raise ValueError(f"artifact has changed since validation: {relative_path}")
         hashes[relative_path] = artifact.sha256
@@ -68,20 +67,7 @@ def _approval_path(root: Path, stage_id: int) -> Path:
 
 
 def _save_record(path: Path, record: ApprovalRecord) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        prefix=f"{path.stem}-",
-        suffix=".tmp",
-        delete=False,
-        dir=path.parent,
-    ) as handle:
-        json.dump(record.to_dict(), handle, ensure_ascii=False, sort_keys=True)
-        handle.flush()
-        os.fsync(handle.fileno())
-        temporary_path = Path(handle.name)
-    temporary_path.replace(path)
+    atomic_write_json(path, record.to_dict(), prefix=f"{path.stem}-")
 
 
 def approve_current_gate(project: ResearchProject, decision: str, note: str) -> ApprovalRecord:
@@ -174,7 +160,7 @@ def verify_current_approval(project: Path, record: ApprovalRecord) -> bool:
             artifact = state.artifacts.get(relative_path)
             if artifact is None or artifact.path != relative_path:
                 return False
-            path = root / relative_path
+            path = resolve_project_artifact(root, relative_path)
             if not path.is_file() or artifact.sha256 != record.artifact_hashes[relative_path]:
                 return False
             if _sha256(path) != record.artifact_hashes[relative_path]:

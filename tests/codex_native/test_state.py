@@ -1,4 +1,9 @@
 from dataclasses import replace
+import json
+import os
+from pathlib import Path
+
+import pytest
 
 from researchclaw.core.models import ProjectState, StageStatus
 from researchclaw.core.state import StateStore
@@ -28,3 +33,90 @@ def test_state_save_replaces_existing_document_atomically(tmp_path):
     assert loaded.current_stage == 2
     assert loaded.completed_stages == (1,)
     assert not list(tmp_path.glob("state-*.tmp"))
+
+
+def test_state_save_fsyncs_file_and_parent_directory(tmp_path, monkeypatch):
+    calls: list[int] = []
+    real_fsync = os.fsync
+
+    def recording_fsync(file_descriptor: int) -> None:
+        calls.append(file_descriptor)
+        real_fsync(file_descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+
+    StateStore(tmp_path).save(ProjectState.new("rc-test", "Topic", "materials_ai"))
+
+    assert len(calls) >= 2
+
+
+def test_state_save_cleans_temporary_file_when_replace_fails(tmp_path, monkeypatch):
+    store = StateStore(tmp_path)
+    original = ProjectState.new("rc-test", "Topic", "materials_ai")
+    store.save(original)
+
+    def fail_replace(_source: Path, _target: Path) -> None:
+        raise OSError("injected replace failure")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="injected replace failure"):
+        store.save(replace(original, topic="Changed"))
+
+    assert json.loads(store.path.read_text(encoding="utf-8"))["topic"] == "Topic"
+    assert not list(tmp_path.glob("state-*.tmp"))
+
+
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (lambda data: data.pop("project_id"), "project_id"),
+        (lambda data: data.update(current_stage=True), "current_stage"),
+        (lambda data: data.update(status="unknown"), "status"),
+        (lambda data: data.update(completed_stages=[2, 1]), "completed_stages"),
+        (lambda data: data.update(retry_counts={"1": -1}), "retry_counts"),
+        (lambda data: data.update(retry_counts={"01": 1}), "retry_counts"),
+        (lambda data: data.update(last_error="broken"), "last_error"),
+        (lambda data: data.update(next_action="invent_action"), "next_action"),
+        (lambda data: data.update(execution_policy="automatic"), "execution_policy"),
+    ],
+    ids=(
+        "missing-field",
+        "boolean-stage",
+        "unknown-status",
+        "unordered-completed-stages",
+        "negative-retry-count",
+        "noncanonical-retry-stage",
+        "invalid-last-error",
+        "unknown-next-action",
+        "unknown-execution-policy",
+    ),
+)
+def test_state_load_normalizes_malformed_version_one_documents(tmp_path, mutator, message):
+    store = StateStore(tmp_path)
+    data = ProjectState.new("rc-test", "Topic", "materials_ai").to_dict()
+    mutator(data)
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        store.load()
+
+
+@pytest.mark.parametrize(
+    "artifact",
+    [
+        {"path": "../outside.md", "sha256": "0" * 64, "size": 1},
+        {"path": "/tmp/outside.md", "sha256": "0" * 64, "size": 1},
+        {"path": "scope/goal.md", "sha256": "not-a-hash", "size": 1},
+        {"path": "scope/goal.md", "sha256": "0" * 64, "size": -1},
+    ],
+    ids=("traversal", "absolute", "malformed-hash", "negative-size"),
+)
+def test_state_load_rejects_malformed_artifact_references(tmp_path, artifact):
+    store = StateStore(tmp_path)
+    data = ProjectState.new("rc-test", "Topic", "materials_ai").to_dict()
+    data["artifacts"] = {artifact["path"]: artifact}
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="artifact"):
+        store.load()

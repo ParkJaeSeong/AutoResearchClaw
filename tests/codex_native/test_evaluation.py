@@ -59,15 +59,10 @@ def test_lifecycle_operations_append_evaluation_events(tmp_path):
 
     assert [event.type for event in events] == [
         "project_created",
-        "task_packet_prepared",
         "validation_result",
-        "task_packet_prepared",
         "validation_result",
-        "task_packet_prepared",
         "validation_result",
-        "task_packet_prepared",
         "validation_result",
-        "task_packet_prepared",
         "validation_result",
         "approval_decision",
         "resume",

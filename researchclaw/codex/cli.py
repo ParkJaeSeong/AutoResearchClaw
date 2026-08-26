@@ -15,7 +15,10 @@ from researchclaw.core.validation import validate_current_stage
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Create and inspect local research projects.")
+    parser = argparse.ArgumentParser(
+        prog="researchclaw-codex",
+        description="Create and inspect durable Codex-native research projects.",
+    )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     init = subcommands.add_parser("init", help="create a research project")

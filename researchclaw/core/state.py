@@ -1,8 +1,8 @@
 import json
-import tempfile
 from pathlib import Path
 
 from .models import ProjectState
+from .persistence import atomic_write_json
 
 
 class StateStore:
@@ -15,15 +15,4 @@ class StateStore:
             return ProjectState.from_dict(json.load(handle))
 
     def save(self, state: ProjectState) -> None:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            prefix="state-",
-            suffix=".tmp",
-            delete=False,
-            dir=self.root,
-        ) as handle:
-            json.dump(state.to_dict(), handle, ensure_ascii=False, sort_keys=True)
-            handle.flush()
-            temp_path = Path(handle.name)
-        temp_path.replace(self.path)
+        atomic_write_json(self.path, state.to_dict(), prefix="state-")

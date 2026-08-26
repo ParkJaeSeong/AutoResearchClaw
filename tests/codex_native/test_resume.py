@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import shlex
 from hashlib import sha256
 from dataclasses import replace
 
@@ -32,12 +33,18 @@ def _approved_project(root):
 
 
 def test_resume_uses_only_project_files(tmp_path):
-    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    project = ResearchProject.create(tmp_path / "demo project", "Formation energy", "materials_ai")
     complete_first_four_stages(project)
 
     payload = _resume(project.root)
     assert payload["current_stage"] == 5
-    assert payload["next_command"].endswith("stage prepare")
+    assert shlex.split(payload["next_command"]) == [
+        "researchclaw-codex",
+        "stage",
+        "prepare",
+        str(project.root),
+        "--json",
+    ]
     assert "conversation" not in json.dumps(payload).lower()
 
 
@@ -50,7 +57,13 @@ def test_resume_rehashes_persisted_artifacts_before_preparing(tmp_path):
     payload = _resume(project.root)
 
     assert payload["status"] == "needs_revision"
-    assert payload["next_command"].endswith("stage validate")
+    assert shlex.split(payload["next_command"]) == [
+        "researchclaw-codex",
+        "stage",
+        "validate",
+        str(project.root),
+        "--json",
+    ]
 
 
 def test_resume_points_an_unapproved_gate_to_approve(tmp_path):
@@ -62,7 +75,11 @@ def test_resume_points_an_unapproved_gate_to_approve(tmp_path):
     payload = _resume(project.root)
 
     assert payload["status"] == "awaiting_approval"
-    assert payload["next_command"].endswith("approve")
+    assert shlex.split(payload["next_command"])[0:3] == [
+        "researchclaw-codex",
+        "approve",
+        str(project.root),
+    ]
 
 
 def test_resume_rejects_artifact_paths_outside_the_project(tmp_path):
@@ -84,9 +101,16 @@ def test_resume_rejects_artifact_paths_outside_the_project(tmp_path):
         )
     )
 
-    payload = _resume(project.root)
+    result = subprocess.run(
+        [sys.executable, "-m", "researchclaw.codex.cli", "resume", str(project.root), "--json"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
-    assert payload["status"] == "needs_revision"
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "artifact path" in result.stderr
 
 
 def test_resume_rechecks_completed_gate_approval_records(tmp_path):
@@ -99,7 +123,12 @@ def test_resume_rechecks_completed_gate_approval_records(tmp_path):
     payload = _resume(project.root)
 
     assert payload["status"] == "needs_revision"
-    assert payload["next_command"].endswith("stage validate")
+    assert shlex.split(payload["next_command"])[0:4] == [
+        "researchclaw-codex",
+        "stage",
+        "validate",
+        str(project.root),
+    ]
 
 
 def test_resume_rejects_a_valid_different_stage_approval_record(tmp_path):
@@ -150,3 +179,55 @@ def test_resume_returns_revision_json_for_malformed_approval_hashes(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "needs_revision"
     assert result.stderr == ""
+
+
+def test_resume_represents_approved_foundation_milestone_without_stage_six_packet(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+
+    payload = _resume(project.root)
+
+    assert payload["current_stage"] == 6
+    assert payload["milestone_complete"] is True
+    assert payload["next_action"] == "report_milestone"
+    assert shlex.split(payload["next_command"]) == [
+        "researchclaw-codex",
+        "evaluate",
+        str(project.root),
+        "--json",
+    ]
+
+
+def test_resume_rewinds_modified_approved_gate_for_validation_and_new_approval(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    shortlist = project.root / "literature" / "shortlist.jsonl"
+    shortlist.write_text(shortlist.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    payload = _resume(project.root)
+
+    assert payload["current_stage"] == 5
+    assert payload["status"] == "needs_revision"
+    assert payload["milestone_complete"] is False
+    assert shlex.split(payload["next_command"])[0:4] == [
+        "researchclaw-codex",
+        "stage",
+        "validate",
+        str(project.root),
+    ]
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 5
+    assert reopened.state.completed_stages == (1, 2, 3, 4)
+
+
+def test_resume_rewinds_approved_gate_when_artifact_becomes_matching_symlink(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    shortlist = project.root / "literature" / "shortlist.jsonl"
+    outside = tmp_path / "outside-shortlist.jsonl"
+    outside.write_bytes(shortlist.read_bytes())
+    shortlist.unlink()
+    shortlist.symlink_to(outside)
+
+    payload = _resume(project.root)
+
+    assert payload["current_stage"] == 5
+    assert payload["status"] == "needs_revision"
+    assert ResearchProject.open(project.root).state.completed_stages == (1, 2, 3, 4)

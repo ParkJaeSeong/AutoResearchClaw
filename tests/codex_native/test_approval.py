@@ -138,3 +138,14 @@ def test_approve_cli_emits_only_json(tmp_path, capsys):
     assert payload["stage_id"] == 5
     assert payload["decision"] == "approve"
     assert captured.err == ""
+
+
+def test_approval_rejects_gate_symlink_even_when_content_matches(tmp_path):
+    project, shortlist = _project_at_stage_five_gate(tmp_path / "demo")
+    outside = tmp_path / "outside-shortlist.jsonl"
+    outside.write_bytes(shortlist.read_bytes())
+    shortlist.unlink()
+    shortlist.symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unsafe artifact path"):
+        approve_current_gate(project, "approve", "Use this corpus")

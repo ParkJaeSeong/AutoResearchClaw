@@ -23,14 +23,23 @@ class Phase:
     stage_ids: tuple[int, ...]
 
 
-_STAGE_NAMES = (
-    "topic_init", "problem_decompose", "search_strategy", "literature_collect",
-    "literature_screen", "knowledge_extract", "synthesis", "hypothesis_gen",
-    "experiment_design", "code_generation", "resource_planning", "experiment_run",
-    "iterative_refine", "result_analysis", "research_decision", "paper_outline",
-    "paper_draft", "peer_review", "paper_revision", "quality_gate",
-    "knowledge_archive", "export_publish", "citation_verify",
-)
+FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
+FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
+
+_FOUNDATION_ACCEPTANCE_CRITERIA = {
+    1: (
+        "scope/goal.md contains a non-heading sentence",
+        "scope/hardware_profile.json is a JSON object",
+    ),
+    2: ("scope/problem_tree.md contains at least three numbered or bullet questions",),
+    3: ("literature/search_plan.yaml is a mapping with a non-empty queries list",),
+    4: (
+        "each literature/candidates.jsonl record has a title and DOI, arXiv ID, or URL",
+    ),
+    5: (
+        "each literature/shortlist.jsonl record has a title, include/exclude decision, and reason",
+    ),
+}
 
 
 def _contract(stage_id: int, name: str, objective: str, inputs: tuple[str, ...], outputs: tuple[str, ...], *, approval: bool = False) -> StageContract:
@@ -40,17 +49,20 @@ def _contract(stage_id: int, name: str, objective: str, inputs: tuple[str, ...],
         objective=objective,
         required_inputs=inputs,
         required_outputs=outputs,
-        acceptance_criteria=("all required outputs exist", "outputs are project-relative artifacts"),
+        acceptance_criteria=_FOUNDATION_ACCEPTANCE_CRITERIA.get(
+            stage_id,
+            ("all required outputs are non-empty project-relative artifacts",),
+        ),
         allowed_tool_classes=("filesystem", "research", "analysis"),
         requires_approval=approval,
     )
 
 
 _CONTRACT_DATA = (
-    ("topic_init", "Define the research topic", (), ("topic/brief.json",)),
-    ("problem_decompose", "Decompose the research problem", ("topic/brief.json",), ("problem/decomposition.json",)),
-    ("search_strategy", "Create a reproducible search strategy", ("problem/decomposition.json",), ("literature/search_strategy.json",)),
-    ("literature_collect", "Collect candidate literature", ("literature/search_strategy.json",), ("literature/candidates.jsonl",)),
+    ("topic_init", "Define the research topic", (), ("scope/goal.md", "scope/hardware_profile.json")),
+    ("problem_decompose", "Decompose the research problem", ("scope/goal.md", "scope/hardware_profile.json"), ("scope/problem_tree.md",)),
+    ("search_strategy", "Create a reproducible search strategy", ("scope/problem_tree.md",), ("literature/search_plan.yaml",)),
+    ("literature_collect", "Collect candidate literature", ("literature/search_plan.yaml",), ("literature/candidates.jsonl",)),
     ("literature_screen", "Screen and approve candidate literature", ("literature/candidates.jsonl",), ("literature/shortlist.jsonl",)),
     ("knowledge_extract", "Extract structured knowledge from the shortlist", ("literature/shortlist.jsonl",), ("knowledge/extractions.jsonl",)),
     ("synthesis", "Synthesize the current evidence", ("knowledge/extractions.jsonl",), ("knowledge/synthesis.md",)),
@@ -95,3 +107,11 @@ def get_contract(stage_id: int) -> StageContract:
         return STAGE_CONTRACTS[stage_id]
     except (KeyError, TypeError) as exc:
         raise ValueError(f"unknown stage: {stage_id}") from exc
+
+
+def stage_for_output(relative_path: str) -> int | None:
+    """Return the stage that declares an output path, if any."""
+    for stage_id, contract in STAGE_CONTRACTS.items():
+        if relative_path in contract.required_outputs:
+            return stage_id
+    return None

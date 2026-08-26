@@ -1,6 +1,6 @@
 # Foundation evaluation rubric
 
-Run `python -m researchclaw.codex.cli evaluate ROOT --json` whenever reporting a milestone. Preserve the returned JSON in the report or test evidence instead of reconstructing metrics from memory.
+Run `researchclaw-codex evaluate ROOT --json` whenever reporting a milestone. Preserve the returned JSON in the report or test evidence instead of reconstructing metrics from memory.
 
 The foundation rubric interprets metrics as follows:
 
