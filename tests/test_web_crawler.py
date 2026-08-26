@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -166,6 +167,27 @@ class TestCheckUrlSsrf:
 
     def test_https_allowed(self):
         assert check_url_ssrf("https://arxiv.org/abs/2301.00001") is None
+
+    @patch("researchclaw.web._ssrf.socket.getaddrinfo")
+    def test_allows_well_known_nat64_for_public_ipv4(self, mock_getaddrinfo):
+        """DNS64 synthesis of a public IPv4 must not look like an internal host."""
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::9765:432a", 0, 0, 0)),
+        ]
+
+        assert check_url_ssrf("https://public.example/paper") is None
+
+    @patch("researchclaw.web._ssrf.socket.getaddrinfo")
+    def test_rejects_well_known_nat64_for_private_ipv4(self, mock_getaddrinfo):
+        """A NAT64 address embedding 192.168.1.1 remains an SSRF target."""
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("64:ff9b::c0a8:101", 0, 0, 0)),
+        ]
+
+        error = check_url_ssrf("https://private.example/metadata")
+
+        assert error is not None
+        assert "internal" in error.lower() or "private" in error.lower()
 
     def test_rejects_file_scheme(self):
         err = check_url_ssrf("file:///etc/passwd")
