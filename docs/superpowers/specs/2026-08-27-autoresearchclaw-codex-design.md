@@ -1,8 +1,8 @@
 # AutoResearchClaw-Codex Design
 
-**Date:** 2026-08-27  
-**Status:** Approved in conversation; pending written-spec review  
-**Upstream:** `aiming-lab/AutoResearchClaw`  
+**Date:** 2026-08-27
+**Status:** Approved in conversation; pending written-spec review
+**Upstream:** `aiming-lab/AutoResearchClaw`
 **Target repository:** `ParkJaeSeong/AutoResearchClaw-Codex`
 
 ## 1. Purpose
@@ -351,4 +351,3 @@ a research project, complete at least the scoping and literature phases, stop
 at the literature approval gate, close the session, resume from durable state
 in a new session, and produce a validation and evaluation record without an
 external LLM API key or a nested agent process.
-
