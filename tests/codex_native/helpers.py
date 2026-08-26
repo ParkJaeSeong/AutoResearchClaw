@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from researchclaw.codex.cli import main
+from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
 
@@ -62,3 +63,14 @@ def complete_first_four_stages(project: ResearchProject) -> ResearchProject:
         assert report.valid is True
         current = ResearchProject.open(current.root)
     return current
+
+
+def build_completed_literature_gate_project(root: Path) -> ResearchProject:
+    project = ResearchProject.create(root, "Formation energy", "materials_ai")
+    project = complete_first_four_stages(project)
+    write_valid_fixture_artifacts(project.root, 5)
+    report = validate_current_stage(project)
+    assert report.valid is True
+    project = ResearchProject.open(project.root)
+    approve_current_gate(project, "approve", "Test corpus accepted")
+    return ResearchProject.open(project.root)

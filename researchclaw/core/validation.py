@@ -204,6 +204,20 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         artifact_refs=artifact_refs,
     )
     advance_validated_stage(project, report)
+    from .events import EvaluationEvent, event_log_for
+
+    event_log_for(project.root).append(
+        EvaluationEvent.create(
+            "validation_result",
+            project.state.project_id,
+            {
+                "stage_id": report.stage_id,
+                "valid": report.valid,
+                "issue_count": len(report.issues),
+                "artifact_count": len(report.artifact_refs),
+            },
+        )
+    )
     return report
 
 

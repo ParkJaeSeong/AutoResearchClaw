@@ -67,7 +67,7 @@ def prepare_task_packet(project: ResearchProject) -> TaskPacket:
     if missing:
         raise ValueError(f"required input artifacts are missing: {', '.join(missing)}")
     profile = load_profile(state.profile)
-    return TaskPacket(
+    packet = TaskPacket(
         schema_version=1,
         project_id=state.project_id,
         stage_id=contract.id,
@@ -85,3 +85,17 @@ def prepare_task_packet(project: ResearchProject) -> TaskPacket:
         },
         artifact_root="artifacts",
     )
+    from .events import EvaluationEvent, event_log_for
+
+    event_log_for(project.root).append(
+        EvaluationEvent.create(
+            "task_packet_prepared",
+            state.project_id,
+            {
+                "stage_id": packet.stage_id,
+                "name": packet.name,
+                "requires_approval": packet.requires_approval,
+            },
+        )
+    )
+    return packet

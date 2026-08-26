@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.approval import approve_current_gate
+from researchclaw.core.events import build_foundation_report
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -36,6 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--decision", required=True, choices=("approve", "reject"))
     approve.add_argument("--note", default="", metavar="TEXT")
     approve.add_argument("--json", action="store_true", help="emit JSON")
+
+    evaluate = subcommands.add_parser("evaluate", help="report foundation workflow metrics")
+    evaluate.add_argument("root", metavar="ROOT")
+    evaluate.add_argument("--json", action="store_true", help="emit JSON")
 
     stage = subcommands.add_parser("stage", help="prepare a research stage")
     stage_commands = stage.add_subparsers(dest="stage_command", required=True)
@@ -65,6 +70,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "approve":
             project = ResearchProject.open(args.root)
             payload = approve_current_gate(project, args.decision, args.note).to_dict()
+        elif args.command == "evaluate":
+            project = ResearchProject.open(args.root)
+            payload = build_foundation_report(project)
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(project).to_dict()
@@ -86,6 +94,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"stage {payload['stage_id']}: {payload['decision']}")
         elif args.command == "stage":
             print(f"stage {payload['stage_id']}: {'valid' if payload['valid'] else 'invalid'}")
+        elif args.command == "evaluate":
+            print(f"{payload['project_id']}: {payload['stage_completion_rate']:.0%} complete")
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
     return exit_code

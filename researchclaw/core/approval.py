@@ -144,6 +144,15 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
             last_error=state.last_error,
         )
     current_project.persist_state(updated_state)
+    from .events import EvaluationEvent, event_log_for
+
+    event_log_for(current_project.root).append(
+        EvaluationEvent.create(
+            "approval_decision",
+            state.project_id,
+            {"stage_id": record.stage_id, "decision": record.decision},
+        )
+    )
     return record
 
 

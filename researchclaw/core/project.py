@@ -41,6 +41,11 @@ class ResearchProject:
             profile=profile,
         )
         StateStore(metadata_root).save(state)
+        from .events import EvaluationEvent, event_log_for
+
+        event_log_for(root).append(
+            EvaluationEvent.create("project_created", state.project_id, {"topic": topic, "profile": profile})
+        )
         return cls(root=root, state=state)
 
     @classmethod
@@ -61,6 +66,19 @@ class ResearchProject:
 
     def build_handoff(self) -> "HandoffSummary":
         """Reconstruct a durable handoff after reopening project files."""
+        from .events import EvaluationEvent, event_log_for
         from .handoff import build_handoff
 
-        return build_handoff(self)
+        handoff = build_handoff(self)
+        event_log_for(self.root).append(
+            EvaluationEvent.create(
+                "resume",
+                handoff.project_id,
+                {
+                    "current_stage": handoff.current_stage,
+                    "status": handoff.status,
+                    "next_action": handoff.next_action,
+                },
+            )
+        )
+        return handoff
