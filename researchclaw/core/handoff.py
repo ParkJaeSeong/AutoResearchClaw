@@ -23,6 +23,8 @@ _HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 @dataclass(frozen=True)
 class HandoffSummary:
     project_id: str
+    project_root: str
+    write_policy: str
     topic: str
     current_stage: int
     stage_name: str
@@ -37,6 +39,8 @@ class HandoffSummary:
     def to_dict(self) -> dict[str, object]:
         return {
             "project_id": self.project_id,
+            "project_root": self.project_root,
+            "write_policy": self.write_policy,
             "topic": self.topic,
             "current_stage": self.current_stage,
             "stage_name": self.stage_name,
@@ -229,7 +233,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if milestone_complete:
-        next_action = "report_milestone"
+        next_action = "report_foundation_milestone_only"
         next_command = _command(current_project.root, "evaluate")
     elif status is StageStatus.NEEDS_REVISION:
         next_action = "validate_stage"
@@ -255,6 +259,8 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     return HandoffSummary(
         project_id=state.project_id,
+        project_root=str(current_project.root.resolve()),
+        write_policy="no_undeclared_outputs" if milestone_complete else "declared_outputs_only",
         topic=state.topic,
         current_stage=state.current_stage,
         stage_name=stage_name,

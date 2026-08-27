@@ -25,6 +25,21 @@ def test_prepare_stage_one_packet_contains_no_model_backend(tmp_path):
     assert "base_url" not in serialized
 
 
+def test_packets_isolate_identical_outputs_under_distinct_project_roots(tmp_path):
+    first = ResearchProject.create(tmp_path / "first", "Topic one", "materials_ai")
+    second = ResearchProject.create(tmp_path / "second", "Topic two", "materials_ai")
+
+    first_packet = prepare_task_packet(first).to_dict()
+    second_packet = prepare_task_packet(second).to_dict()
+
+    assert first_packet["project_root"] == str(first.root.resolve())
+    assert second_packet["project_root"] == str(second.root.resolve())
+    assert first_packet["project_root"] != second_packet["project_root"]
+    assert first_packet["write_policy"] == "declared_outputs_only"
+    assert second_packet["write_policy"] == "declared_outputs_only"
+    assert first_packet["required_outputs"] == second_packet["required_outputs"]
+
+
 def test_prepare_packet_refuses_completed_project(tmp_path):
     project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
     StateStore(project.root / ".researchclaw").save(replace(project.state, current_stage=24, status=StageStatus.COMPLETED))

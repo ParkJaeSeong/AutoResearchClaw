@@ -188,7 +188,9 @@ def test_resume_represents_approved_foundation_milestone_without_stage_six_packe
 
     assert payload["current_stage"] == 6
     assert payload["milestone_complete"] is True
-    assert payload["next_action"] == "report_milestone"
+    assert payload["next_action"] == "report_foundation_milestone_only"
+    assert payload["project_root"] == str(project.root.resolve())
+    assert payload["write_policy"] == "no_undeclared_outputs"
     assert shlex.split(payload["next_command"]) == [
         "researchclaw-codex",
         "evaluate",

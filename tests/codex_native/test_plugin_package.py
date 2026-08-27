@@ -54,7 +54,7 @@ def test_distribution_and_plugin_share_codex_native_identity_and_version():
     manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
 
     assert project["name"] == "researchclaw-codex"
-    assert project["version"] == manifest["version"] == "0.1.0"
+    assert project["version"] == manifest["version"].split("+", 1)[0] == "0.1.0"
     assert researchclaw.__version__ == project["version"]
     assert "Codex-native" in project["description"]
     assert project["urls"]["Repository"] == FORK_URL

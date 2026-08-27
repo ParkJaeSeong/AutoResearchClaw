@@ -27,6 +27,8 @@ def _sha256(path: Path) -> str:
 class TaskPacket:
     schema_version: int
     project_id: str
+    project_root: str
+    write_policy: str
     stage_id: int
     name: str
     objective: str
@@ -41,6 +43,8 @@ class TaskPacket:
         return {
             "schema_version": self.schema_version,
             "project_id": self.project_id,
+            "project_root": self.project_root,
+            "write_policy": self.write_policy,
             "stage_id": self.stage_id,
             "name": self.name,
             "objective": self.objective,
@@ -84,6 +88,8 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
     return TaskPacket(
         schema_version=1,
         project_id=state.project_id,
+        project_root=str(project.root.resolve()),
+        write_policy="declared_outputs_only",
         stage_id=contract.id,
         name=contract.name,
         objective=contract.objective,

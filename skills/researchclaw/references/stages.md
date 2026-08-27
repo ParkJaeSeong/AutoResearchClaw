@@ -1,6 +1,6 @@
 # Stage contracts
 
-The durable state defines 23 ordered contracts, but the current foundation CLI can prepare and validate only stages 1–5. Stop after approved stage 5 and report the boundary; stages 6–23, including experiment execution, are not implemented in this Codex-native milestone.
+The durable state defines 23 ordered contracts, but the current foundation CLI can prepare and validate only stages 1–5. Stop after approved stage 5 and report the boundary using only the declared project artifacts; do not create a separate final report or write to a shared sibling output directory. Stages 6–23, including knowledge extraction, report or paper drafting, and experiment execution, are not implemented in this Codex-native milestone.
 
 ## Implemented foundation stages
 
