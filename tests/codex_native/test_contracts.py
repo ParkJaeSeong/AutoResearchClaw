@@ -27,6 +27,13 @@ def test_literature_gate_contract_is_hash_approved():
     assert "literature/candidates.jsonl" in contract.required_inputs
 
 
+def test_stage_six_acceptance_names_the_complete_manifest_artifact():
+    criteria = "\n".join(get_contract(6).acceptance_criteria)
+
+    assert "knowledge/extraction_manifest.json" in criteria
+    assert "knowledge/extractions.jsonl is a complete manifest" not in criteria
+
+
 def test_foundation_contracts_are_the_resolved_packet_and_validation_source():
     expected = {
         1: ((), ("scope/goal.md", "scope/hardware_profile.json")),

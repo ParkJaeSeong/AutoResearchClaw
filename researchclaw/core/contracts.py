@@ -44,7 +44,7 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
     ),
     6: (
         "each knowledge/extractions.jsonl record has a valid claim and source evidence",
-        "knowledge/extractions.jsonl is a complete manifest for the approved shortlist",
+        "knowledge/extraction_manifest.json is a complete manifest for the approved shortlist",
     ),
 }
 

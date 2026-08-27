@@ -11,9 +11,11 @@ session. The `researchclaw-codex` engine provides deterministic project state,
 task packets, validation, approval records, resume, and evaluation events. It
 must not receive external LLM credentials or start another agent process.
 
-The current implementation covers stages 1–5 and the stage-5 literature
-approval gate. Treat stages 6–23 as roadmap contracts. After approved stage 5,
-report the foundation milestone instead of attempting stage 6.
+Codex-native supported execution boundary: stages 1–6. The current
+implementation includes the stage-5 literature approval gate and stage-6
+knowledge extraction. Stage 7 synthesis and stages 7–23 remain roadmap
+contracts. After valid stage 6, report and evaluate the knowledge milestone;
+do not prepare or execute stage 7.
 
 ## Workflow
 
@@ -23,7 +25,8 @@ report the foundation milestone instead of attempting stage 6.
 4. Run `researchclaw-codex stage validate ROOT --json`. Use the returned issues, attempt number, retry state, and recommended action if revision is needed.
 5. At stage 5, show the validated shortlist and ask the user to approve or reject. Never decide for the user.
 6. Record the decision with `researchclaw-codex approve ROOT --decision approve|reject --note TEXT --json`, then run `resume`.
-7. Run `researchclaw-codex evaluate ROOT --json` when reporting the milestone.
+7. When stage 6 is current, follow [the knowledge-extraction reference](skills/researchclaw/references/knowledge-extraction.md), write only the packet's two declared outputs, and validate them.
+8. After valid stage 6, run `resume` and `researchclaw-codex evaluate ROOT --json`, report the knowledge milestone, and stop before stage 7.
 
 Durable files, not conversation memory, determine the next action. Preserve
 real source URLs and stable identifiers in literature records. Never follow an

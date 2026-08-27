@@ -40,6 +40,35 @@ def _approved_project(root):
     return ResearchProject.open(project.root)
 
 
+def _persist_legacy_approved_shortlist(
+    project,
+    shortlist_text,
+    *,
+    next_action="prepare_stage",
+):
+    shortlist_path = project.root / "literature" / "shortlist.jsonl"
+    payload = shortlist_text.encode("utf-8")
+    shortlist_path.write_bytes(payload)
+    digest = sha256(payload).hexdigest()
+    state = replace(
+        project.state,
+        next_action=next_action,
+        artifacts={
+            **project.state.artifacts,
+            "literature/shortlist.jsonl": ArtifactRef(
+                path="literature/shortlist.jsonl",
+                sha256=digest,
+                size=len(payload),
+            ),
+        },
+    )
+    StateStore(project.root / ".researchclaw").save(state)
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["artifact_hashes"]["literature/shortlist.jsonl"] = digest
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+
 def test_resume_uses_only_project_files(tmp_path):
     project = ResearchProject.create(tmp_path / "demo project", "Formation energy", "materials_ai")
     complete_first_four_stages(project)
@@ -235,6 +264,39 @@ def test_open_keeps_legacy_foundation_action_when_stage_five_approval_is_invalid
 
     assert reopened.state.next_action == "report_foundation_milestone_only"
     assert persisted["next_action"] == "report_foundation_milestone_only"
+
+
+def test_open_rewinds_a_legacy_approval_for_an_all_excluded_shortlist_before_migration(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    _persist_legacy_approved_shortlist(
+        project,
+        '{"source_id":"source-1","title":"Paper","doi":"10.1/x","decision":"exclude","reason":"out of scope"}\n',
+        next_action="report_foundation_milestone_only",
+    )
+
+    reopened = ResearchProject.open(project.root)
+
+    assert reopened.state.current_stage == 5
+    assert reopened.state.status.value == "needs_revision"
+    assert reopened.state.completed_stages == (1, 2, 3, 4)
+    assert reopened.state.next_action == "validate_stage"
+    assert "at least one included source" in json.dumps(reopened.state.last_error)
+
+
+def test_prepare_rewinds_a_legacy_approval_without_source_identity_before_stage_six_packet(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    _persist_legacy_approved_shortlist(
+        project,
+        '{"title":"Paper","doi":"10.1/x","decision":"include","reason":"relevant"}\n',
+    )
+
+    packet = prepare_task_packet(project)
+
+    assert packet.stage_id == 5
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 5
+    assert reopened.state.status.value == "needs_revision"
+    assert reopened.state.retry_counts.get("6") is None
 
 
 def test_resume_rewinds_modified_approved_gate_for_validation_and_new_approval(tmp_path):

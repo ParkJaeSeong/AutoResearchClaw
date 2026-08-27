@@ -58,6 +58,76 @@ def _messages(issues):
     return "\n".join(issue.message for issue in issues)
 
 
+_MISSING = object()
+
+
+def _evidence_access_fixture(
+    access_status,
+    evidence_level,
+    *,
+    quantitative_details=_MISSING,
+):
+    shortlist = (
+        '{"source_id":"src-access","title":"Access policy source",'
+        '"url":"https://example.org/access","decision":"include",'
+        '"reason":"tests evidence access","source_type":"article"}\n'
+    )
+    claim = {
+        "claim_id": "claim-access",
+        "source_id": "src-access",
+        "claim": "The source describes a supported observation.",
+        "evidence_summary": "The accessed material directly states the observation.",
+        "evidence_level": evidence_level,
+        "locator": "Abstract" if evidence_level == "abstract" else "Source metadata",
+        "source_url": "https://example.org/access",
+        "applicability": ["access policy testing"],
+        "limitations": [],
+    }
+    if quantitative_details is not _MISSING:
+        claim["quantitative_details"] = quantitative_details
+    claims = json.dumps(claim, separators=(",", ":")) + "\n"
+    status_counts = {
+        "full_text_sources": 0,
+        "abstract_sources": 0,
+        "metadata_only_sources": 0,
+        "unavailable_sources": 0,
+    }
+    status_counts[f"{access_status}_sources"] = 1
+    manifest = json.dumps(
+        {
+            "schema_version": 1,
+            "project_id": "rc-test",
+            "generated_at": "2026-08-27T12:00:00Z",
+            "sources": [
+                {
+                    "source_id": "src-access",
+                    "decision": "include",
+                    "access_status": access_status,
+                    "accessed_at": "2026-08-27T11:00:00Z",
+                    "access_url": "https://example.org/access",
+                    "claim_count": 1,
+                    "failure_reason": None,
+                }
+            ],
+            "summary": {
+                "included_sources": 1,
+                "processed_sources": 1,
+                "claim_count": 1,
+                **status_counts,
+            },
+        },
+        separators=(",", ":"),
+    )
+    return shortlist, claims, manifest
+
+
+def _claims_with_first_claim_update(**updates):
+    first, second = VALID_CLAIMS.splitlines()
+    claim = json.loads(first)
+    claim.update(updates)
+    return json.dumps(claim, separators=(",", ":")) + "\n" + second + "\n"
+
+
 def test_valid_claims_and_manifest_have_no_issues():
     issues = validate_knowledge_extraction(
         VALID_SHORTLIST,
@@ -307,6 +377,174 @@ def test_metadata_only_quantitative_details_are_rejected():
     assert "metadata_only claim cannot contain quantitative_details" in _messages(issues)
 
 
+@pytest.mark.parametrize(
+    ("access_status", "evidence_level"),
+    (
+        ("full_text", "full_text"),
+        ("full_text", "abstract"),
+        ("full_text", "metadata_only"),
+        ("abstract", "abstract"),
+        ("abstract", "metadata_only"),
+        ("metadata_only", "metadata_only"),
+    ),
+)
+def test_manifest_access_status_allows_non_escalating_claim_evidence(
+    access_status,
+    evidence_level,
+):
+    shortlist, claims, manifest = _evidence_access_fixture(access_status, evidence_level)
+
+    issues = validate_knowledge_extraction(shortlist, claims, manifest, "rc-test")
+
+    assert issues == ()
+
+
+@pytest.mark.parametrize(
+    ("access_status", "evidence_level"),
+    (
+        ("abstract", "full_text"),
+        ("metadata_only", "abstract"),
+        ("metadata_only", "full_text"),
+    ),
+)
+def test_claim_evidence_cannot_exceed_manifest_access_status(
+    access_status,
+    evidence_level,
+):
+    shortlist, claims, manifest = _evidence_access_fixture(access_status, evidence_level)
+
+    issues = validate_knowledge_extraction(shortlist, claims, manifest, "rc-test")
+
+    assert (
+        f"evidence_level {evidence_level} exceeds manifest access_status {access_status}"
+        in _messages(issues)
+    )
+
+
+def test_metadata_access_cannot_gain_quantitative_details_by_claiming_full_text_evidence():
+    shortlist, claims, manifest = _evidence_access_fixture(
+        "metadata_only",
+        "full_text",
+        quantitative_details={
+            "value": 7,
+            "unit": "samples",
+            "condition": "catalog entry",
+        },
+    )
+
+    issues = validate_knowledge_extraction(shortlist, claims, manifest, "rc-test")
+
+    messages = _messages(issues)
+    assert "evidence_level full_text exceeds manifest access_status metadata_only" in messages
+    assert "metadata-only access cannot support quantitative_details" in messages
+
+
+@pytest.mark.parametrize("value", (7, 7.25, "7 plus or minus 1"))
+def test_quantitative_details_accept_a_finite_number_or_non_empty_string_value(value):
+    claims = _claims_with_first_claim_update(
+        quantitative_details={
+            "value": value,
+            "unit": "electron volts",
+            "condition": "held-out crystal test set",
+        }
+    )
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert issues == ()
+
+
+@pytest.mark.parametrize(
+    ("details", "expected_message"),
+    (
+        ([], "quantitative_details must be a JSON object"),
+        (
+            {"value": 7, "unit": "samples"},
+            "quantitative_details requires field condition",
+        ),
+        (
+            {"value": 7, "condition": "test set"},
+            "quantitative_details requires field unit",
+        ),
+        (
+            {"unit": "samples", "condition": "test set"},
+            "quantitative_details requires field value",
+        ),
+        (
+            {"value": " ", "unit": "samples", "condition": "test set"},
+            "quantitative_details value must be a finite number or non-empty string",
+        ),
+        (
+            {"value": True, "unit": "samples", "condition": "test set"},
+            "quantitative_details value must be a finite number or non-empty string",
+        ),
+        (
+            {"value": 7, "unit": " ", "condition": "test set"},
+            "quantitative_details unit must be a non-empty string",
+        ),
+        (
+            {"value": 7, "unit": "samples", "condition": ""},
+            "quantitative_details condition must be a non-empty string",
+        ),
+        (
+            {
+                "value": 7,
+                "unit": "samples",
+                "condition": "test set",
+                "precision": 0.1,
+            },
+            "unknown quantitative_details field: precision",
+        ),
+    ),
+)
+def test_quantitative_details_require_the_exact_observed_shape(details, expected_message):
+    claims = _claims_with_first_claim_update(quantitative_details=details)
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert expected_message in _messages(issues)
+
+
+def test_quantitative_details_reject_a_non_finite_json_number():
+    claims = _claims_with_first_claim_update(
+        quantitative_details={
+            "value": "overflow",
+            "unit": "samples",
+            "condition": "test set",
+        }
+    ).replace('"value":"overflow"', '"value":1e400', 1)
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert (
+        "quantitative_details value must be a finite number or non-empty string"
+        in _messages(issues)
+    )
+
+
+def test_conflicts_with_may_reference_another_claim_declared_later_in_the_artifact():
+    claims = _claims_with_first_claim_update(conflicts_with=["claim-2"])
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert issues == ()
+
+
+@pytest.mark.parametrize(
+    ("claim_id", "expected_message"),
+    (
+        ("claim-1", "conflicts_with cannot reference its own claim_id"),
+        ("claim-unknown", "conflicts_with references unknown claim_id: claim-unknown"),
+    ),
+)
+def test_conflicts_with_must_reference_another_existing_claim(claim_id, expected_message):
+    claims = _claims_with_first_claim_update(conflicts_with=[claim_id])
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert expected_message in _messages(issues)
+
+
 def test_empty_applicability_is_rejected():
     claims = VALID_CLAIMS.replace('"applicability":["materials representation"]', '"applicability":[]', 1)
 
@@ -360,6 +598,53 @@ def _changed_manifest(change):
     manifest = json.loads(VALID_MANIFEST)
     change(manifest)
     return json.dumps(manifest, separators=(",", ":"))
+
+
+@pytest.mark.parametrize(
+    ("schema_level", "expected_message"),
+    (
+        ("top", "manifest has unknown field: extra"),
+        ("source", "sources entry 1 has unknown field: extra"),
+        ("summary", "summary has unknown field: extra"),
+    ),
+)
+def test_manifest_schema_rejects_unknown_fields_at_every_level(
+    schema_level,
+    expected_message,
+):
+    def add_unknown_field(value):
+        if schema_level == "top":
+            value["extra"] = "not declared"
+        elif schema_level == "source":
+            value["sources"][0]["extra"] = "not declared"
+        else:
+            value["summary"]["extra"] = 0
+
+    manifest = _changed_manifest(add_unknown_field)
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, VALID_CLAIMS, manifest, "rc-test")
+
+    assert expected_message in _messages(issues)
+
+
+@pytest.mark.parametrize("forbidden_field", ("full_text", "source_text"))
+def test_manifest_recursively_rejects_stored_source_payloads(forbidden_field):
+    def add_source_payload(value):
+        value["sources"][0]["source_payload"] = {
+            "download": {
+                forbidden_field: "The retrieved source body must not be stored.",
+            }
+        }
+
+    manifest = _changed_manifest(add_source_payload)
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, VALID_CLAIMS, manifest, "rc-test")
+
+    assert (
+        "forbidden manifest field: "
+        f"manifest.sources[0].source_payload.download.{forbidden_field}"
+        in _messages(issues)
+    )
 
 
 def test_manifest_missing_included_source_is_rejected():

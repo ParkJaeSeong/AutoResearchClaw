@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from researchclaw.codex.cli import main
 from researchclaw.core.knowledge_extraction import KnowledgeIssue
 from researchclaw.core.project import ResearchProject
@@ -238,7 +240,49 @@ def test_stage_five_rejects_non_string_screening_metadata(tmp_path):
     report = validate_current_stage(project)
 
     assert report.valid is False
-    assert [issue.code for issue in report.issues] == ["invalid_format"]
+    assert {issue.code for issue in report.issues} == {"invalid_format"}
+    messages = "\n".join(issue.message for issue in report.issues)
+    assert "title" in messages
+    assert "reason" in messages
+
+
+@pytest.mark.parametrize(
+    ("shortlist_text", "expected_message"),
+    (
+        (
+            '{"title":"Paper","doi":"10.1/x","decision":"include","reason":"relevant"}\n',
+            "source_id",
+        ),
+        (
+            '{"source_id":"source-1","title":"Paper","decision":"include","reason":"relevant"}\n',
+            "doi, arxiv_id, or url",
+        ),
+        (
+            '{"source_id":"source-1","title":"Paper one","doi":"10.1/one","decision":"include","reason":"relevant"}\n'
+            '{"source_id":"source-1","title":"Paper two","doi":"10.1/two","decision":"include","reason":"relevant"}\n',
+            "duplicate source_id",
+        ),
+        (
+            '{"source_id":"source-1","title":"Paper","doi":"10.1/x","decision":"exclude","reason":"out of scope"}\n',
+            "at least one included source",
+        ),
+    ),
+)
+def test_stage_five_requires_an_extraction_ready_shortlist(
+    tmp_path,
+    shortlist_text,
+    expected_message,
+):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    project = complete_first_four_stages(project)
+    shortlist = project.root / "literature" / "shortlist.jsonl"
+    shortlist.write_text(shortlist_text, encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert expected_message in "\n".join(issue.message for issue in report.issues)
+    assert ResearchProject.open(project.root).state.current_stage == 5
 
 
 def test_stage_six_hashes_valid_knowledge_artifacts_and_stops_at_stage_seven(tmp_path):

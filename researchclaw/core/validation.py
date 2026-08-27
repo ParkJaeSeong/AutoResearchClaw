@@ -12,7 +12,11 @@ from typing import Any
 import yaml
 
 from .contracts import SUPPORTED_STAGE_MAX, StageContract, get_contract
-from .knowledge_extraction import KnowledgeIssue, validate_knowledge_extraction
+from .knowledge_extraction import (
+    KnowledgeIssue,
+    validate_extraction_shortlist,
+    validate_knowledge_extraction,
+)
 from .models import ArtifactRef, StageStatus
 from .paths import resolve_project_artifact
 from .project import ResearchProject
@@ -182,12 +186,9 @@ def _validate_format(
         )
     elif contract.id == 5:
         (path,) = contract.required_outputs
-        _validate_jsonl(
-            contents,
-            issues,
-            path,
-            ("title", "decision", "reason"),
-            decisions_required=True,
+        issues.extend(
+            ValidationIssue(issue.code, path, issue.message)
+            for issue in validate_extraction_shortlist(contents[path])
         )
 
 

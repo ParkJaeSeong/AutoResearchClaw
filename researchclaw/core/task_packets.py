@@ -119,6 +119,8 @@ def prepare_task_packet(project: ResearchProject) -> TaskPacket:
     """Build a packet and record the explicit prepare action."""
     current_project = ResearchProject.open(project.root)
     packet = build_task_packet(current_project)
+    for relative_path in packet.required_outputs:
+        resolve_project_artifact(current_project.root, relative_path)
     from .events import EvaluationEvent, event_log_for
 
     event_log_for(current_project.root).append(

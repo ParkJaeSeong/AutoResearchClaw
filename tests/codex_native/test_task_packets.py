@@ -112,6 +112,24 @@ def test_prepare_rejects_required_input_changed_since_validation(tmp_path):
         prepare_task_packet(project)
 
 
+@pytest.mark.parametrize("symlink_kind", ("file", "parent"))
+def test_prepare_rejects_a_symlinked_required_output_before_returning_packet(
+    tmp_path,
+    symlink_kind,
+):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    if symlink_kind == "parent":
+        (project.root / "scope").symlink_to(outside, target_is_directory=True)
+    else:
+        (project.root / "scope").mkdir()
+        (project.root / "scope" / "goal.md").symlink_to(outside / "goal.md")
+
+    with pytest.raises(ValueError, match="unsafe artifact path"):
+        prepare_task_packet(project)
+
+
 def test_prepare_reopens_durable_state_instead_of_using_a_stale_project_value(tmp_path):
     project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
     write_valid_fixture_artifacts(project.root, 1)

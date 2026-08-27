@@ -3,13 +3,20 @@ from pathlib import Path
 import re
 import tomllib
 
+import pytest
 import yaml
+
+from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
 
 
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
 SKILL_ROOT = ROOT / "skills" / "researchclaw"
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
+SUPPORTED_BOUNDARY = re.compile(
+    r"Codex-native supported execution boundary:\s*stages?\s*1\s*[\N{EN DASH}-]\s*(\d+)",
+    re.IGNORECASE,
+)
 
 
 def _local_markdown_links(path: Path) -> tuple[Path, ...]:
@@ -57,6 +64,15 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
     assert all(
         "$researchclaw" not in block for block in editable_install_blocks
     )
+
+
+@pytest.mark.parametrize("document", ("README.md", "RESEARCHCLAW_AGENTS.md"))
+def test_public_document_supported_boundary_matches_the_engine(document):
+    text = (ROOT / document).read_text(encoding="utf-8")
+    match = SUPPORTED_BOUNDARY.search(text)
+
+    assert match is not None, f"{document} must declare the Codex-native supported boundary"
+    assert int(match.group(1)) == SUPPORTED_STAGE_MAX
 
 
 def test_distribution_and_plugin_share_codex_native_identity_and_version():

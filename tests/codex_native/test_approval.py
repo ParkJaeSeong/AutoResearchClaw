@@ -17,6 +17,7 @@ def _project_at_stage_five_gate(root):
     shortlist.write_text(
         json.dumps(
             {
+                "source_id": "source-1",
                 "title": "Paper",
                 "doi": "10.1/x",
                 "decision": "include",

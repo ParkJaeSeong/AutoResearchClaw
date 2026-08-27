@@ -10,10 +10,13 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-This foundation release implements stages 1–5 and stops after the user-approved
-literature-screen gate. Experiment execution, stages 6–23, and full-paper
-production remain roadmap work; the declared later contracts are not claims of
-implemented capability.
+Codex-native supported execution boundary: stages 1–6. This release continues
+past the user-approved literature-screen gate to provenance-aware knowledge
+extraction. After valid stage-6 output, the workflow reaches stage 7 only as a
+reporting boundary: it reports and evaluates the knowledge milestone without
+preparing synthesis. Stages 7–23, experiment execution, and
+full-paper production remain roadmap work; later declared contracts are not
+claims of implemented capability.
 
 ## Install the CLI
 
@@ -44,7 +47,7 @@ $researchclaw Start a materials research project on formation-energy prediction.
 
 Ordinary research questions do not activate the skill.
 
-## Foundation CLI workflow
+## Codex-native CLI workflow
 
 All paths returned in task packets are relative to the project root. JSON mode
 writes one JSON value to stdout; diagnostics go to stderr.
@@ -60,11 +63,17 @@ researchclaw-codex stage validate ./demo-research --json
 ```
 
 Repeat `prepare` → artifact creation → `validate` through stage 5. After the
-stage-5 output validates, stop for the user's explicit decision:
+stage-5 output validates, stop for the user's explicit decision. An approval
+advances to stage 6; prepare the extraction packet, create only its declared
+knowledge artifacts, and validate them:
 
 ```bash
 researchclaw-codex approve ./demo-research \
   --decision approve --note "Literature corpus accepted" --json
+researchclaw-codex resume ./demo-research --json
+researchclaw-codex stage prepare ./demo-research --json
+# Access permitted source material and write only the two declared outputs.
+researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex resume ./demo-research --json
 researchclaw-codex evaluate ./demo-research --json
 ```
@@ -72,8 +81,9 @@ researchclaw-codex evaluate ./demo-research --json
 Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to stage 5 for validation and a new user
 decision. After an unchanged approval, `resume` reports the completed
-foundation milestone and points to evaluation rather than an unsupported
-stage-6 packet.
+literature gate and points to stage-6 preparation. After valid stage-6 output,
+`resume` reports the knowledge milestone and points to evaluation rather than
+an unsupported stage-7 packet.
 
 ## Durable project data
 
@@ -85,7 +95,7 @@ absolute paths, traversal, symlinks, and paths that resolve outside the project.
 ## Versioning and identity
 
 The Python distribution and Codex plugin use the same derivative release
-version. This foundation is `0.1.0`. Upstream AutoResearchClaw release numbers
+version. This derivative is `0.1.0`. Upstream AutoResearchClaw release numbers
 are tracked separately and do not determine the derivative's version.
 
 Product identity:

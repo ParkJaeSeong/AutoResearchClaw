@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -43,6 +44,38 @@ CLAIM_FIELDS = frozenset(
         "conflicts_with",
     }
 )
+QUANTITATIVE_DETAIL_FIELDS = frozenset({"value", "unit", "condition"})
+MANIFEST_FIELDS = frozenset(
+    {"schema_version", "project_id", "generated_at", "sources", "summary"}
+)
+MANIFEST_SOURCE_FIELDS = frozenset(
+    {
+        "source_id",
+        "decision",
+        "access_status",
+        "accessed_at",
+        "access_url",
+        "claim_count",
+        "failure_reason",
+    }
+)
+MANIFEST_SUMMARY_FIELDS = frozenset(
+    {
+        "included_sources",
+        "processed_sources",
+        "claim_count",
+        "full_text_sources",
+        "abstract_sources",
+        "metadata_only_sources",
+        "unavailable_sources",
+    }
+)
+_EVIDENCE_LEVELS_BY_ACCESS_STATUS = {
+    "full_text": frozenset({"full_text", "abstract", "metadata_only"}),
+    "abstract": frozenset({"abstract", "metadata_only"}),
+    "metadata_only": frozenset({"metadata_only"}),
+    "unavailable": frozenset(),
+}
 _FORBIDDEN_PAYLOAD_FIELDS = frozenset({"full_text", "source_text"})
 _EVIDENCE_CONTENT_FIELDS = (
     "claim",
@@ -219,13 +252,75 @@ def _validate_shortlist(
                     _SHORTLIST_PATH,
                     f"line {line_number} field {field} must be a non-empty string",
                 )
+    if not any(source.get("decision") == "include" for source in sources.values()):
+        _invalid(issues, _SHORTLIST_PATH, "shortlist requires at least one included source")
     return sources
+
+
+def validate_extraction_shortlist(shortlist_text: str) -> tuple[KnowledgeIssue, ...]:
+    """Validate the complete stage-6 prerequisite produced by stage 5."""
+    issues: list[KnowledgeIssue] = []
+    shortlist = _parse_jsonl(shortlist_text, _SHORTLIST_PATH, issues)
+    _validate_shortlist(shortlist, issues)
+    return tuple(issues)
 
 
 def _identifiers_match(field: str, claim_value: str, source_value: str) -> bool:
     if field in {"doi", "arxiv_id"}:
         return claim_value.casefold() == source_value.casefold()
     return claim_value == source_value
+
+
+def _validate_quantitative_details(
+    value: Any,
+    line_number: int,
+    issues: list[KnowledgeIssue],
+) -> None:
+    if not isinstance(value, dict):
+        _invalid(
+            issues,
+            _CLAIMS_PATH,
+            f"line {line_number} quantitative_details must be a JSON object",
+        )
+        return
+
+    for field in sorted(set(value) - QUANTITATIVE_DETAIL_FIELDS):
+        _invalid(
+            issues,
+            _CLAIMS_PATH,
+            f"line {line_number} has unknown quantitative_details field: {field}",
+        )
+    for field in sorted(QUANTITATIVE_DETAIL_FIELDS - set(value)):
+        _invalid(
+            issues,
+            _CLAIMS_PATH,
+            f"line {line_number} quantitative_details requires field {field}",
+        )
+
+    observed_value = value.get("value")
+    value_is_finite_number = (
+        isinstance(observed_value, int)
+        and not isinstance(observed_value, bool)
+    ) or (
+        isinstance(observed_value, float)
+        and math.isfinite(observed_value)
+    )
+    value_is_string = isinstance(observed_value, str) and bool(observed_value.strip())
+    if "value" in value and not (value_is_finite_number or value_is_string):
+        _invalid(
+            issues,
+            _CLAIMS_PATH,
+            f"line {line_number} quantitative_details value must be a finite number or non-empty string",
+        )
+    for field in ("unit", "condition"):
+        if field in value and (
+            not isinstance(value[field], str) or not value[field].strip()
+        ):
+            _invalid(
+                issues,
+                _CLAIMS_PATH,
+                f"line {line_number} quantitative_details {field} must be a non-empty string",
+            )
 
 
 def _validate_claims(
@@ -251,6 +346,12 @@ def _validate_claims(
                 issues,
                 _CLAIMS_PATH,
                 f"line {line_number} has forbidden claim field: {field_path}",
+            )
+        if "quantitative_details" in record:
+            _validate_quantitative_details(
+                record["quantitative_details"],
+                line_number,
+                issues,
             )
         for field in (
             "claim_id",
@@ -375,6 +476,25 @@ def _validate_claims(
                 )
             normalized_claims.add(normalized_key)
 
+    for line_number, record in enumerate(records, start=1):
+        conflicts = record.get("conflicts_with")
+        if not _string_list(record, "conflicts_with"):
+            continue
+        claim_id = record.get("claim_id")
+        for conflict_id in conflicts:
+            if conflict_id == claim_id:
+                _invalid(
+                    issues,
+                    _CLAIMS_PATH,
+                    f"line {line_number} conflicts_with cannot reference its own claim_id",
+                )
+            elif conflict_id not in claim_ids:
+                _invalid(
+                    issues,
+                    _CLAIMS_PATH,
+                    f"line {line_number} conflicts_with references unknown claim_id: {conflict_id}",
+                )
+
     for source_id, claim_count in claim_counts.items():
         source_type = sources[source_id].get("source_type")
         limit = EXTENDED_CLAIM_LIMIT if source_type in EXTENDED_SOURCE_TYPES else GENERAL_CLAIM_LIMIT
@@ -425,6 +545,15 @@ def _validate_manifest(
     project_id: str,
     issues: list[KnowledgeIssue],
 ) -> None:
+    for field in sorted(set(manifest) - MANIFEST_FIELDS):
+        _invalid(issues, _MANIFEST_PATH, f"manifest has unknown field: {field}")
+    for field_path in _forbidden_field_paths(manifest, "manifest"):
+        _invalid(
+            issues,
+            _MANIFEST_PATH,
+            f"manifest has forbidden manifest field: {field_path}",
+        )
+
     if not _is_integer(manifest.get("schema_version")) or manifest.get("schema_version") != 1:
         _invalid(issues, _MANIFEST_PATH, "schema_version must be integer 1")
 
@@ -445,6 +574,9 @@ def _validate_manifest(
     if not isinstance(summary, dict):
         _invalid(issues, _MANIFEST_PATH, "summary must be a JSON object")
         summary = {}
+    else:
+        for field in sorted(set(summary) - MANIFEST_SUMMARY_FIELDS):
+            _invalid(issues, _MANIFEST_PATH, f"summary has unknown field: {field}")
 
     included_ids = {
         source_id for source_id, source in sources.items() if source.get("decision") == "include"
@@ -453,6 +585,7 @@ def _validate_manifest(
     manifest_ids: set[str] = set()
     processed_ids: set[str] = set()
     status_ids: dict[str, set[str]] = {status: set() for status in ACCESS_STATUSES}
+    access_by_source: dict[str, str] = {}
 
     for entry_number, entry in enumerate(source_entries, start=1):
         if not isinstance(entry, dict):
@@ -463,15 +596,14 @@ def _validate_manifest(
             )
             continue
 
-        for field in (
-            "source_id",
-            "decision",
-            "access_status",
-            "accessed_at",
-            "access_url",
-            "claim_count",
-            "failure_reason",
-        ):
+        for field in sorted(set(entry) - MANIFEST_SOURCE_FIELDS):
+            _invalid(
+                issues,
+                _MANIFEST_PATH,
+                f"sources entry {entry_number} has unknown field: {field}",
+            )
+
+        for field in sorted(MANIFEST_SOURCE_FIELDS):
             if field not in entry:
                 _invalid(
                     issues,
@@ -514,6 +646,7 @@ def _validate_manifest(
             )
         elif source_id and source_id not in status_ids[access_status]:
             status_ids[access_status].add(source_id)
+            access_by_source[source_id] = access_status
 
         declared_count = entry.get("claim_count")
         if not _is_integer(declared_count, minimum=0):
@@ -587,6 +720,27 @@ def _validate_manifest(
                     f"non-unavailable source {source_id} requires null failure_reason",
                 )
             processed_ids.add(source_id)
+
+    for line_number, claim in enumerate(claims, start=1):
+        source_id = claim.get("source_id")
+        evidence_level = claim.get("evidence_level")
+        if not isinstance(source_id, str) or evidence_level not in EVIDENCE_LEVELS:
+            continue
+        access_status = access_by_source.get(source_id)
+        if access_status is None:
+            continue
+        if evidence_level not in _EVIDENCE_LEVELS_BY_ACCESS_STATUS[access_status]:
+            _invalid(
+                issues,
+                _CLAIMS_PATH,
+                f"line {line_number} evidence_level {evidence_level} exceeds manifest access_status {access_status}",
+            )
+        if access_status == "metadata_only" and "quantitative_details" in claim:
+            _invalid(
+                issues,
+                _CLAIMS_PATH,
+                f"line {line_number} metadata-only access cannot support quantitative_details",
+            )
 
     for missing_id in sorted(included_ids - manifest_ids):
         _invalid(issues, _MANIFEST_PATH, f"manifest is missing included source: {missing_id}")
