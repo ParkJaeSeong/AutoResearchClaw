@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from .models import ProjectState
+from .contracts import FOUNDATION_STAGE_IDS, FOUNDATION_STAGE_MAX
 from .profiles import load_profile
 from .state import StateStore
 
@@ -54,7 +55,16 @@ class ResearchProject:
         state_path = root / ".researchclaw" / "state.json"
         if not state_path.is_file():
             raise ValueError(f"project state.json not found: {state_path}")
-        return cls(root=root, state=StateStore(state_path.parent).load())
+        store = StateStore(state_path.parent)
+        state = store.load()
+        if (
+            state.current_stage == FOUNDATION_STAGE_MAX + 1
+            and all(stage_id in state.completed_stages for stage_id in FOUNDATION_STAGE_IDS)
+            and state.next_action == "prepare_stage"
+        ):
+            state = replace(state, next_action="report_foundation_milestone_only")
+            store.save(state)
+        return cls(root=root, state=state)
 
     def status_dict(self) -> dict[str, object]:
         return self.state.to_dict()

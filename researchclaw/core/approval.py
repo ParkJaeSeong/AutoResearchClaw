@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .contracts import get_contract
+from .contracts import FOUNDATION_STAGE_MAX, get_contract
 from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import atomic_write_json
@@ -100,6 +100,11 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
         completed_stages = state.completed_stages
         if contract.id not in completed_stages:
             completed_stages = (*completed_stages, contract.id)
+        next_action = (
+            "report_foundation_milestone_only"
+            if contract.id == FOUNDATION_STAGE_MAX
+            else "prepare_stage"
+        )
         updated_state = ProjectState(
             schema_version=state.schema_version,
             project_id=state.project_id,
@@ -108,7 +113,7 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
             current_stage=contract.id + 1,
             status=StageStatus.READY,
             completed_stages=completed_stages,
-            next_action="prepare_stage",
+            next_action=next_action,
             execution_policy=state.execution_policy,
             artifacts=state.artifacts,
             retry_counts=state.retry_counts,

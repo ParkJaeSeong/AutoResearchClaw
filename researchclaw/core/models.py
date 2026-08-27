@@ -15,6 +15,7 @@ _NEXT_ACTIONS = frozenset(
         "revise_declared_outputs_and_validate_again",
         "review_failures_with_user",
         "validate_stage",
+        "report_foundation_milestone_only",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})

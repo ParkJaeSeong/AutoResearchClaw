@@ -40,9 +40,25 @@ def test_approval_completes_hash_bound_gate(tmp_path):
     assert reopened.state.completed_stages[-1] == 5
     assert reopened.state.current_stage == 6
     assert reopened.state.status.value == "ready"
+    assert reopened.state.next_action == "report_foundation_milestone_only"
     assert verify_current_approval(project.root, record) is True
     persisted = json.loads((project.root / "approvals" / "stage-05.json").read_text(encoding="utf-8"))
     assert persisted["decision"] == "approve"
+
+
+def test_open_migrates_legacy_approved_foundation_action(tmp_path):
+    project, _ = _project_at_stage_five_gate(tmp_path / "demo")
+    approve_current_gate(project, "approve", "Use this corpus")
+    state_path = project.root / ".researchclaw" / "state.json"
+    legacy = json.loads(state_path.read_text(encoding="utf-8"))
+    legacy["next_action"] = "prepare_stage"
+    state_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    reopened = ResearchProject.open(project.root)
+
+    assert reopened.state.next_action == "report_foundation_milestone_only"
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["next_action"] == "report_foundation_milestone_only"
 
 
 def test_modifying_shortlist_invalidates_approval(tmp_path):
