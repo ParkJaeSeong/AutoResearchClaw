@@ -23,9 +23,9 @@ Required fields:
 - `evidence_summary`: non-empty paraphrase of the supporting evidence.
 - `evidence_level`: `full_text`, `abstract`, or `metadata_only`.
 - `locator`: explicit non-empty page, section, table, figure, `abstract`, or metadata locator.
-- `source_url`: non-empty accessed or canonical URL.
+- `source_url`: non-empty canonical source URL. When the approved shortlist provides a URL, this value must agree with that shortlist URL; the actually accessed or final PDF URL belongs in the manifest entry's `access_url`.
 - `applicability`: non-empty list of non-empty strings.
-- `limitations`: list of strings, possibly empty.
+- `limitations`: list of non-empty strings, possibly empty.
 
 Optional fields:
 
