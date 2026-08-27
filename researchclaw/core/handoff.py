@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .approval import approval_matches_state, load_approval_record
 from .contracts import (
-    FOUNDATION_STAGE_IDS,
     FOUNDATION_STAGE_MAX,
+    SUPPORTED_STAGE_IDS,
     SUPPORTED_STAGE_MAX,
     get_contract,
     stage_for_output,
@@ -184,7 +184,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     milestone_complete = (
         state.current_stage > SUPPORTED_STAGE_MAX
-        and all(stage_id in state.completed_stages for stage_id in FOUNDATION_STAGE_IDS)
+        and all(stage_id in state.completed_stages for stage_id in SUPPORTED_STAGE_IDS)
     )
     if state.current_stage > 23:
         stage_name = "project_complete"
@@ -196,7 +196,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if milestone_complete:
-        next_action = "report_foundation_milestone_only"
+        next_action = "report_knowledge_milestone_only"
         next_command = _command(current_project.root, "evaluate")
     elif status is StageStatus.NEEDS_REVISION:
         next_action = "validate_stage"

@@ -5,12 +5,19 @@ import shlex
 from hashlib import sha256
 from dataclasses import replace
 
+import pytest
+
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
+from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import complete_first_four_stages, write_valid_fixture_artifacts
+from tests.codex_native.helpers import (
+    build_completed_knowledge_milestone_project,
+    complete_first_four_stages,
+    write_valid_fixture_artifacts,
+)
 
 
 def _resume(root):
@@ -264,3 +271,28 @@ def test_resume_rewinds_approved_gate_when_artifact_becomes_matching_symlink(tmp
     assert payload["current_stage"] == 5
     assert payload["status"] == "needs_revision"
     assert ResearchProject.open(project.root).state.completed_stages == (1, 2, 3, 4)
+
+
+def test_resume_reports_completed_knowledge_milestone_at_stage_seven(tmp_path):
+    project = build_completed_knowledge_milestone_project(tmp_path / "demo")
+
+    payload = _resume(project.root)
+
+    assert payload["current_stage"] == 7
+    assert payload["completed_stages"] == [1, 2, 3, 4, 5, 6]
+    assert payload["milestone_complete"] is True
+    assert payload["next_action"] == "report_knowledge_milestone_only"
+    assert payload["write_policy"] == "no_undeclared_outputs"
+    assert shlex.split(payload["next_command"]) == [
+        "researchclaw-codex",
+        "evaluate",
+        str(project.root),
+        "--json",
+    ]
+
+
+def test_stage_seven_task_packet_is_refused_at_the_supported_boundary(tmp_path):
+    project = build_completed_knowledge_milestone_project(tmp_path / "demo")
+
+    with pytest.raises(ValueError, match="task packets are not defined for stage: 7"):
+        prepare_task_packet(project)

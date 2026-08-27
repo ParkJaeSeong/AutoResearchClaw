@@ -1,4 +1,7 @@
-def test_init_validate_five_stages_approve_resume_and_evaluate(tmp_path, capsys):
+from researchclaw.core.project import ResearchProject
+
+
+def test_init_validate_six_stages_approve_resume_and_evaluate(tmp_path, capsys):
     from tests.codex_native.helpers import (
         run_cli,
         run_cli_json,
@@ -39,6 +42,25 @@ def test_init_validate_five_stages_approve_resume_and_evaluate(tmp_path, capsys)
 
     resumed = run_cli_json(capsys, "resume", str(root), "--json")
     assert resumed["current_stage"] == 6
+
+    packet = run_cli_json(capsys, "stage", "prepare", str(root), "--json")
+    assert packet["stage_id"] == 6
+    write_valid_fixture_artifacts(root, 6)
+    report = run_cli_json(capsys, "stage", "validate", str(root), "--json")
+    assert report["valid"] is True
+
+    state = ResearchProject.open(root).state
+    assert state.current_stage == 7
+    assert state.completed_stages == (1, 2, 3, 4, 5, 6)
+    assert state.next_action == "report_knowledge_milestone_only"
+    assert set(state.artifacts) >= {
+        "knowledge/extractions.jsonl",
+        "knowledge/extraction_manifest.json",
+    }
+
+    resumed = run_cli_json(capsys, "resume", str(root), "--json")
+    assert resumed["current_stage"] == 7
+    assert resumed["next_action"] == "report_knowledge_milestone_only"
     evaluation = run_cli_json(capsys, "evaluate", str(root), "--json")
-    assert evaluation["stage_completion_rate"] == 5 / 23
+    assert evaluation["stage_completion_rate"] == 6 / 23
     assert evaluation["external_llm_calls"] == 0

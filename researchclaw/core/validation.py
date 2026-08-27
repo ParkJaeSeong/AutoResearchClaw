@@ -1,4 +1,4 @@
-"""Deterministic validation and advancement for the first five research stages."""
+"""Deterministic validation and advancement for supported research stages."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from typing import Any
 
 import yaml
 
-from .contracts import StageContract, get_contract
+from .contracts import SUPPORTED_STAGE_MAX, StageContract, get_contract
+from .knowledge_extraction import KnowledgeIssue, validate_knowledge_extraction
 from .models import ArtifactRef, StageStatus
 from .paths import resolve_project_artifact
 from .project import ResearchProject
@@ -190,6 +191,37 @@ def _validate_format(
         )
 
 
+def _as_validation_issue(issue: KnowledgeIssue) -> ValidationIssue:
+    return ValidationIssue(code=issue.code, path=issue.path, message=issue.message)
+
+
+def _validate_stage_six(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (shortlist_path,) = contract.required_inputs
+    try:
+        shortlist = resolve_project_artifact(project.root, shortlist_path)
+    except ValueError as error:
+        issues.append(ValidationIssue("unsafe_artifact_path", shortlist_path, str(error)))
+        return
+    shortlist_text = _read_text(shortlist, issues, shortlist_path)
+    if shortlist_text is None:
+        return
+    claims_path, manifest_path = contract.required_outputs
+    issues.extend(
+        _as_validation_issue(issue)
+        for issue in validate_knowledge_extraction(
+            shortlist_text,
+            contents[claims_path],
+            contents[manifest_path],
+            project.state.project_id,
+        )
+    )
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -208,6 +240,10 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
     contents: dict[str, str] = {}
 
     for relative_path in packet.required_outputs:
+        allow_empty = (
+            packet.stage_id == SUPPORTED_STAGE_MAX
+            and relative_path == packet.required_outputs[0]
+        )
         try:
             path = resolve_project_artifact(current_project.root, relative_path)
         except ValueError as error:
@@ -216,7 +252,7 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         if not path.is_file():
             issues.append(ValidationIssue("missing_artifact", relative_path, "required artifact is missing"))
             continue
-        if path.stat().st_size == 0:
+        if path.stat().st_size == 0 and not allow_empty:
             issues.append(ValidationIssue("empty_artifact", relative_path, "required artifact is empty"))
             continue
         artifact_refs[relative_path] = ArtifactRef(
@@ -227,13 +263,15 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         text = _read_text(path, issues, relative_path)
         if text is None:
             continue
-        if not text.strip():
+        if not text.strip() and not allow_empty:
             issues.append(ValidationIssue("empty_artifact", relative_path, "required artifact is empty"))
             continue
         contents[relative_path] = text
 
     if not issues and len(contents) == len(packet.required_outputs):
         _validate_format(contract, contents, issues)
+        if not issues and contract.id == SUPPORTED_STAGE_MAX:
+            _validate_stage_six(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
@@ -246,7 +284,12 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             error_state = StageStatus.NEEDS_REVISION.value
     else:
         retry_state = "succeeded_after_retry" if attempt_number > 1 else "succeeded"
-        recommended_action = "request_approval" if contract.requires_approval else "prepare_next_stage"
+        if contract.requires_approval:
+            recommended_action = "request_approval"
+        elif contract.id == SUPPORTED_STAGE_MAX:
+            recommended_action = "report_knowledge_milestone_only"
+        else:
+            recommended_action = "prepare_next_stage"
         error_state = None
 
     report = ValidationReport(
@@ -336,7 +379,11 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             current_stage=report.stage_id + 1,
             completed_stages=completed_stages,
             status=StageStatus.READY,
-            next_action="prepare_stage",
+            next_action=(
+                "report_knowledge_milestone_only"
+                if report.stage_id == SUPPORTED_STAGE_MAX
+                else "prepare_stage"
+            ),
             artifacts=artifacts,
             last_error=None,
         )

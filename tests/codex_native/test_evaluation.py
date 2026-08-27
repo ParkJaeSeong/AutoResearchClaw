@@ -4,7 +4,11 @@ from researchclaw.codex.cli import main
 from researchclaw.core.events import EventLog, build_foundation_report
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import build_completed_literature_gate_project, write_valid_fixture_artifacts
+from tests.codex_native.helpers import (
+    build_completed_knowledge_milestone_project,
+    build_completed_literature_gate_project,
+    write_valid_fixture_artifacts,
+)
 
 
 def test_foundation_report_counts_retries_approvals_and_resume(tmp_path):
@@ -80,3 +84,12 @@ def test_evaluate_cli_emits_only_report_json(tmp_path, capsys):
     assert report["project_id"] == project.state.project_id
     assert report["approval_count"] == 1
     assert captured.err == ""
+
+
+def test_knowledge_milestone_report_counts_six_completed_stages(tmp_path):
+    project = build_completed_knowledge_milestone_project(tmp_path / "demo")
+
+    report = build_foundation_report(project)
+
+    assert report["stage_completion_rate"] == 6 / 23
+    assert report["artifact_count"] == 8
