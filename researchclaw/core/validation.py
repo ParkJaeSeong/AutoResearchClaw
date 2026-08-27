@@ -191,8 +191,12 @@ def _validate_format(
         )
 
 
-def _as_validation_issue(issue: KnowledgeIssue) -> ValidationIssue:
-    return ValidationIssue(code=issue.code, path=issue.path, message=issue.message)
+def _as_validation_issue(
+    issue: KnowledgeIssue,
+    required_outputs: tuple[str, ...],
+) -> ValidationIssue:
+    path = issue.path if issue.path in required_outputs else required_outputs[-1]
+    return ValidationIssue(code=issue.code, path=path, message=issue.message)
 
 
 def _validate_stage_six(
@@ -212,7 +216,7 @@ def _validate_stage_six(
         return
     claims_path, manifest_path = contract.required_outputs
     issues.extend(
-        _as_validation_issue(issue)
+        _as_validation_issue(issue, contract.required_outputs)
         for issue in validate_knowledge_extraction(
             shortlist_text,
             contents[claims_path],

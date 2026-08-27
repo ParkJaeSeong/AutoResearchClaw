@@ -1,9 +1,10 @@
 import json
 
 from researchclaw.codex.cli import main
+from researchclaw.core.knowledge_extraction import KnowledgeIssue
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.task_packets import prepare_task_packet
-from researchclaw.core.validation import validate_current_stage
+from researchclaw.core.validation import _as_validation_issue, validate_current_stage
 from tests.codex_native.helpers import (
     build_completed_literature_gate_project,
     complete_first_four_stages,
@@ -323,3 +324,48 @@ def test_stage_six_accepts_empty_extractions_when_all_sources_are_unavailable(tm
     assert report.valid is True
     assert report.artifact_refs["knowledge/extractions.jsonl"].size == 0
     assert ResearchProject.open(project.root).state.current_stage == 7
+
+
+def test_stage_six_issue_mapping_preserves_a_declared_output_path():
+    issue = KnowledgeIssue(
+        "invalid_format",
+        "knowledge/extractions.jsonl",
+        "claim is invalid",
+    )
+
+    mapped = _as_validation_issue(
+        issue,
+        ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
+    )
+
+    assert mapped.path == "knowledge/extractions.jsonl"
+    assert mapped.code == issue.code
+    assert mapped.message == issue.message
+
+
+def test_stage_six_issue_mapping_routes_the_shortlist_input_to_the_manifest():
+    issue = KnowledgeIssue(
+        "invalid_format",
+        "literature/shortlist.jsonl",
+        "source identity is invalid",
+    )
+
+    mapped = _as_validation_issue(
+        issue,
+        ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
+    )
+
+    assert mapped.path == "knowledge/extraction_manifest.json"
+    assert mapped.code == issue.code
+    assert mapped.message == issue.message
+
+
+def test_stage_six_issue_mapping_routes_an_unknown_path_to_the_manifest():
+    issue = KnowledgeIssue("invalid_format", "unexpected/source.json", "unknown source issue")
+
+    mapped = _as_validation_issue(
+        issue,
+        ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
+    )
+
+    assert mapped.path == "knowledge/extraction_manifest.json"
