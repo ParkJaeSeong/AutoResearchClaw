@@ -42,10 +42,17 @@ def _invalid(issues: list[KnowledgeIssue], path: str, message: str) -> None:
     issues.append(KnowledgeIssue("invalid_format", path, message))
 
 
-def _parse_jsonl(text: str, path: str, issues: list[KnowledgeIssue]) -> list[dict[str, Any]]:
+def _parse_jsonl(
+    text: str,
+    path: str,
+    issues: list[KnowledgeIssue],
+    *,
+    allow_empty: bool = False,
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     if not text.strip():
-        _invalid(issues, path, "artifact must contain at least one JSON object")
+        if not allow_empty:
+            _invalid(issues, path, "artifact must contain at least one JSON object")
         return records
     for line_number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -313,6 +320,29 @@ def _actual_claim_counts(records: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def _all_included_sources_unavailable(
+    sources: dict[str, dict[str, Any]],
+    manifest: dict[str, Any] | None,
+) -> bool:
+    included_ids = {
+        source_id for source_id, source in sources.items() if source.get("decision") == "include"
+    }
+    if not included_ids or manifest is None or not isinstance(manifest.get("sources"), list):
+        return False
+    unavailable_ids = {
+        entry.get("source_id")
+        for entry in manifest["sources"]
+        if isinstance(entry, dict)
+        and entry.get("decision") == "include"
+        and entry.get("access_status") == "unavailable"
+        and _is_integer(entry.get("claim_count"), minimum=0)
+        and entry.get("claim_count") == 0
+        and isinstance(entry.get("failure_reason"), str)
+        and bool(entry["failure_reason"].strip())
+    }
+    return included_ids <= unavailable_ids
+
+
 def _validate_manifest(
     manifest: dict[str, Any],
     sources: dict[str, dict[str, Any]],
@@ -529,9 +559,11 @@ def validate_knowledge_extraction(
     """Validate local stage-6 artifacts without performing source access."""
     issues: list[KnowledgeIssue] = []
     shortlist = _parse_jsonl(shortlist_text, _SHORTLIST_PATH, issues)
-    claims = _parse_jsonl(claims_text, _CLAIMS_PATH, issues)
+    claims = _parse_jsonl(claims_text, _CLAIMS_PATH, issues, allow_empty=True)
     manifest = _parse_manifest(manifest_text, issues)
     sources = _validate_shortlist(shortlist, issues)
+    if not claims_text.strip() and not _all_included_sources_unavailable(sources, manifest):
+        _invalid(issues, _CLAIMS_PATH, "artifact must contain at least one JSON object")
     _validate_claims(claims, sources, issues)
     if manifest is not None:
         _validate_manifest(manifest, sources, claims, project_id, issues)

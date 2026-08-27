@@ -562,3 +562,73 @@ def test_manifest_required_nullable_field_cannot_be_omitted(field):
     issues = validate_knowledge_extraction(VALID_SHORTLIST, VALID_CLAIMS, manifest, "rc-test")
 
     assert f"requires field {field}" in _messages(issues)
+
+
+ALL_UNAVAILABLE_MANIFEST = """\
+{
+  "schema_version": 1,
+  "project_id": "rc-test",
+  "generated_at": "2026-08-27T12:00:00Z",
+  "sources": [
+    {
+      "source_id": "src-full",
+      "decision": "include",
+      "access_status": "unavailable",
+      "accessed_at": null,
+      "access_url": null,
+      "claim_count": 0,
+      "failure_reason": "The full-text source could not be retrieved"
+    },
+    {
+      "source_id": "src-unavailable",
+      "decision": "include",
+      "access_status": "unavailable",
+      "accessed_at": null,
+      "access_url": null,
+      "claim_count": 0,
+      "failure_reason": "The archived page could not be retrieved"
+    }
+  ],
+  "summary": {
+    "included_sources": 2,
+    "processed_sources": 2,
+    "claim_count": 0,
+    "full_text_sources": 0,
+    "abstract_sources": 0,
+    "metadata_only_sources": 0,
+    "unavailable_sources": 2
+  }
+}
+"""
+
+
+def test_empty_claims_are_valid_when_all_included_sources_are_unavailable():
+    issues = validate_knowledge_extraction(
+        VALID_SHORTLIST,
+        "",
+        ALL_UNAVAILABLE_MANIFEST,
+        "rc-test",
+    )
+
+    assert issues == ()
+
+
+def test_empty_claims_are_rejected_when_any_included_source_is_non_unavailable():
+    manifest = json.loads(ALL_UNAVAILABLE_MANIFEST)
+    manifest["sources"][0].update(
+        access_status="full_text",
+        accessed_at="2026-08-27T11:00:00Z",
+        access_url="https://example.org/full",
+        failure_reason=None,
+    )
+    manifest["summary"].update(full_text_sources=1, unavailable_sources=1)
+
+    issues = validate_knowledge_extraction(
+        VALID_SHORTLIST,
+        "",
+        json.dumps(manifest, separators=(",", ":")),
+        "rc-test",
+    )
+
+    assert "artifact must contain at least one JSON object" in _messages(issues)
+    assert "non-unavailable source src-full must have at least one claim" in _messages(issues)
