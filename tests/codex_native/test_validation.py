@@ -246,6 +246,38 @@ def test_stage_five_rejects_non_string_screening_metadata(tmp_path):
     assert "reason" in messages
 
 
+@pytest.mark.parametrize("decision", ([], {}), ids=("array", "object"))
+def test_stage_five_rejects_non_string_shortlist_decisions_without_crashing(
+    tmp_path,
+    decision,
+):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    project = complete_first_four_stages(project)
+    shortlist = project.root / "literature" / "shortlist.jsonl"
+    shortlist.write_text(
+        json.dumps(
+            {
+                "source_id": "source-1",
+                "title": "Paper",
+                "doi": "10.1/x",
+                "decision": decision,
+                "reason": "relevant",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert report.attempt_number == 1
+    assert report.error_state == "needs_revision"
+    assert {issue.code for issue in report.issues} == {"invalid_format"}
+    assert any("requires non-empty string decision" in issue.message for issue in report.issues)
+    assert ResearchProject.open(project.root).state.status.value == "needs_revision"
+
+
 @pytest.mark.parametrize(
     ("shortlist_text", "expected_message"),
     (

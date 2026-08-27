@@ -237,7 +237,8 @@ def _validate_shortlist(
                 )
             else:
                 sources[source_id] = record
-        if record.get("decision") not in {"include", "exclude"}:
+        decision = record.get("decision")
+        if not isinstance(decision, str) or decision not in {"include", "exclude"}:
             _invalid(issues, _SHORTLIST_PATH, f"line {line_number} has an invalid decision")
         if not any(_non_empty_string(record, field) for field in ("doi", "arxiv_id", "url")):
             _invalid(
