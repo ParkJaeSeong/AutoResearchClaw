@@ -25,6 +25,35 @@ PLACEHOLDER_MARKERS = (
     "placeholder",
     "fill this in",
 )
+CLAIM_FIELDS = frozenset(
+    {
+        "claim_id",
+        "source_id",
+        "claim",
+        "evidence_summary",
+        "evidence_level",
+        "locator",
+        "source_url",
+        "applicability",
+        "limitations",
+        "doi",
+        "arxiv_id",
+        "supporting_excerpt",
+        "quantitative_details",
+        "conflicts_with",
+    }
+)
+_FORBIDDEN_PAYLOAD_FIELDS = frozenset({"full_text", "source_text"})
+_EVIDENCE_CONTENT_FIELDS = (
+    "claim",
+    "evidence_summary",
+    "locator",
+    "supporting_excerpt",
+    "applicability",
+    "limitations",
+    "conflicts_with",
+    "quantitative_details",
+)
 
 _SHORTLIST_PATH = "literature/shortlist.jsonl"
 _CLAIMS_PATH = "knowledge/extractions.jsonl"
@@ -40,6 +69,14 @@ class KnowledgeIssue:
 
 def _invalid(issues: list[KnowledgeIssue], path: str, message: str) -> None:
     issues.append(KnowledgeIssue("invalid_format", path, message))
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _strict_json_loads(value: str) -> Any:
+    return json.loads(value, parse_constant=_reject_json_constant)
 
 
 def _parse_jsonl(
@@ -58,8 +95,8 @@ def _parse_jsonl(
         if not line.strip():
             continue
         try:
-            value: Any = json.loads(line)
-        except json.JSONDecodeError:
+            value = _strict_json_loads(line)
+        except (json.JSONDecodeError, ValueError):
             _invalid(issues, path, f"line {line_number} must be valid JSON")
             continue
         if not isinstance(value, dict):
@@ -74,8 +111,8 @@ def _parse_manifest(text: str, issues: list[KnowledgeIssue]) -> dict[str, Any] |
         _invalid(issues, _MANIFEST_PATH, "artifact must contain a JSON object")
         return None
     try:
-        value: Any = json.loads(text)
-    except json.JSONDecodeError:
+        value = _strict_json_loads(text)
+    except (json.JSONDecodeError, ValueError):
         _invalid(issues, _MANIFEST_PATH, "artifact must be valid JSON")
         return None
     if not isinstance(value, dict):
@@ -100,6 +137,30 @@ def _string_list(record: dict[str, Any], field: str, *, non_empty: bool = False)
 
 def _normalize_claim(value: str) -> str:
     return " ".join(value.casefold().split())
+
+
+def _contains_placeholder(value: Any) -> bool:
+    if isinstance(value, str):
+        return any(marker in value.casefold() for marker in PLACEHOLDER_MARKERS)
+    if isinstance(value, list):
+        return any(_contains_placeholder(member) for member in value)
+    if isinstance(value, dict):
+        return any(_contains_placeholder(member) for member in value.values())
+    return False
+
+
+def _forbidden_field_paths(value: Any, prefix: str) -> tuple[str, ...]:
+    paths: list[str] = []
+    if isinstance(value, dict):
+        for field, member in value.items():
+            path = f"{prefix}.{field}"
+            if isinstance(field, str) and field.casefold() in _FORBIDDEN_PAYLOAD_FIELDS:
+                paths.append(path)
+            paths.extend(_forbidden_field_paths(member, path))
+    elif isinstance(value, list):
+        for index, member in enumerate(value):
+            paths.extend(_forbidden_field_paths(member, f"{prefix}[{index}]"))
+    return tuple(paths)
 
 
 def _is_integer(value: Any, *, minimum: int | None = None) -> bool:
@@ -176,6 +237,21 @@ def _validate_claims(
     normalized_claims: set[tuple[str, str]] = set()
     claim_counts: dict[str, int] = {}
     for line_number, record in enumerate(records, start=1):
+        for field in sorted(set(record) - CLAIM_FIELDS):
+            _invalid(
+                issues,
+                _CLAIMS_PATH,
+                f"line {line_number} has unknown claim field: {field}",
+            )
+        for field_path in _forbidden_field_paths(
+            record.get("quantitative_details"),
+            "quantitative_details",
+        ):
+            _invalid(
+                issues,
+                _CLAIMS_PATH,
+                f"line {line_number} has forbidden claim field: {field_path}",
+            )
         for field in (
             "claim_id",
             "source_id",
@@ -278,9 +354,8 @@ def _validate_claims(
                 _CLAIMS_PATH,
                 f"line {line_number} metadata_only claim cannot contain quantitative_details",
             )
-        for field in ("claim", "evidence_summary"):
-            value = record.get(field)
-            if isinstance(value, str) and any(marker in value.casefold() for marker in PLACEHOLDER_MARKERS):
+        for field in _EVIDENCE_CONTENT_FIELDS:
+            if field in record and _contains_placeholder(record[field]):
                 _invalid(
                     issues,
                     _CLAIMS_PATH,

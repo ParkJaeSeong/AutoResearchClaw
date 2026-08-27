@@ -632,3 +632,90 @@ def test_empty_claims_are_rejected_when_any_included_source_is_non_unavailable()
 
     assert "artifact must contain at least one JSON object" in _messages(issues)
     assert "non-unavailable source src-full must have at least one claim" in _messages(issues)
+
+
+@pytest.mark.parametrize("forbidden_field", ("full_text", "source_text"))
+def test_claim_closed_schema_rejects_full_source_payloads(forbidden_field):
+    first, second = VALID_CLAIMS.splitlines()
+    claim = json.loads(first)
+    claim[forbidden_field] = "The full source must never be stored in extraction artifacts."
+    claims = json.dumps(claim, separators=(",", ":")) + "\n" + second + "\n"
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert f"unknown claim field: {forbidden_field}" in _messages(issues)
+
+
+@pytest.mark.parametrize("forbidden_field", ("full_text", "source_text"))
+def test_claim_closed_schema_rejects_nested_full_source_payloads(forbidden_field):
+    first, second = VALID_CLAIMS.splitlines()
+    claim = json.loads(first)
+    claim["quantitative_details"] = {
+        "value": 7,
+        "unit": "samples",
+        "condition": "catalog evaluation",
+        forbidden_field: "The full source must never be stored in nested payloads.",
+    }
+    claims = json.dumps(claim, separators=(",", ":")) + "\n" + second + "\n"
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert f"forbidden claim field: quantitative_details.{forbidden_field}" in _messages(issues)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("locator", "Section with placeholder text"),
+        ("supporting_excerpt", "Template key finding"),
+        ("applicability", ["Please fill this in"]),
+        ("limitations", ["Template method summary"]),
+        ("conflicts_with", ["placeholder"]),
+        (
+            "quantitative_details",
+            {"value": 7, "unit": "samples", "condition": "fill this in later"},
+        ),
+    ),
+)
+def test_placeholder_scope_rejects_markers_in_all_evidence_fields(field, value):
+    first, second = VALID_CLAIMS.splitlines()
+    claim = json.loads(first)
+    claim[field] = value
+    claims = json.dumps(claim, separators=(",", ":")) + "\n" + second + "\n"
+
+    issues = validate_knowledge_extraction(VALID_SHORTLIST, claims, VALID_MANIFEST, "rc-test")
+
+    assert f"{field} contains a placeholder marker" in _messages(issues)
+
+
+@pytest.mark.parametrize("artifact", ("shortlist", "claims", "manifest"))
+def test_non_standard_json_constants_are_rejected(artifact):
+    shortlist = VALID_SHORTLIST
+    claims = VALID_CLAIMS
+    manifest = VALID_MANIFEST
+    if artifact == "shortlist":
+        shortlist = shortlist.replace(
+            '"source_type":"article"}',
+            '"source_type":"article","score":Infinity}',
+            1,
+        )
+    elif artifact == "claims":
+        claims = claims.replace(
+            '"doi":"10.1000/full"',
+            '"doi":"10.1000/full","quantitative_details":NaN',
+            1,
+        )
+    else:
+        manifest = manifest.replace("{\n", '{\n  "score": -Infinity,\n', 1)
+
+    issues = validate_knowledge_extraction(shortlist, claims, manifest, "rc-test")
+
+    expected_path = {
+        "shortlist": "literature/shortlist.jsonl",
+        "claims": "knowledge/extractions.jsonl",
+        "manifest": "knowledge/extraction_manifest.json",
+    }[artifact]
+    assert any(
+        issue.path == expected_path and "must be valid JSON" in issue.message
+        for issue in issues
+    )
