@@ -25,6 +25,9 @@ class Phase:
 
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
+LITERATURE_APPROVAL_STAGE = 5
+SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6)
+SUPPORTED_STAGE_MAX = 6
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -38,6 +41,10 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
     ),
     5: (
         "each literature/shortlist.jsonl record has a title, include/exclude decision, and reason",
+    ),
+    6: (
+        "each knowledge/extractions.jsonl record has a valid claim and source evidence",
+        "knowledge/extractions.jsonl is a complete manifest for the approved shortlist",
     ),
 }
 

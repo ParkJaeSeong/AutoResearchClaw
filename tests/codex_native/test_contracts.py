@@ -1,4 +1,17 @@
-from researchclaw.core.contracts import PHASES, STAGE_CONTRACTS, get_contract
+from researchclaw.core.contracts import (
+    LITERATURE_APPROVAL_STAGE,
+    PHASES,
+    STAGE_CONTRACTS,
+    SUPPORTED_STAGE_IDS,
+    SUPPORTED_STAGE_MAX,
+    get_contract,
+)
+
+
+def test_supported_stage_boundary_includes_knowledge_extract():
+    assert SUPPORTED_STAGE_IDS == (1, 2, 3, 4, 5, 6)
+    assert SUPPORTED_STAGE_MAX == 6
+    assert LITERATURE_APPROVAL_STAGE == 5
 
 
 def test_all_23_stage_contracts_are_present_and_ordered():

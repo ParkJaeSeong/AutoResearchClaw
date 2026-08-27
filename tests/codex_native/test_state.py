@@ -22,6 +22,23 @@ def test_state_round_trip_is_independent_of_conversation(tmp_path):
     assert loaded.status is StageStatus.READY
 
 
+@pytest.mark.parametrize(
+    "next_action",
+    ("report_foundation_milestone_only", "report_knowledge_milestone_only"),
+)
+def test_state_load_accepts_legacy_and_knowledge_milestone_actions(tmp_path, next_action):
+    store = StateStore(tmp_path)
+    data = ProjectState.new("rc-test", "Topic", "materials_ai").to_dict()
+    data.update(
+        current_stage=6,
+        completed_stages=[1, 2, 3, 4, 5],
+        next_action=next_action,
+    )
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+
+    assert store.load().next_action == next_action
+
+
 def test_state_save_replaces_existing_document_atomically(tmp_path):
     store = StateStore(tmp_path)
     state = ProjectState.new("rc-test", "Topic", "materials_ai")
