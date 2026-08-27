@@ -4,11 +4,21 @@ import json
 import pytest
 
 from researchclaw.core.models import StageStatus
+from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import write_valid_fixture_artifacts
+from tests.codex_native.helpers import complete_first_four_stages, write_valid_fixture_artifacts
+
+
+def _approved_project(root):
+    project = ResearchProject.create(root, "Formation energy", "materials_ai")
+    complete_first_four_stages(project)
+    write_valid_fixture_artifacts(project.root, 5)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    approve_current_gate(ResearchProject.open(project.root), "approve", "Approved")
+    return ResearchProject.open(project.root)
 
 
 def test_prepare_stage_one_packet_contains_no_model_backend(tmp_path):
@@ -111,3 +121,52 @@ def test_prepare_reopens_durable_state_instead_of_using_a_stale_project_value(tm
 
     assert packet.stage_id == 2
     assert packet.required_inputs == ("scope/goal.md", "scope/hardware_profile.json")
+
+
+def test_approved_project_prepares_stage_six_packet(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+
+    packet = prepare_task_packet(ResearchProject.open(project.root))
+
+    assert packet.stage_id == 6
+    assert packet.required_inputs == ("literature/shortlist.jsonl",)
+    assert packet.required_outputs == (
+        "knowledge/extractions.jsonl",
+        "knowledge/extraction_manifest.json",
+    )
+
+
+def test_stage_six_rejects_missing_approval(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    (project.root / "approvals" / "stage-05.json").unlink()
+
+    with pytest.raises(ValueError, match="approved stage-5 shortlist"):
+        prepare_task_packet(ResearchProject.open(project.root))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("decision", "reject"),
+        ("project_id", "rc-wrong-project"),
+        ("artifact_hashes", {"literature/shortlist.jsonl": "0" * 64}),
+    ],
+)
+def test_stage_six_rejects_an_approval_record_that_no_longer_authorizes_shortlist(tmp_path, field, value):
+    project = _approved_project(tmp_path / "demo")
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval[field] = value
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="approved stage-5 shortlist"):
+        prepare_task_packet(ResearchProject.open(project.root))
+
+
+def test_stage_six_rejects_malformed_approval_record(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval_path.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="approved stage-5 shortlist"):
+        prepare_task_packet(ResearchProject.open(project.root))

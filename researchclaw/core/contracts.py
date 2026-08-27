@@ -71,7 +71,12 @@ _CONTRACT_DATA = (
     ("search_strategy", "Create a reproducible search strategy", ("scope/problem_tree.md",), ("literature/search_plan.yaml",)),
     ("literature_collect", "Collect candidate literature", ("literature/search_plan.yaml",), ("literature/candidates.jsonl",)),
     ("literature_screen", "Screen and approve candidate literature", ("literature/candidates.jsonl",), ("literature/shortlist.jsonl",)),
-    ("knowledge_extract", "Extract structured knowledge from the shortlist", ("literature/shortlist.jsonl",), ("knowledge/extractions.jsonl",)),
+    (
+        "knowledge_extract",
+        "Extract structured knowledge from the shortlist",
+        ("literature/shortlist.jsonl",),
+        ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
+    ),
     ("synthesis", "Synthesize the current evidence", ("knowledge/extractions.jsonl",), ("knowledge/synthesis.md",)),
     ("hypothesis_gen", "Generate testable hypotheses", ("knowledge/synthesis.md",), ("hypotheses/candidates.jsonl",)),
     ("experiment_design", "Design a reproducible experiment", ("hypotheses/candidates.jsonl",), ("experiment/design.json",)),

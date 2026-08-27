@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import hashlib
-import json
-import re
 import shlex
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .approval import ApprovalRecord, verify_current_approval
-from .contracts import FOUNDATION_STAGE_IDS, FOUNDATION_STAGE_MAX, get_contract, stage_for_output
+from .approval import approval_matches_state, load_approval_record
+from .contracts import (
+    FOUNDATION_STAGE_IDS,
+    FOUNDATION_STAGE_MAX,
+    SUPPORTED_STAGE_MAX,
+    get_contract,
+    stage_for_output,
+)
 from .models import ProjectState, StageStatus
-from .paths import resolve_project_artifact, validate_relative_path
+from .paths import resolve_project_artifact
 from .project import ResearchProject
 
 _HASH_CHUNK_SIZE = 1024 * 1024
-_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
@@ -86,45 +88,6 @@ def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None
     return None
 
 
-def _load_approval(root: Path, stage_id: int) -> ApprovalRecord | None:
-    path = root / "approvals" / f"stage-{stage_id:02d}.json"
-    try:
-        with path.open(encoding="utf-8") as handle:
-            data = json.load(handle)
-        if not isinstance(data, dict):
-            return None
-        artifact_hashes = data["artifact_hashes"]
-        if (
-            not isinstance(data["schema_version"], int)
-            or isinstance(data["schema_version"], bool)
-            or not isinstance(data["project_id"], str)
-            or not isinstance(data["stage_id"], int)
-            or isinstance(data["stage_id"], bool)
-            or not isinstance(data["decision"], str)
-            or not isinstance(artifact_hashes, Mapping)
-            or not all(isinstance(key, str) and isinstance(value, str) for key, value in artifact_hashes.items())
-            or not isinstance(data["decided_at"], str)
-            or not isinstance(data["note"], str)
-        ):
-            return None
-        for relative_path, digest in artifact_hashes.items():
-            validate_relative_path(relative_path, kind="artifact")
-            if _HASH_PATTERN.fullmatch(digest) is None:
-                return None
-        record = ApprovalRecord(
-            schema_version=data["schema_version"],
-            project_id=data["project_id"],
-            stage_id=data["stage_id"],
-            decision=data["decision"],
-            artifact_hashes=dict(artifact_hashes),
-            decided_at=data["decided_at"],
-            note=data["note"],
-        )
-        return record if record.stage_id == stage_id else None
-    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
-        return None
-
-
 def _first_invalid_completed_approval_stage(project: ResearchProject) -> int | None:
     for stage_id in project.state.completed_stages:
         try:
@@ -133,10 +96,10 @@ def _first_invalid_completed_approval_stage(project: ResearchProject) -> int | N
             return stage_id
         if not contract.requires_approval:
             continue
-        record = _load_approval(project.root, stage_id)
+        record = load_approval_record(project.root, stage_id)
         if record is None or record.decision != "approve":
             return stage_id
-        if not verify_current_approval(project.root, record):
+        if not approval_matches_state(project.root, project.state, record):
             return stage_id
     return None
 
@@ -220,7 +183,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         state = current_project.state
 
     milestone_complete = (
-        state.current_stage > FOUNDATION_STAGE_MAX
+        state.current_stage > SUPPORTED_STAGE_MAX
         and all(stage_id in state.completed_stages for stage_id in FOUNDATION_STAGE_IDS)
     )
     if state.current_stage > 23:

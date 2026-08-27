@@ -8,6 +8,7 @@ from dataclasses import replace
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.state import StateStore
 from researchclaw.core.validation import validate_current_stage
 from tests.codex_native.helpers import complete_first_four_stages, write_valid_fixture_artifacts
 
@@ -29,7 +30,7 @@ def _approved_project(root):
     write_valid_fixture_artifacts(project.root, 5)
     assert validate_current_stage(ResearchProject.open(project.root)).valid is True
     approve_current_gate(ResearchProject.open(project.root), "approve", "Approved")
-    return project
+    return ResearchProject.open(project.root)
 
 
 def test_resume_uses_only_project_files(tmp_path):
@@ -181,22 +182,52 @@ def test_resume_returns_revision_json_for_malformed_approval_hashes(tmp_path):
     assert result.stderr == ""
 
 
-def test_resume_represents_approved_foundation_milestone_without_stage_six_packet(tmp_path):
+def test_resume_prepares_stage_six_for_an_approved_shortlist(tmp_path):
     project = _approved_project(tmp_path / "demo")
 
     payload = _resume(project.root)
 
     assert payload["current_stage"] == 6
-    assert payload["milestone_complete"] is True
-    assert payload["next_action"] == "report_foundation_milestone_only"
+    assert payload["milestone_complete"] is False
+    assert payload["next_action"] == "prepare_stage"
     assert payload["project_root"] == str(project.root.resolve())
-    assert payload["write_policy"] == "no_undeclared_outputs"
+    assert payload["write_policy"] == "declared_outputs_only"
     assert shlex.split(payload["next_command"]) == [
         "researchclaw-codex",
-        "evaluate",
+        "stage",
+        "prepare",
         str(project.root),
         "--json",
     ]
+
+
+def test_open_migrates_legacy_foundation_action_only_for_a_valid_stage_five_approval(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    legacy_state = replace(project.state, next_action="report_foundation_milestone_only")
+    StateStore(project.root / ".researchclaw").save(legacy_state)
+
+    reopened = ResearchProject.open(project.root)
+    persisted = json.loads((project.root / ".researchclaw" / "state.json").read_text(encoding="utf-8"))
+
+    assert reopened.state.next_action == "prepare_stage"
+    assert persisted["next_action"] == "prepare_stage"
+
+
+def test_open_keeps_legacy_foundation_action_when_stage_five_approval_is_invalid(tmp_path):
+    project = _approved_project(tmp_path / "demo")
+    approval_path = project.root / "approvals" / "stage-05.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["artifact_hashes"]["literature/shortlist.jsonl"] = "0" * 64
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+    StateStore(project.root / ".researchclaw").save(
+        replace(project.state, next_action="report_foundation_milestone_only")
+    )
+
+    reopened = ResearchProject.open(project.root)
+    persisted = json.loads((project.root / ".researchclaw" / "state.json").read_text(encoding="utf-8"))
+
+    assert reopened.state.next_action == "report_foundation_milestone_only"
+    assert persisted["next_action"] == "report_foundation_milestone_only"
 
 
 def test_resume_rewinds_modified_approved_gate_for_validation_and_new_approval(tmp_path):

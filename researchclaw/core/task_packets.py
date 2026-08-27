@@ -6,7 +6,8 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .contracts import FOUNDATION_STAGE_IDS, get_contract
+from .approval import load_approval_record, verify_current_approval
+from .contracts import LITERATURE_APPROVAL_STAGE, SUPPORTED_STAGE_IDS, get_contract
 from .models import StageStatus
 from .paths import resolve_project_artifact
 from .profiles import load_profile
@@ -66,8 +67,16 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
         raise ValueError("validation retry limit reached; user review is required")
     if state.status is StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is awaiting approval")
-    if state.current_stage not in FOUNDATION_STAGE_IDS:
+    if state.current_stage not in SUPPORTED_STAGE_IDS:
         raise ValueError(f"task packets are not defined for stage: {state.current_stage}")
+    if state.current_stage == 6:
+        record = load_approval_record(project.root, LITERATURE_APPROVAL_STAGE)
+        if (
+            record is None
+            or record.decision != "approve"
+            or not verify_current_approval(project.root, record)
+        ):
+            raise ValueError("stage 6 requires the approved stage-5 shortlist")
     contract = get_contract(state.current_stage)
     missing: list[str] = []
     for relative_path in contract.required_inputs:
