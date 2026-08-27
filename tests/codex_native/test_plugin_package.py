@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import re
 import tomllib
 
 import yaml
@@ -7,6 +8,17 @@ import yaml
 
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
+SKILL_ROOT = ROOT / "skills" / "researchclaw"
+MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
+
+
+def _local_markdown_links(path: Path) -> tuple[Path, ...]:
+    links: list[Path] = []
+    for target in MARKDOWN_LINK.findall(path.read_text(encoding="utf-8")):
+        if target.startswith(("#", "http://", "https://", "mailto:")):
+            continue
+        links.append((path.parent / target.split("#", 1)[0]).resolve())
+    return tuple(links)
 
 
 def test_plugin_manifest_and_skill_are_explicit_and_api_free():
@@ -59,3 +71,19 @@ def test_distribution_and_plugin_share_codex_native_identity_and_version():
     assert "Codex-native" in project["description"]
     assert project["urls"]["Repository"] == FORK_URL
     assert project["urls"]["Upstream"] == "https://github.com/aiming-lab/AutoResearchClaw"
+
+
+def test_skill_reference_links_resolve_including_stage_six_guidance():
+    expected_stage_six_references = (
+        SKILL_ROOT / "references" / "knowledge-extraction.md",
+    )
+    markdown_files = tuple(SKILL_ROOT.rglob("*.md"))
+    linked_files = {
+        linked_file
+        for markdown_file in markdown_files
+        for linked_file in _local_markdown_links(markdown_file)
+    }
+
+    assert set(reference.resolve() for reference in expected_stage_six_references) <= linked_files
+    assert all(reference.exists() for reference in expected_stage_six_references)
+    assert all(linked_file.exists() for linked_file in linked_files)
