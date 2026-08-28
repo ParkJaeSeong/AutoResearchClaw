@@ -10,12 +10,12 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-Codex-native supported execution boundary: stages 1–7. This release continues
+Codex-native supported execution boundary: stages 1–8. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
-extraction and evidence synthesis without an external LLM API key. After valid
-stage-7 output, the workflow reaches stage 8 only as a reporting boundary: it
-reports and evaluates the synthesis milestone without preparing hypotheses.
-Stages 8–23, experiment execution, and
+extraction, evidence synthesis, and provenance-linked hypothesis generation
+without an external LLM API key. After valid stage-8 output, the workflow
+reaches stage 9 only as a reporting boundary and does not design experiments.
+Stages 9–23, experiment execution, and
 full-paper production remain roadmap work; later declared contracts are not
 claims of implemented capability.
 
@@ -80,6 +80,10 @@ researchclaw-codex resume ./demo-research --json
 researchclaw-codex stage prepare ./demo-research --json
 researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex resume ./demo-research --json
+# Prepare stage 8, then have Codex write only hypotheses/candidates.jsonl.
+researchclaw-codex stage prepare ./demo-research --json
+researchclaw-codex stage validate ./demo-research --json
+researchclaw-codex resume ./demo-research --json
 researchclaw-codex evaluate ./demo-research --json
 ```
 
@@ -87,8 +91,9 @@ Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to its producing stage; changing the
 approved shortlist also requires a new user decision. After an unchanged
 approval, `resume` points to stage-6 extraction. After valid stage-6 output it
-points to stage-7 synthesis, and after valid stage 7 it reports the synthesis
-milestone and stops before unsupported stage 8.
+points to stage-7 synthesis, after valid stage 7 it points to stage-8 hypothesis
+generation, and after valid stage 8 it reports the hypothesis milestone and
+stops before unsupported stage 9.
 
 ## Durable project data
 

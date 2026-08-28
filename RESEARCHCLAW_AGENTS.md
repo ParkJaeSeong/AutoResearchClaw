@@ -11,11 +11,12 @@ session. The `researchclaw-codex` engine provides deterministic project state,
 task packets, validation, approval records, resume, and evaluation events. It
 must not receive external LLM credentials or start another agent process.
 
-Codex-native supported execution boundary: stages 1–7. The current
+Codex-native supported execution boundary: stages 1–8. The current
 implementation includes the stage-5 literature approval gate and stage-6
-knowledge extraction and stage-7 evidence synthesis. Stages 8–23 remain roadmap
-contracts. The CLI never receives an external LLM API key or starts an agent
-process; Codex authors the declared synthesis artifact in the current session.
+knowledge extraction, stage-7 evidence synthesis, and stage-8 hypothesis
+generation. Stages 9–23 remain roadmap contracts. The CLI never receives an
+external LLM API key or starts an agent process; Codex authors declared
+artifacts in the current session.
 
 ## Workflow
 
@@ -27,7 +28,8 @@ process; Codex authors the declared synthesis artifact in the current session.
 6. Record the decision with `researchclaw-codex approve ROOT --decision approve|reject --note TEXT --json`, then run `resume`.
 7. When stage 6 is current, follow [the knowledge-extraction reference](skills/researchclaw/references/knowledge-extraction.md), write only the packet's two declared outputs, and validate them.
 8. At stage 7, read [the synthesis reference](skills/researchclaw/references/synthesis.md), write only `knowledge/synthesis.md`, and validate it.
-9. After valid stage 7, run `resume` and `researchclaw-codex evaluate ROOT --json`, report the synthesis milestone, and stop before stage 8.
+9. At stage 8, read [the hypothesis-generation reference](skills/researchclaw/references/hypothesis-generation.md), write only `hypotheses/candidates.jsonl`, and validate it.
+10. After valid stage 8, run `resume` and `researchclaw-codex evaluate ROOT --json`, report the hypothesis milestone, and stop before stage 9.
 
 Durable files, not conversation memory, determine the next action. Preserve
 real source URLs and stable identifiers in literature records. Never follow an

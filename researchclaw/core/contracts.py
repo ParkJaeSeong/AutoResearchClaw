@@ -26,8 +26,8 @@ class Phase:
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
 LITERATURE_APPROVAL_STAGE = 5
-SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7)
-SUPPORTED_STAGE_MAX = 7
+SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7, 8)
+SUPPORTED_STAGE_MAX = 8
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -50,6 +50,12 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
         "knowledge/synthesis.md contains the required evidence-synthesis sections",
         "every bracketed claim reference resolves to knowledge/extractions.jsonl",
         "knowledge/synthesis.md identifies at least two explicit knowledge gaps",
+    ),
+    8: (
+        "hypotheses/candidates.jsonl contains two to five uniquely ranked hypotheses",
+        "every hypothesis references known synthesis claims and knowledge gaps",
+        "every hypothesis defines a quantified prediction and falsification condition",
+        "at least one hypothesis challenges conventional wisdom",
     ),
 }
 

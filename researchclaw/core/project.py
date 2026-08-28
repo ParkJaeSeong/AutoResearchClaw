@@ -127,6 +127,13 @@ class ResearchProject:
             elif approval_is_current and state.next_action == "report_foundation_milestone_only":
                 state = replace(state, next_action="prepare_stage")
                 store.save(state)
+        if (
+            state.current_stage == 8
+            and 7 in state.completed_stages
+            and state.next_action == "report_synthesis_milestone_only"
+        ):
+            state = replace(state, next_action="prepare_stage")
+            store.save(state)
         return cls(root=root, state=state)
 
     def status_dict(self) -> dict[str, object]:

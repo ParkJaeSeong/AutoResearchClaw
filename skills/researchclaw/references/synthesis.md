@@ -31,5 +31,7 @@ evidence, and state when the corpus contains no direct contradiction rather
 than manufacturing one.
 
 Run `researchclaw-codex stage validate ROOT --json`. Revise only the declared
-output until validation succeeds, then run `resume` and `evaluate`. Valid stage
-7 completion is `7 / 23`. Stop before stage 8.
+output until validation succeeds, then run `resume ROOT --json`. Valid stage 7
+completion is `7 / 23`. When resume points to stage 8, use the prepared packet
+and [hypothesis-generation.md](hypothesis-generation.md); do not create
+undeclared experiment or paper artifacts.

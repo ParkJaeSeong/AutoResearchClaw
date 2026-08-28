@@ -102,7 +102,7 @@ def test_valid_stage_seven_advances_to_stage_eight_without_model_calls(tmp_path)
     report = validate_current_stage(project)
     reopened = ResearchProject.open(project.root)
     assert report.valid is True
-    assert report.recommended_action == "report_synthesis_milestone_only"
+    assert report.recommended_action == "prepare_next_stage"
     assert reopened.state.current_stage == 8
     assert reopened.state.completed_stages == (1, 2, 3, 4, 5, 6, 7)
-    assert reopened.state.next_action == "report_synthesis_milestone_only"
+    assert reopened.state.next_action == "prepare_stage"

@@ -8,9 +8,9 @@ from researchclaw.core.contracts import (
 )
 
 
-def test_supported_stage_boundary_includes_synthesis():
-    assert SUPPORTED_STAGE_IDS == (1, 2, 3, 4, 5, 6, 7)
-    assert SUPPORTED_STAGE_MAX == 7
+def test_supported_stage_boundary_includes_hypothesis_generation():
+    assert SUPPORTED_STAGE_IDS == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert SUPPORTED_STAGE_MAX == 8
     assert LITERATURE_APPROVAL_STAGE == 5
 
 

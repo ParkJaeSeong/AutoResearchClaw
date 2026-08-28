@@ -102,6 +102,32 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
                 "## Synthesis Limitations\n\nAbstract-only evidence [claim-1].\n"
             ),
         },
+        8: {
+            "hypotheses/candidates.jsonl": (
+                '{"hypothesis_id":"H001","rank":1,'
+                '"statement":"If grouped cell splits are used, then reported lifetime-prediction error will increase because protocol leakage is removed.",'
+                '"knowledge_gap_refs":["gap-1"],"claim_refs":["claim-1"],'
+                '"novelty_argument":"The synthesis identifies missing empirical evidence under leakage-safe evaluation.",'
+                '"rationale":"Protocol-linked observations can otherwise expose information about held-out cells.",'
+                '"prediction":{"outcome":"test MAE","direction":"increase","magnitude":"at least 10%","measurement_context":"cell-grouped split versus random row split"},'
+                '"falsification_condition":"Reject if grouped-split MAE increases by less than 10% on the same eligible cells.",'
+                '"required_baselines":["random row split","cell-grouped split"],'
+                '"feasibility":"Uses the existing dataset and split manifest without new equipment.",'
+                '"confounders":["unequal chemistry distribution","small held-out groups"],'
+                '"challenges_conventional_wisdom":true}\n'
+                '{"hypothesis_id":"H002","rank":2,'
+                '"statement":"If provenance-complete metadata are added, then cross-source lifetime-prediction calibration will improve.",'
+                '"knowledge_gap_refs":["gap-2"],"claim_refs":["claim-1"],'
+                '"novelty_argument":"The synthesis identifies a methodological gap in provenance-aware evaluation.",'
+                '"rationale":"Source and processing differences explain otherwise unmodelled distribution shift.",'
+                '"prediction":{"outcome":"prediction interval coverage error","direction":"decrease","magnitude":"at least 5 percentage points","measurement_context":"held-out source groups"},'
+                '"falsification_condition":"Reject if coverage error decreases by less than 5 percentage points.",'
+                '"required_baselines":["features without provenance","features with provenance"],'
+                '"feasibility":"Requires metadata already described in the synthesis.",'
+                '"confounders":["source-specific chemistry","incomplete metadata"],'
+                '"challenges_conventional_wisdom":false}\n'
+            ),
+        },
     }
     for relative, content in fixtures[stage_id].items():
         path = root / relative
@@ -133,6 +159,14 @@ def build_completed_literature_gate_project(root: Path) -> ResearchProject:
 def build_completed_knowledge_milestone_project(root: Path) -> ResearchProject:
     project = build_completed_literature_gate_project(root)
     write_valid_fixture_artifacts(project.root, 6)
+    report = validate_current_stage(project)
+    assert report.valid is True
+    return ResearchProject.open(project.root)
+
+
+def build_completed_synthesis_milestone_project(root: Path) -> ResearchProject:
+    project = build_completed_knowledge_milestone_project(root)
+    write_valid_fixture_artifacts(project.root, 7)
     report = validate_current_stage(project)
     assert report.valid is True
     return ResearchProject.open(project.root)

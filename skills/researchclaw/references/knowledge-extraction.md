@@ -78,4 +78,4 @@ If every included source is unavailable, `knowledge/extractions.jsonl` may be em
 
 ## Validate and stop
 
-Run `stage validate ROOT --json`. Revise only the two declared stage-6 outputs until validation succeeds, then run `evaluate ROOT --json`. Valid stage-6 completion is `6 / 23`, not a finished research project or paper. Stop before stage 7; do not prepare a synthesis packet or draft a synthesis, report, or paper.
+Run `stage validate ROOT --json`. Revise only the two declared stage-6 outputs until validation succeeds, then run `resume ROOT --json`. Valid stage-6 completion is `6 / 23`, not a finished research project or paper. Continue only through the next prepared packet and its stage-specific reference; do not create undeclared reports or paper artifacts.

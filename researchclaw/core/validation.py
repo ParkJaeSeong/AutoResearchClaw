@@ -17,6 +17,7 @@ from .knowledge_extraction import (
     validate_extraction_shortlist,
     validate_knowledge_extraction,
 )
+from .hypotheses import validate_hypotheses
 from .models import ArtifactRef, StageStatus
 from .synthesis import validate_synthesis
 from .paths import resolve_project_artifact
@@ -246,6 +247,24 @@ def _validate_stage_seven(
     )
 
 
+def _validate_stage_eight(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (synthesis_path,) = contract.required_inputs
+    synthesis = resolve_project_artifact(project.root, synthesis_path)
+    synthesis_text = _read_text(synthesis, issues, synthesis_path)
+    if synthesis_text is None:
+        return
+    (candidates_path,) = contract.required_outputs
+    issues.extend(
+        ValidationIssue(issue.code, candidates_path, issue.message)
+        for issue in validate_hypotheses(synthesis_text, contents[candidates_path])
+    )
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -295,6 +314,8 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             _validate_stage_six(current_project, contract, contents, issues)
         elif not issues and contract.id == 7:
             _validate_stage_seven(current_project, contract, contents, issues)
+        elif not issues and contract.id == 8:
+            _validate_stage_eight(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
@@ -310,7 +331,7 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         if contract.requires_approval:
             recommended_action = "request_approval"
         elif contract.id == SUPPORTED_STAGE_MAX:
-            recommended_action = "report_synthesis_milestone_only"
+            recommended_action = "report_hypothesis_milestone_only"
         else:
             recommended_action = "prepare_next_stage"
         error_state = None
@@ -403,7 +424,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             completed_stages=completed_stages,
             status=StageStatus.READY,
             next_action=(
-                "report_synthesis_milestone_only"
+                "report_hypothesis_milestone_only"
                 if report.stage_id == SUPPORTED_STAGE_MAX
                 else "prepare_stage"
             ),
