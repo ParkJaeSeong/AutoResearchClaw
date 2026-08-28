@@ -10,12 +10,13 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-Codex-native supported execution boundary: stages 1–8. This release continues
+Codex-native supported execution boundary: stages 1–9. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
 extraction, evidence synthesis, and provenance-linked hypothesis generation
-without an external LLM API key. After valid stage-8 output, the workflow
-reaches stage 9 only as a reporting boundary and does not design experiments.
-Stages 9–23, experiment execution, and
+without an external LLM API key, then creates a reproducible validation design
+for policy evidence, computational, or laboratory work. Stage 9 is an approval
+gate; after approval the workflow stops before unsupported stage 10.
+Stages 10–23, experiment execution, and
 full-paper production remain roadmap work; later declared contracts are not
 claims of implemented capability.
 
@@ -84,6 +85,13 @@ researchclaw-codex resume ./demo-research --json
 researchclaw-codex stage prepare ./demo-research --json
 researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex resume ./demo-research --json
+# Prepare stage 9, then have Codex write only experiment/design.json.
+researchclaw-codex stage prepare ./demo-research --json
+researchclaw-codex stage validate ./demo-research --json
+# Stop here and ask the user to approve or reject the validated design.
+researchclaw-codex approve ./demo-research \
+  --decision approve --note "Validation design accepted" --json
+researchclaw-codex resume ./demo-research --json
 researchclaw-codex evaluate ./demo-research --json
 ```
 
@@ -93,7 +101,9 @@ approved shortlist also requires a new user decision. After an unchanged
 approval, `resume` points to stage-6 extraction. After valid stage-6 output it
 points to stage-7 synthesis, after valid stage 7 it points to stage-8 hypothesis
 generation, and after valid stage 8 it reports the hypothesis milestone and
-stops before unsupported stage 9.
+points to stage-9 validation design. A valid stage-9 design requires the user's
+explicit approval or rejection. After approval, `resume` reports the validation
+design milestone and stops before unsupported stage 10.
 
 ## Durable project data
 

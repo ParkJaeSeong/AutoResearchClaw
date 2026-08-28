@@ -45,13 +45,13 @@ def test_valid_stage_eight_advances_to_stage_nine_without_model_calls(tmp_path):
     reopened = ResearchProject.open(project.root)
 
     assert report.valid is True
-    assert report.recommended_action == "report_hypothesis_milestone_only"
+    assert report.recommended_action == "prepare_next_stage"
     assert reopened.state.current_stage == 9
     assert reopened.state.completed_stages == (1, 2, 3, 4, 5, 6, 7, 8)
-    assert reopened.state.next_action == "report_hypothesis_milestone_only"
+    assert reopened.state.next_action == "prepare_stage"
 
 
-def test_stage_eight_milestone_does_not_request_unsupported_stage_nine_approval(tmp_path):
+def test_stage_eight_handoff_prepares_stage_nine_approval_gate(tmp_path):
     project = build_completed_synthesis_milestone_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 8)
     report = validate_current_stage(project)
@@ -59,10 +59,10 @@ def test_stage_eight_milestone_does_not_request_unsupported_stage_nine_approval(
 
     handoff = ResearchProject.open(project.root).build_handoff()
 
-    assert handoff.milestone_complete is True
-    assert handoff.approval_required is False
-    assert handoff.next_action == "report_hypothesis_milestone_only"
-    assert handoff.write_policy == "no_undeclared_outputs"
+    assert handoff.milestone_complete is False
+    assert handoff.approval_required is True
+    assert handoff.next_action == "prepare_stage"
+    assert handoff.write_policy == "declared_outputs_only"
 
 
 def test_stage_eight_rejects_unknown_claim_and_gap_references(tmp_path):

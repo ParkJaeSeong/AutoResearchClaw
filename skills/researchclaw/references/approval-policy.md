@@ -1,6 +1,6 @@
 # Approval policy
 
-Stages 5, 9, and 20 are human gates. In the current foundation milestone, stage 5 is the only reachable gate.
+Stages 5, 9, and 20 are human gates. In the current milestone, stages 5 and 9 are reachable; stage 20 remains a roadmap contract.
 
 After a gate output validates, the project status becomes `awaiting_approval`. Stop work and present the validation result plus the declared gate artifact. Ask the user to approve or reject; silence, a prior decision, or a general request to continue is not a new gate decision.
 

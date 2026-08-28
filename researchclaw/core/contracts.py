@@ -26,8 +26,8 @@ class Phase:
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
 LITERATURE_APPROVAL_STAGE = 5
-SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7, 8)
-SUPPORTED_STAGE_MAX = 8
+SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
+SUPPORTED_STAGE_MAX = 9
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -57,6 +57,12 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
         "every hypothesis defines a quantified prediction and falsification condition",
         "at least one hypothesis challenges conventional wisdom",
     ),
+    9: (
+        "experiment/design.json selects policy_evidence, computational, or laboratory validation",
+        "the design references known hypotheses and defines quantified decision metrics",
+        "the design contains evidence, comparison, bias, resource, risk, and reproducibility controls",
+        "the selected validation type has a complete type-specific method",
+    ),
 }
 
 
@@ -71,7 +77,11 @@ def _contract(stage_id: int, name: str, objective: str, inputs: tuple[str, ...],
             stage_id,
             ("all required outputs are non-empty project-relative artifacts",),
         ),
-        allowed_tool_classes=("filesystem", "research", "analysis"),
+        allowed_tool_classes=(
+            ("filesystem", "analysis")
+            if stage_id == 9
+            else ("filesystem", "research", "analysis")
+        ),
         requires_approval=approval,
     )
 
@@ -95,7 +105,7 @@ _CONTRACT_DATA = (
         ("knowledge/synthesis.md",),
     ),
     ("hypothesis_gen", "Generate testable hypotheses", ("knowledge/synthesis.md",), ("hypotheses/candidates.jsonl",)),
-    ("experiment_design", "Design a reproducible experiment", ("hypotheses/candidates.jsonl",), ("experiment/design.json",)),
+    ("experiment_design", "Design a reproducible hypothesis validation", ("hypotheses/candidates.jsonl",), ("experiment/design.json",)),
     ("code_generation", "Generate experiment code", ("experiment/design.json",), ("experiment/code/manifest.json",)),
     ("resource_planning", "Plan compute and data resources", ("experiment/design.json",), ("experiment/resources.json",)),
     ("experiment_run", "Run the approved experiment", ("experiment/code/manifest.json", "experiment/resources.json"), ("experiment/results.json",)),

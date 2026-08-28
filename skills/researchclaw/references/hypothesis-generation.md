@@ -37,7 +37,6 @@ hypotheses genuinely distinguishable, and rank testability and decision value
 ahead of rhetorical surprise.
 
 Run `researchclaw-codex stage validate ROOT --json`. Revise only the declared
-output until validation succeeds, then run `resume ROOT --json` and
-`evaluate ROOT --json`. Valid stage 8 completion is `8 / 23`. Report the
-hypothesis milestone and stop before stage 9; do not design or run an
-experiment or draft a paper.
+output until validation succeeds, then run `resume ROOT --json`. Continue with
+the prepared stage-9 packet and [validation-design.md](validation-design.md).
+Do not execute a validation or draft a paper.

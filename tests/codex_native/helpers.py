@@ -128,6 +128,73 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
                 '"challenges_conventional_wisdom":false}\n'
             ),
         },
+        9: {
+            "experiment/design.json": json.dumps(
+                {
+                    "schema_version": 1,
+                    "project_id": ResearchProject.open(root).state.project_id,
+                    "validation_type": "policy_evidence",
+                    "hypothesis_ids": ["H001"],
+                    "title": "Leakage-safe materials AI policy validation",
+                    "objective": "Determine whether provenance requirements improve decision reliability.",
+                    "validation_questions": [
+                        "Do provenance-complete records reduce cross-source calibration error?"
+                    ],
+                    "evidence_sources": [
+                        {
+                            "category": "public_dataset",
+                            "scope": "battery lifetime datasets with source metadata",
+                            "inclusion_criteria": ["stable source identifier", "documented preprocessing"],
+                            "exclusion_criteria": ["untraceable derived data"],
+                            "collection_method": "reproducible registry search",
+                        }
+                    ],
+                    "comparators": ["current practice without mandatory provenance"],
+                    "metrics": [
+                        {
+                            "name": "coverage error",
+                            "definition": "absolute nominal-minus-observed interval coverage",
+                            "target": "decrease by at least 5 percentage points",
+                            "direction": "decrease",
+                            "unit": "percentage_points",
+                        }
+                    ],
+                    "success_criteria": ["Coverage error decreases by at least 5 percentage points."],
+                    "failure_criteria": ["Coverage error decreases by less than 5 percentage points."],
+                    "bias_controls": ["blind source labels during scoring", "publish exclusion reasons"],
+                    "resources": {
+                        "people": ["materials domain reviewer", "data analyst"],
+                        "data": ["public battery datasets"],
+                        "tools": ["spreadsheet", "statistical notebook"],
+                        "duration": "8 weeks",
+                        "budget": "personnel time only",
+                    },
+                    "reproducibility": {
+                        "protocol_version": "1.0",
+                        "data_provenance": "source URL, access date, and file hash",
+                        "analysis_plan": "pre-specified scoring and sensitivity analysis",
+                        "audit_trail": "versioned decisions and reviewer records",
+                    },
+                    "risks": [
+                        {
+                            "risk": "expert selection bias",
+                            "mitigation": "publish selection criteria and conduct sensitivity analysis",
+                        }
+                    ],
+                    "method": {
+                        "data_sources": ["literature", "public datasets", "official policy documents"],
+                        "stakeholder_groups": ["research institutes", "SMEs", "policy planners"],
+                        "candidate_selection": "predefined eligibility criteria",
+                        "scoring_model": "weighted multi-criteria scoring with disclosed weights",
+                        "sensitivity_analysis": "vary each weight by plus or minus 20 percent",
+                        "conflict_of_interest_plan": "record affiliations and exclude conflicted self-scoring",
+                    },
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            + "\n",
+        },
     }
     for relative, content in fixtures[stage_id].items():
         path = root / relative
@@ -167,6 +234,14 @@ def build_completed_knowledge_milestone_project(root: Path) -> ResearchProject:
 def build_completed_synthesis_milestone_project(root: Path) -> ResearchProject:
     project = build_completed_knowledge_milestone_project(root)
     write_valid_fixture_artifacts(project.root, 7)
+    report = validate_current_stage(project)
+    assert report.valid is True
+    return ResearchProject.open(project.root)
+
+
+def build_completed_hypothesis_milestone_project(root: Path) -> ResearchProject:
+    project = build_completed_synthesis_milestone_project(root)
+    write_valid_fixture_artifacts(project.root, 8)
     report = validate_current_stage(project)
     assert report.valid is True
     return ResearchProject.open(project.root)

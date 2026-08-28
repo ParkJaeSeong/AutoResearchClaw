@@ -134,6 +134,13 @@ class ResearchProject:
         ):
             state = replace(state, next_action="prepare_stage")
             store.save(state)
+        if (
+            state.current_stage == 9
+            and 8 in state.completed_stages
+            and state.next_action == "report_hypothesis_milestone_only"
+        ):
+            state = replace(state, next_action="prepare_stage")
+            store.save(state)
         return cls(root=root, state=state)
 
     def status_dict(self) -> dict[str, object]:

@@ -18,6 +18,7 @@ from .knowledge_extraction import (
     validate_knowledge_extraction,
 )
 from .hypotheses import validate_hypotheses
+from .validation_design import validate_validation_design
 from .models import ArtifactRef, StageStatus
 from .synthesis import validate_synthesis
 from .paths import resolve_project_artifact
@@ -265,6 +266,28 @@ def _validate_stage_eight(
     )
 
 
+def _validate_stage_nine(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (candidates_path,) = contract.required_inputs
+    candidates = resolve_project_artifact(project.root, candidates_path)
+    candidates_text = _read_text(candidates, issues, candidates_path)
+    if candidates_text is None:
+        return
+    (design_path,) = contract.required_outputs
+    issues.extend(
+        ValidationIssue(issue.code, design_path, issue.message)
+        for issue in validate_validation_design(
+            candidates_text,
+            contents[design_path],
+            project.state.project_id,
+        )
+    )
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -316,6 +339,8 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             _validate_stage_seven(current_project, contract, contents, issues)
         elif not issues and contract.id == 8:
             _validate_stage_eight(current_project, contract, contents, issues)
+        elif not issues and contract.id == 9:
+            _validate_stage_nine(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
