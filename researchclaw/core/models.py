@@ -17,6 +17,7 @@ _NEXT_ACTIONS = frozenset(
         "validate_stage",
         "report_foundation_milestone_only",
         "report_knowledge_milestone_only",
+        "report_synthesis_milestone_only",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})

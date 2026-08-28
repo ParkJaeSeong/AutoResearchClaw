@@ -6,7 +6,7 @@ The foundation rubric interprets metrics as follows:
 
 | Metric | Direction | Meaning |
 | --- | --- | --- |
-| `stage_completion_rate` | Higher | Completed contracts divided by all 23 declared stages. An approved stage 5 is `5 / 23`; a validated stage 6 is `6 / 23`. Neither is a complete research project or paper. |
+| `stage_completion_rate` | Higher | Completed contracts divided by all 23 declared stages. A validated stage 7 is `7 / 23`; it is not a complete research project or paper. |
 | `validation_failure_count` | Lower | Invalid validation attempts recorded in the event log. |
 | `retry_count` | Lower | Validation attempts beyond the first attempt for each stage. |
 | `approval_count` | Higher | User approvals recorded at gates. |
@@ -15,4 +15,4 @@ The foundation rubric interprets metrics as follows:
 | `external_llm_calls` | Lower | Must remain zero for the Codex-native foundation engine. |
 | `nested_agent_processes` | Lower | Must remain zero for this workflow. |
 
-Metrics are workflow evidence, not a claim of scientific quality. Summarize validation failures and approvals alongside the completion rate, and state that stage 7 synthesis, experiment execution, and paper work are deferred.
+Metrics are workflow evidence, not a claim of scientific quality. Summarize validation failures and approvals alongside the completion rate, and state that stage 8 hypothesis generation, experiment execution, and paper work are deferred.

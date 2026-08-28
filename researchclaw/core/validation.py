@@ -18,6 +18,7 @@ from .knowledge_extraction import (
     validate_knowledge_extraction,
 )
 from .models import ArtifactRef, StageStatus
+from .synthesis import validate_synthesis
 from .paths import resolve_project_artifact
 from .project import ResearchProject
 from .task_packets import TaskPacket, build_task_packet
@@ -227,6 +228,24 @@ def _validate_stage_six(
     )
 
 
+def _validate_stage_seven(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    extractions_path, _manifest_path = contract.required_inputs
+    extractions = resolve_project_artifact(project.root, extractions_path)
+    extractions_text = _read_text(extractions, issues, extractions_path)
+    if extractions_text is None:
+        return
+    (synthesis_path,) = contract.required_outputs
+    issues.extend(
+        ValidationIssue(issue.code, synthesis_path, issue.message)
+        for issue in validate_synthesis(extractions_text, contents[synthesis_path])
+    )
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -245,10 +264,7 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
     contents: dict[str, str] = {}
 
     for relative_path in packet.required_outputs:
-        allow_empty = (
-            packet.stage_id == SUPPORTED_STAGE_MAX
-            and relative_path == packet.required_outputs[0]
-        )
+        allow_empty = packet.stage_id == 6 and relative_path == packet.required_outputs[0]
         try:
             path = resolve_project_artifact(current_project.root, relative_path)
         except ValueError as error:
@@ -275,8 +291,10 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
 
     if not issues and len(contents) == len(packet.required_outputs):
         _validate_format(contract, contents, issues)
-        if not issues and contract.id == SUPPORTED_STAGE_MAX:
+        if not issues and contract.id == 6:
             _validate_stage_six(current_project, contract, contents, issues)
+        elif not issues and contract.id == 7:
+            _validate_stage_seven(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
@@ -292,7 +310,7 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         if contract.requires_approval:
             recommended_action = "request_approval"
         elif contract.id == SUPPORTED_STAGE_MAX:
-            recommended_action = "report_knowledge_milestone_only"
+            recommended_action = "report_synthesis_milestone_only"
         else:
             recommended_action = "prepare_next_stage"
         error_state = None
@@ -385,7 +403,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             completed_stages=completed_stages,
             status=StageStatus.READY,
             next_action=(
-                "report_knowledge_milestone_only"
+                "report_synthesis_milestone_only"
                 if report.stage_id == SUPPORTED_STAGE_MAX
                 else "prepare_stage"
             ),

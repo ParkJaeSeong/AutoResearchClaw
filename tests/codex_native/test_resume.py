@@ -335,26 +335,28 @@ def test_resume_rewinds_approved_gate_when_artifact_becomes_matching_symlink(tmp
     assert ResearchProject.open(project.root).state.completed_stages == (1, 2, 3, 4)
 
 
-def test_resume_reports_completed_knowledge_milestone_at_stage_seven(tmp_path):
+def test_resume_prepares_synthesis_at_stage_seven(tmp_path):
     project = build_completed_knowledge_milestone_project(tmp_path / "demo")
 
     payload = _resume(project.root)
 
     assert payload["current_stage"] == 7
     assert payload["completed_stages"] == [1, 2, 3, 4, 5, 6]
-    assert payload["milestone_complete"] is True
-    assert payload["next_action"] == "report_knowledge_milestone_only"
-    assert payload["write_policy"] == "no_undeclared_outputs"
+    assert payload["milestone_complete"] is False
+    assert payload["next_action"] == "prepare_stage"
+    assert payload["write_policy"] == "declared_outputs_only"
     assert shlex.split(payload["next_command"]) == [
         "researchclaw-codex",
-        "evaluate",
+        "stage",
+        "prepare",
         str(project.root),
         "--json",
     ]
 
 
-def test_stage_seven_task_packet_is_refused_at_the_supported_boundary(tmp_path):
+def test_stage_seven_task_packet_is_available_at_the_supported_boundary(tmp_path):
     project = build_completed_knowledge_milestone_project(tmp_path / "demo")
 
-    with pytest.raises(ValueError, match="task packets are not defined for stage: 7"):
-        prepare_task_packet(project)
+    packet = prepare_task_packet(project)
+    assert packet.stage_id == 7
+    assert packet.required_outputs == ("knowledge/synthesis.md",)

@@ -90,6 +90,18 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
             )
             + "\n",
         },
+        7: {
+            "knowledge/synthesis.md": (
+                "# Evidence Synthesis\n\n"
+                "## Evidence Base\n\nCorpus [claim-1].\n\n"
+                "## Literature Matrix\n\n| Source | Theme | Claims |\n|---|---|---|\n| source-1 | Representation | claim-1 |\n\n"
+                "## Key Themes\n\n### Theme 1\n\nEvidence [claim-1].\n\n"
+                "## Convergence and Divergence\n\nNo conflict [claim-1].\n\n"
+                "## Knowledge Gaps\n\n1. Empirical gap [claim-1].\n2. Method gap [claim-1].\n\n"
+                "## SME Applicability\n\nInference requires validation [claim-1].\n\n"
+                "## Synthesis Limitations\n\nAbstract-only evidence [claim-1].\n"
+            ),
+        },
     }
     for relative, content in fixtures[stage_id].items():
         path = root / relative

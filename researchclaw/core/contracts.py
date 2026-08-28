@@ -26,8 +26,8 @@ class Phase:
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
 LITERATURE_APPROVAL_STAGE = 5
-SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6)
-SUPPORTED_STAGE_MAX = 6
+SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7)
+SUPPORTED_STAGE_MAX = 7
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -45,6 +45,11 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
     6: (
         "each knowledge/extractions.jsonl record has a valid claim and source evidence",
         "knowledge/extraction_manifest.json is a complete manifest for the approved shortlist",
+    ),
+    7: (
+        "knowledge/synthesis.md contains the required evidence-synthesis sections",
+        "every bracketed claim reference resolves to knowledge/extractions.jsonl",
+        "knowledge/synthesis.md identifies at least two explicit knowledge gaps",
     ),
 }
 
@@ -77,7 +82,12 @@ _CONTRACT_DATA = (
         ("literature/shortlist.jsonl",),
         ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
     ),
-    ("synthesis", "Synthesize the current evidence", ("knowledge/extractions.jsonl",), ("knowledge/synthesis.md",)),
+    (
+        "synthesis",
+        "Synthesize the current evidence without an external model backend",
+        ("knowledge/extractions.jsonl", "knowledge/extraction_manifest.json"),
+        ("knowledge/synthesis.md",),
+    ),
     ("hypothesis_gen", "Generate testable hypotheses", ("knowledge/synthesis.md",), ("hypotheses/candidates.jsonl",)),
     ("experiment_design", "Design a reproducible experiment", ("hypotheses/candidates.jsonl",), ("experiment/design.json",)),
     ("code_generation", "Generate experiment code", ("experiment/design.json",), ("experiment/code/manifest.json",)),

@@ -1,6 +1,6 @@
 # Stage contracts
 
-The durable state defines 23 ordered contracts, and the current Codex-native CLI can prepare and validate stages 1–6. An approved stage 5 is `5 / 23`; a validated stage 6 is `6 / 23`. Neither count is a finished research project or paper. Stop after stage 6, report only the declared project artifacts, and do not create a separate final report or write to a shared sibling output directory. Stage 7 synthesis and stages 8–23 are not implemented in this milestone.
+The durable state defines 23 ordered contracts, and the current Codex-native CLI can prepare and validate stages 1–7. An approved stage 5 is `5 / 23`; a validated stage 6 is `6 / 23`; a validated stage 7 is `7 / 23`. None is a finished research project or paper. Stop after stage 7, report only the declared project artifacts, and do not create a separate final report or write to a shared sibling output directory. Stages 8–23 are not implemented in this milestone.
 
 ## Implemented stages
 

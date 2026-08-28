@@ -196,7 +196,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if milestone_complete:
-        next_action = "report_knowledge_milestone_only"
+        next_action = "report_synthesis_milestone_only"
         next_command = _command(current_project.root, "evaluate")
     elif status is StageStatus.NEEDS_REVISION:
         next_action = "validate_stage"

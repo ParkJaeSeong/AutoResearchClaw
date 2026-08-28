@@ -331,7 +331,7 @@ def test_stage_six_hashes_valid_knowledge_artifacts_and_stops_at_stage_seven(tmp
     reopened = ResearchProject.open(project.root)
     assert reopened.state.current_stage == 7
     assert reopened.state.completed_stages == (1, 2, 3, 4, 5, 6)
-    assert reopened.state.next_action == "report_knowledge_milestone_only"
+    assert reopened.state.next_action == "prepare_stage"
     assert set(reopened.state.artifacts) >= set(report.artifact_refs)
 
 
