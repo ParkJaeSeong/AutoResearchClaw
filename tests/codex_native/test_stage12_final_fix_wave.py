@@ -609,7 +609,7 @@ def test_stage_thirteen_grounding_streams_event_log_without_read_all(
     assert build_handoff(project).current_stage == 13
 
 
-def test_stage_thirteen_invalid_approval_rewind_can_reapprove_and_prepare(tmp_path):
+def test_stage_thirteen_invalid_approval_rewind_can_reapprove_and_register(tmp_path):
     project = build_approved_stage_twelve_project(tmp_path / "project")
     prepare_research_execution(project)
     write_contract_bound_research_result(project, load_execution_contract(project.root))
@@ -626,11 +626,11 @@ def test_stage_thirteen_invalid_approval_rewind_can_reapprove_and_prepare(tmp_pa
         "renew grounded execution approval",
     )
     approved = ResearchProject.open(project.root)
-    prepared = prepare_research_execution(approved)
+    registered = register_research_result(approved, "experiment/results.json")
 
     assert handoff.next_action == "approve_experiment_execution"
-    assert approved.state.next_action == "prepare_run"
-    assert prepared.readiness == "ready_for_explicit_execution"
+    assert approved.state.next_action == "register_research_result"
+    assert registered.current_stage == 13
 
 
 def test_prepare_run_recovers_owned_contract_commit_before_state_reference(

@@ -414,6 +414,23 @@ def _recheck_execution_readiness(
         )
         raise ValueError(f"refreshed resource plan is invalid: {details}")
 
+    if allow_preexisting_result:
+        artifact = state.artifacts[RESOURCE_PLAN_PATH]
+        status = ExecutionGateStatus(
+            readiness=str(refreshed["readiness"]),
+            approval_eligible=refreshed["readiness"] == "ready_for_execution",
+            unmet_prerequisites=tuple(prerequisites),
+            resource_plan_sha256=artifact.sha256,
+        )
+        event_log_for(current_project.root).append(
+            EvaluationEvent.create(
+                "execution_readiness_rechecked",
+                state.project_id,
+                status.to_dict(),
+            )
+        )
+        return status
+
     if current_rejection and refreshed["readiness"] != "ready_for_execution":
         artifact = state.artifacts[RESOURCE_PLAN_PATH]
         return ExecutionGateStatus(

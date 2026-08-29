@@ -260,7 +260,7 @@ def _approve_stage_twelve(
             status=StageStatus.READY,
             completed_stages=refreshed_project.state.completed_stages,
             next_action=(
-                "prepare_run"
+                "register_research_result"
                 if registration_recovery
                 else "report_resource_plan_milestone_only"
             ),
