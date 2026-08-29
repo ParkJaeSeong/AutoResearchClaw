@@ -112,12 +112,9 @@ fields:
 `main.py` defines `load_config`, `validate_inputs`, `build_plan`, and `main`.
 The entry point accepts `--config` and `--dry-run`, loads JSON configuration,
 validates declared input paths and schemas, constructs the documented
-split/evaluation plan, and invokes `main` from its module guard. It must use
-only project-relative paths and must not download
-data, use a network client, invoke an LLM or remote/nested agent, run a shell
-or subprocess, use `eval`/`exec`, manufacture synthetic results, or silently
-replace absent inputs. The dry run establishes readiness only; it does not fit
-a model, evaluate data, or write a result.
+split/evaluation plan, and invokes `main` from its module guard. The dry run
+establishes readiness only; it does not fit a model, evaluate data, or write a
+result.
 
 `test_smoke.py` imports and calls all four entry-point functions to check
 importability, configuration loading, input-contract validation, plan
@@ -128,32 +125,24 @@ approved-design binding, required input preparation, entry point, both exact
 commands above, expected later outputs, limitations, and that Stage 10 did not
 execute the validation.
 
-`requirements.txt` contains only valid PEP 508 runtime requirements with an
-exact (`==`), compatible (`~=`), or bounded lower-and-upper version range.
-Requirement-file options, direct references, URLs, local paths, and VCS
-sources are forbidden even when their text resembles a version pin. The
-Stage-10 readiness dependency allow-list contains only `pytest`; any other
-distribution is rejected, including numerical/model runtimes, external LLM
-SDKs, remote-agent frameworks, and network/download clients.
+`main.py`, `requirements.txt`, and `tests/test_smoke.py` are a closed canonical
+scaffold, not agent-authored Python. Obtain their repository-owned content
+from `canonical_computational_scaffold()` in
+`researchclaw.core.computational_package` and copy each returned UTF-8 string
+to its matching project-relative path byte-for-byte. Do not reformat, add a
+comment, rename a symbol, change a dependency, add a helper, or otherwise
+customize these three files. The canonical requirements content is exactly
+`pytest==8.3.0` followed by one newline. All research-specific variation lives
+only in the approved-design-bound `experiment/code/config.json`; the manifest
+records the resulting canonical file hashes.
 
-Generated Python uses a constrained import and call model. Imports are limited
-to the deterministic modules used by the documented readiness fixture
-(`argparse`, `json`, `pathlib`, and `typing`) and the local
-`experiment.code.main` entry point, and only their exact documented exports
-are available; private attributes and transitive reexports are not
-capabilities. Calls must resolve statically and lexically to an allowed
-import, documented safe builtin/object method, or reachable local callable.
-Computed and unknown clients are rejected. Safe deterministic
-constructor chaining such as `json.JSONDecoder().decode(...)` and ordinary
-non-callable reflection such as `getattr(record, "value", None)` remain
-allowed, as are proven normalization methods on statically typed strings.
-Control-flow and local-call analysis follows nested functions and lambdas with
-lexical scope, folds constant comparisons/boolean/unary and constant iterable
-expressions, respects early termination, and evaluates both dry-run paths.
-Unsupported loop, match, or exception flow cannot supply contract evidence.
-Import, smoke-test, and dry-run paths must be mutation-free; non-dry-run code
-may mutate only the statically resolved exact later-stage destination
-`experiment/results.json`. Any other or unresolved destination is rejected.
+The validator compares all three files to this repository-owned scaffold
+before semantic acceptance and reports `scaffold_mismatch` for any difference.
+It also retains static syntax, capability, reachability, mutation, and PEP 508
+checks as defense in depth, but those checks never authorize noncanonical
+Python or requirements. Thus aliases, private reexports, alternate control
+flow, harmless-looking local strings, variable open modes, and even safe extra
+helpers are outside the Stage-10 authoring contract.
 
 ## Validate, repair, and stop
 

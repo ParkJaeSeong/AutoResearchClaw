@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from researchclaw.core import computational_package
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.task_packets import build_task_packet, prepare_task_packet
@@ -111,6 +112,132 @@ def test_valid_computational_package_is_structurally_valid(tmp_path):
         "experiment/code/requirements.txt",
         "experiment/code/tests/test_smoke.py",
     }
+
+
+def test_production_exposes_the_exact_canonical_scaffold():
+    helper = getattr(computational_package, "canonical_computational_scaffold", None)
+
+    assert callable(helper)
+    scaffold = helper()
+    assert set(scaffold) == {
+        "experiment/code/main.py",
+        "experiment/code/requirements.txt",
+        "experiment/code/tests/test_smoke.py",
+    }
+    assert all(isinstance(content, str) and content.endswith("\n") for content in scaffold.values())
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "experiment/code/main.py",
+        "experiment/code/requirements.txt",
+        "experiment/code/tests/test_smoke.py",
+    ],
+)
+def test_package_rejects_any_canonical_scaffold_byte_mutation(tmp_path, relative_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / relative_path
+    _replace_package_file(
+        project,
+        relative_path,
+        path.read_text(encoding="utf-8") + "# harmless-looking mutation\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert report.issues[0].code == "scaffold_mismatch"
+    assert report.issues[0].path == relative_path
+
+
+def test_package_rejects_canonical_scaffold_with_crlf_bytes(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    relative_path = "experiment/code/main.py"
+    path = project.root / relative_path
+    _replace_package_file(
+        project,
+        relative_path,
+        path.read_text(encoding="utf-8").replace("\n", "\r\n"),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert report.issues[0].code == "scaffold_mismatch"
+    assert report.issues[0].path == relative_path
+
+
+@pytest.mark.parametrize(
+    "disguise",
+    ["scope_alias", "private_open", "variable_mode", "assigned_false_helper"],
+)
+def test_package_rejects_disguised_capabilities_and_unreachable_helpers(
+    tmp_path, disguise
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    relative_path = "experiment/code/main.py"
+    path = project.root / relative_path
+    source = path.read_text(encoding="utf-8")
+    dry_body = (
+        "    if args.dry_run:\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+    )
+    if disguise == "scope_alias":
+        source = "import pathlib\n" + source
+        replacement = (
+            "    if args.dry_run:\n"
+            "        runner = pathlib.os.system\n"
+            "        runner('echo unsafe')\n"
+            "        return plan\n"
+        )
+        source += "\ndef unrelated():\n    runner = json.dumps\n    return runner\n"
+    elif disguise == "private_open":
+        source = "import pathlib\n" + source
+        replacement = (
+            "    if args.dry_run:\n"
+            "        descriptor = pathlib.os.open(\n"
+            "            'note.ipynb', pathlib.os.O_CREAT | pathlib.os.O_WRONLY\n"
+            "        )\n"
+            "        pathlib.os.close(descriptor)\n"
+            "        return plan\n"
+        )
+    elif disguise == "variable_mode":
+        replacement = (
+            "    if args.dry_run:\n"
+            "        mode = 'w'\n"
+            "        with open('note.ipynb', mode):\n"
+            "            pass\n"
+            "        return plan\n"
+        )
+    else:
+        replacement = (
+            "    if args.dry_run:\n"
+            "        return hidden_readiness(args)\n"
+        )
+        source += (
+            "\ndef hidden_readiness(args):\n"
+            "    never = False\n"
+            "    if never:\n"
+            "        config = load_config(Path(args.config))\n"
+            "        validate_inputs(config)\n"
+            "        plan = build_plan(config)\n"
+            "        if args.dry_run:\n"
+            "            print(json.dumps(plan, sort_keys=True))\n"
+            "            return plan\n"
+            "    return {}\n"
+        )
+    _replace_package_file(project, relative_path, source.replace(dry_body, replacement))
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert report.issues[0].code == "scaffold_mismatch"
+    assert report.issues[0].path == relative_path
 
 
 def test_valid_stage_ten_stops_before_unsupported_stage_eleven(tmp_path):
@@ -807,7 +934,7 @@ def test_package_rejects_undeclared_results_and_download_artifacts(
     )
 
 
-def test_package_allows_absolute_prefix_guard_outside_filesystem_sink(tmp_path):
+def test_package_rejects_noncanonical_absolute_prefix_helper(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     main_path = project.root / "experiment" / "code" / "main.py"
@@ -821,7 +948,8 @@ def test_package_allows_absolute_prefix_guard_outside_filesystem_sink(tmp_path):
 
     report = validate_current_stage(project)
 
-    assert report.valid is True
+    assert report.valid is False
+    assert any(issue.code == "scaffold_mismatch" for issue in report.issues)
 
 
 @pytest.mark.parametrize(
@@ -927,7 +1055,7 @@ def test_package_rejects_helper_mediated_write_reachable_from_smoke(tmp_path):
     assert any(issue.code == "forbidden_capability" for issue in report.issues)
 
 
-def test_package_allows_benign_getattr_reflection(tmp_path):
+def test_package_rejects_noncanonical_benign_getattr_helper(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
@@ -939,7 +1067,8 @@ def test_package_allows_benign_getattr_reflection(tmp_path):
 
     report = validate_current_stage(project)
 
-    assert report.valid is True
+    assert report.valid is False
+    assert any(issue.code == "scaffold_mismatch" for issue in report.issues)
 
 
 def test_package_rejects_dead_code_entrypoint_contract_spoof(tmp_path):
@@ -1170,7 +1299,7 @@ def test_package_rejects_write_in_inverted_dry_run_else_branch(tmp_path):
     assert any(issue.code == "forbidden_capability" for issue in report.issues)
 
 
-def test_package_allows_declared_write_only_on_non_dry_run_path(tmp_path):
+def test_package_rejects_noncanonical_declared_non_dry_write(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
@@ -1188,7 +1317,8 @@ def test_package_allows_declared_write_only_on_non_dry_run_path(tmp_path):
 
     report = validate_current_stage(project)
 
-    assert report.valid is True
+    assert report.valid is False
+    assert any(issue.code == "scaffold_mismatch" for issue in report.issues)
 
 
 @pytest.mark.parametrize(
@@ -1244,7 +1374,7 @@ def test_package_rejects_unapproved_remote_client_import_and_requirement(tmp_pat
     }
 
 
-def test_package_allows_safe_static_constructor_method_chain(tmp_path):
+def test_package_rejects_noncanonical_safe_constructor_method_chain(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
@@ -1256,7 +1386,8 @@ def test_package_allows_safe_static_constructor_method_chain(tmp_path):
 
     report = validate_current_stage(project)
 
-    assert report.valid is True
+    assert report.valid is False
+    assert any(issue.code == "scaffold_mismatch" for issue in report.issues)
 
 
 @pytest.mark.parametrize(
@@ -1643,7 +1774,7 @@ def test_package_rejects_contract_evidence_in_unmodelled_control_flow(
     assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
 
 
-def test_package_allows_proven_safe_string_normalization_methods(tmp_path):
+def test_package_rejects_noncanonical_safe_string_normalization_methods(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
@@ -1655,7 +1786,8 @@ def test_package_allows_proven_safe_string_normalization_methods(tmp_path):
 
     report = validate_current_stage(project)
 
-    assert report.valid is True
+    assert report.valid is False
+    assert any(issue.code == "scaffold_mismatch" for issue in report.issues)
 
 
 def _revalidate_stage_eight_through_stage_ten(project):

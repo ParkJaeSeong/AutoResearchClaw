@@ -60,10 +60,86 @@ _PYTHON_PATHS = (
 )
 _REQUIREMENTS_PATH = "experiment/code/requirements.txt"
 _README_PATH = "experiment/code/README.md"
+_CANONICAL_MAIN = (
+    "import argparse\n"
+    "import json\n"
+    "from pathlib import Path\n"
+    "from typing import Any\n\n"
+    "def load_config(config_path: Path) -> dict[str, Any]:\n"
+    "    if config_path.is_absolute():\n"
+    "        raise ValueError('config path must be project-relative')\n"
+    "    with config_path.open(encoding='utf-8') as handle:\n"
+    "        config = json.load(handle)\n"
+    "    if not isinstance(config, dict):\n"
+    "        raise ValueError('config must be an object')\n"
+    "    return config\n\n"
+    "def validate_inputs(config: dict[str, Any]) -> None:\n"
+    "    contract = config['input_contract']\n"
+    "    required_paths = contract['required_paths']\n"
+    "    required_fields = contract['required_fields']\n"
+    "    if not required_paths or not required_fields:\n"
+    "        raise ValueError('input contract must be non-empty')\n"
+    "    for raw_path in required_paths:\n"
+    "        candidate = Path(raw_path)\n"
+    "        if candidate.is_absolute() or '..' in candidate.parts:\n"
+    "            raise ValueError('input path must be project-relative')\n"
+    "        if not candidate.is_file():\n"
+    "            raise FileNotFoundError(raw_path)\n\n"
+    "        with candidate.open(encoding='utf-8') as handle:\n"
+    "            record = json.load(handle)\n"
+    "        if not isinstance(record, dict) or any(\n"
+    "            field not in record for field in required_fields\n"
+    "        ):\n"
+    "            raise ValueError('input schema does not match contract')\n\n"
+    "def build_plan(config: dict[str, Any]) -> dict[str, Any]:\n"
+    "    return {\n"
+    "        'split_strategy': config['split_strategy'],\n"
+    "        'metrics': config['metrics'],\n"
+    "        'baselines': config['baselines'],\n"
+    "        'seeds': config['seeds'],\n"
+    "    }\n\n"
+    "def main(argv: list[str] | None = None) -> dict[str, Any]:\n"
+    "    parser = argparse.ArgumentParser()\n"
+    "    parser.add_argument('--config', required=True)\n"
+    "    parser.add_argument('--dry-run', action='store_true')\n"
+    "    args = parser.parse_args(argv)\n"
+    "    config = load_config(Path(args.config))\n"
+    "    validate_inputs(config)\n"
+    "    plan = build_plan(config)\n"
+    "    if args.dry_run:\n"
+    "        print(json.dumps(plan, sort_keys=True))\n"
+    "        return plan\n"
+    "    raise RuntimeError('execution is deferred to stage 12')\n\n"
+    "if __name__ == '__main__':\n"
+    "    main()\n"
+)
+_CANONICAL_SMOKE = (
+    "from pathlib import Path\n\n"
+    "from experiment.code.main import build_plan, load_config, main, validate_inputs\n\n"
+    "def test_smoke_contract():\n"
+    "    config_path = Path('experiment/code/config.json')\n"
+    "    config = load_config(config_path)\n"
+    "    validate_inputs(config)\n"
+    "    plan = build_plan(config)\n"
+    "    dry_plan = main(['--config', str(config_path), '--dry-run'])\n"
+    "    assert dry_plan == plan\n"
+)
+_CANONICAL_REQUIREMENTS = "pytest==8.3.0\n"
 _EXPECTED_COMMANDS = {
     "dry_run": "python experiment/code/main.py --config experiment/code/config.json --dry-run",
     "smoke_test": "python -m pytest experiment/code/tests/test_smoke.py -q",
 }
+
+
+def canonical_computational_scaffold() -> dict[str, str]:
+    """Return fresh copies of the exact repository-owned Stage-10 scaffold."""
+    return {
+        "experiment/code/main.py": _CANONICAL_MAIN,
+        "experiment/code/requirements.txt": _CANONICAL_REQUIREMENTS,
+        "experiment/code/tests/test_smoke.py": _CANONICAL_SMOKE,
+    }
+
+
 _TRACEABILITY_FIELDS = (
     "datasets",
     "baselines",
@@ -85,7 +161,7 @@ _TRACEABILITY_SOURCES = {
 _ALLOWED_IMPORT_EXPORTS = {
     "__future__": frozenset({"annotations"}),
     "argparse": frozenset({"ArgumentParser"}),
-    "json": frozenset({"JSONDecoder", "JSONEncoder", "dump", "dumps", "load", "loads"}),
+    "json": frozenset({"dump", "dumps", "load", "loads"}),
     "pathlib": frozenset(
         {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
     ),
@@ -101,8 +177,6 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "experiment.code.main.load_config",
         "experiment.code.main.main",
         "experiment.code.main.validate_inputs",
-        "json.JSONDecoder",
-        "json.JSONEncoder",
         "json.dump",
         "json.dumps",
         "json.load",
@@ -124,8 +198,6 @@ _ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
         "pathlib.PurePosixPath",
         "PureWindowsPath",
         "pathlib.PureWindowsPath",
-        "json.JSONDecoder",
-        "json.JSONEncoder",
     }
 )
 _ALLOWED_BUILTIN_CALLS = frozenset(
@@ -140,7 +212,6 @@ _ALLOWED_BUILTIN_CALLS = frozenset(
         "dict",
         "enumerate",
         "float",
-        "getattr",
         "int",
         "isinstance",
         "len",
@@ -182,9 +253,6 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "write_bytes",
         "write_text",
     }
-)
-_ALLOWED_STRING_METHODS = frozenset(
-    {"casefold", "endswith", "lower", "lstrip", "replace", "rsplit", "rstrip", "split", "startswith", "strip", "upper"}
 )
 _FAKE_RESULT_NAME = re.compile(
     r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
@@ -397,6 +465,28 @@ def _validate_hashes(
             )
 
 
+def _validate_canonical_scaffold(
+    root: Path,
+    outputs: Mapping[str, str],
+    issues: list[ComputationalPackageIssue],
+) -> None:
+    for path, expected in canonical_computational_scaffold().items():
+        actual = outputs.get(path)
+        disk_path = root / path
+        actual_bytes = disk_path.read_bytes() if disk_path.is_file() else None
+        if (
+            isinstance(actual, str)
+            and actual_bytes is not None
+            and actual_bytes != expected.encode("utf-8")
+        ):
+            _issue(
+                issues,
+                "scaffold_mismatch",
+                path,
+                "file bytes must exactly match the repository-owned Stage-10 scaffold",
+            )
+
+
 def _validate_on_disk_tree(
     root: Path,
     prepared_snapshot: tuple[FilesystemEntry, ...] | None,
@@ -591,14 +681,7 @@ def _forbidden_call(name: str | None) -> bool:
 def _call_is_dynamic_dispatch(
     node: ast.Call,
     aliases: Mapping[str, str],
-    lexical_callables: "_LexicalCallables",
 ) -> bool:
-    if (
-        isinstance(node.func, ast.Attribute)
-        and node.func.attr in _ALLOWED_STRING_METHODS
-        and _proven_string_expression(node.func.value, node, lexical_callables)
-    ):
-        return False
     current = node.func
     while isinstance(current, ast.Attribute):
         current = current.value
@@ -624,53 +707,6 @@ def _call_has_allowed_provenance(
         return True
     if isinstance(node.func, ast.Attribute) and node.func.attr in _ALLOWED_OBJECT_METHODS:
         return True
-    if (
-        isinstance(node.func, ast.Attribute)
-        and node.func.attr in _ALLOWED_STRING_METHODS
-        and _proven_string_expression(node.func.value, node, lexical_callables)
-    ):
-        return True
-    return False
-
-
-def _annotation_is_str(annotation: ast.expr | None) -> bool:
-    return isinstance(annotation, ast.Name) and annotation.id == "str"
-
-
-def _scope_has_string_parameter(scope: ast.AST, name: str) -> bool:
-    if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-        return False
-    arguments = scope.args
-    positional = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
-    if arguments.vararg is not None:
-        positional.append(arguments.vararg)
-    if arguments.kwarg is not None:
-        positional.append(arguments.kwarg)
-    return any(argument.arg == name and _annotation_is_str(argument.annotation) for argument in positional)
-
-
-def _proven_string_expression(
-    expression: ast.AST,
-    context: ast.AST,
-    callables: "_LexicalCallables",
-) -> bool:
-    if isinstance(expression, ast.Constant):
-        return isinstance(expression.value, str)
-    if isinstance(expression, ast.Name):
-        scope: ast.AST | None = callables.node_scope.get(context, callables.module)
-        while scope is not None:
-            if _scope_has_string_parameter(scope, expression.id):
-                return True
-            scope = callables.parent_scope.get(scope)
-        return False
-    if isinstance(expression, ast.Call):
-        if isinstance(expression.func, ast.Name) and expression.func.id == "str":
-            return True
-        return (
-            isinstance(expression.func, ast.Attribute)
-            and expression.func.attr in _ALLOWED_STRING_METHODS
-            and _proven_string_expression(expression.func.value, context, callables)
-        )
     return False
 
 
@@ -1374,7 +1410,7 @@ def _validate_python_capabilities(
             elif isinstance(node, ast.Call):
                 forbidden = forbidden or _forbidden_call(
                     _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node, aliases, callables) or not _call_has_allowed_provenance(
+                ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
                     node, aliases, callables
                 )
                 unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
@@ -1980,6 +2016,7 @@ def validate_computational_package(
     for path in REQUIRED_OUTPUTS:
         if not isinstance(outputs.get(path), str):
             _issue(issues, "missing_artifact", path, "required artifact is missing")
+    _validate_canonical_scaffold(root, outputs, issues)
 
     manifest = _parse_object(outputs.get(MANIFEST_PATH), MANIFEST_PATH, issues)
     config_path = "experiment/code/config.json"

@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 
 from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
+from researchclaw.core.computational_package import canonical_computational_scaffold
 
 
 ROOT = Path(__file__).parents[2]
@@ -54,3 +55,7 @@ def test_stage_ten_docs_author_and_validate_without_execution():
     assert "computational" in stages
     assert "policy_evidence" in reference and "unsupported" in reference.lower()
     assert "laboratory" in reference and "unsupported" in reference.lower()
+    assert "canonical_computational_scaffold()" in reference
+    assert "byte-for-byte" in reference.lower()
+    for path in canonical_computational_scaffold():
+        assert path in reference

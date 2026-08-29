@@ -4,6 +4,7 @@ from pathlib import Path
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
+from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
 
@@ -272,73 +273,9 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
             "split summary, and provenance. Network, external LLM, nested-agent, and "
             "Stage-10 execution are prohibited.\n"
         ),
-        "experiment/code/main.py": (
-            "import argparse\n"
-            "import json\n"
-            "from pathlib import Path\n"
-            "from typing import Any\n\n"
-            "def load_config(config_path: Path) -> dict[str, Any]:\n"
-            "    if config_path.is_absolute():\n"
-            "        raise ValueError('config path must be project-relative')\n"
-            "    with config_path.open(encoding='utf-8') as handle:\n"
-            "        config = json.load(handle)\n"
-            "    if not isinstance(config, dict):\n"
-            "        raise ValueError('config must be an object')\n"
-            "    return config\n\n"
-            "def validate_inputs(config: dict[str, Any]) -> None:\n"
-            "    contract = config['input_contract']\n"
-            "    required_paths = contract['required_paths']\n"
-            "    required_fields = contract['required_fields']\n"
-            "    if not required_paths or not required_fields:\n"
-            "        raise ValueError('input contract must be non-empty')\n"
-            "    for raw_path in required_paths:\n"
-            "        candidate = Path(raw_path)\n"
-            "        if candidate.is_absolute() or '..' in candidate.parts:\n"
-            "            raise ValueError('input path must be project-relative')\n"
-            "        if not candidate.is_file():\n"
-            "            raise FileNotFoundError(raw_path)\n\n"
-            "        with candidate.open(encoding='utf-8') as handle:\n"
-            "            record = json.load(handle)\n"
-            "        if not isinstance(record, dict) or any(\n"
-            "            field not in record for field in required_fields\n"
-            "        ):\n"
-            "            raise ValueError('input schema does not match contract')\n\n"
-            "def build_plan(config: dict[str, Any]) -> dict[str, Any]:\n"
-            "    return {\n"
-            "        'split_strategy': config['split_strategy'],\n"
-            "        'metrics': config['metrics'],\n"
-            "        'baselines': config['baselines'],\n"
-            "        'seeds': config['seeds'],\n"
-            "    }\n\n"
-            "def main(argv: list[str] | None = None) -> dict[str, Any]:\n"
-            "    parser = argparse.ArgumentParser()\n"
-            "    parser.add_argument('--config', required=True)\n"
-            "    parser.add_argument('--dry-run', action='store_true')\n"
-            "    args = parser.parse_args(argv)\n"
-            "    config = load_config(Path(args.config))\n"
-            "    validate_inputs(config)\n"
-            "    plan = build_plan(config)\n"
-            "    if args.dry_run:\n"
-            "        print(json.dumps(plan, sort_keys=True))\n"
-            "        return plan\n"
-            "    raise RuntimeError('execution is deferred to stage 12')\n\n"
-            "if __name__ == '__main__':\n"
-            "    main()\n"
-        ),
         "experiment/code/config.json": json.dumps(config, separators=(",", ":"))
         + "\n",
-        "experiment/code/requirements.txt": "pytest==8.3.0\n",
-        "experiment/code/tests/test_smoke.py": (
-            "from pathlib import Path\n\n"
-            "from experiment.code.main import build_plan, load_config, main, validate_inputs\n\n"
-            "def test_smoke_contract():\n"
-            "    config_path = Path('experiment/code/config.json')\n"
-            "    config = load_config(config_path)\n"
-            "    validate_inputs(config)\n"
-            "    plan = build_plan(config)\n"
-            "    dry_plan = main(['--config', str(config_path), '--dry-run'])\n"
-            "    assert dry_plan == plan\n"
-        ),
+        **canonical_computational_scaffold(),
     }
     manifest = {
         "schema_version": 1,
