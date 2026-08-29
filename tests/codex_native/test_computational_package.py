@@ -156,7 +156,7 @@ def test_changed_approved_design_rewinds_and_invalidates_package_lineage(tmp_pat
     assert handoff.next_action == "validate_stage"
     assert state.completed_stages == tuple(range(1, 9))
     assert state.last_error["issues"][0]["code"] == "approval_invalidated"
-    assert "10" not in state.prepared_stage_paths
+    assert state.stage_10_snapshot.status == "captured"
     assert not {
         "experiment/design.json",
         "experiment/package_manifest.json",
@@ -1066,7 +1066,9 @@ def test_stage_ten_prepare_persists_filesystem_baseline(tmp_path):
 
     prepare_task_packet(project)
 
-    baseline = ResearchProject.open(project.root).state.prepared_stage_paths["10"]
+    snapshot = ResearchProject.open(project.root).state.stage_10_snapshot
+    baseline = {entry.path for entry in snapshot.entries}
+    assert snapshot.status == "captured"
     assert "experiment/design.json" in baseline
     assert "experiment/package_manifest.json" not in baseline
 
@@ -1110,3 +1112,362 @@ def test_reprepare_does_not_bless_post_prepare_artifact(tmp_path):
 
     assert report.valid is False
     assert any(issue.path == "analysis.ipynb" for issue in report.issues)
+
+
+@pytest.mark.parametrize("helper_kind", ["nested", "lambda"])
+def test_package_rejects_dry_run_writes_through_local_callables(
+    tmp_path, helper_kind
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    marker = "    if args.dry_run:\n"
+    helper = (
+        "    def emit_result() -> None:\n"
+        "        Path('experiment/results.json').write_text('{}')\n"
+        if helper_kind == "nested"
+        else "    emit_result = lambda: Path('experiment/results.json').write_text('{}')\n"
+    )
+    source = source.replace(marker, helper + marker).replace(
+        "        print(json.dumps(plan, sort_keys=True))\n",
+        "        emit_result()\n        print(json.dumps(plan, sort_keys=True))\n",
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "forbidden_capability" for issue in report.issues)
+
+
+def test_package_rejects_write_in_inverted_dry_run_else_branch(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    active = (
+        "    if args.dry_run:\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+        "    raise RuntimeError('execution is deferred to stage 12')\n"
+    )
+    inverted = (
+        "    if not args.dry_run:\n"
+        "        raise RuntimeError('execution is deferred to stage 12')\n"
+        "    else:\n"
+        "        Path('experiment/results.json').write_text('{}')\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+    )
+    _replace_package_file(
+        project, "experiment/code/main.py", source.replace(active, inverted)
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "forbidden_capability" for issue in report.issues)
+
+
+def test_package_allows_declared_write_only_on_non_dry_run_path(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    active = "    raise RuntimeError('execution is deferred to stage 12')\n"
+    execution = (
+        "    Path('experiment/results.json').write_text(\n"
+        "        json.dumps({'plan': plan}, sort_keys=True)\n"
+        "    )\n"
+        "    return plan\n"
+    )
+    _replace_package_file(
+        project, "experiment/code/main.py", source.replace(active, execution)
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["experiment/code/main.py", "experiment/code/tests/test_smoke.py"],
+)
+def test_package_rejects_artifact_write_during_module_import(
+    tmp_path, relative_path
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / relative_path
+    source = path.read_text(encoding="utf-8") + (
+        "\nPath('experiment/results.json').write_text('{}')\n"
+    )
+    _replace_package_file(project, relative_path, source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_capability" and issue.path == relative_path
+        for issue in report.issues
+    )
+
+
+def test_package_rejects_unapproved_remote_client_import_and_requirement(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = (
+        "from huggingface_hub import InferenceClient\n"
+        + path.read_text(encoding="utf-8")
+        + "\nclient = InferenceClient()\nclient.text_generation('unsafe')\n"
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+    _replace_package_file(
+        project,
+        "experiment/code/requirements.txt",
+        "huggingface-hub==0.30.0\npytest==8.3.0\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert {
+        issue.path
+        for issue in report.issues
+        if issue.code == "forbidden_capability"
+    } >= {
+        "experiment/code/main.py",
+        "experiment/code/requirements.txt",
+    }
+
+
+def test_package_allows_safe_static_constructor_method_chain(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8") + (
+        "\ndef decode_record() -> object:\n"
+        "    return json.JSONDecoder().decode('{}')\n"
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+
+
+@pytest.mark.parametrize(
+    "condition",
+    ["1 == 2", "not (2 > 1)", "(1 == 2) or (3 != 3)"],
+)
+def test_package_rejects_constant_false_entrypoint_contract_spoof(
+    tmp_path, condition
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    active = (
+        "    config = load_config(Path(args.config))\n"
+        "    validate_inputs(config)\n"
+        "    plan = build_plan(config)\n"
+        "    if args.dry_run:\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+        "    raise RuntimeError('execution is deferred to stage 12')\n"
+    )
+    dead = "    if " + condition + ":\n" + "".join(
+        f"    {line}" for line in active.splitlines(True)
+    )
+    dead += "    return {}\n"
+    _replace_package_file(
+        project, "experiment/code/main.py", source.replace(active, dead)
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_rejects_contract_after_statically_unconditional_return(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    marker = "    config = load_config(Path(args.config))\n"
+    source = source.replace(
+        marker,
+        "    if (3 >= 2) and not False:\n        return {}\n" + marker,
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_does_not_follow_nested_helper_defined_in_dead_branch(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    active = (
+        "    config = load_config(Path(args.config))\n"
+        "    validate_inputs(config)\n"
+        "    plan = build_plan(config)\n"
+        "    if args.dry_run:\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+        "    raise RuntimeError('execution is deferred to stage 12')\n"
+    )
+    nested = (
+        "    if 1 == 2:\n"
+        "        def perform_contract():\n"
+        "            config = load_config(Path(args.config))\n"
+        "            validate_inputs(config)\n"
+        "            return build_plan(config)\n"
+        "    if args.dry_run:\n"
+        "        return perform_contract()\n"
+        "    raise RuntimeError('execution is deferred to stage 12')\n"
+    )
+    _replace_package_file(
+        project, "experiment/code/main.py", source.replace(active, nested)
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_rejects_smoke_contract_after_statically_unconditional_raise(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "tests" / "test_smoke.py"
+    source = path.read_text(encoding="utf-8")
+    marker = "    config_path = Path('experiment/code/config.json')\n"
+    source = source.replace(
+        marker,
+        "    if (1 != 2) and True:\n        raise RuntimeError('stop')\n" + marker,
+    )
+    _replace_package_file(project, "experiment/code/tests/test_smoke.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_smoke_contract" for issue in report.issues)
+
+
+def test_stage_ten_rejects_empty_directory_added_after_prepare(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    prepare_task_packet(project)
+    write_valid_fixture_artifacts(project.root, 10)
+    (project.root / "experiment" / "results").mkdir()
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.path == "experiment/results" for issue in report.issues)
+
+
+def test_stage_ten_rejects_modified_preexisting_file(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    supplied = project.root / "data" / "input.csv"
+    supplied.parent.mkdir()
+    supplied.write_text("cell_id,target\n1,2\n", encoding="utf-8")
+    prepare_task_packet(project)
+    supplied.write_text("cell_id,target\n1,999\n", encoding="utf-8")
+    write_valid_fixture_artifacts(project.root, 10)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.path == "data/input.csv" for issue in report.issues)
+
+
+def test_stage_ten_baseline_survives_design_invalidation_without_laundering(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    prepare_task_packet(project)
+    (project.root / "analysis.ipynb").write_text("{}", encoding="utf-8")
+    design_path = project.root / "experiment" / "design.json"
+    design_path.write_text(
+        design_path.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+    )
+
+    handoff = ResearchProject.open(project.root).build_handoff()
+    assert handoff.current_stage == 9
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    approve_current_gate(
+        ResearchProject.open(project.root), "approve", "Reapproved changed design"
+    )
+    prepare_task_packet(ResearchProject.open(project.root))
+    write_valid_fixture_artifacts(project.root, 10)
+
+    report = validate_current_stage(ResearchProject.open(project.root))
+
+    assert report.valid is False
+    assert any(issue.path == "analysis.ipynb" for issue in report.issues)
+
+
+def test_stage_ten_snapshot_records_typed_hashed_entries(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    supplied = project.root / "data" / "input.csv"
+    supplied.parent.mkdir()
+    supplied.write_text("cell_id,target\n1,2\n", encoding="utf-8")
+    (project.root / "data" / "current.csv").symlink_to("input.csv")
+
+    prepare_task_packet(project)
+
+    snapshot = ResearchProject.open(project.root).state.stage_10_snapshot
+    entries = {entry.path: entry for entry in snapshot.entries}
+    assert snapshot.status == "captured"
+    assert entries["data"].kind == "directory"
+    assert entries["data"].sha256 is None
+    assert entries["data/input.csv"].kind == "regular_file"
+    assert entries["data/input.csv"].sha256 == hashlib.sha256(
+        supplied.read_bytes()
+    ).hexdigest()
+    assert entries["data/current.csv"].kind == "symlink"
+    assert entries["data/current.csv"].sha256 == hashlib.sha256(
+        b"input.csv"
+    ).hexdigest()
+
+
+def test_stage_ten_rejects_changed_preexisting_symlink_target(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    data = project.root / "data"
+    data.mkdir()
+    (data / "first.csv").write_text("first", encoding="utf-8")
+    (data / "second.csv").write_text("second", encoding="utf-8")
+    link = data / "current.csv"
+    link.symlink_to("first.csv")
+    prepare_task_packet(project)
+    link.unlink()
+    link.symlink_to("second.csv")
+    write_valid_fixture_artifacts(project.root, 10)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.path == "data/current.csv" for issue in report.issues)
+
+
+def test_legacy_stage_ten_state_without_snapshot_is_not_silently_rebased(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("stage_10_snapshot", None)
+    state.pop("prepared_stage_paths", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    (project.root / "analysis.ipynb").write_text("{}", encoding="utf-8")
+
+    reopened = ResearchProject.open(project.root)
+
+    assert reopened.state.stage_10_snapshot.status == "legacy_missing"
+    with pytest.raises(ValueError, match="legacy.*snapshot"):
+        prepare_task_packet(reopened)

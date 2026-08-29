@@ -199,7 +199,7 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
     }
     if stage_id == 10:
         project = ResearchProject.open(root)
-        if "10" not in project.state.prepared_stage_paths:
+        if project.state.stage_10_snapshot.status != "captured":
             from researchclaw.core.task_packets import prepare_task_packet
 
             prepare_task_packet(project)

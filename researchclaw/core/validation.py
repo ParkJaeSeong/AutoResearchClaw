@@ -313,7 +313,12 @@ def _validate_stage_ten(
             contents,
             project.state.project_id,
             approved_design_sha256=design_sha256,
-            prepared_paths=project.state.prepared_stage_paths.get("10"),
+            prepared_snapshot=(
+                project.state.stage_10_snapshot.entries
+                if project.state.stage_10_snapshot.status == "captured"
+                else None
+            ),
+            authorized_paths=frozenset({design_path}),
         )
     )
 

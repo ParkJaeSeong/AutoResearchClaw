@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from researchclaw.core.models import ProjectState, StageStatus
+from researchclaw.core.filesystem_baseline import FilesystemEntry
+from researchclaw.core.models import ProjectState, StageStatus, StageTenSnapshot
 from researchclaw.core.state import StateStore
 
 
@@ -20,6 +21,24 @@ def test_state_round_trip_is_independent_of_conversation(tmp_path):
     assert loaded.schema_version == 1
     assert loaded.current_stage == 1
     assert loaded.status is StageStatus.READY
+
+
+def test_state_round_trips_typed_stage_ten_snapshot(tmp_path):
+    store = StateStore(tmp_path)
+    original = replace(
+        ProjectState.new("rc-test", "Topic", "materials_ai"),
+        stage_10_snapshot=StageTenSnapshot(
+            "captured",
+            (
+                FilesystemEntry("data", "directory", None),
+                FilesystemEntry("data/current.csv", "symlink", "b" * 64),
+                FilesystemEntry("data/input.csv", "regular_file", "a" * 64),
+            ),
+        ),
+    )
+    store.save(original)
+
+    assert store.load() == original
 
 
 @pytest.mark.parametrize(
@@ -136,4 +155,39 @@ def test_state_load_rejects_malformed_artifact_references(tmp_path, artifact):
     store.path.write_text(json.dumps(data), encoding="utf-8")
 
     with pytest.raises(ValueError, match="artifact"):
+        store.load()
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {"status": "refreshed", "entries": []},
+        {
+            "status": "captured",
+            "entries": [
+                {"path": "../outside", "kind": "directory", "sha256": None}
+            ],
+        },
+        {
+            "status": "captured",
+            "entries": [
+                {"path": "data", "kind": "directory", "sha256": "0" * 64}
+            ],
+        },
+        {
+            "status": "captured",
+            "entries": [
+                {"path": "data/input.csv", "kind": "regular_file", "sha256": None}
+            ],
+        },
+    ],
+    ids=("status", "traversal", "directory-hash", "missing-file-hash"),
+)
+def test_state_load_rejects_malformed_stage_ten_snapshot(tmp_path, snapshot):
+    store = StateStore(tmp_path)
+    data = ProjectState.new("rc-test", "Topic", "materials_ai").to_dict()
+    data["stage_10_snapshot"] = snapshot
+    store.path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="snapshot"):
         store.load()

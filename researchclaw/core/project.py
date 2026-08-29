@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from .models import ProjectState, StageStatus
+from .models import ProjectState, StageStatus, StageTenSnapshot
 from .profiles import load_profile
 from .state import StateStore
 
@@ -56,6 +56,15 @@ class ResearchProject:
             raise ValueError(f"project state.json not found: {state_path}")
         store = StateStore(state_path.parent)
         state = store.load()
+        if (
+            state.stage_10_snapshot.status == "legacy_missing"
+            and state.current_stage < 10
+        ):
+            state = replace(
+                state,
+                stage_10_snapshot=StageTenSnapshot("not_prepared", ()),
+            )
+            store.save(state)
         if state.current_stage == 6 and 5 in state.completed_stages:
             from .approval import approval_matches_state, load_approval_record
             from .contracts import FOUNDATION_STAGE_IDS, LITERATURE_APPROVAL_STAGE, get_contract

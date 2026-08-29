@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .approval import load_approval_record, verify_current_approval
 from .contracts import LITERATURE_APPROVAL_STAGE, SUPPORTED_STAGE_IDS, get_contract
-from .filesystem_baseline import snapshot_project_paths
-from .models import StageStatus
+from .filesystem_baseline import snapshot_project
+from .models import StageStatus, StageTenSnapshot
 from .paths import resolve_project_artifact
 from .profiles import load_profile
 from .project import ResearchProject
@@ -139,22 +139,20 @@ def prepare_task_packet(project: ResearchProject) -> TaskPacket:
     packet = build_task_packet(current_project)
     for relative_path in packet.required_outputs:
         resolve_project_artifact(current_project.root, relative_path)
-    stage_key = str(packet.stage_id)
-    if packet.stage_id == 10 and stage_key not in current_project.state.prepared_stage_paths:
-        baseline = tuple(
-            path
-            for path in snapshot_project_paths(current_project.root)
-            if path not in packet.required_outputs
-        )
-        current_project = current_project.persist_state(
-            replace(
-                current_project.state,
-                prepared_stage_paths={
-                    **current_project.state.prepared_stage_paths,
-                    stage_key: baseline,
-                },
+    if packet.stage_id == 10:
+        snapshot = current_project.state.stage_10_snapshot
+        if snapshot.status == "legacy_missing":
+            raise ValueError(
+                "legacy Stage 10 state is missing its immutable filesystem snapshot"
             )
-        )
+        if snapshot.status == "not_prepared":
+            baseline = snapshot_project(current_project.root)
+            current_project = current_project.persist_state(
+                replace(
+                    current_project.state,
+                    stage_10_snapshot=StageTenSnapshot("captured", baseline),
+                )
+            )
     from .events import EvaluationEvent, event_log_for
 
     event_log_for(current_project.root).append(

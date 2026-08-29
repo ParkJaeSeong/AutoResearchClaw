@@ -147,11 +147,6 @@ def _rewind_for_revalidation(
             completed_stages=tuple(stage for stage in state.completed_stages if stage < stage_id),
             next_action="validate_stage",
             artifacts=retained_artifacts,
-            prepared_stage_paths={
-                key: paths
-                for key, paths in state.prepared_stage_paths.items()
-                if int(key) <= stage_id
-            },
             last_error=last_error,
         )
     )

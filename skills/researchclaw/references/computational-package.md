@@ -131,13 +131,23 @@ execute the validation.
 `requirements.txt` contains only valid PEP 508 runtime requirements with an
 exact (`==`), compatible (`~=`), or bounded lower-and-upper version range.
 Requirement-file options, direct references, URLs, local paths, and VCS
-sources are forbidden even when their text resembles a version pin. Do not
-include external LLM SDKs, remote-agent frameworks, network/download clients,
-or unbounded dependencies. In particular, prohibited imports and
-distributions include OpenAI, Anthropic, Google Generative AI, requests,
-httpx, urllib, socket, FTP/HTTP clients, subprocess and multiprocessing,
-LiteLLM, LangChain, LlamaIndex, AutoGen, CrewAI, Pydantic AI, Semantic Kernel,
-Haystack, `haystack-ai`, and `farm-haystack`.
+sources are forbidden even when their text resembles a version pin. The
+Stage-10 readiness dependency allow-list contains only `pytest`; any other
+distribution is rejected, including numerical/model runtimes, external LLM
+SDKs, remote-agent frameworks, and network/download clients.
+
+Generated Python uses a constrained import and call model. Imports are limited
+to the deterministic modules used by the documented readiness fixture
+(`argparse`, `json`, `pathlib`, and `typing`) and the local
+`experiment.code.main` entry point. Calls must resolve statically to an
+allowed import, documented safe builtin/object method, or reachable local
+callable. Computed and unknown clients are rejected. Safe deterministic
+constructor chaining such as `json.JSONDecoder().decode(...)` and ordinary
+non-callable reflection such as `getattr(record, "value", None)` remain
+allowed. Control-flow and local-call analysis follows nested functions and
+lambdas, folds constant comparisons/boolean/unary expressions, respects early
+termination, and evaluates the positive and negative dry-run paths so no
+reachable readiness path can create an artifact.
 
 ## Validate, repair, and stop
 
@@ -154,15 +164,26 @@ execute the generated package. If it returns issues, revise only these six
 declared outputs using the reported issues and the prepared packet, then run
 the same validation command again. Do not create outputs to bypass a failure.
 
-The first Stage-10 `prepare` durably records the existing non-output project
-file paths. Repeated prepare calls do not refresh that baseline. Static
-validation requires the paths added after prepare to be exactly the six
-declared outputs and rejects removal of a baseline path. Files such as supplied
-inputs that existed before prepare remain allowed; a notebook, download,
-result, or other undeclared path added afterward is rejected regardless of its
-directory name. A migrated state without this field acquires it at the next
-Stage-10 prepare; declared output paths are excluded from the captured baseline
-so their content and hashes remain subject to the ordinary six-output checks.
+The first Stage-10 `prepare` durably records one immutable typed snapshot of
+all authored/data filesystem entries: ordinary directories (including empty
+ones), symlinks hashed by link-target bytes, and regular files hashed by
+content. Engine-owned state, approvals, and evaluation logs are outside this
+authoring snapshot. Repeated prepare calls and Stage-9 invalidation/reapproval
+never refresh or discard it. Static validation permits only the six declared
+output files and their necessary parent directories as additions; it rejects
+new empty directories, removed entries, type changes, changed symlink targets,
+and byte changes to pre-existing files. A revalidated upstream artifact may
+change only through its separately verified durable artifact lineage. Thus a
+pre-prepare supplied input remains allowed but cannot be modified during
+Stage-10 authoring, and an undeclared path cannot be laundered through
+reapproval.
+
+Legacy state migration is conservative. A legacy state encountered before
+Stage 10 is explicitly migrated to `not_prepared` and may capture its first
+snapshot later. A legacy state already at Stage 10 or beyond without a typed
+snapshot is marked `legacy_missing`; prepare and validation refuse to create a
+new baseline from its current filesystem. Restoration requires an explicitly
+authorized state recovery outside this authoring workflow.
 
 When validation succeeds, run:
 

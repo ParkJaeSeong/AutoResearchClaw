@@ -3,6 +3,7 @@ from enum import Enum
 import re
 from collections.abc import Mapping
 
+from .filesystem_baseline import FilesystemEntry
 from .paths import validate_relative_path
 
 _HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -46,6 +47,12 @@ class ArtifactRef:
 
 
 @dataclass(frozen=True)
+class StageTenSnapshot:
+    status: str
+    entries: tuple[FilesystemEntry, ...]
+
+
+@dataclass(frozen=True)
 class ProjectState:
     schema_version: int
     project_id: str
@@ -59,7 +66,7 @@ class ProjectState:
     artifacts: dict[str, ArtifactRef]
     retry_counts: dict[str, int]
     last_error: dict[str, object] | None
-    prepared_stage_paths: dict[str, tuple[str, ...]]
+    stage_10_snapshot: StageTenSnapshot
 
     @classmethod
     def new(cls, project_id: str, topic: str, profile: str) -> "ProjectState":
@@ -76,7 +83,7 @@ class ProjectState:
             artifacts={},
             retry_counts={},
             last_error=None,
-            prepared_stage_paths={},
+            stage_10_snapshot=StageTenSnapshot("not_prepared", ()),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -96,9 +103,16 @@ class ProjectState:
             },
             "retry_counts": self.retry_counts,
             "last_error": self.last_error,
-            "prepared_stage_paths": {
-                stage_id: list(paths)
-                for stage_id, paths in self.prepared_stage_paths.items()
+            "stage_10_snapshot": {
+                "status": self.stage_10_snapshot.status,
+                "entries": [
+                    {
+                        "path": entry.path,
+                        "kind": entry.kind,
+                        "sha256": entry.sha256,
+                    }
+                    for entry in self.stage_10_snapshot.entries
+                ],
             },
         }
 
@@ -128,9 +142,7 @@ class ProjectState:
         artifacts = _artifacts(data.get("artifacts"))
         retry_counts = _retry_counts(data.get("retry_counts"))
         last_error = _last_error(data.get("last_error"))
-        prepared_stage_paths = _prepared_stage_paths(
-            data.get("prepared_stage_paths", {})
-        )
+        stage_10_snapshot = _stage_10_snapshot(data.get("stage_10_snapshot"))
         if current_stage == 24 and status is not StageStatus.COMPLETED:
             raise ValueError("state status must be completed at stage 24")
         if status is StageStatus.COMPLETED and current_stage != 24:
@@ -148,7 +160,7 @@ class ProjectState:
             artifacts=artifacts,
             retry_counts=retry_counts,
             last_error=last_error,
-            prepared_stage_paths=prepared_stage_paths,
+            stage_10_snapshot=stage_10_snapshot,
         )
 
 
@@ -228,29 +240,46 @@ def _retry_counts(value: object) -> dict[str, int]:
     return retry_counts
 
 
-def _prepared_stage_paths(value: object) -> dict[str, tuple[str, ...]]:
-    if not isinstance(value, dict):
-        raise ValueError("state prepared_stage_paths must be a JSON object")
-    baselines: dict[str, tuple[str, ...]] = {}
-    for key, raw_paths in value.items():
-        if (
-            not isinstance(key, str)
-            or not key.isdigit()
-            or key != str(int(key))
-            or not 1 <= int(key) <= 23
-            or not isinstance(raw_paths, list)
-        ):
-            raise ValueError("state prepared_stage_paths entries are invalid")
-        paths: list[str] = []
-        for raw_path in raw_paths:
-            try:
-                paths.append(validate_relative_path(raw_path, kind="prepared path"))
-            except ValueError as error:
-                raise ValueError(f"state prepared path is invalid: {error}") from error
-        if paths != sorted(set(paths)):
-            raise ValueError("state prepared paths must be sorted and unique")
-        baselines[key] = tuple(paths)
-    return baselines
+def _stage_10_snapshot(value: object) -> StageTenSnapshot:
+    if value is None:
+        return StageTenSnapshot("legacy_missing", ())
+    if not isinstance(value, dict) or set(value) != {"status", "entries"}:
+        raise ValueError("state stage_10_snapshot must be a closed JSON object")
+    status = value.get("status")
+    raw_entries = value.get("entries")
+    if status not in {"not_prepared", "captured", "legacy_missing"}:
+        raise ValueError("state stage_10_snapshot status is invalid")
+    if not isinstance(raw_entries, list):
+        raise ValueError("state stage_10_snapshot entries must be a JSON array")
+    entries: list[FilesystemEntry] = []
+    for raw_entry in raw_entries:
+        if not isinstance(raw_entry, dict) or set(raw_entry) != {
+            "path",
+            "kind",
+            "sha256",
+        }:
+            raise ValueError("state stage_10_snapshot entry is invalid")
+        try:
+            path = validate_relative_path(raw_entry.get("path"), kind="snapshot path")
+        except ValueError as error:
+            raise ValueError(f"state snapshot path is invalid: {error}") from error
+        kind = raw_entry.get("kind")
+        sha256 = raw_entry.get("sha256")
+        if kind not in {"directory", "regular_file", "symlink"}:
+            raise ValueError(f"state snapshot kind is invalid: {path}")
+        if kind == "directory":
+            if sha256 is not None:
+                raise ValueError(f"state directory snapshot hash must be null: {path}")
+        elif not isinstance(sha256, str) or _HASH_PATTERN.fullmatch(sha256) is None:
+            raise ValueError(f"state snapshot hash is invalid: {path}")
+        entries.append(FilesystemEntry(path, kind, sha256))
+    if entries != sorted(set(entries), key=lambda entry: entry.path) or len(
+        {entry.path for entry in entries}
+    ) != len(entries):
+        raise ValueError("state snapshot entries must be path-sorted and unique")
+    if status != "captured" and entries:
+        raise ValueError("state uncaptured snapshot must not contain entries")
+    return StageTenSnapshot(status, tuple(entries))
 
 
 def _last_error(value: object) -> dict[str, object] | None:

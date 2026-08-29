@@ -161,7 +161,7 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
             artifacts=state.artifacts,
             retry_counts=state.retry_counts,
             last_error=state.last_error,
-            prepared_stage_paths=state.prepared_stage_paths,
+            stage_10_snapshot=state.stage_10_snapshot,
         )
     else:
         updated_state = ProjectState(
@@ -177,7 +177,7 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
             artifacts=state.artifacts,
             retry_counts=state.retry_counts,
             last_error=state.last_error,
-            prepared_stage_paths=state.prepared_stage_paths,
+            stage_10_snapshot=state.stage_10_snapshot,
         )
     current_project.persist_state(updated_state)
     from .events import EvaluationEvent, event_log_for

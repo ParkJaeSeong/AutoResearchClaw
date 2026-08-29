@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 from packaging.requirements import InvalidRequirement, Requirement
 
-from .filesystem_baseline import snapshot_project_paths
+from .filesystem_baseline import FilesystemEntry, snapshot_project
 
 
 MANIFEST_FIELDS = {
@@ -82,49 +82,86 @@ _TRACEABILITY_SOURCES = {
     "input_contract": frozenset({"evidence_sources", "method.datasets"}),
     "output_contract": frozenset({"metrics", "success_criteria", "failure_criteria"}),
 }
-_FORBIDDEN_IMPORTS = (
-    "openai",
-    "anthropic",
-    "google.generativeai",
-    "google.genai",
-    "requests",
-    "httpx",
-    "urllib",
-    "socket",
-    "subprocess",
-    "langchain",
-    "autogen",
-    "crewai",
-    "pydantic_ai",
-    "semantic_kernel",
-    "haystack",
-    "litellm",
-    "cohere",
-    "mistralai",
-    "groq",
-    "together",
-    "ollama",
-    "llama_index",
-    "smolagents",
-    "ftplib",
-    "http",
-    "aiohttp",
-    "urllib3",
-    "websockets",
-    "smtplib",
-    "imaplib",
-    "poplib",
-    "telnetlib",
-    "xmlrpc.client",
-    "paramiko",
-    "multiprocessing",
-    "ctypes",
+_ALLOWED_IMPORTS = frozenset(
+    {
+        "__future__",
+        "argparse",
+        "json",
+        "pathlib",
+        "typing",
+        "experiment.code.main",
+    }
 )
-_FORBIDDEN_DISTRIBUTIONS = (
-    *_FORBIDDEN_IMPORTS,
-    "google-genai",
-    "haystack-ai",
-    "farm-haystack",
+_ALLOWED_DISTRIBUTIONS = frozenset({"pytest"})
+_ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
+    {
+        "Path",
+        "pathlib.Path",
+        "PurePath",
+        "pathlib.PurePath",
+        "PurePosixPath",
+        "pathlib.PurePosixPath",
+        "PureWindowsPath",
+        "pathlib.PureWindowsPath",
+        "json.JSONDecoder",
+        "json.JSONEncoder",
+    }
+)
+_ALLOWED_BUILTIN_CALLS = frozenset(
+    {
+        "FileNotFoundError",
+        "RuntimeError",
+        "TypeError",
+        "ValueError",
+        "all",
+        "any",
+        "bool",
+        "dict",
+        "enumerate",
+        "float",
+        "getattr",
+        "int",
+        "isinstance",
+        "len",
+        "list",
+        "max",
+        "min",
+        "open",
+        "print",
+        "range",
+        "set",
+        "sorted",
+        "str",
+        "sum",
+        "tuple",
+        "zip",
+    }
+)
+_ALLOWED_OBJECT_METHODS = frozenset(
+    {
+        "add_argument",
+        "append",
+        "close",
+        "decode",
+        "encode",
+        "get",
+        "is_absolute",
+        "is_dir",
+        "is_file",
+        "items",
+        "keys",
+        "open",
+        "parse_args",
+        "read",
+        "read_bytes",
+        "read_text",
+        "sort",
+        "startswith",
+        "values",
+        "write",
+        "write_bytes",
+        "write_text",
+    }
 )
 _FAKE_RESULT_NAME = re.compile(
     r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
@@ -339,10 +376,11 @@ def _validate_hashes(
 
 def _validate_on_disk_tree(
     root: Path,
-    prepared_paths: tuple[str, ...] | None,
+    prepared_snapshot: tuple[FilesystemEntry, ...] | None,
+    authorized_paths: frozenset[str],
     issues: list[ComputationalPackageIssue],
 ) -> None:
-    if prepared_paths is None:
+    if prepared_snapshot is None:
         _issue(
             issues,
             "missing_prepare_baseline",
@@ -350,22 +388,45 @@ def _validate_on_disk_tree(
             "stage 10 must be prepared before its outputs are authored",
         )
         return
-    baseline = set(prepared_paths)
-    current = set(snapshot_project_paths(root))
-    expected_additions = set(REQUIRED_OUTPUTS)
-    for relative in sorted((current - baseline) - expected_additions):
+    baseline = {entry.path: entry for entry in prepared_snapshot}
+    current = {entry.path: entry for entry in snapshot_project(root)}
+    expected_outputs = set(REQUIRED_OUTPUTS)
+    allowed_directories = {
+        parent.as_posix()
+        for output in REQUIRED_OUTPUTS
+        for parent in Path(output).parents
+        if parent.as_posix() != "."
+    }
+    added = set(current) - set(baseline)
+    for relative in sorted(added - expected_outputs - allowed_directories):
         _issue(
             issues,
             "undeclared_artifact",
             relative,
             "filesystem paths added after Stage 10 prepare must be declared outputs",
         )
-    for relative in sorted(baseline - current):
+    for relative in sorted(set(baseline) - set(current)):
         _issue(
             issues,
             "undeclared_artifact",
             relative,
             "filesystem paths present at Stage 10 prepare must not be removed",
+        )
+    for relative in sorted(set(baseline) & set(current)):
+        if relative in authorized_paths or baseline[relative] == current[relative]:
+            continue
+        _issue(
+            issues,
+            "modified_baseline_artifact",
+            relative,
+            "filesystem entries present at Stage 10 prepare must retain type and content",
+        )
+    for relative in sorted(expected_outputs - added):
+        _issue(
+            issues,
+            "missing_output_delta",
+            relative,
+            "each declared Stage 10 output must be authored after its first prepare",
         )
 
 
@@ -391,18 +452,16 @@ def _dotted_name(node: ast.AST) -> str | None:
     return None
 
 
-def _forbidden_import(name: str) -> bool:
-    return any(name == forbidden or name.startswith(f"{forbidden}.") for forbidden in _FORBIDDEN_IMPORTS)
+def _allowed_import(name: str) -> bool:
+    return any(name == allowed or name.startswith(f"{allowed}.") for allowed in _ALLOWED_IMPORTS)
 
 
 def _normalized_distribution_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def _forbidden_distribution(name: str) -> bool:
-    return _normalized_distribution_name(name) in {
-        _normalized_distribution_name(forbidden) for forbidden in _FORBIDDEN_DISTRIBUTIONS
-    }
+def _allowed_distribution(name: str) -> bool:
+    return _normalized_distribution_name(name) in _ALLOWED_DISTRIBUTIONS
 
 
 def _absolute_literal(value: object) -> bool:
@@ -511,16 +570,24 @@ def _call_is_dynamic_dispatch(node: ast.Call, aliases: Mapping[str, str]) -> boo
     if not isinstance(current, ast.Call):
         return False
     root = _resolved_call_name(current.func, aliases)
-    return root not in {
-        "Path",
-        "pathlib.Path",
-        "PurePath",
-        "pathlib.PurePath",
-        "PurePosixPath",
-        "pathlib.PurePosixPath",
-        "PureWindowsPath",
-        "pathlib.PureWindowsPath",
-    }
+    return root not in _ALLOWED_CONSTRUCTOR_CHAINS
+
+
+def _call_has_allowed_provenance(
+    node: ast.Call,
+    aliases: Mapping[str, str],
+    local_callables: frozenset[str],
+) -> bool:
+    name = _resolved_call_name(node.func, aliases)
+    if name is None:
+        return False
+    if name in local_callables or name in _ALLOWED_BUILTIN_CALLS:
+        return True
+    if any(name == allowed or name.startswith(f"{allowed}.") for allowed in _ALLOWED_IMPORTS):
+        return True
+    if isinstance(node.func, ast.Attribute) and node.func.attr in _ALLOWED_OBJECT_METHODS:
+        return True
+    return False
 
 
 def _call_writes_artifact(node: ast.Call, aliases: Mapping[str, str]) -> bool:
@@ -563,15 +630,86 @@ def _call_writes_artifact(node: ast.Call, aliases: Mapping[str, str]) -> bool:
     return False
 
 
-class _ReachableNodeCollector(ast.NodeVisitor):
+_UNKNOWN = object()
+
+
+def _constant_value(
+    node: ast.AST,
+    *,
+    constants: Mapping[str, object],
+    dry_run: bool | None,
+) -> object:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return constants.get(node.id, _UNKNOWN)
+    dotted = _dotted_name(node)
+    if dotted is not None and dry_run is not None and re.search(
+        r"(?:^|\.)dry_?run$", dotted, re.IGNORECASE
+    ):
+        return dry_run
+    if isinstance(node, ast.UnaryOp):
+        operand = _constant_value(node.operand, constants=constants, dry_run=dry_run)
+        if operand is _UNKNOWN:
+            return _UNKNOWN
+        try:
+            if isinstance(node.op, ast.Not):
+                return not bool(operand)
+            if isinstance(node.op, ast.UAdd):
+                return +operand  # type: ignore[operator]
+            if isinstance(node.op, ast.USub):
+                return -operand  # type: ignore[operator]
+            if isinstance(node.op, ast.Invert):
+                return ~operand  # type: ignore[operator]
+        except (TypeError, ValueError):
+            return _UNKNOWN
+    if isinstance(node, ast.BoolOp):
+        values = [
+            _constant_value(value, constants=constants, dry_run=dry_run)
+            for value in node.values
+        ]
+        if isinstance(node.op, ast.And):
+            if any(value is not _UNKNOWN and not bool(value) for value in values):
+                return False
+            return True if all(value is not _UNKNOWN for value in values) else _UNKNOWN
+        if any(value is not _UNKNOWN and bool(value) for value in values):
+            return True
+        return False if all(value is not _UNKNOWN for value in values) else _UNKNOWN
+    if isinstance(node, ast.Compare):
+        left = _constant_value(node.left, constants=constants, dry_run=dry_run)
+        comparators = [
+            _constant_value(value, constants=constants, dry_run=dry_run)
+            for value in node.comparators
+        ]
+        if left is _UNKNOWN or any(value is _UNKNOWN for value in comparators):
+            return _UNKNOWN
+        operations = {
+            ast.Eq: lambda first, second: first == second,
+            ast.NotEq: lambda first, second: first != second,
+            ast.Lt: lambda first, second: first < second,
+            ast.LtE: lambda first, second: first <= second,
+            ast.Gt: lambda first, second: first > second,
+            ast.GtE: lambda first, second: first >= second,
+            ast.Is: lambda first, second: first is second,
+            ast.IsNot: lambda first, second: first is not second,
+            ast.In: lambda first, second: first in second,
+            ast.NotIn: lambda first, second: first not in second,
+        }
+        try:
+            values = [left, *comparators]
+            return all(
+                operations[type(operation)](values[index], values[index + 1])
+                for index, operation in enumerate(node.ops)
+                if type(operation) in operations
+            ) and all(type(operation) in operations for operation in node.ops)
+        except (TypeError, ValueError):
+            return _UNKNOWN
+    return _UNKNOWN
+
+
+class _FlatNodeCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.nodes: list[ast.AST] = []
-
-    def visit_block(self, statements: list[ast.stmt]) -> None:
-        for statement in statements:
-            self.visit(statement)
-            if isinstance(statement, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
-                break
 
     def generic_visit(self, node: ast.AST) -> None:
         self.nodes.append(node)
@@ -583,31 +721,125 @@ class _ReachableNodeCollector(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self.nodes.append(node)
 
-    def visit_If(self, node: ast.If) -> None:
+    def visit_Lambda(self, node: ast.Lambda) -> None:
         self.nodes.append(node)
-        self.visit(node.test)
-        if isinstance(node.test, ast.Constant):
-            branch = node.body if bool(node.test.value) else node.orelse
-            self.visit_block(branch)
-        else:
-            self.visit_block(node.body)
-            self.visit_block(node.orelse)
-
-    def visit_While(self, node: ast.While) -> None:
-        self.nodes.append(node)
-        self.visit(node.test)
-        if not isinstance(node.test, ast.Constant) or bool(node.test.value):
-            self.visit_block(node.body)
-        self.visit_block(node.orelse)
 
 
-def _reachable_nodes(node: ast.AST) -> list[ast.AST]:
-    collector = _ReachableNodeCollector()
-    if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
-        collector.visit_block(node.body)
-    else:
-        collector.visit(node)
+def _flat_nodes(node: ast.AST) -> list[ast.AST]:
+    collector = _FlatNodeCollector()
+    collector.visit(node)
     return collector.nodes
+
+
+def _reachable_block(
+    statements: list[ast.stmt],
+    *,
+    constants: Mapping[str, object],
+    dry_run: bool | None,
+) -> tuple[list[ast.AST], bool]:
+    nodes: list[ast.AST] = []
+    falls_through = True
+    for statement in statements:
+        if not falls_through:
+            break
+        statement_nodes, falls_through = _reachable_statement(
+            statement, constants=constants, dry_run=dry_run
+        )
+        nodes.extend(statement_nodes)
+    return nodes, falls_through
+
+
+def _reachable_statement(
+    statement: ast.stmt,
+    *,
+    constants: Mapping[str, object],
+    dry_run: bool | None,
+) -> tuple[list[ast.AST], bool]:
+    if isinstance(statement, ast.If):
+        nodes = [statement, *_flat_nodes(statement.test)]
+        condition = _constant_value(
+            statement.test, constants=constants, dry_run=dry_run
+        )
+        if condition is not _UNKNOWN:
+            branch = statement.body if bool(condition) else statement.orelse
+            branch_nodes, falls_through = _reachable_block(
+                branch, constants=constants, dry_run=dry_run
+            )
+            return [*nodes, *branch_nodes], falls_through
+        body_nodes, body_falls = _reachable_block(
+            statement.body, constants=constants, dry_run=dry_run
+        )
+        else_nodes, else_falls = _reachable_block(
+            statement.orelse, constants=constants, dry_run=dry_run
+        )
+        return [*nodes, *body_nodes, *else_nodes], body_falls or else_falls
+    if isinstance(statement, ast.While):
+        nodes = [statement, *_flat_nodes(statement.test)]
+        condition = _constant_value(
+            statement.test, constants=constants, dry_run=dry_run
+        )
+        if condition is not _UNKNOWN and not bool(condition):
+            else_nodes, else_falls = _reachable_block(
+                statement.orelse, constants=constants, dry_run=dry_run
+            )
+            return [*nodes, *else_nodes], else_falls
+        body_nodes, _ = _reachable_block(
+            statement.body, constants=constants, dry_run=dry_run
+        )
+        else_nodes, _ = _reachable_block(
+            statement.orelse, constants=constants, dry_run=dry_run
+        )
+        return [*nodes, *body_nodes, *else_nodes], True
+    if isinstance(statement, (ast.With, ast.AsyncWith)):
+        header_nodes = [statement]
+        for item in statement.items:
+            header_nodes.extend(_flat_nodes(item.context_expr))
+            if item.optional_vars is not None:
+                header_nodes.extend(_flat_nodes(item.optional_vars))
+        body_nodes, falls_through = _reachable_block(
+            statement.body, constants=constants, dry_run=dry_run
+        )
+        return [*header_nodes, *body_nodes], falls_through
+    if isinstance(statement, ast.Try):
+        body_nodes, body_falls = _reachable_block(
+            statement.body, constants=constants, dry_run=dry_run
+        )
+        branch_nodes = list(body_nodes)
+        branch_falls = body_falls
+        for handler in statement.handlers:
+            handler_nodes, handler_falls = _reachable_block(
+                handler.body, constants=constants, dry_run=dry_run
+            )
+            branch_nodes.extend(handler_nodes)
+            branch_falls = branch_falls or handler_falls
+        else_nodes, else_falls = _reachable_block(
+            statement.orelse, constants=constants, dry_run=dry_run
+        )
+        final_nodes, final_falls = _reachable_block(
+            statement.finalbody, constants=constants, dry_run=dry_run
+        )
+        return (
+            [statement, *branch_nodes, *else_nodes, *final_nodes],
+            branch_falls and else_falls and final_falls,
+        )
+    if isinstance(statement, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+        return _flat_nodes(statement), False
+    return _flat_nodes(statement), True
+
+
+def _reachable_nodes(
+    node: ast.AST,
+    *,
+    constants: Mapping[str, object] | None = None,
+    dry_run: bool | None = None,
+) -> list[ast.AST]:
+    known = constants or {}
+    if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+        nodes, _ = _reachable_block(node.body, constants=known, dry_run=dry_run)
+        return nodes
+    if isinstance(node, ast.Lambda):
+        return _flat_nodes(node.body)
+    return _flat_nodes(node)
 
 
 def _top_level_functions(
@@ -620,12 +852,57 @@ def _top_level_functions(
     }
 
 
+def _local_callables(
+    tree: ast.AST,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda]:
+    callables: dict[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            callables[node.name] = node
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
+            node.value, ast.Lambda
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+            for target in targets:
+                for name in _assignment_names(target):
+                    callables[name] = node.value
+    return callables
+
+
+def _module_callable_names(tree: ast.Module) -> frozenset[str]:
+    names = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
+            node.value, ast.Lambda
+        ):
+            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+            names.update(
+                name for target in targets for name in _assignment_names(target)
+            )
+    return frozenset(names)
+
+
 def _expand_local_call_graph(
     initial_nodes: list[ast.AST],
-    functions: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    functions: Mapping[
+        str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+    ],
     aliases: Mapping[str, str],
+    *,
+    dry_run: bool | None = None,
+    available_callables: frozenset[str],
 ) -> list[ast.AST]:
     expanded = list(initial_nodes)
+    available = set(available_callables)
+    available.update(
+        name
+        for name, callable_node in functions.items()
+        if callable_node in initial_nodes
+    )
     queued = [
         name.rsplit(".", maxsplit=1)[-1]
         for node in initial_nodes
@@ -635,11 +912,20 @@ def _expand_local_call_graph(
     visited: set[str] = set()
     while queued:
         function_name = queued.pop()
-        if function_name in visited or function_name not in functions:
+        if (
+            function_name in visited
+            or function_name not in functions
+            or function_name not in available
+        ):
             continue
         visited.add(function_name)
-        nodes = _reachable_nodes(functions[function_name])
+        nodes = _reachable_nodes(functions[function_name], dry_run=dry_run)
         expanded.extend(nodes)
+        available.update(
+            name
+            for name, callable_node in functions.items()
+            if callable_node in nodes
+        )
         queued.extend(
             name.rsplit(".", maxsplit=1)[-1]
             for node in nodes
@@ -662,11 +948,16 @@ def _smoke_reaches_artifact_write(
     tree: ast.Module, aliases: Mapping[str, str]
 ) -> bool:
     functions = _top_level_functions(tree)
+    callables = _local_callables(tree)
+    module_callables = _module_callable_names(tree)
     for name, function in functions.items():
         if not name.startswith("test_"):
             continue
         nodes = _expand_local_call_graph(
-            _reachable_nodes(function), functions, aliases
+            _reachable_nodes(function),
+            callables,
+            aliases,
+            available_callables=module_callables,
         )
         if _nodes_write_artifacts(nodes, aliases):
             return True
@@ -677,44 +968,32 @@ def _dry_run_reaches_artifact_write(
     tree: ast.Module, aliases: Mapping[str, str]
 ) -> bool:
     functions = _top_level_functions(tree)
+    callables = _local_callables(tree)
+    module_callables = _module_callable_names(tree)
     main = functions.get("main")
     if main is None:
         return False
-    main_nodes = _expand_local_call_graph(_reachable_nodes(main), functions, aliases)
-    called_functions = {
-        name.rsplit(".", maxsplit=1)[-1]
-        for name in _call_names(main_nodes, aliases)
-    }
-    for name, function in functions.items():
-        if (
-            name in called_functions
-            and re.search(r"dry_?run", name, re.IGNORECASE)
-            and _nodes_write_artifacts(
-                _expand_local_call_graph(
-                    _reachable_nodes(function), functions, aliases
-                ),
-                aliases,
-            )
-        ):
-            return True
-    for node in _reachable_nodes(main):
-        if not isinstance(node, ast.If):
-            continue
-        test_names = {
-            name
-            for child in ast.walk(node.test)
-            if (name := _dotted_name(child)) is not None
-        }
-        if not any(re.search(r"dry_?run", name, re.IGNORECASE) for name in test_names):
-            continue
-        collector = _ReachableNodeCollector()
-        collector.visit_block(node.body)
-        branch_nodes = _expand_local_call_graph(
-            collector.nodes, functions, aliases
-        )
-        if _nodes_write_artifacts(branch_nodes, aliases):
-            return True
-    return False
+    main_nodes = _expand_local_call_graph(
+        _reachable_nodes(main, dry_run=True),
+        callables,
+        aliases,
+        dry_run=True,
+        available_callables=module_callables,
+    )
+    return _nodes_write_artifacts(main_nodes, aliases)
+
+
+def _module_import_reaches_artifact_write(
+    tree: ast.Module, aliases: Mapping[str, str]
+) -> bool:
+    callables = _local_callables(tree)
+    nodes = _expand_local_call_graph(
+        _reachable_nodes(tree, constants={"__name__": "__imported__"}),
+        callables,
+        aliases,
+        available_callables=_module_callable_names(tree),
+    )
+    return _nodes_write_artifacts(nodes, aliases)
 
 
 def _call_uses_absolute_path(node: ast.Call, aliases: Mapping[str, str]) -> bool:
@@ -746,7 +1025,7 @@ def _add_callable_aliases(tree: ast.AST, aliases: dict[str, str]) -> None:
             continue
         targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
         resolved = _resolved_call_name(node.value, aliases)
-        if not _forbidden_call(resolved):
+        if resolved is None:
             continue
         for target in targets:
             for name in _assignment_names(target):
@@ -767,19 +1046,21 @@ def _validate_python_capabilities(
 
         aliases = _import_aliases(tree)
         _add_callable_aliases(tree, aliases)
+        local_callables = frozenset(_local_callables(tree))
         forbidden = False
         unsafe_path = False
         fake_result_assignment = False
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                forbidden = forbidden or any(_forbidden_import(alias.name) for alias in node.names)
+                forbidden = forbidden or any(not _allowed_import(alias.name) for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 forbidden = forbidden or (
-                    node.module is not None
-                    and (
-                        _forbidden_import(node.module)
+                    node.module is None
+                    or node.level != 0
+                    or (
+                        not _allowed_import(node.module)
                         or any(
-                            _forbidden_import(f"{node.module}.{alias.name}")
+                            not _allowed_import(f"{node.module}.{alias.name}")
                             for alias in node.names
                         )
                     )
@@ -787,7 +1068,9 @@ def _validate_python_capabilities(
             elif isinstance(node, ast.Call):
                 forbidden = forbidden or _forbidden_call(
                     _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node, aliases)
+                ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
+                    node, aliases, local_callables
+                )
                 unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
@@ -810,6 +1093,8 @@ def _validate_python_capabilities(
         if path == "experiment/code/main.py" and _dry_run_reaches_artifact_write(
             tree, aliases
         ):
+            forbidden = True
+        if _module_import_reaches_artifact_write(tree, aliases):
             forbidden = True
         if forbidden:
             _issue(
@@ -866,7 +1151,7 @@ def _validate_requirements(
                 f"requirements line {line_number} must not use a direct reference",
             )
             continue
-        if _forbidden_distribution(requirement.name):
+        if not _allowed_distribution(requirement.name):
             _issue(
                 issues,
                 "forbidden_capability",
@@ -1170,17 +1455,43 @@ def _validate_python_contracts(
         if tree is not None:
             aliases = _import_aliases(tree)
             functions = _top_level_functions(tree)
+            callables = _local_callables(tree)
+            module_callables = _module_callable_names(tree)
             required = {"load_config", "validate_inputs", "build_plan", "main"}
             valid = required <= set(functions)
             if valid:
-                load_nodes = _reachable_nodes(functions["load_config"])
-                validate_nodes = _reachable_nodes(functions["validate_inputs"])
-                plan_nodes = _reachable_nodes(functions["build_plan"])
-                main_direct_nodes = _reachable_nodes(functions["main"])
-                main_nodes = _expand_local_call_graph(
-                    main_direct_nodes, functions, aliases
+                load_nodes = _expand_local_call_graph(
+                    _reachable_nodes(functions["load_config"]),
+                    callables,
+                    aliases,
+                    available_callables=module_callables,
                 )
-                module_nodes = _reachable_nodes(tree)
+                validate_nodes = _expand_local_call_graph(
+                    _reachable_nodes(functions["validate_inputs"]),
+                    callables,
+                    aliases,
+                    available_callables=module_callables,
+                )
+                plan_nodes = _expand_local_call_graph(
+                    _reachable_nodes(functions["build_plan"]),
+                    callables,
+                    aliases,
+                    available_callables=module_callables,
+                )
+                main_direct_nodes = _reachable_nodes(functions["main"], dry_run=True)
+                main_nodes = _expand_local_call_graph(
+                    main_direct_nodes,
+                    callables,
+                    aliases,
+                    dry_run=True,
+                    available_callables=module_callables,
+                )
+                module_nodes = _expand_local_call_graph(
+                    _reachable_nodes(tree, constants={"__name__": "__main__"}),
+                    callables,
+                    aliases,
+                    available_callables=module_callables,
+                )
                 load_calls = _call_names(load_nodes, aliases)
                 validate_calls = _call_names(validate_nodes, aliases)
                 validate_literals = _node_literals(validate_nodes)
@@ -1246,6 +1557,8 @@ def _validate_python_contracts(
         if smoke_tree is not None:
             aliases = _import_aliases(smoke_tree)
             functions = _top_level_functions(smoke_tree)
+            callables = _local_callables(smoke_tree)
+            module_callables = _module_callable_names(smoke_tree)
             module_nodes = _reachable_nodes(smoke_tree)
             imported = {
                 alias.name
@@ -1267,7 +1580,10 @@ def _validate_python_contracts(
                 if name.startswith("test_")
                 for nodes in (
                     _expand_local_call_graph(
-                        _reachable_nodes(function), functions, aliases
+                        _reachable_nodes(function),
+                        callables,
+                        aliases,
+                        available_callables=module_callables,
                     ),
                 )
             )
@@ -1306,7 +1622,8 @@ def validate_computational_package(
     project_id: str,
     *,
     approved_design_sha256: str | None = None,
-    prepared_paths: tuple[str, ...] | None = None,
+    prepared_snapshot: tuple[FilesystemEntry, ...] | None = None,
+    authorized_paths: frozenset[str] = frozenset(),
 ) -> tuple[ComputationalPackageIssue, ...]:
     """Validate package structure without importing or executing package code.
 
@@ -1376,7 +1693,7 @@ def validate_computational_package(
         _validate_traceability(design_json, config, issues)
         _validate_config_contract(design, config, issues)
 
-    _validate_on_disk_tree(root, prepared_paths, issues)
+    _validate_on_disk_tree(root, prepared_snapshot, authorized_paths, issues)
     _validate_python_syntax(outputs, issues)
     _validate_python_capabilities(outputs, issues)
     _validate_python_contracts(outputs, issues)
