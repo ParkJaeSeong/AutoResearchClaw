@@ -326,6 +326,36 @@ def test_execution_register_result_cli_requires_explicit_research_intent(
     assert state_path.read_bytes() == state_before
 
 
+def test_execution_register_result_cli_rejects_invalid_pending_recovery_without_mutating_state(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    pending_path = (
+        project.root / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending_path.write_bytes(b'{"schema_version":3,"schema_version":3}')
+    state_path = project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+
+    assert main(
+        [
+            "execution",
+            "register-result",
+            str(project.root),
+            "--result",
+            "experiment/results.json",
+            "--confirm-research-result",
+            "--json",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: research_result_registration_recovery_invalid\n"
+    assert state_path.read_bytes() == state_before
+
+
 def test_development_run_wrong_stage_does_not_normalize_legacy_state(tmp_path, capsys):
     project = ResearchProject.create(tmp_path / "project", "Formation energy", "materials_ai")
     _remove_stage_ten_snapshot(project)

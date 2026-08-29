@@ -67,11 +67,14 @@ execution, not commands to run here.
 
 After a valid plan, Stage 11 advances the durable project to the Stage 12
 approval boundary. Show the plan, readiness, warnings, and prerequisites to
-the user. Stage 12 is approval-only and non-executing. An explicit `approve`
-or `reject` decision is required. Approval records a hash-bound decision only;
-it never executes the experiment, deferred command, or generated code. A
-rejection remains locked; it requires a later explicit re-decision (`approve`)
-after reconsideration. Never decide or re-decide on the user's behalf.
+the user. Stage 12 begins with the approval boundary and remains non-executing
+for ResearchClaw. An explicit `approve` or `reject` decision is required.
+Approval records a hash-bound decision only; it never executes the experiment,
+deferred command, or generated code. After approval, the separate explicit
+handoff below can prepare a user-run command and later register only its
+contract-bound result. A rejection remains locked; it requires a later
+explicit re-decision (`approve`) after reconsideration. Never decide or
+re-decide on the user's behalf.
 
 ## Closed `experiment/resources.json` schema
 

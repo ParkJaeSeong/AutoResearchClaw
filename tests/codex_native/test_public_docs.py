@@ -13,6 +13,7 @@ SUPPORTED_BOUNDARY = re.compile(
 )
 PUBLIC_BOUNDARY_FILES = (ROOT / "README.md", ROOT / "RESEARCHCLAW_AGENTS.md")
 RESOURCE_REFERENCE = SKILL_ROOT / "references" / "resource-planning.md"
+STAGES_REFERENCE = SKILL_ROOT / "references" / "stages.md"
 RESOURCE_PROHIBITIONS_CONTRACT = """`prohibitions` has exactly these boolean fields, all `false`:
 
 ```text
@@ -46,7 +47,10 @@ def test_resource_planning_reference_contains_safety_literals():
         "and place the resulting object unchanged in `hardware_observation`."
         in normalized
     )
-    assert "Stage 12 is approval-only and non-executing." in normalized
+    assert (
+        "Stage 12 begins with the approval boundary and remains non-executing "
+        "for ResearchClaw." in normalized
+    )
     assert (
         "Approval records a hash-bound decision only; it never executes the experiment, "
         "deferred command, or generated code."
@@ -85,7 +89,7 @@ def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():
     reference = (SKILL_ROOT / "references" / "computational-package.md").read_text(
         encoding="utf-8"
     )
-    stages = (SKILL_ROOT / "references" / "stages.md").read_text(encoding="utf-8")
+    stages = STAGES_REFERENCE.read_text(encoding="utf-8")
 
     assert "[references/computational-package.md](references/computational-package.md)" in skill
     assert "[references/resource-planning.md](references/resource-planning.md)" in skill
@@ -125,17 +129,75 @@ def test_public_docs_describe_the_explicit_development_run_boundary():
     assert "Do not describe it as research execution." in skill
 
 
+def _markdown_section(text: str, heading: str) -> str:
+    marker = f"## {heading}\n"
+    assert marker in text
+    return text.split(marker, 1)[1].split("\n## ", 1)[0]
+
+
 def test_public_docs_describe_explicit_research_result_registration_boundary():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    agent_guide = (ROOT / "RESEARCHCLAW_AGENTS.md").read_text(encoding="utf-8")
     skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
     reference = RESOURCE_REFERENCE.read_text(encoding="utf-8")
+    stages = STAGES_REFERENCE.read_text(encoding="utf-8")
+    readme_handoff = _markdown_section(
+        readme, "Explicit Stage-12 research handoff and registration"
+    )
+    reference_handoff = _markdown_section(
+        reference, "Explicit research handoff and registration"
+    )
+    skill_workflow = _markdown_section(skill, "Workflow")
+    agent_workflow = _markdown_section(agent_guide, "Workflow")
 
-    for text in (readme, skill, reference):
-        assert "execution prepare-run ROOT --json" in text
+    for section in (readme_handoff, reference_handoff, skill_workflow):
+        assert "execution prepare-run ROOT --json" in section
         assert (
             "execution register-result ROOT --result experiment/results.json "
             "--confirm-research-result --json"
-        ) in text
-        assert "does not execute" in text
-        assert "development result" in text
-        assert "Stage 13" in text
+        ) in section
+
+    readme_handoff_normalized = " ".join(readme_handoff.split())
+    reference_handoff_normalized = " ".join(reference_handoff.split())
+    skill_workflow_normalized = " ".join(skill_workflow.split())
+    assert (
+        "It does not execute that command: the user runs the returned command "
+        "in the project root. Command stdout and every development result are never "
+        "research evidence. Only a contract-bound `experiment/results.json` can be "
+        "registered:"
+        in readme_handoff_normalized
+    )
+    assert (
+        "It does not execute that command. The user runs the returned command "
+        "in the project root. Command stdout and any development result are never "
+        "research evidence, and a development result is never registerable as research "
+        "evidence."
+        in reference_handoff_normalized
+    )
+    assert (
+        "returns the approved command, but does not execute it. The user runs that "
+        "returned command in the project root; never treat command stdout or a "
+        "development result as research evidence."
+        in skill_workflow_normalized
+    )
+    assert (
+        "Only after the user-run command writes the contract-bound "
+        "`experiment/results.json`"
+        in skill_workflow_normalized
+    )
+    assert (
+        "It writes the immutable handoff and returns a command, but does not execute "
+        "it; the user runs that command in the project root."
+        in " ".join(agent_workflow.split())
+    )
+    for section in (
+        readme_handoff_normalized,
+        reference_handoff_normalized,
+        skill_workflow_normalized,
+    ):
+        assert "successful registration" in section.lower()
+        assert "Stage 13" in section
+
+    assert "approval-only unsupported execution boundary" not in readme
+    assert "approval-only unsupported execution boundary" not in stages
+    assert "Stage 13 refinement remains unsupported" in stages

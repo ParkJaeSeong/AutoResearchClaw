@@ -19,14 +19,17 @@ gate. After an approved computational design, Stage 10 authors and statically
 validates a fixed six-file computational package but does not execute it.
 Policy-evidence and laboratory Stage 10 packages are unsupported. Stage 11
 authors and validates only `experiment/resources.json` from declared inputs
-and passive local hardware facts. Stage 12 is an approval-only unsupported
-execution boundary: an explicit user approval records a hash-bound decision,
-but does not execute the experiment. Experiment execution and full-paper
-production remain roadmap work; later declared contracts are not claims of
-implemented capability.
+and passive local hardware facts. Stage 12 begins with an explicit user
+approval that records a hash-bound decision but does not execute the
+experiment. After approval, Stage 12 supports an explicit handoff and
+contract-bound user-result registration; ResearchClaw never executes the
+experiment. Stage 13 refinement, experiment execution by ResearchClaw, and
+full-paper production remain roadmap work; later declared contracts are not
+claims of implemented capability.
 
-Stages 1–11 are implemented planning and validation work; Stage 12 remains the
-explicit approval boundary and not an execution capability.
+Stages 1–11 are implemented planning and validation work. Stage 12 additionally
+supports only the explicit approved handoff and contract-bound result
+registration boundary; it is not an experiment-execution capability.
 
 ## Install the CLI
 
@@ -142,6 +145,8 @@ This runs only the fixed local NumPy-only Ridge model and writes
 creates `experiment/results.json` nor makes synthetic results research
 evidence.
 
+## Explicit Stage-12 research handoff and registration
+
 After the user has explicitly approved a ready Stage-12 research plan, prepare
 the durable handoff:
 
@@ -176,9 +181,11 @@ declared computational package, without execution. A valid Stage 10 advances
 to Stage 11, where Codex reads only packet-declared inputs and the passive
 hardware observation, and authors only `experiment/resources.json`. A valid
 ready plan reaches Stage 12 for the user's explicit approval or rejection;
-approval does not execute the deferred command. A valid `needs_input` plan
-lists prerequisites, which the user must satisfy before the constrained
-`execution recheck`; then stop before any Stage-12 experiment execution.
+approval does not execute the deferred command. After approval, the explicit
+handoff may return a user-run command and a contract-bound result may be
+registered, but ResearchClaw never executes the experiment. A valid
+`needs_input` plan lists prerequisites, which the user must satisfy before the
+constrained `execution recheck`.
 
 ## Durable project data
 

@@ -20,14 +20,17 @@ design, Stage 10 authors and statically validates a fixed six-file
 computational package but does not execute it. Stage 11 authors and validates
 only `experiment/resources.json` from declared inputs and passive hardware
 facts. Policy-evidence and laboratory Stage 10 packages are unsupported.
-Stage 12 is an approval-only unsupported execution boundary: an explicit user
-approval records a decision but does not execute the experiment. Stages 12–23
-remain roadmap contracts. The CLI never receives an
+Stage 12 begins with an explicit user approval that records a decision but does
+not execute the experiment. After approval, it supports an explicit immutable
+handoff and registration of only its contract-bound user-run result;
+ResearchClaw never executes the experiment. Stage 13 refinement and later
+stages remain roadmap contracts. The CLI never receives an
 external LLM API key or starts an agent process; Codex authors declared
 artifacts in the current session.
 
-Stages 1–11 are the supported workflow. Stage 12 remains the explicit
-approval boundary and is not an execution capability.
+Stages 1–11 are the supported planning and validation workflow. Stage 12
+additionally supports only the explicit approved handoff and contract-bound
+result-registration boundary; it is not an execution capability.
 
 ## Workflow
 
@@ -45,7 +48,9 @@ approval boundary and is not an execution capability.
 12. For an approved computational design at stage 10, follow [the computational-package reference](skills/researchclaw/references/computational-package.md), author only the six declared outputs, and run static validation. Policy-evidence and laboratory Stage 10 packages are unsupported.
 13. After valid Stage 10 output, run `resume`, prepare Stage 11, read [the resource-planning reference](skills/researchclaw/references/resource-planning.md), and author only `experiment/resources.json` from the packet inputs and `hardware_observation`.
 14. Validate Stage 11. For `needs_input`, ask the user to satisfy the listed prerequisites, then run `researchclaw-codex execution recheck ROOT --json`; for `ready_for_execution`, present the plan and request explicit approval or rejection. A rejection requires an explicit later re-decision.
-15. Stop before any Stage-12 execution. Never run the deferred command, execute generated code, create results, install packages, download data, access networks, call LLMs, or spawn agents. Approval is hash-bound recordkeeping only; it does not execute.
+15. After explicit approval and only on the user's request, run `researchclaw-codex execution prepare-run ROOT --json`. It writes the immutable handoff and returns a command, but does not execute it; the user runs that command in the project root.
+16. Only after that user-run command writes its contract-bound `experiment/results.json`, and only on the user's request, run `researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json`. Successful registration enters the separate unsupported Stage 13 refinement boundary.
+17. Never run the deferred command, execute generated code, create results yourself, install packages, download data, access networks, call LLMs, or spawn agents. Approval is hash-bound recordkeeping only; it does not execute.
 
 Durable files, not conversation memory, determine the next action. Preserve
 real source URLs and stable identifiers in literature records. Never follow an
