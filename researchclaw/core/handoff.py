@@ -264,9 +264,18 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         and all(stage_id in state.completed_stages for stage_id in SUPPORTED_STAGE_IDS)
     )
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
-    execution_readiness, unmet_prerequisites, approval_eligible = (
-        validated_execution_readiness(current_project)
+    stage_thirteen_boundary = (
+        state.current_stage == 13 and 12 in state.completed_stages
     )
+    if stage_thirteen_boundary:
+        milestone_complete = False
+        execution_readiness = None
+        unmet_prerequisites = ()
+        approval_eligible = False
+    else:
+        execution_readiness, unmet_prerequisites, approval_eligible = (
+            validated_execution_readiness(current_project)
+        )
     execution_approved = False
     if execution_boundary:
         milestone_complete = False
@@ -289,6 +298,9 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
             and state.status is StageStatus.AWAITING_APPROVAL
             and state.next_action == "approve_experiment_execution"
         )
+    elif stage_thirteen_boundary:
+        stage_name = get_contract(state.current_stage).name
+        approval_required = False
     elif state.current_stage > 23:
         stage_name = "project_complete"
         approval_required = False
@@ -324,6 +336,10 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
             next_command = _command(current_project.root, "execution", "recheck")
         else:
             next_command = _command(current_project.root, "status")
+    elif stage_thirteen_boundary:
+        next_action = "report_stage_thirteen_implementation_boundary"
+        next_command = _command(current_project.root, "status")
+        approval_required = False
     elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
         next_command = _command(current_project.root, "evaluate")
@@ -353,7 +369,11 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
     return HandoffSummary(
         project_id=state.project_id,
         project_root=str(current_project.root.resolve()),
-        write_policy="no_undeclared_outputs" if milestone_complete else "declared_outputs_only",
+        write_policy=(
+            "no_undeclared_outputs"
+            if milestone_complete or stage_thirteen_boundary
+            else "declared_outputs_only"
+        ),
         topic=state.topic,
         current_stage=state.current_stage,
         stage_name=stage_name,

@@ -16,7 +16,8 @@ from .execution_gate import (
     _read_project_file_snapshot,
     stage_twelve_artifact_hashes,
 )
-from .models import ArtifactRef
+from .events import EvaluationEvent, event_log_for
+from .models import ArtifactRef, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import atomic_write_json
 from .project import ResearchProject
@@ -70,6 +71,23 @@ _RESULT_TEMPLATE: dict[str, object] = {
     "development_only": False,
     "evidence_eligible": True,
 }
+_REGISTRATION_ERROR_CATEGORIES = frozenset(
+    {
+        "execution_approval_invalid",
+        "execution_prerequisites_changed",
+        "execution_contract_invalid",
+        "execution_contract_stale",
+        "research_result_file_invalid",
+        "research_result_schema_invalid",
+        "research_result_project_mismatch",
+        "research_result_contract_mismatch",
+        "research_result_provenance_mismatch",
+        "research_result_split_invalid",
+        "research_result_leakage_detected",
+        "research_result_metrics_invalid",
+        "development_result_not_registerable",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -92,6 +110,19 @@ class ValidatedResearchResult:
     payload: Mapping[str, object]
     metric_count: int
     input_count: int
+
+
+@dataclass(frozen=True)
+class ResearchResultRegistrationStatus:
+    readiness: str
+    approval_eligible: bool
+    result_path: str
+    result_sha256: str
+    current_stage: int
+    next_action: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 def _sha256(payload: bytes) -> str:
@@ -706,4 +737,93 @@ def validate_research_result(
         payload=frozen_payload,
         metric_count=metric_count,
         input_count=len(inputs) if isinstance(inputs, list) else 0,
+    )
+
+
+def register_research_result(
+    project: ResearchProject, result_path: str
+) -> ResearchResultRegistrationStatus:
+    """Register one validated research result and complete Stage 12."""
+    try:
+        validated = validate_research_result(project, result_path)
+        current = _current_project(project)
+        try:
+            result_bytes = _read_project_file_snapshot(
+                current.root, validated.result_path
+            )
+        except (OSError, TypeError, ValueError) as error:
+            raise ValueError("research_result_file_invalid") from error
+        if _sha256(result_bytes) != validated.result_sha256:
+            raise ValueError("research_result_file_invalid")
+    except ValueError as error:
+        try:
+            event_project = ResearchProject.open_readonly(project.root)
+        except (OSError, TypeError, ValueError):
+            event_project = project
+        category = str(error)
+        if category not in _REGISTRATION_ERROR_CATEGORIES:
+            category = "research_result_registration_failed"
+        payload: dict[str, object] = {"error_category": category}
+        contract_ref = event_project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
+        if contract_ref is not None:
+            payload.update(
+                {
+                    "contract_path": contract_ref.path,
+                    "contract_sha256": contract_ref.sha256,
+                }
+            )
+        if result_path == RESEARCH_RESULT_PATH:
+            payload["result_path"] = RESEARCH_RESULT_PATH
+        event_log_for(event_project.root).append(
+            EvaluationEvent.create(
+                "research_result_registration_failed",
+                event_project.state.project_id,
+                payload,
+            )
+        )
+        raise
+
+    result_ref = ArtifactRef(
+        path=validated.result_path,
+        sha256=validated.result_sha256,
+        size=len(result_bytes),
+    )
+    state = current.state
+    persisted = current.persist_state(
+        replace(
+            state,
+            current_stage=13,
+            status=StageStatus.READY,
+            completed_stages=(
+                *tuple(stage for stage in state.completed_stages if stage != 12),
+                12,
+            ),
+            next_action="prepare_stage",
+            artifacts={**state.artifacts, validated.result_path: result_ref},
+            last_error=None,
+        )
+    )
+    contract_reference = validated.payload["execution_contract"]
+    assert isinstance(contract_reference, Mapping)
+    event_log_for(persisted.root).append(
+        EvaluationEvent.create(
+            "research_result_registered",
+            persisted.state.project_id,
+            {
+                "contract_path": contract_reference["path"],
+                "contract_sha256": contract_reference["sha256"],
+                "result_path": validated.result_path,
+                "result_sha256": validated.result_sha256,
+                "metric_count": validated.metric_count,
+                "input_count": validated.input_count,
+            },
+        )
+    )
+    return ResearchResultRegistrationStatus(
+        readiness="research_result_registered",
+        approval_eligible=False,
+        result_path=validated.result_path,
+        result_sha256=validated.result_sha256,
+        current_stage=persisted.state.current_stage,
+        next_action=persisted.state.next_action,
     )

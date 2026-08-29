@@ -8,13 +8,16 @@ from dataclasses import replace
 
 import pytest
 
-from researchclaw.core.models import ArtifactRef
+import researchclaw.core.research_execution as research_execution
+from researchclaw.core.events import event_log_for
+from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.execution_gate import _read_project_file_snapshot
 from researchclaw.core.research_execution import (
     EXECUTION_CONTRACT_PATH,
     _build_execution_contract,
     prepare_research_execution,
+    register_research_result,
     validate_research_result,
 )
 from tests.codex_native.helpers import (
@@ -22,6 +25,174 @@ from tests.codex_native.helpers import (
     load_execution_contract,
     write_contract_bound_research_result,
 )
+
+
+def test_register_result_completes_stage_twelve(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+
+    before = ResearchProject.open(project.root).state
+    approval_before = (project.root / "approvals/stage-12.json").read_bytes()
+
+    status = register_research_result(project, "experiment/results.json")
+
+    reopened = ResearchProject.open(project.root)
+    assert status.readiness == "research_result_registered"
+    assert status.approval_eligible is False
+    assert status.result_path == "experiment/results.json"
+    assert status.result_sha256 == hashlib.sha256(result_path.read_bytes()).hexdigest()
+    assert status.current_stage == 13
+    assert status.next_action == "prepare_stage"
+    assert status.to_dict() == {
+        "readiness": "research_result_registered",
+        "approval_eligible": False,
+        "result_path": "experiment/results.json",
+        "result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+        "current_stage": 13,
+        "next_action": "prepare_stage",
+    }
+    assert reopened.state.current_stage == 13
+    assert reopened.state.status == StageStatus.READY
+    assert reopened.state.completed_stages.count(12) == 1
+    assert reopened.state.completed_stages == (*before.completed_stages, 12)
+    assert reopened.state.next_action == "prepare_stage"
+    assert reopened.state.execution_policy == before.execution_policy
+    assert reopened.state.retry_counts == before.retry_counts
+    assert reopened.state.stage_10_snapshot == before.stage_10_snapshot
+    assert reopened.state.last_error is None
+    assert {
+        path: artifact
+        for path, artifact in reopened.state.artifacts.items()
+        if path != "experiment/results.json"
+    } == before.artifacts
+    assert reopened.state.artifacts["experiment/results.json"].sha256 == hashlib.sha256(
+        result_path.read_bytes()
+    ).hexdigest()
+    assert reopened.state.artifacts["experiment/results.json"].size == len(
+        result_path.read_bytes()
+    )
+    assert (project.root / "approvals/stage-12.json").read_bytes() == approval_before
+    matching_events = [
+        event
+        for event in event_log_for(project.root).read_all()
+        if event.type == "research_result_registered"
+    ]
+    assert len(matching_events) == 1
+    assert matching_events[0].payload == {
+        "contract_path": "experiment/execution_contract.json",
+        "contract_sha256": hashlib.sha256(
+            (project.root / "experiment/execution_contract.json").read_bytes()
+        ).hexdigest(),
+        "result_path": "experiment/results.json",
+        "result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+        "metric_count": 1,
+        "input_count": 1,
+    }
+
+
+def test_register_result_rechecks_bytes_immediately_before_persistence(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    original_validate = research_execution.validate_research_result
+
+    def validate_then_replace(project, relative_path):
+        validated = original_validate(project, relative_path)
+        result_path.write_bytes(b'{"changed":true}\n')
+        return validated
+
+    monkeypatch.setattr(
+        research_execution, "validate_research_result", validate_then_replace
+    )
+
+    with pytest.raises(ValueError, match="^research_result_file_invalid$"):
+        register_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    event = event_log_for(project.root).read_all()[-1]
+    assert event.type == "research_result_registration_failed"
+    assert event.payload["error_category"] == "research_result_file_invalid"
+    assert set(event.payload) <= {
+        "error_category",
+        "contract_path",
+        "contract_sha256",
+        "result_path",
+        "result_sha256",
+    }
+
+
+def test_register_result_rejects_duplicate_registration_without_state_change(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    register_research_result(project, "experiment/results.json")
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="^execution_approval_invalid$"):
+        register_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 13
+    assert reopened.state.completed_stages.count(12) == 1
+    events = event_log_for(project.root).read_all()
+    assert sum(event.type == "research_result_registered" for event in events) == 1
+    assert events[-1].type == "research_result_registration_failed"
+    assert events[-1].payload["error_category"] == "execution_approval_invalid"
+
+
+def test_register_result_retry_succeeds_after_invalid_result_is_corrected(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract, status="partial")
+
+    with pytest.raises(ValueError, match="^research_result_schema_invalid$"):
+        register_research_result(project, "experiment/results.json")
+
+    write_contract_bound_research_result(project, contract)
+    status = register_research_result(project, "experiment/results.json")
+
+    reopened = ResearchProject.open(project.root)
+    assert status.current_stage == 13
+    assert reopened.state.completed_stages.count(12) == 1
+    events = event_log_for(project.root).read_all()
+    assert [
+        event.type
+        for event in events
+        if event.type.startswith("research_result_registration")
+        or event.type == "research_result_registered"
+    ] == ["research_result_registration_failed", "research_result_registered"]
+
+
+def test_register_result_normalizes_unexpected_failure_text_in_event(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+
+    def fail_with_untrusted_detail(_project, _result_path):
+        raise ValueError("secret detail that must not enter the event")
+
+    monkeypatch.setattr(
+        research_execution, "validate_research_result", fail_with_untrusted_detail
+    )
+
+    with pytest.raises(ValueError, match="secret detail"):
+        register_research_result(project, "experiment/results.json")
+
+    event = event_log_for(project.root).read_all()[-1]
+    assert event.type == "research_result_registration_failed"
+    assert event.payload["error_category"] == "research_result_registration_failed"
+    assert "secret" not in json.dumps(event.payload)
 
 
 def test_validate_research_result_accepts_exact_binding_without_mutation(tmp_path):
@@ -324,6 +495,83 @@ def test_validate_research_result_rejects_invalid_payload_without_mutation(
     assert {
         relative: (project.root / relative).read_bytes() for relative in controls
     } == controls
+
+
+@pytest.mark.parametrize(
+    ("case", "category"),
+    _INVALID_RESULT_CASES,
+    ids=[f"register-{case}" for case, _category in _INVALID_RESULT_CASES],
+)
+def test_register_research_result_records_bounded_failure_without_state_transition(
+    tmp_path, case, category
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    result_path.write_text(
+        json.dumps(_mutate_research_result(payload, case), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    controls = {
+        relative: (project.root / relative).read_bytes()
+        for relative in (
+            ".researchclaw/state.json",
+            "approvals/stage-12.json",
+            "experiment/resources.json",
+            "experiment/execution_contract.json",
+            "experiment/results.json",
+        )
+    }
+
+    with pytest.raises(ValueError, match=f"^{category}$"):
+        register_research_result(project, "experiment/results.json")
+
+    assert {
+        relative: (project.root / relative).read_bytes() for relative in controls
+    } == controls
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    event = event_log_for(project.root).read_all()[-1]
+    assert event.type == "research_result_registration_failed"
+    assert event.payload["error_category"] == category
+    assert set(event.payload) <= {
+        "error_category",
+        "contract_path",
+        "contract_sha256",
+        "result_path",
+        "result_sha256",
+    }
+
+
+@pytest.mark.parametrize(
+    ("result_path", "category"),
+    (
+        ("experiment/other.json", "research_result_file_invalid"),
+        ("experiment/dev_results.json", "development_result_not_registerable"),
+    ),
+)
+def test_register_research_result_records_bounded_path_failure(
+    tmp_path, result_path, category
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match=f"^{category}$"):
+        register_research_result(project, result_path)
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    event = event_log_for(project.root).read_all()[-1]
+    assert event.type == "research_result_registration_failed"
+    assert event.payload["error_category"] == category
+    assert set(event.payload) <= {
+        "error_category",
+        "contract_path",
+        "contract_sha256",
+        "result_path",
+        "result_sha256",
+    }
 
 
 @pytest.mark.parametrize(
