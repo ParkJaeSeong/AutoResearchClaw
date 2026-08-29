@@ -211,7 +211,9 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
     code_files = {
         "experiment/code/README.md": (
             "# Computational validation package\n\n"
-            "This package is bound to the approved validation design.\n"
+            "This package is bound to the approved validation design.\n\n"
+            "python experiment/code/main.py --config experiment/code/config.json --dry-run\n"
+            "python -m pytest experiment/code/tests/test_smoke.py -q\n"
         ),
         "experiment/code/main.py": (
             "def main() -> None:\n"
@@ -231,7 +233,15 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
                 "seeds": [17],
                 "input_contract": {"dataset_manifest": "required"},
                 "output_contract": {"result_path": "declared for later execution"},
-                "traceability": {"datasets": "method.datasets"},
+                "traceability": {
+                    "datasets": "method.datasets",
+                    "baselines": "method.baselines",
+                    "split_strategy": "method.split_strategy",
+                    "metrics": "metrics",
+                    "seeds": "reproducibility.protocol_version",
+                    "input_contract": "evidence_sources",
+                    "output_contract": "success_criteria",
+                },
             },
             separators=(",", ":"),
         )
@@ -257,7 +267,10 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
         "runtime": {"python": "3.11"},
         "input_contract": {"dataset_manifest": "required"},
         "output_contract": {"result_path": "declared for later execution"},
-        "commands": {"dry_run": "declared later", "smoke_test": "declared later"},
+        "commands": {
+            "dry_run": "python experiment/code/main.py --config experiment/code/config.json --dry-run",
+            "smoke_test": "python -m pytest experiment/code/tests/test_smoke.py -q",
+        },
         "prohibitions": ["no execution during stage 10"],
         "reproducibility": {"seed": 17},
     }

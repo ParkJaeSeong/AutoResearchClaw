@@ -5,8 +5,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping
 
 
@@ -53,6 +54,43 @@ _PYTHON_PATHS = (
     "experiment/code/main.py",
     "experiment/code/tests/test_smoke.py",
 )
+_REQUIREMENTS_PATH = "experiment/code/requirements.txt"
+_README_PATH = "experiment/code/README.md"
+_EXPECTED_COMMANDS = {
+    "dry_run": "python experiment/code/main.py --config experiment/code/config.json --dry-run",
+    "smoke_test": "python -m pytest experiment/code/tests/test_smoke.py -q",
+}
+_TRACEABILITY_FIELDS = (
+    "datasets",
+    "baselines",
+    "split_strategy",
+    "metrics",
+    "seeds",
+    "input_contract",
+    "output_contract",
+)
+_FORBIDDEN_IMPORTS = (
+    "openai",
+    "anthropic",
+    "google.generativeai",
+    "requests",
+    "httpx",
+    "urllib",
+    "socket",
+    "subprocess",
+    "langchain",
+    "autogen",
+    "crewai",
+    "pydantic_ai",
+    "semantic_kernel",
+    "haystack",
+)
+_FAKE_RESULT_NAME = re.compile(
+    r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
+    re.IGNORECASE,
+)
+_TRACEABILITY_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+_REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9_.-]*)")
 
 
 @dataclass(frozen=True)
@@ -209,6 +247,210 @@ def _validate_python_syntax(
             _issue(issues, "invalid_python", path, f"Python syntax error: {error.msg}")
 
 
+def _dotted_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent is not None else None
+    return None
+
+
+def _forbidden_import(name: str) -> bool:
+    return any(name == forbidden or name.startswith(f"{forbidden}.") for forbidden in _FORBIDDEN_IMPORTS)
+
+
+def _absolute_literal(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and (Path(value).is_absolute() or PureWindowsPath(value).is_absolute())
+    )
+
+
+def _assignment_names(node: ast.AST) -> tuple[str, ...]:
+    if isinstance(node, ast.Name):
+        return (node.id,)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return tuple(name for element in node.elts for name in _assignment_names(element))
+    return ()
+
+
+def _smoke_test_writes_artifacts(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _dotted_name(node.func)
+        if name is None:
+            continue
+        if name.split(".")[-1] in {
+            "write_text",
+            "write_bytes",
+            "touch",
+            "replace",
+            "rename",
+            "unlink",
+            "dump",
+        }:
+            return True
+        if name in {"open", "io.open"}:
+            mode = next(
+                (
+                    keyword.value.value
+                    for keyword in node.keywords
+                    if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant)
+                    and isinstance(keyword.value.value, str)
+                ),
+                node.args[1].value
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                else "r",
+            )
+            if any(marker in mode for marker in "wax+"):
+                return True
+    return False
+
+
+def _validate_python_capabilities(
+    outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
+) -> None:
+    for path in _PYTHON_PATHS:
+        source = outputs.get(path)
+        if not isinstance(source, str):
+            continue
+        try:
+            tree = ast.parse(source, filename=path)
+        except SyntaxError:
+            continue
+
+        forbidden = False
+        unsafe_path = False
+        fake_result_assignment = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                forbidden = forbidden or any(_forbidden_import(alias.name) for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                forbidden = forbidden or (
+                    node.module is not None
+                    and (
+                        _forbidden_import(node.module)
+                        or any(
+                            _forbidden_import(f"{node.module}.{alias.name}")
+                            for alias in node.names
+                        )
+                    )
+                )
+            elif isinstance(node, ast.Call):
+                name = _dotted_name(node.func)
+                forbidden = forbidden or name in {"os.system", "os.popen", "eval", "exec", "builtins.eval", "builtins.exec"} or (
+                    name is not None and name.startswith("subprocess.")
+                )
+            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+                fake_result_assignment = fake_result_assignment or any(
+                    _FAKE_RESULT_NAME.search(name) is not None
+                    for target in targets
+                    for name in _assignment_names(target)
+                )
+            if isinstance(node, ast.Constant) and _absolute_literal(node.value):
+                unsafe_path = True
+
+        if fake_result_assignment and not (
+            path == "experiment/code/tests/test_smoke.py"
+            and not _smoke_test_writes_artifacts(tree)
+        ):
+            forbidden = True
+        if forbidden:
+            _issue(
+                issues,
+                "forbidden_capability",
+                path,
+                "generated Python uses a prohibited capability or synthetic-result fallback",
+            )
+        if unsafe_path:
+            _issue(issues, "unsafe_path", path, "generated Python contains an absolute literal path")
+
+
+def _validate_requirements(
+    requirements: object, issues: list[ComputationalPackageIssue]
+) -> None:
+    if not isinstance(requirements, str):
+        return
+    for line_number, raw_line in enumerate(requirements.splitlines(), start=1):
+        line = raw_line.split("#", maxsplit=1)[0].strip()
+        if not line:
+            continue
+        match = _REQUIREMENT_NAME.match(line)
+        requirement_name = match.group(1).lower() if match else ""
+        if requirement_name and _forbidden_import(requirement_name):
+            _issue(
+                issues,
+                "forbidden_capability",
+                _REQUIREMENTS_PATH,
+                f"requirements line {line_number} declares a prohibited dependency",
+            )
+        bounded = bool(re.search(r"(?:==|~=)\s*[^\s,;]+", line)) or (
+            re.search(r">=?\s*[^\s,;]+", line) is not None
+            and re.search(r"<=?\s*[^\s,;]+", line) is not None
+        )
+        if not bounded:
+            _issue(
+                issues,
+                "unbounded_dependency",
+                _REQUIREMENTS_PATH,
+                f"requirements line {line_number} must use a bounded version constraint",
+            )
+
+
+def _design_path_is_nonempty(design: object, path: object) -> bool:
+    if not isinstance(path, str) or _TRACEABILITY_PATH.fullmatch(path) is None:
+        return False
+    value = design
+    for segment in path.split("."):
+        if not isinstance(value, dict) or segment not in value:
+            return False
+        value = value[segment]
+    return value not in (None, "", [], {})
+
+
+def _validate_traceability(
+    design_json: str, config: dict[str, Any], issues: list[ComputationalPackageIssue]
+) -> None:
+    try:
+        design = json.loads(design_json)
+    except json.JSONDecodeError:
+        design = None
+    traceability = config.get("traceability")
+    if not isinstance(traceability, dict) or any(
+        not _design_path_is_nonempty(design, traceability.get(field))
+        for field in _TRACEABILITY_FIELDS
+    ):
+        _issue(
+            issues,
+            "missing_traceability",
+            "experiment/code/config.json",
+            "traceability must map every required config section to a non-empty stage-9 field path",
+        )
+
+
+def _validate_commands(
+    manifest: dict[str, Any], readme: object, issues: list[ComputationalPackageIssue]
+) -> None:
+    if manifest.get("commands") != _EXPECTED_COMMANDS:
+        _issue(
+            issues,
+            "command_mismatch",
+            MANIFEST_PATH,
+            "commands must equal the declared dry-run and smoke-test commands",
+        )
+    if not isinstance(readme, str) or any(command not in readme for command in _EXPECTED_COMMANDS.values()):
+        _issue(
+            issues,
+            "command_mismatch",
+            _README_PATH,
+            "README must contain the declared dry-run and smoke-test commands",
+        )
+
+
 def validate_computational_package(
     root: Path,
     design_json: str,
@@ -258,6 +500,7 @@ def validate_computational_package(
             _issue(issues, "invalid_format", MANIFEST_PATH, "entry_point must be main.py")
         if manifest.get("config_path") != config_path:
             _issue(issues, "invalid_format", MANIFEST_PATH, "config_path must be config.json")
+        _validate_commands(manifest, outputs.get(_README_PATH), issues)
         declared_hashes = _validate_manifest_files(manifest, issues)
         _validate_hashes(root, declared_hashes, issues)
 
@@ -274,6 +517,9 @@ def validate_computational_package(
                 config_path,
                 "design_sha256 must match the approved design",
             )
+        _validate_traceability(design_json, config, issues)
 
     _validate_python_syntax(outputs, issues)
+    _validate_python_capabilities(outputs, issues)
+    _validate_requirements(outputs.get(_REQUIREMENTS_PATH), issues)
     return tuple(issues)

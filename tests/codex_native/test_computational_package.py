@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -12,6 +13,18 @@ from tests.codex_native.helpers import (
     build_completed_validation_design_project,
     write_valid_fixture_artifacts,
 )
+
+
+def _replace_package_file(project, relative_path, content):
+    path = project.root / relative_path
+    path.write_text(content, encoding="utf-8")
+    manifest_path = project.root / "experiment" / "package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for file_entry in manifest["files"]:
+        if file_entry["path"] == relative_path:
+            file_entry["sha256"] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            break
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
 def test_stage_ten_packet_declares_fixed_computational_package(tmp_path):
@@ -232,5 +245,88 @@ def test_package_rejects_nonclosed_or_self_listed_manifest_file_entries(
     assert report.valid is False
     assert any(
         issue.code == expected_code and issue.path == "experiment/package_manifest.json"
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("snippet", "expected_code"),
+    [
+        ("import openai", "forbidden_capability"),
+        ("import anthropic", "forbidden_capability"),
+        ("from google import generativeai", "forbidden_capability"),
+        ("import requests", "forbidden_capability"),
+        ("import subprocess", "forbidden_capability"),
+        ("os.system('x')", "forbidden_capability"),
+        ("Path('/tmp/result.json')", "unsafe_path"),
+        ("synthetic_results = {'rmse': 0.1}", "forbidden_capability"),
+    ],
+)
+def test_package_rejects_forbidden_generated_code(tmp_path, snippet, expected_code):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/main.py",
+        f"{snippet}\n\ndef main() -> None:\n    return None\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == expected_code and issue.path == "experiment/code/main.py"
+        for issue in report.issues
+    )
+
+
+def test_package_rejects_unbounded_or_forbidden_requirements(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/requirements.txt",
+        "pytest\nopenai==1.0.0\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert {issue.code for issue in report.issues} >= {
+        "forbidden_capability",
+        "unbounded_dependency",
+    }
+
+
+def test_package_rejects_missing_design_traceability(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    config_path = "experiment/code/config.json"
+    config = json.loads((project.root / config_path).read_text(encoding="utf-8"))
+    config["traceability"] = {"datasets": "method.datasets"}
+    _replace_package_file(project, config_path, json.dumps(config) + "\n")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "missing_traceability" and issue.path == config_path
+        for issue in report.issues
+    )
+
+
+def test_package_rejects_readme_manifest_command_disagreement(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    manifest_path = project.root / "experiment" / "package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["commands"]["dry_run"] = "python main.py"
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "command_mismatch" and issue.path == "experiment/package_manifest.json"
         for issue in report.issues
     )
