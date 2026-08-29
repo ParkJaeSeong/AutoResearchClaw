@@ -134,6 +134,11 @@ def _rewind_for_revalidation(
         else "revalidate_changed_artifacts",
         "retry_state": code,
     }
+    retained_artifacts = {
+        path: artifact
+        for path, artifact in state.artifacts.items()
+        if (producing_stage := stage_for_output(path)) is None or producing_stage < stage_id
+    }
     return project.persist_state(
         replace(
             state,
@@ -141,6 +146,7 @@ def _rewind_for_revalidation(
             status=StageStatus.NEEDS_REVISION,
             completed_stages=tuple(stage for stage in state.completed_stages if stage < stage_id),
             next_action="validate_stage",
+            artifacts=retained_artifacts,
             last_error=last_error,
         )
     )
@@ -196,7 +202,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if milestone_complete:
-        next_action = "report_validation_design_milestone_only"
+        next_action = "report_computational_package_milestone_only"
         next_command = _command(current_project.root, "evaluate")
         approval_required = False
     elif status is StageStatus.NEEDS_REVISION:

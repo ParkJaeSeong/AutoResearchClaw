@@ -387,7 +387,7 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
         if contract.requires_approval:
             recommended_action = "request_approval"
         elif contract.id == SUPPORTED_STAGE_MAX:
-            recommended_action = "report_hypothesis_milestone_only"
+            recommended_action = "report_computational_package_milestone_only"
         else:
             recommended_action = "prepare_next_stage"
         error_state = None
@@ -480,7 +480,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             completed_stages=completed_stages,
             status=StageStatus.READY,
             next_action=(
-                "report_hypothesis_milestone_only"
+                "report_computational_package_milestone_only"
                 if report.stage_id == SUPPORTED_STAGE_MAX
                 else "prepare_stage"
             ),

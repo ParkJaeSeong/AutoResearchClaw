@@ -20,6 +20,7 @@ _NEXT_ACTIONS = frozenset(
         "report_synthesis_milestone_only",
         "report_hypothesis_milestone_only",
         "report_validation_design_milestone_only",
+        "report_computational_package_milestone_only",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})

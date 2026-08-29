@@ -99,6 +99,60 @@ def test_valid_computational_package_is_structurally_valid(tmp_path):
     }
 
 
+def test_valid_stage_ten_stops_before_unsupported_stage_eleven(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+
+    report = validate_current_stage(project)
+
+    state = ResearchProject.open(project.root).state
+    assert report.valid is True
+    assert report.recommended_action == "report_computational_package_milestone_only"
+    assert state.current_stage == 11
+    assert state.completed_stages == tuple(range(1, 11))
+    assert state.next_action == "report_computational_package_milestone_only"
+    with pytest.raises(ValueError, match="not defined"):
+        build_task_packet(ResearchProject.open(project.root))
+
+
+def test_stage_ten_completion_handoff_reports_the_computational_package_only(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(project).valid is True
+
+    handoff = ResearchProject.open(project.root).build_handoff()
+
+    assert handoff.milestone_complete is True
+    assert handoff.next_action == "report_computational_package_milestone_only"
+    assert handoff.next_command.split()[1] == "evaluate"
+    assert handoff.write_policy == "no_undeclared_outputs"
+
+
+def test_changed_approved_design_rewinds_and_invalidates_package_lineage(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(project).valid is True
+    design_path = project.root / "experiment" / "design.json"
+    design_path.write_text(design_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    handoff = ResearchProject.open(project.root).build_handoff()
+
+    state = ResearchProject.open(project.root).state
+    assert handoff.current_stage == 9
+    assert handoff.next_action == "validate_stage"
+    assert state.completed_stages == tuple(range(1, 9))
+    assert state.last_error["issues"][0]["code"] == "approval_invalidated"
+    assert not {
+        "experiment/design.json",
+        "experiment/package_manifest.json",
+        "experiment/code/README.md",
+        "experiment/code/main.py",
+        "experiment/code/config.json",
+        "experiment/code/requirements.txt",
+        "experiment/code/tests/test_smoke.py",
+    }.intersection(state.artifacts)
+
+
 def test_package_binds_design_sha256_to_approved_crlf_bytes(tmp_path):
     project = build_completed_hypothesis_milestone_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 9)
