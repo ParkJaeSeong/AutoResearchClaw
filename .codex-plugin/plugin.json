@@ -1,6 +1,6 @@
 {
   "name": "autoresearchclaw-codex",
-  "version": "0.1.0+codex.20260829041930",
+  "version": "0.1.0+codex.20260829083234",
   "description": "Codex performs research through a durable, locally validated AutoResearchClaw workflow.",
   "author": {
     "name": "AutoResearchClaw Codex contributors",
