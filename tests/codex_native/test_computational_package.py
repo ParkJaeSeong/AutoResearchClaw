@@ -277,7 +277,7 @@ def test_package_rejects_disguised_capabilities_and_unreachable_helpers(
     assert report.issues[0].path == relative_path
 
 
-def test_valid_stage_ten_stops_before_unsupported_stage_eleven(tmp_path):
+def test_valid_stage_ten_advances_to_stage_eleven_resource_planning(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
 
@@ -285,25 +285,24 @@ def test_valid_stage_ten_stops_before_unsupported_stage_eleven(tmp_path):
 
     state = ResearchProject.open(project.root).state
     assert report.valid is True
-    assert report.recommended_action == "report_computational_package_milestone_only"
+    assert report.recommended_action == "prepare_next_stage"
     assert state.current_stage == 11
     assert state.completed_stages == tuple(range(1, 11))
-    assert state.next_action == "report_computational_package_milestone_only"
-    with pytest.raises(ValueError, match="not defined"):
-        build_task_packet(ResearchProject.open(project.root))
+    assert state.next_action == "prepare_stage"
+    assert build_task_packet(ResearchProject.open(project.root)).stage_id == 11
 
 
-def test_stage_ten_completion_handoff_reports_the_computational_package_only(tmp_path):
+def test_stage_ten_completion_handoff_prepares_resource_planning(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     assert validate_current_stage(project).valid is True
 
     handoff = ResearchProject.open(project.root).build_handoff()
 
-    assert handoff.milestone_complete is True
-    assert handoff.next_action == "report_computational_package_milestone_only"
-    assert handoff.next_command.split()[1] == "evaluate"
-    assert handoff.write_policy == "no_undeclared_outputs"
+    assert handoff.milestone_complete is False
+    assert handoff.next_action == "prepare_stage"
+    assert handoff.next_command.split()[1:3] == ["stage", "prepare"]
+    assert handoff.write_policy == "declared_outputs_only"
 
 
 def test_changed_approved_design_rewinds_and_invalidates_package_lineage(tmp_path):

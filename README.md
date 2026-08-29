@@ -10,17 +10,19 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-Codex-native supported execution boundary: stages 1–10. This release continues
+Codex-native supported execution boundary: stages 1–11. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
 extraction, evidence synthesis, and provenance-linked hypothesis generation
 without an external LLM API key, then creates a reproducible validation design
 for policy evidence, computational, or laboratory work. Stage 9 is an approval
 gate. After an approved computational design, Stage 10 authors and statically
 validates a fixed six-file computational package but does not execute it.
-Policy-evidence and laboratory Stage 10 packages are unsupported. The workflow
-stops before unsupported Stage 11. Stages 11–23, experiment execution, and
-full-paper production remain roadmap work; later declared contracts are not
-claims of implemented capability.
+Policy-evidence and laboratory Stage 10 packages are unsupported. Stage 11
+observes only passive local hardware facts in its task packet and defers
+execution; resource-plan validation and execution remain unavailable. The
+workflow stops before unsupported Stage 12. Stages 12–23 and full-paper
+production remain roadmap work; later declared contracts are not claims of
+implemented capability.
 
 ## Install the CLI
 
@@ -110,9 +112,10 @@ generation, and after valid stage 8 it reports the hypothesis milestone and
 points to stage-9 validation design. A valid stage-9 design requires the user's
 explicit approval or rejection. After approval of a computational design,
 `resume` points to Stage 10. Codex authors and statically validates only the
-declared computational package, without execution. A valid Stage 10 reaches
-the Stage 11 reporting boundary, so `resume` and `evaluate` report the
-computational-package milestone and stop before unsupported Stage 11.
+declared computational package, without execution. A valid Stage 10 advances
+to Stage 11. Its packet observes only passive local hardware facts and defers
+the experiment command; resource-plan validation is not yet available, so the
+workflow stops before unsupported Stage 12.
 
 ## Durable project data
 

@@ -8,7 +8,7 @@ from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import event_log_for
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
-from researchclaw.core.task_packets import prepare_task_packet
+from researchclaw.core.task_packets import build_task_packet, prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 from tests.codex_native.helpers import (
     build_completed_validation_design_project,
@@ -164,6 +164,38 @@ def test_prepare_refuses_legacy_baseline_flag_for_nonlegacy_state(tmp_path):
 
     with pytest.raises(ValueError, match="only valid for legacy-missing Stage 10"):
         prepare_task_packet(project, establish_legacy_baseline=True)
+
+
+def test_stage_eleven_packet_includes_passive_hardware_and_deferred_execution_context(
+    tmp_path,
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    project = ResearchProject.open(project.root)
+
+    packet = build_task_packet(project)
+
+    assert packet.stage_id == 11
+    observation = json.loads(packet.profile_context["hardware_observation"][0])
+    assert observation["method"] == "python_stdlib_passive"
+    assert packet.profile_context["deferred_command"] == (
+        "python experiment/code/main.py --config experiment/code/config.json",
+    )
+    assert packet.profile_context["result_path"] == ("experiment/results.json",)
+
+
+def test_stage_eleven_packet_requires_current_stage_nine_approval(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    approval_path = project.root / "approvals" / "stage-09.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["decision"] = "reject"
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="approved stage-9 validation design"):
+        build_task_packet(ResearchProject.open(project.root))
 
 
 def test_prepare_rejects_required_input_symlink_even_when_content_matches(tmp_path):

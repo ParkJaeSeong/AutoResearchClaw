@@ -8,6 +8,7 @@ from researchclaw.core.project import ResearchProject
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import _as_validation_issue, validate_current_stage
 from tests.codex_native.helpers import (
+    build_completed_validation_design_project,
     build_completed_literature_gate_project,
     complete_first_four_stages,
     write_valid_fixture_artifacts,
@@ -39,6 +40,21 @@ def test_valid_stage_one_hashes_artifacts_and_advances(tmp_path):
     assert reopened.state.completed_stages == (1,)
     assert reopened.state.status.value == "ready"
     assert reopened.state.artifacts["scope/goal.md"].sha256 == report.artifact_refs["scope/goal.md"].sha256
+
+
+def test_stage_eleven_validation_fails_closed_until_resource_plan_validation_exists(
+    tmp_path,
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    resources = project.root / "experiment" / "resources.json"
+    resources.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="resource-plan validation is not available"):
+        validate_current_stage(ResearchProject.open(project.root))
+
+    assert ResearchProject.open(project.root).state.current_stage == 11
 
 
 def test_validation_and_task_packets_follow_exact_paths_through_stage_five(tmp_path):

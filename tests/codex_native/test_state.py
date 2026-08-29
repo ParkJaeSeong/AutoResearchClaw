@@ -43,9 +43,15 @@ def test_state_round_trips_typed_stage_ten_snapshot(tmp_path):
 
 @pytest.mark.parametrize(
     "next_action",
-    ("report_foundation_milestone_only", "report_knowledge_milestone_only"),
+    (
+        "report_foundation_milestone_only",
+        "report_knowledge_milestone_only",
+        "report_resource_plan_milestone_only",
+        "approve_experiment_execution",
+        "report_missing_execution_inputs",
+    ),
 )
-def test_state_load_accepts_legacy_and_knowledge_milestone_actions(tmp_path, next_action):
+def test_state_load_accepts_declared_milestone_actions(tmp_path, next_action):
     store = StateStore(tmp_path)
     data = ProjectState.new("rc-test", "Topic", "materials_ai").to_dict()
     data.update(

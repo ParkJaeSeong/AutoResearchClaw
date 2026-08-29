@@ -26,8 +26,8 @@ class Phase:
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
 LITERATURE_APPROVAL_STAGE = 5
-SUPPORTED_STAGE_IDS = tuple(range(1, 11))
-SUPPORTED_STAGE_MAX = 10
+SUPPORTED_STAGE_IDS = tuple(range(1, 12))
+SUPPORTED_STAGE_MAX = 11
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -67,6 +67,10 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
         "the computational package is bound to the approved validation design",
         "the declared package artifacts are complete and statically valid without execution",
     ),
+    11: (
+        "experiment/resources.json records only passive local hardware facts",
+        "the resource plan defers experiment execution and declares experiment/results.json",
+    ),
 }
 
 
@@ -83,7 +87,7 @@ def _contract(stage_id: int, name: str, objective: str, inputs: tuple[str, ...],
         ),
         allowed_tool_classes=(
             ("filesystem", "analysis")
-            if stage_id in {9, 10}
+            if stage_id in {9, 10, 11}
             else ("filesystem", "research", "analysis")
         ),
         requires_approval=approval,
@@ -123,7 +127,17 @@ _CONTRACT_DATA = (
             "experiment/code/tests/test_smoke.py",
         ),
     ),
-    ("resource_planning", "Plan compute and data resources", ("experiment/design.json",), ("experiment/resources.json",)),
+    (
+        "resource_planning",
+        "Plan compute and data resources",
+        (
+            "experiment/design.json",
+            "experiment/package_manifest.json",
+            "experiment/code/config.json",
+            "scope/hardware_profile.json",
+        ),
+        ("experiment/resources.json",),
+    ),
     ("experiment_run", "Run the approved experiment", ("experiment/code/manifest.json", "experiment/resources.json"), ("experiment/results.json",)),
     ("iterative_refine", "Refine the experiment from results", ("experiment/results.json",), ("experiment/iterations.jsonl",)),
     ("result_analysis", "Analyze experimental results", ("experiment/results.json",), ("analysis/results.json",)),

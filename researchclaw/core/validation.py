@@ -334,6 +334,8 @@ def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, 
 def validate_current_stage(project: ResearchProject) -> ValidationReport:
     """Validate the current task packet's outputs and persist its resulting state."""
     current_project = ResearchProject.open(project.root)
+    if current_project.state.current_stage == 11:
+        raise ValueError("stage 11 resource-plan validation is not available")
     packet, contract = _current_packet_and_contract(current_project)
     attempt_number = current_project.state.retry_counts.get(str(packet.stage_id), 0) + 1
     issues: list[ValidationIssue] = []

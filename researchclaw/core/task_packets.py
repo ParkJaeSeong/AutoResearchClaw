@@ -15,6 +15,7 @@ from .models import StageStatus, StageTenSnapshot
 from .paths import resolve_project_artifact
 from .profiles import load_profile
 from .project import ResearchProject
+from .resource_planning import observe_local_hardware
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _SUSPICIOUS_LEGACY_STAGE_TEN_PATH_FAMILIES = (
@@ -90,14 +91,17 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
             or not verify_current_approval(project.root, record)
         ):
             raise ValueError("stage 6 requires the approved stage-5 shortlist")
-    if state.current_stage == 10:
+    if state.current_stage in {10, 11}:
         record = load_approval_record(project.root, 9)
         if (
             record is None
             or record.decision != "approve"
             or not verify_current_approval(project.root, record)
         ):
-            raise ValueError("stage 10 requires the approved stage-9 validation design")
+            raise ValueError(
+                f"stage {state.current_stage} requires the approved stage-9 validation design"
+            )
+    if state.current_stage == 10:
         design = json.loads(
             resolve_project_artifact(project.root, "experiment/design.json").read_text(
                 encoding="utf-8"
@@ -123,6 +127,24 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
     if missing:
         raise ValueError(f"required input artifacts are missing: {', '.join(missing)}")
     profile = load_profile(state.profile)
+    profile_context = {
+        "preferred_sources": profile.preferred_sources,
+        "quality_checks": profile.quality_checks,
+        "metric_guidance": profile.metric_guidance,
+    }
+    if state.current_stage == 11:
+        observation = observe_local_hardware(project.root)
+        profile_context.update(
+            {
+                "hardware_observation": (
+                    json.dumps(observation.to_dict(), sort_keys=True),
+                ),
+                "deferred_command": (
+                    "python experiment/code/main.py --config experiment/code/config.json",
+                ),
+                "result_path": ("experiment/results.json",),
+            }
+        )
     return TaskPacket(
         schema_version=1,
         project_id=state.project_id,
@@ -136,11 +158,7 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
         acceptance_criteria=contract.acceptance_criteria,
         allowed_tool_classes=contract.allowed_tool_classes,
         requires_approval=contract.requires_approval,
-        profile_context={
-            "preferred_sources": profile.preferred_sources,
-            "quality_checks": profile.quality_checks,
-            "metric_guidance": profile.metric_guidance,
-        },
+        profile_context=profile_context,
     )
 
 

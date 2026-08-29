@@ -8,9 +8,19 @@ from researchclaw.core.contracts import (
 )
 
 
-def test_supported_stage_boundary_includes_computational_package():
-    assert SUPPORTED_STAGE_IDS == tuple(range(1, 11))
-    assert SUPPORTED_STAGE_MAX == 10
+def test_stage_eleven_is_supported_with_all_read_only_inputs():
+    contract = get_contract(11)
+
+    assert SUPPORTED_STAGE_IDS == tuple(range(1, 12))
+    assert SUPPORTED_STAGE_MAX == 11
+    assert contract.required_inputs == (
+        "experiment/design.json",
+        "experiment/package_manifest.json",
+        "experiment/code/config.json",
+        "scope/hardware_profile.json",
+    )
+    assert contract.required_outputs == ("experiment/resources.json",)
+    assert contract.allowed_tool_classes == ("filesystem", "analysis")
     assert LITERATURE_APPROVAL_STAGE == 5
 
 
