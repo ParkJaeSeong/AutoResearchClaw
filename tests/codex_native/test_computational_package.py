@@ -1471,3 +1471,233 @@ def test_legacy_stage_ten_state_without_snapshot_is_not_silently_rebased(tmp_pat
     assert reopened.state.stage_10_snapshot.status == "legacy_missing"
     with pytest.raises(ValueError, match="legacy.*snapshot"):
         prepare_task_packet(reopened)
+
+
+@pytest.mark.parametrize("snippet", ["pathlib.os.system('echo unsafe')", "argparse._os.system('echo unsafe')"])
+def test_package_rejects_private_or_reexported_allowed_module_capabilities(
+    tmp_path, snippet
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    source = source.replace("import argparse\n", "import argparse\nimport pathlib\n")
+    source = source.replace(
+        "        print(json.dumps(plan, sort_keys=True))\n",
+        f"        {snippet}\n        print(json.dumps(plan, sort_keys=True))\n",
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "forbidden_capability" for issue in report.issues)
+
+
+@pytest.mark.parametrize("shadow_kind", ["function", "lambda"])
+def test_package_rejects_reachable_write_despite_sibling_scope_name_collision(
+    tmp_path, shadow_kind
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    source = source.replace(
+        "    if args.dry_run:\n",
+        "    def emit_result():\n"
+        "        Path('experiment/results.json').write_text('{}')\n"
+        "    if args.dry_run:\n",
+    ).replace(
+        "        print(json.dumps(plan, sort_keys=True))\n",
+        "        emit_result()\n        print(json.dumps(plan, sort_keys=True))\n",
+    )
+    shadow = (
+        "\ndef unrelated():\n    def emit_result():\n        return None\n"
+        if shadow_kind == "function"
+        else "\ndef unrelated():\n    emit_result = lambda: None\n"
+    )
+    _replace_package_file(project, "experiment/code/main.py", source + shadow)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "forbidden_capability" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "Path('analysis.ipynb').write_text('{}')",
+        "Path('experiment/design.json').unlink()",
+        "Path(target_path).write_text('{}')",
+    ],
+    ids=("undeclared", "approved-input", "unresolved"),
+)
+def test_package_rejects_non_dry_mutation_outside_declared_result(
+    tmp_path, mutation
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    source = source.replace(
+        "    raise RuntimeError('execution is deferred to stage 12')\n",
+        f"    target_path = config['output_contract']['result_path']\n"
+        f"    {mutation}\n"
+        "    return plan\n",
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "forbidden_capability" for issue in report.issues)
+
+
+@pytest.mark.parametrize("target_file", ["main", "smoke"])
+def test_package_rejects_contract_evidence_inside_empty_for_loop(
+    tmp_path, target_file
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    if target_file == "main":
+        relative = "experiment/code/main.py"
+        path = project.root / relative
+        source = path.read_text(encoding="utf-8")
+        active = (
+            "    config = load_config(Path(args.config))\n"
+            "    validate_inputs(config)\n"
+            "    plan = build_plan(config)\n"
+            "    if args.dry_run:\n"
+            "        print(json.dumps(plan, sort_keys=True))\n"
+            "        return plan\n"
+            "    raise RuntimeError('execution is deferred to stage 12')\n"
+        )
+        dead = "    for never in ():\n" + "".join(
+            f"    {line}" for line in active.splitlines(True)
+        )
+        dead += "    return {}\n"
+    else:
+        relative = "experiment/code/tests/test_smoke.py"
+        path = project.root / relative
+        source = path.read_text(encoding="utf-8")
+        body = (
+            "    config_path = Path('experiment/code/config.json')\n"
+            "    config = load_config(config_path)\n"
+            "    validate_inputs(config)\n"
+            "    plan = build_plan(config)\n"
+            "    dry_plan = main(['--config', str(config_path), '--dry-run'])\n"
+            "    assert dry_plan == plan\n"
+        )
+        dead = "    for never in ():\n" + "".join(
+            f"    {line}" for line in body.splitlines(True)
+        )
+        dead += "    assert True\n"
+        active = body
+    _replace_package_file(project, relative, source.replace(active, dead))
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code in {"missing_entrypoint_contract", "missing_smoke_contract"}
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize("construct", ["match", "try"])
+def test_package_rejects_contract_evidence_in_unmodelled_control_flow(
+    tmp_path, construct
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8")
+    active = (
+        "    config = load_config(Path(args.config))\n"
+        "    validate_inputs(config)\n"
+        "    plan = build_plan(config)\n"
+        "    if args.dry_run:\n"
+        "        print(json.dumps(plan, sort_keys=True))\n"
+        "        return plan\n"
+        "    raise RuntimeError('execution is deferred to stage 12')\n"
+    )
+    if construct == "match":
+        wrapped = "    match 1:\n        case 2:\n" + "".join(
+            f"        {line}" for line in active.splitlines(True)
+        )
+    else:
+        wrapped = (
+            "    try:\n        return {}\n"
+            "    except RuntimeError:\n"
+            + "".join(f"    {line}" for line in active.splitlines(True))
+        )
+    wrapped += "    return {}\n"
+    _replace_package_file(
+        project, "experiment/code/main.py", source.replace(active, wrapped)
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_allows_proven_safe_string_normalization_methods(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / "experiment" / "code" / "main.py"
+    source = path.read_text(encoding="utf-8") + (
+        "\ndef normalize(value: str) -> list[str]:\n"
+        "    return value.strip().lower().split(',')\n"
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+
+
+def _revalidate_stage_eight_through_stage_ten(project):
+    candidates = project.root / "hypotheses" / "candidates.jsonl"
+    candidates.write_text(
+        "".join(
+            f"{line.rstrip()} \n"
+            for line in candidates.read_text(encoding="utf-8").splitlines()
+        ),
+        encoding="utf-8",
+    )
+    handoff = ResearchProject.open(project.root).build_handoff()
+    assert handoff.current_stage == 8
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    approve_current_gate(
+        ResearchProject.open(project.root), "approve", "Reapproved after Stage 8"
+    )
+    prepare_task_packet(ResearchProject.open(project.root))
+
+
+def test_stage_ten_allows_verified_stage_eight_lineage_hash_transition(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    prepare_task_packet(project)
+    write_valid_fixture_artifacts(project.root, 10)
+
+    _revalidate_stage_eight_through_stage_ten(project)
+
+    report = validate_current_stage(ResearchProject.open(project.root))
+
+    assert report.valid is True
+
+
+def test_stage_eight_revalidation_does_not_launder_untracked_stage_ten_path(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    prepare_task_packet(project)
+    write_valid_fixture_artifacts(project.root, 10)
+    (project.root / "analysis.ipynb").write_text("{}", encoding="utf-8")
+
+    _revalidate_stage_eight_through_stage_ten(project)
+
+    report = validate_current_stage(ResearchProject.open(project.root))
+
+    assert report.valid is False
+    assert any(issue.path == "analysis.ipynb" for issue in report.issues)

@@ -82,14 +82,35 @@ _TRACEABILITY_SOURCES = {
     "input_contract": frozenset({"evidence_sources", "method.datasets"}),
     "output_contract": frozenset({"metrics", "success_criteria", "failure_criteria"}),
 }
-_ALLOWED_IMPORTS = frozenset(
+_ALLOWED_IMPORT_EXPORTS = {
+    "__future__": frozenset({"annotations"}),
+    "argparse": frozenset({"ArgumentParser"}),
+    "json": frozenset({"JSONDecoder", "JSONEncoder", "dump", "dumps", "load", "loads"}),
+    "pathlib": frozenset(
+        {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
+    ),
+    "typing": frozenset({"Any"}),
+    "experiment.code.main": frozenset(
+        {"build_plan", "load_config", "main", "validate_inputs"}
+    ),
+}
+_ALLOWED_IMPORTED_CALLS = frozenset(
     {
-        "__future__",
-        "argparse",
-        "json",
-        "pathlib",
-        "typing",
-        "experiment.code.main",
+        "argparse.ArgumentParser",
+        "experiment.code.main.build_plan",
+        "experiment.code.main.load_config",
+        "experiment.code.main.main",
+        "experiment.code.main.validate_inputs",
+        "json.JSONDecoder",
+        "json.JSONEncoder",
+        "json.dump",
+        "json.dumps",
+        "json.load",
+        "json.loads",
+        "pathlib.Path",
+        "pathlib.PurePath",
+        "pathlib.PurePosixPath",
+        "pathlib.PureWindowsPath",
     }
 )
 _ALLOWED_DISTRIBUTIONS = frozenset({"pytest"})
@@ -156,12 +177,14 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "read_bytes",
         "read_text",
         "sort",
-        "startswith",
         "values",
         "write",
         "write_bytes",
         "write_text",
     }
+)
+_ALLOWED_STRING_METHODS = frozenset(
+    {"casefold", "endswith", "lower", "lstrip", "replace", "rsplit", "rstrip", "split", "startswith", "strip", "upper"}
 )
 _FAKE_RESULT_NAME = re.compile(
     r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
@@ -377,7 +400,6 @@ def _validate_hashes(
 def _validate_on_disk_tree(
     root: Path,
     prepared_snapshot: tuple[FilesystemEntry, ...] | None,
-    authorized_paths: frozenset[str],
     issues: list[ComputationalPackageIssue],
 ) -> None:
     if prepared_snapshot is None:
@@ -413,7 +435,7 @@ def _validate_on_disk_tree(
             "filesystem paths present at Stage 10 prepare must not be removed",
         )
     for relative in sorted(set(baseline) & set(current)):
-        if relative in authorized_paths or baseline[relative] == current[relative]:
+        if baseline[relative] == current[relative]:
             continue
         _issue(
             issues,
@@ -453,7 +475,12 @@ def _dotted_name(node: ast.AST) -> str | None:
 
 
 def _allowed_import(name: str) -> bool:
-    return any(name == allowed or name.startswith(f"{allowed}.") for allowed in _ALLOWED_IMPORTS)
+    return name in _ALLOWED_IMPORT_EXPORTS
+
+
+def _allowed_import_from(module: str, names: list[ast.alias]) -> bool:
+    exports = _ALLOWED_IMPORT_EXPORTS.get(module)
+    return exports is not None and all(alias.name in exports for alias in names)
 
 
 def _normalized_distribution_name(name: str) -> str:
@@ -561,7 +588,17 @@ def _forbidden_call(name: str | None) -> bool:
     return False
 
 
-def _call_is_dynamic_dispatch(node: ast.Call, aliases: Mapping[str, str]) -> bool:
+def _call_is_dynamic_dispatch(
+    node: ast.Call,
+    aliases: Mapping[str, str],
+    lexical_callables: "_LexicalCallables",
+) -> bool:
+    if (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr in _ALLOWED_STRING_METHODS
+        and _proven_string_expression(node.func.value, node, lexical_callables)
+    ):
+        return False
     current = node.func
     while isinstance(current, ast.Attribute):
         current = current.value
@@ -576,17 +613,64 @@ def _call_is_dynamic_dispatch(node: ast.Call, aliases: Mapping[str, str]) -> boo
 def _call_has_allowed_provenance(
     node: ast.Call,
     aliases: Mapping[str, str],
-    local_callables: frozenset[str],
+    lexical_callables: "_LexicalCallables",
 ) -> bool:
     name = _resolved_call_name(node.func, aliases)
     if name is None:
         return False
-    if name in local_callables or name in _ALLOWED_BUILTIN_CALLS:
+    if lexical_callables.resolve(node, aliases) is not None or name in _ALLOWED_BUILTIN_CALLS:
         return True
-    if any(name == allowed or name.startswith(f"{allowed}.") for allowed in _ALLOWED_IMPORTS):
+    if name in _ALLOWED_IMPORTED_CALLS:
         return True
     if isinstance(node.func, ast.Attribute) and node.func.attr in _ALLOWED_OBJECT_METHODS:
         return True
+    if (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr in _ALLOWED_STRING_METHODS
+        and _proven_string_expression(node.func.value, node, lexical_callables)
+    ):
+        return True
+    return False
+
+
+def _annotation_is_str(annotation: ast.expr | None) -> bool:
+    return isinstance(annotation, ast.Name) and annotation.id == "str"
+
+
+def _scope_has_string_parameter(scope: ast.AST, name: str) -> bool:
+    if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return False
+    arguments = scope.args
+    positional = [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]
+    if arguments.vararg is not None:
+        positional.append(arguments.vararg)
+    if arguments.kwarg is not None:
+        positional.append(arguments.kwarg)
+    return any(argument.arg == name and _annotation_is_str(argument.annotation) for argument in positional)
+
+
+def _proven_string_expression(
+    expression: ast.AST,
+    context: ast.AST,
+    callables: "_LexicalCallables",
+) -> bool:
+    if isinstance(expression, ast.Constant):
+        return isinstance(expression.value, str)
+    if isinstance(expression, ast.Name):
+        scope: ast.AST | None = callables.node_scope.get(context, callables.module)
+        while scope is not None:
+            if _scope_has_string_parameter(scope, expression.id):
+                return True
+            scope = callables.parent_scope.get(scope)
+        return False
+    if isinstance(expression, ast.Call):
+        if isinstance(expression.func, ast.Name) and expression.func.id == "str":
+            return True
+        return (
+            isinstance(expression.func, ast.Attribute)
+            and expression.func.attr in _ALLOWED_STRING_METHODS
+            and _proven_string_expression(expression.func.value, context, callables)
+        )
     return False
 
 
@@ -643,6 +727,24 @@ def _constant_value(
         return node.value
     if isinstance(node, ast.Name):
         return constants.get(node.id, _UNKNOWN)
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        values = [
+            _constant_value(element, constants=constants, dry_run=dry_run)
+            for element in node.elts
+        ]
+        if any(value is _UNKNOWN for value in values):
+            return _UNKNOWN
+        constructor = tuple if isinstance(node, ast.Tuple) else list if isinstance(node, ast.List) else set
+        return constructor(values)
+    if isinstance(node, ast.Dict):
+        keys = [_constant_value(key, constants=constants, dry_run=dry_run) for key in node.keys]
+        values = [_constant_value(value, constants=constants, dry_run=dry_run) for value in node.values]
+        if any(value is _UNKNOWN for value in [*keys, *values]):
+            return _UNKNOWN
+        try:
+            return dict(zip(keys, values, strict=True))
+        except (TypeError, ValueError):
+            return _UNKNOWN
     dotted = _dotted_name(node)
     if dotted is not None and dry_run is not None and re.search(
         r"(?:^|\.)dry_?run$", dotted, re.IGNORECASE
@@ -790,6 +892,32 @@ def _reachable_statement(
             statement.orelse, constants=constants, dry_run=dry_run
         )
         return [*nodes, *body_nodes, *else_nodes], True
+    if isinstance(statement, (ast.For, ast.AsyncFor)):
+        header_nodes = [
+            statement,
+            *_flat_nodes(statement.target),
+            *_flat_nodes(statement.iter),
+        ]
+        iterable = _constant_value(
+            statement.iter, constants=constants, dry_run=dry_run
+        )
+        if iterable is not _UNKNOWN:
+            try:
+                empty = len(iterable) == 0  # type: ignore[arg-type]
+            except TypeError:
+                empty = False
+            if empty:
+                else_nodes, else_falls = _reachable_block(
+                    statement.orelse, constants=constants, dry_run=dry_run
+                )
+                return [*header_nodes, *else_nodes], else_falls
+        body_nodes, _ = _reachable_block(
+            statement.body, constants=constants, dry_run=dry_run
+        )
+        else_nodes, else_falls = _reachable_block(
+            statement.orelse, constants=constants, dry_run=dry_run
+        )
+        return [*header_nodes, *body_nodes, *else_nodes], else_falls
     if isinstance(statement, (ast.With, ast.AsyncWith)):
         header_nodes = [statement]
         for item in statement.items:
@@ -852,86 +980,130 @@ def _top_level_functions(
     }
 
 
-def _local_callables(
-    tree: ast.AST,
-) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda]:
-    callables: dict[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            callables[node.name] = node
-        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
-            node.value, ast.Lambda
-        ):
-            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+_CallableNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
+
+
+class _LexicalCallables(ast.NodeVisitor):
+    def __init__(self, tree: ast.Module) -> None:
+        self.module = tree
+        self.current_scope: ast.AST = tree
+        self.parent_scope: dict[ast.AST, ast.AST | None] = {tree: None}
+        self.node_scope: dict[ast.AST, ast.AST] = {}
+        self.bindings: dict[ast.AST, dict[str, list[_CallableNode]]] = {tree: {}}
+        self.visit(tree)
+
+    @property
+    def module_nodes(self) -> frozenset[_CallableNode]:
+        return frozenset(
+            node for nodes in self.bindings[self.module].values() for node in nodes
+        )
+
+    def _bind(self, name: str, node: _CallableNode) -> None:
+        self.bindings.setdefault(self.current_scope, {}).setdefault(name, []).append(node)
+
+    def generic_visit(self, node: ast.AST) -> None:
+        self.node_scope[node] = self.current_scope
+        super().generic_visit(node)
+
+    def _visit_function(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> None:
+        self.node_scope[node] = self.current_scope
+        self._bind(node.name, node)
+        parent = self.current_scope
+        self.parent_scope[node] = parent
+        self.bindings.setdefault(node, {})
+        self.current_scope = node
+        for statement in node.body:
+            self.visit(statement)
+        self.current_scope = parent
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._visit_function(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self.node_scope[node] = self.current_scope
+        parent = self.current_scope
+        self.parent_scope[node] = parent
+        self.bindings.setdefault(node, {})
+        self.current_scope = node
+        self.visit(node.body)
+        self.current_scope = parent
+
+    def _visit_assignment(self, node: ast.Assign | ast.AnnAssign | ast.NamedExpr) -> None:
+        self.node_scope[node] = self.current_scope
+        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+        if isinstance(node.value, ast.Lambda):
             for target in targets:
                 for name in _assignment_names(target):
-                    callables[name] = node.value
-    return callables
+                    self._bind(name, node.value)
+        for target in targets:
+            self.visit(target)
+        self.visit(node.value)
 
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self._visit_assignment(node)
 
-def _module_callable_names(tree: ast.Module) -> frozenset[str]:
-    names = {
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    for node in tree.body:
-        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)) and isinstance(
-            node.value, ast.Lambda
-        ):
-            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
-            names.update(
-                name for target in targets for name in _assignment_names(target)
-            )
-    return frozenset(names)
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        self._visit_assignment(node)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self._visit_assignment(node)
+
+    def resolve(
+        self, call: ast.Call, aliases: Mapping[str, str]
+    ) -> _CallableNode | None:
+        name = _resolved_call_name(call.func, aliases)
+        if name is None or "." in name or "()" in name:
+            return None
+        scope: ast.AST | None = self.node_scope.get(call, self.module)
+        while scope is not None:
+            candidates = self.bindings.get(scope, {}).get(name, [])
+            preceding = [
+                candidate
+                for candidate in candidates
+                if getattr(candidate, "lineno", -1) <= getattr(call, "lineno", -1)
+            ]
+            if preceding:
+                return max(preceding, key=lambda candidate: candidate.lineno)
+            scope = self.parent_scope.get(scope)
+        return None
 
 
 def _expand_local_call_graph(
     initial_nodes: list[ast.AST],
-    functions: Mapping[
-        str, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda
-    ],
+    callables: _LexicalCallables,
     aliases: Mapping[str, str],
     *,
     dry_run: bool | None = None,
-    available_callables: frozenset[str],
+    available_callables: frozenset[_CallableNode],
 ) -> list[ast.AST]:
     expanded = list(initial_nodes)
     available = set(available_callables)
     available.update(
-        name
-        for name, callable_node in functions.items()
-        if callable_node in initial_nodes
+        node for node in initial_nodes if isinstance(node, _CallableNode)
     )
     queued = [
-        name.rsplit(".", maxsplit=1)[-1]
+        node
         for node in initial_nodes
         if isinstance(node, ast.Call)
-        and (name := _resolved_call_name(node.func, aliases)) is not None
     ]
-    visited: set[str] = set()
+    visited: set[_CallableNode] = set()
     while queued:
-        function_name = queued.pop()
-        if (
-            function_name in visited
-            or function_name not in functions
-            or function_name not in available
-        ):
+        call = queued.pop()
+        callable_node = callables.resolve(call, aliases)
+        if callable_node is None or callable_node in visited or callable_node not in available:
             continue
-        visited.add(function_name)
-        nodes = _reachable_nodes(functions[function_name], dry_run=dry_run)
+        visited.add(callable_node)
+        nodes = _reachable_nodes(callable_node, dry_run=dry_run)
         expanded.extend(nodes)
         available.update(
-            name
-            for name, callable_node in functions.items()
-            if callable_node in nodes
+            node for node in nodes if isinstance(node, _CallableNode)
         )
-        queued.extend(
-            name.rsplit(".", maxsplit=1)[-1]
-            for node in nodes
-            if isinstance(node, ast.Call)
-            and (name := _resolved_call_name(node.func, aliases)) is not None
-        )
+        queued.extend(node for node in nodes if isinstance(node, ast.Call))
     return expanded
 
 
@@ -944,12 +1116,153 @@ def _nodes_write_artifacts(
     )
 
 
+def _static_path_expression(
+    expression: ast.AST,
+    aliases: Mapping[str, str],
+    bindings: Mapping[str, ast.AST],
+    *,
+    before_line: int,
+    resolving: frozenset[str] = frozenset(),
+) -> str | None:
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        return expression.value
+    if isinstance(expression, ast.Name):
+        if expression.id in resolving or expression.id not in bindings:
+            return None
+        if getattr(bindings[expression.id], "lineno", before_line) >= before_line:
+            return None
+        return _static_path_expression(
+            bindings[expression.id],
+            aliases,
+            bindings,
+            before_line=before_line,
+            resolving=resolving | {expression.id},
+        )
+    if isinstance(expression, ast.Call):
+        name = _resolved_call_name(expression.func, aliases)
+        if name in {
+            "Path",
+            "PurePath",
+            "PurePosixPath",
+            "PureWindowsPath",
+            "pathlib.Path",
+            "pathlib.PurePath",
+            "pathlib.PurePosixPath",
+            "pathlib.PureWindowsPath",
+        } and len(expression.args) == 1:
+            return _static_path_expression(
+                expression.args[0],
+                aliases,
+                bindings,
+                before_line=before_line,
+                resolving=resolving,
+            )
+        if name in {"open", "builtins.open"} and expression.args:
+            return _static_path_expression(
+                expression.args[0],
+                aliases,
+                bindings,
+                before_line=before_line,
+                resolving=resolving,
+            )
+        if isinstance(expression.func, ast.Attribute) and expression.func.attr == "open":
+            return _static_path_expression(
+                expression.func.value,
+                aliases,
+                bindings,
+                before_line=before_line,
+                resolving=resolving,
+            )
+    return None
+
+
+def _path_bindings(nodes: list[ast.AST]) -> dict[str, ast.AST]:
+    candidates: dict[str, list[ast.AST]] = {}
+    for node in nodes:
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+            for target in targets:
+                for name in _assignment_names(target):
+                    candidates.setdefault(name, []).append(node.value)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if isinstance(item.optional_vars, ast.Name):
+                    candidates.setdefault(item.optional_vars.id, []).append(item.context_expr)
+    return {name: values[0] for name, values in candidates.items() if len(values) == 1}
+
+
+def _mutation_path_expressions(node: ast.Call, aliases: Mapping[str, str]) -> tuple[ast.AST, ...]:
+    name = _resolved_call_name(node.func, aliases)
+    operation = node.func.attr if isinstance(node.func, ast.Attribute) else name
+    if operation in {"rename", "replace"} and isinstance(node.func, ast.Attribute):
+        return (node.func.value, *node.args[:1])
+    if operation in {
+        "write",
+        "writelines",
+        "write_text",
+        "write_bytes",
+        "touch",
+        "unlink",
+        "mkdir",
+        "save",
+        "savefig",
+        "to_csv",
+        "to_json",
+        "to_parquet",
+        "to_pickle",
+    } and isinstance(node.func, ast.Attribute):
+        return (node.func.value,)
+    if operation == "open":
+        if isinstance(node.func, ast.Attribute):
+            return (node.func.value,)
+        return tuple(node.args[:1])
+    if name in {"json.dump", "dump"}:
+        return tuple(node.args[1:2])
+    if name == "os.open" or name == "os.makedirs":
+        return tuple(node.args[:1])
+    if name is not None and (name.startswith("shutil.copy") or name == "shutil.move"):
+        return tuple(node.args[-1:])
+    return ()
+
+
+def _non_dry_mutations_are_declared(
+    tree: ast.Module, aliases: Mapping[str, str]
+) -> bool:
+    main = _top_level_functions(tree).get("main")
+    if main is None:
+        return True
+    callables = _LexicalCallables(tree)
+    nodes = _expand_local_call_graph(
+        _reachable_nodes(main, dry_run=False),
+        callables,
+        aliases,
+        dry_run=False,
+        available_callables=callables.module_nodes,
+    )
+    bindings = _path_bindings(nodes)
+    for node in nodes:
+        if not isinstance(node, ast.Call) or not _call_writes_artifact(node, aliases):
+            continue
+        expressions = _mutation_path_expressions(node, aliases)
+        if not expressions or any(
+            _static_path_expression(
+                expression,
+                aliases,
+                bindings,
+                before_line=getattr(node, "lineno", 0),
+            )
+            != "experiment/results.json"
+            for expression in expressions
+        ):
+            return False
+    return True
+
+
 def _smoke_reaches_artifact_write(
     tree: ast.Module, aliases: Mapping[str, str]
 ) -> bool:
     functions = _top_level_functions(tree)
-    callables = _local_callables(tree)
-    module_callables = _module_callable_names(tree)
+    callables = _LexicalCallables(tree)
     for name, function in functions.items():
         if not name.startswith("test_"):
             continue
@@ -957,7 +1270,7 @@ def _smoke_reaches_artifact_write(
             _reachable_nodes(function),
             callables,
             aliases,
-            available_callables=module_callables,
+            available_callables=callables.module_nodes,
         )
         if _nodes_write_artifacts(nodes, aliases):
             return True
@@ -968,8 +1281,7 @@ def _dry_run_reaches_artifact_write(
     tree: ast.Module, aliases: Mapping[str, str]
 ) -> bool:
     functions = _top_level_functions(tree)
-    callables = _local_callables(tree)
-    module_callables = _module_callable_names(tree)
+    callables = _LexicalCallables(tree)
     main = functions.get("main")
     if main is None:
         return False
@@ -978,7 +1290,7 @@ def _dry_run_reaches_artifact_write(
         callables,
         aliases,
         dry_run=True,
-        available_callables=module_callables,
+        available_callables=callables.module_nodes,
     )
     return _nodes_write_artifacts(main_nodes, aliases)
 
@@ -986,12 +1298,12 @@ def _dry_run_reaches_artifact_write(
 def _module_import_reaches_artifact_write(
     tree: ast.Module, aliases: Mapping[str, str]
 ) -> bool:
-    callables = _local_callables(tree)
+    callables = _LexicalCallables(tree)
     nodes = _expand_local_call_graph(
         _reachable_nodes(tree, constants={"__name__": "__imported__"}),
         callables,
         aliases,
-        available_callables=_module_callable_names(tree),
+        available_callables=callables.module_nodes,
     )
     return _nodes_write_artifacts(nodes, aliases)
 
@@ -1046,7 +1358,7 @@ def _validate_python_capabilities(
 
         aliases = _import_aliases(tree)
         _add_callable_aliases(tree, aliases)
-        local_callables = frozenset(_local_callables(tree))
+        callables = _LexicalCallables(tree)
         forbidden = False
         unsafe_path = False
         fake_result_assignment = False
@@ -1057,19 +1369,13 @@ def _validate_python_capabilities(
                 forbidden = forbidden or (
                     node.module is None
                     or node.level != 0
-                    or (
-                        not _allowed_import(node.module)
-                        or any(
-                            not _allowed_import(f"{node.module}.{alias.name}")
-                            for alias in node.names
-                        )
-                    )
+                    or not _allowed_import_from(node.module, node.names)
                 )
             elif isinstance(node, ast.Call):
                 forbidden = forbidden or _forbidden_call(
                     _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
-                    node, aliases, local_callables
+                ) or _call_is_dynamic_dispatch(node, aliases, callables) or not _call_has_allowed_provenance(
+                    node, aliases, callables
                 )
                 unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
@@ -1091,6 +1397,10 @@ def _validate_python_capabilities(
         ):
             forbidden = True
         if path == "experiment/code/main.py" and _dry_run_reaches_artifact_write(
+            tree, aliases
+        ):
+            forbidden = True
+        if path == "experiment/code/main.py" and not _non_dry_mutations_are_declared(
             tree, aliases
         ):
             forbidden = True
@@ -1370,9 +1680,11 @@ def _validate_manifest_contracts(
         valid = valid and (
             prohibitions.get("stage_10_execution") is False
             and prohibitions.get("network_access") is False
-            and type(prohibitions.get("external_llm_calls")) is int
+            and isinstance(prohibitions.get("external_llm_calls"), int)
+            and not isinstance(prohibitions.get("external_llm_calls"), bool)
             and prohibitions.get("external_llm_calls") == 0
-            and type(prohibitions.get("nested_agent_processes")) is int
+            and isinstance(prohibitions.get("nested_agent_processes"), int)
+            and not isinstance(prohibitions.get("nested_agent_processes"), bool)
             and prohibitions.get("nested_agent_processes") == 0
         )
     valid = valid and reproducibility is not None
@@ -1442,6 +1754,38 @@ def _node_literals(nodes: list[ast.AST]) -> set[str]:
     }
 
 
+def _contains_entrypoint_evidence(node: ast.AST, aliases: Mapping[str, str]) -> bool:
+    required_calls = {"build_plan", "load_config", "validate_inputs"}
+    return any(
+        (
+            isinstance(child, ast.Call)
+            and (name := _resolved_call_name(child.func, aliases)) is not None
+            and name.rsplit(".", maxsplit=1)[-1] in required_calls
+        )
+        or (
+            isinstance(child, ast.Constant)
+            and child.value in {"--config", "--dry-run"}
+        )
+        for child in ast.walk(node)
+    )
+
+
+def _entrypoint_evidence_uses_unsupported_flow(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: Mapping[str, str],
+) -> bool:
+    for node in ast.walk(function):
+        if isinstance(node, (ast.Match, ast.Try, ast.AsyncFor)) and _contains_entrypoint_evidence(
+            node, aliases
+        ):
+            return True
+        if isinstance(node, ast.For):
+            iterable = _constant_value(node.iter, constants={}, dry_run=True)
+            if iterable is _UNKNOWN and _contains_entrypoint_evidence(node, aliases):
+                return True
+    return False
+
+
 def _validate_python_contracts(
     outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -1455,28 +1799,31 @@ def _validate_python_contracts(
         if tree is not None:
             aliases = _import_aliases(tree)
             functions = _top_level_functions(tree)
-            callables = _local_callables(tree)
-            module_callables = _module_callable_names(tree)
+            callables = _LexicalCallables(tree)
             required = {"load_config", "validate_inputs", "build_plan", "main"}
             valid = required <= set(functions)
+            if valid and _entrypoint_evidence_uses_unsupported_flow(
+                functions["main"], aliases
+            ):
+                valid = False
             if valid:
                 load_nodes = _expand_local_call_graph(
                     _reachable_nodes(functions["load_config"]),
                     callables,
                     aliases,
-                    available_callables=module_callables,
+                    available_callables=callables.module_nodes,
                 )
                 validate_nodes = _expand_local_call_graph(
                     _reachable_nodes(functions["validate_inputs"]),
                     callables,
                     aliases,
-                    available_callables=module_callables,
+                    available_callables=callables.module_nodes,
                 )
                 plan_nodes = _expand_local_call_graph(
                     _reachable_nodes(functions["build_plan"]),
                     callables,
                     aliases,
-                    available_callables=module_callables,
+                    available_callables=callables.module_nodes,
                 )
                 main_direct_nodes = _reachable_nodes(functions["main"], dry_run=True)
                 main_nodes = _expand_local_call_graph(
@@ -1484,13 +1831,13 @@ def _validate_python_contracts(
                     callables,
                     aliases,
                     dry_run=True,
-                    available_callables=module_callables,
+                    available_callables=callables.module_nodes,
                 )
                 module_nodes = _expand_local_call_graph(
                     _reachable_nodes(tree, constants={"__name__": "__main__"}),
                     callables,
                     aliases,
-                    available_callables=module_callables,
+                    available_callables=callables.module_nodes,
                 )
                 load_calls = _call_names(load_nodes, aliases)
                 validate_calls = _call_names(validate_nodes, aliases)
@@ -1557,8 +1904,7 @@ def _validate_python_contracts(
         if smoke_tree is not None:
             aliases = _import_aliases(smoke_tree)
             functions = _top_level_functions(smoke_tree)
-            callables = _local_callables(smoke_tree)
-            module_callables = _module_callable_names(smoke_tree)
+            callables = _LexicalCallables(smoke_tree)
             module_nodes = _reachable_nodes(smoke_tree)
             imported = {
                 alias.name
@@ -1578,12 +1924,13 @@ def _validate_python_contracts(
                 and "--dry-run" in _node_literals(nodes)
                 for name, function in functions.items()
                 if name.startswith("test_")
+                and not _entrypoint_evidence_uses_unsupported_flow(function, aliases)
                 for nodes in (
                     _expand_local_call_graph(
                         _reachable_nodes(function),
                         callables,
                         aliases,
-                        available_callables=module_callables,
+                        available_callables=callables.module_nodes,
                     ),
                 )
             )
@@ -1623,7 +1970,6 @@ def validate_computational_package(
     *,
     approved_design_sha256: str | None = None,
     prepared_snapshot: tuple[FilesystemEntry, ...] | None = None,
-    authorized_paths: frozenset[str] = frozenset(),
 ) -> tuple[ComputationalPackageIssue, ...]:
     """Validate package structure without importing or executing package code.
 
@@ -1693,7 +2039,7 @@ def validate_computational_package(
         _validate_traceability(design_json, config, issues)
         _validate_config_contract(design, config, issues)
 
-    _validate_on_disk_tree(root, prepared_snapshot, authorized_paths, issues)
+    _validate_on_disk_tree(root, prepared_snapshot, issues)
     _validate_python_syntax(outputs, issues)
     _validate_python_capabilities(outputs, issues)
     _validate_python_contracts(outputs, issues)

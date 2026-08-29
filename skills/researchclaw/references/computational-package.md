@@ -139,15 +139,21 @@ SDKs, remote-agent frameworks, and network/download clients.
 Generated Python uses a constrained import and call model. Imports are limited
 to the deterministic modules used by the documented readiness fixture
 (`argparse`, `json`, `pathlib`, and `typing`) and the local
-`experiment.code.main` entry point. Calls must resolve statically to an
-allowed import, documented safe builtin/object method, or reachable local
-callable. Computed and unknown clients are rejected. Safe deterministic
+`experiment.code.main` entry point, and only their exact documented exports
+are available; private attributes and transitive reexports are not
+capabilities. Calls must resolve statically and lexically to an allowed
+import, documented safe builtin/object method, or reachable local callable.
+Computed and unknown clients are rejected. Safe deterministic
 constructor chaining such as `json.JSONDecoder().decode(...)` and ordinary
 non-callable reflection such as `getattr(record, "value", None)` remain
-allowed. Control-flow and local-call analysis follows nested functions and
-lambdas, folds constant comparisons/boolean/unary expressions, respects early
-termination, and evaluates the positive and negative dry-run paths so no
-reachable readiness path can create an artifact.
+allowed, as are proven normalization methods on statically typed strings.
+Control-flow and local-call analysis follows nested functions and lambdas with
+lexical scope, folds constant comparisons/boolean/unary and constant iterable
+expressions, respects early termination, and evaluates both dry-run paths.
+Unsupported loop, match, or exception flow cannot supply contract evidence.
+Import, smoke-test, and dry-run paths must be mutation-free; non-dry-run code
+may mutate only the statically resolved exact later-stage destination
+`experiment/results.json`. Any other or unresolved destination is rejected.
 
 ## Validate, repair, and stop
 
@@ -169,8 +175,12 @@ all authored/data filesystem entries: ordinary directories (including empty
 ones), symlinks hashed by link-target bytes, and regular files hashed by
 content. Engine-owned state, approvals, and evaluation logs are outside this
 authoring snapshot. Repeated prepare calls and Stage-9 invalidation/reapproval
-never refresh or discard it. Static validation permits only the six declared
-output files and their necessary parent directories as additions; it rejects
+never refresh or discard it. After an upstream producing stage successfully
+revalidates, only already-snapshotted entries named by that validation's
+verified artifact lineage may transition to their newly verified hashes and
+types; no untracked path or directory is absorbed. Static validation permits
+only the six declared output files and their necessary parent directories as
+additions; it rejects
 new empty directories, removed entries, type changes, changed symlink targets,
 and byte changes to pre-existing files. A revalidated upstream artifact may
 change only through its separately verified durable artifact lineage. Thus a

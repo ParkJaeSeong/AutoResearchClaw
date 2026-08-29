@@ -13,6 +13,7 @@ import yaml
 
 from .contracts import SUPPORTED_STAGE_MAX, StageContract, get_contract
 from .computational_package import validate_computational_package
+from .filesystem_baseline import snapshot_project
 from .knowledge_extraction import (
     KnowledgeIssue,
     validate_extraction_shortlist,
@@ -20,7 +21,7 @@ from .knowledge_extraction import (
 )
 from .hypotheses import validate_hypotheses
 from .validation_design import validate_validation_design
-from .models import ArtifactRef, StageStatus
+from .models import ArtifactRef, StageStatus, StageTenSnapshot
 from .synthesis import validate_synthesis
 from .paths import resolve_project_artifact
 from .project import ResearchProject
@@ -318,7 +319,6 @@ def _validate_stage_ten(
                 if project.state.stage_10_snapshot.status == "captured"
                 else None
             ),
-            authorized_paths=frozenset({design_path}),
         )
     )
 
@@ -467,6 +467,22 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
         )
 
     contract = get_contract(report.stage_id)
+    stage_10_snapshot = state.stage_10_snapshot
+    if report.stage_id < 10 and stage_10_snapshot.status == "captured":
+        baseline = {entry.path: entry for entry in stage_10_snapshot.entries}
+        current = {entry.path: entry for entry in snapshot_project(project.root)}
+        for relative_path, artifact in report.artifact_refs.items():
+            entry = current.get(relative_path)
+            if (
+                relative_path in baseline
+                and entry is not None
+                and entry.kind == "regular_file"
+                and entry.sha256 == artifact.sha256
+            ):
+                baseline[relative_path] = entry
+        stage_10_snapshot = StageTenSnapshot(
+            "captured", tuple(sorted(baseline.values()))
+        )
     artifacts = {**state.artifacts, **report.artifact_refs}
     if contract.requires_approval:
         updated_state = replace(
@@ -474,6 +490,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
             status=StageStatus.AWAITING_APPROVAL,
             next_action="await_approval",
             artifacts=artifacts,
+            stage_10_snapshot=stage_10_snapshot,
             last_error=None,
         )
     else:
@@ -491,6 +508,7 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
                 else "prepare_stage"
             ),
             artifacts=artifacts,
+            stage_10_snapshot=stage_10_snapshot,
             last_error=None,
         )
     return project.persist_state(updated_state)
