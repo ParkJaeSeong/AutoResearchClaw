@@ -26,8 +26,8 @@ class Phase:
 FOUNDATION_STAGE_IDS = (1, 2, 3, 4, 5)
 FOUNDATION_STAGE_MAX = FOUNDATION_STAGE_IDS[-1]
 LITERATURE_APPROVAL_STAGE = 5
-SUPPORTED_STAGE_IDS = (1, 2, 3, 4, 5, 6, 7, 8, 9)
-SUPPORTED_STAGE_MAX = 9
+SUPPORTED_STAGE_IDS = tuple(range(1, 11))
+SUPPORTED_STAGE_MAX = 10
 
 _FOUNDATION_ACCEPTANCE_CRITERIA = {
     1: (
@@ -63,6 +63,10 @@ _FOUNDATION_ACCEPTANCE_CRITERIA = {
         "the design contains evidence, comparison, bias, resource, risk, and reproducibility controls",
         "the selected validation type has a complete type-specific method",
     ),
+    10: (
+        "the computational package is bound to the approved validation design",
+        "the declared package artifacts are complete and statically valid without execution",
+    ),
 }
 
 
@@ -79,7 +83,7 @@ def _contract(stage_id: int, name: str, objective: str, inputs: tuple[str, ...],
         ),
         allowed_tool_classes=(
             ("filesystem", "analysis")
-            if stage_id == 9
+            if stage_id in {9, 10}
             else ("filesystem", "research", "analysis")
         ),
         requires_approval=approval,
@@ -106,7 +110,19 @@ _CONTRACT_DATA = (
     ),
     ("hypothesis_gen", "Generate testable hypotheses", ("knowledge/synthesis.md",), ("hypotheses/candidates.jsonl",)),
     ("experiment_design", "Design a reproducible hypothesis validation", ("hypotheses/candidates.jsonl",), ("experiment/design.json",)),
-    ("code_generation", "Generate experiment code", ("experiment/design.json",), ("experiment/code/manifest.json",)),
+    (
+        "code_generation",
+        "Generate experiment code",
+        ("experiment/design.json",),
+        (
+            "experiment/package_manifest.json",
+            "experiment/code/README.md",
+            "experiment/code/main.py",
+            "experiment/code/config.json",
+            "experiment/code/requirements.txt",
+            "experiment/code/tests/test_smoke.py",
+        ),
+    ),
     ("resource_planning", "Plan compute and data resources", ("experiment/design.json",), ("experiment/resources.json",)),
     ("experiment_run", "Run the approved experiment", ("experiment/code/manifest.json", "experiment/resources.json"), ("experiment/results.json",)),
     ("iterative_refine", "Refine the experiment from results", ("experiment/results.json",), ("experiment/iterations.jsonl",)),

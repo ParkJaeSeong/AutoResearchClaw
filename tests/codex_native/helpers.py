@@ -245,3 +245,34 @@ def build_completed_hypothesis_milestone_project(root: Path) -> ResearchProject:
     report = validate_current_stage(project)
     assert report.valid is True
     return ResearchProject.open(project.root)
+
+
+def build_completed_validation_design_project(
+    root: Path, validation_type: str = "computational"
+) -> ResearchProject:
+    project = build_completed_hypothesis_milestone_project(root)
+    write_valid_fixture_artifacts(project.root, 9)
+    design_path = project.root / "experiment" / "design.json"
+    design = json.loads(design_path.read_text(encoding="utf-8"))
+    design["validation_type"] = validation_type
+    if validation_type == "computational":
+        design["method"] = {
+            "datasets": ["versioned public battery dataset"],
+            "split_strategy": "cell-grouped held-out test split",
+            "baselines": ["random row split"],
+            "evaluation_protocol": "fit preprocessing on train only",
+        }
+    elif validation_type == "laboratory":
+        design["method"] = {
+            "materials": ["reference electrolyte formulation"],
+            "controls": ["unmodified reference formulation"],
+            "procedure": "randomized duplicate preparation and blinded measurement",
+            "safety": "approved chemical hygiene and waste protocol",
+        }
+    design_path.write_text(json.dumps(design) + "\n", encoding="utf-8")
+
+    report = validate_current_stage(project)
+    assert report.valid is True
+    approved = ResearchProject.open(project.root)
+    approve_current_gate(approved, "approve", "Validation plan accepted")
+    return ResearchProject.open(project.root)

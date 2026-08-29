@@ -207,9 +207,18 @@ def test_stage_nine_rejects_undeclared_top_level_fields(tmp_path):
     assert any(issue.code == "unknown_field" for issue in report.issues)
 
 
-def test_approved_stage_nine_stops_before_unsupported_stage_ten(tmp_path):
+def test_approved_stage_nine_prepares_supported_stage_ten(tmp_path):
     project = build_completed_hypothesis_milestone_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 9)
+    design = _design(project)
+    design["validation_type"] = "computational"
+    design["method"] = {
+        "datasets": ["versioned public battery dataset"],
+        "split_strategy": "cell-grouped held-out test split",
+        "baselines": ["random row split"],
+        "evaluation_protocol": "fit preprocessing on train only",
+    }
+    _write_design(project, design)
     report = validate_current_stage(project)
     assert report.valid is True
 
@@ -219,11 +228,10 @@ def test_approved_stage_nine_stops_before_unsupported_stage_ten(tmp_path):
     assert record.stage_id == 9
     assert handoff.current_stage == 10
     assert handoff.completed_stages == (1, 2, 3, 4, 5, 6, 7, 8, 9)
-    assert handoff.milestone_complete is True
+    assert handoff.milestone_complete is False
     assert handoff.approval_required is False
-    assert handoff.next_action == "report_validation_design_milestone_only"
-    assert handoff.write_policy == "no_undeclared_outputs"
+    assert handoff.next_action == "prepare_stage"
+    assert handoff.write_policy == "declared_outputs_only"
     reopened = ResearchProject.open(project.root)
-    assert reopened.state.next_action == "report_validation_design_milestone_only"
-    with pytest.raises(ValueError, match="not defined"):
-        build_task_packet(reopened)
+    assert reopened.state.next_action == "prepare_stage"
+    assert build_task_packet(reopened).stage_id == 10

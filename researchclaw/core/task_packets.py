@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -77,6 +78,22 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
             or not verify_current_approval(project.root, record)
         ):
             raise ValueError("stage 6 requires the approved stage-5 shortlist")
+    if state.current_stage == 10:
+        record = load_approval_record(project.root, 9)
+        if (
+            record is None
+            or record.decision != "approve"
+            or not verify_current_approval(project.root, record)
+        ):
+            raise ValueError("stage 10 requires the approved stage-9 validation design")
+        design = json.loads(
+            resolve_project_artifact(project.root, "experiment/design.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        validation_type = design.get("validation_type")
+        if validation_type != "computational":
+            raise ValueError(f"stage 10 does not support {validation_type}")
     contract = get_contract(state.current_stage)
     missing: list[str] = []
     for relative_path in contract.required_inputs:
