@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shlex
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -15,6 +16,7 @@ from .contracts import (
     get_contract,
     stage_for_output,
 )
+from .execution_gate import _read_project_file_snapshot
 from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .project import ResearchProject
@@ -93,6 +95,49 @@ def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None
         except (OSError, ValueError):
             return producing_stage
     return None
+
+
+def _stage_thirteen_registration_is_grounded(
+    root: Path, state: ProjectState
+) -> bool:
+    """Require the registered result and execution contract identities at Stage 13."""
+    if state.current_stage != 13 or 12 not in state.completed_stages:
+        return True
+    snapshots: dict[str, bytes] = {}
+    for relative_path in (
+        "experiment/results.json",
+        "experiment/execution_contract.json",
+    ):
+        artifact = state.artifacts.get(relative_path)
+        if artifact is None or artifact.path != relative_path:
+            return False
+        try:
+            payload = _read_project_file_snapshot(root, relative_path)
+            if len(payload) != artifact.size or hashlib.sha256(payload).hexdigest() != artifact.sha256:
+                return False
+            snapshots[relative_path] = payload
+        except (OSError, TypeError, ValueError):
+            return False
+    try:
+        result = json.loads(snapshots["experiment/results.json"].decode("utf-8"))
+        contract = json.loads(
+            snapshots["experiment/execution_contract.json"].decode("utf-8")
+        )
+    except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError):
+        return False
+    result_contract = (
+        result.get("execution_contract") if isinstance(result, dict) else None
+    )
+    contract_ref = state.artifacts["experiment/execution_contract.json"]
+    return (
+        isinstance(result_contract, dict)
+        and isinstance(contract, dict)
+        and result.get("project_id") == state.project_id
+        and contract.get("project_id") == state.project_id
+        and result_contract.get("path") == "experiment/execution_contract.json"
+        and result_contract.get("sha256") == contract_ref.sha256
+        and result_contract.get("contract_id") == contract.get("contract_id")
+    )
 
 
 def _first_invalid_completed_approval_stage(project: ResearchProject) -> int | None:
@@ -177,9 +222,20 @@ def _command(root: Path, *arguments: str) -> str:
 
 def normalize_durable_project(project: ResearchProject) -> ResearchProject:
     """Fail closed on stale artifacts or an unsubstantiated Stage-12 approval."""
+    from .research_execution import recover_pending_research_result_registration
+
+    recover_pending_research_result_registration(project)
     current_project = ResearchProject.open(project.root)
     state = current_project.state
-    invalid_artifact_stage = _first_invalid_artifact_stage(current_project.root, state)
+    invalid_artifact_stage = (
+        None
+        if _stage_thirteen_registration_is_grounded(current_project.root, state)
+        else 12
+    )
+    if invalid_artifact_stage is None:
+        invalid_artifact_stage = _first_invalid_artifact_stage(
+            current_project.root, state
+        )
     invalid_approval_stage = _first_invalid_completed_approval_stage(current_project)
     invalid_stages = [
         stage_id
@@ -194,6 +250,8 @@ def normalize_durable_project(project: ResearchProject) -> ResearchProject:
             approval_invalidated=invalid_approval_stage == rewind_stage,
         )
         state = current_project.state
+        if rewind_stage == 12:
+            return current_project
 
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
     if execution_boundary:

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import math
+import os
 from types import MappingProxyType
 
 from .approval import ApprovalRecord, approval_matches_state
@@ -17,9 +20,9 @@ from .execution_gate import (
     stage_twelve_artifact_hashes,
 )
 from .events import EvaluationEvent, event_log_for
-from .models import ArtifactRef, StageStatus
+from .models import ArtifactRef, ProjectState, StageStatus
 from .paths import resolve_project_artifact
-from .persistence import atomic_write_json
+from .persistence import _fsync_directory, atomic_write_json
 from .project import ResearchProject
 from .resource_planning import RESOURCE_PLAN_PATH, validate_stage_eleven
 
@@ -28,6 +31,10 @@ EXECUTION_CONTRACT_PATH = "experiment/execution_contract.json"
 RESEARCH_RESULT_PATH = "experiment/results.json"
 _PACKAGE_MANIFEST_PATH = "experiment/package_manifest.json"
 _STAGE_TWELVE_APPROVAL_PATH = "approvals/stage-12.json"
+_REGISTRATION_LOCK_PATH = "evaluation/events.jsonl"
+_REGISTRATION_PENDING_PATH = (
+    ".researchclaw/research-result-registration.pending.json"
+)
 _APPROVAL_FIELDS = frozenset(
     {
         "schema_version",
@@ -86,6 +93,8 @@ _REGISTRATION_ERROR_CATEGORIES = frozenset(
         "research_result_leakage_detected",
         "research_result_metrics_invalid",
         "development_result_not_registerable",
+        "research_result_registration_conflict",
+        "research_result_registration_recovery_invalid",
     }
 )
 
@@ -123,6 +132,29 @@ class ResearchResultRegistrationStatus:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class _PendingResearchResultRegistration:
+    project_id: str
+    result_path: str
+    result_sha256: str
+    result_size: int
+    prior_state: ProjectState
+    target_state: ProjectState
+    success_event: EvaluationEvent
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "project_id": self.project_id,
+            "result_path": self.result_path,
+            "result_sha256": self.result_sha256,
+            "result_size": self.result_size,
+            "prior_state": self.prior_state.to_dict(),
+            "target_state": self.target_state.to_dict(),
+            "success_event": self.success_event.to_dict(),
+        }
 
 
 def _sha256(payload: bytes) -> str:
@@ -740,57 +772,298 @@ def validate_research_result(
     )
 
 
+@contextmanager
+def _registration_lock(project: ResearchProject):
+    """Serialize result registration and recovery for one project."""
+    lock_path = resolve_project_artifact(project.root, _REGISTRATION_LOCK_PATH)
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _append_registration_failure(
+    project: ResearchProject,
+    result_path: str,
+    error: ValueError,
+    *,
+    result_sha256: str | None = None,
+) -> None:
+    try:
+        event_project = ResearchProject.open_readonly(project.root)
+    except (OSError, TypeError, ValueError):
+        event_project = project
+    category = str(error)
+    if category not in _REGISTRATION_ERROR_CATEGORIES:
+        category = "research_result_registration_failed"
+    payload: dict[str, object] = {"error_category": category}
+    contract_ref = event_project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    if contract_ref is not None:
+        payload.update(
+            {
+                "contract_path": contract_ref.path,
+                "contract_sha256": contract_ref.sha256,
+            }
+        )
+    if result_path == RESEARCH_RESULT_PATH:
+        payload["result_path"] = RESEARCH_RESULT_PATH
+        if result_sha256 is not None:
+            payload["result_sha256"] = result_sha256
+    event_log_for(event_project.root).append(
+        EvaluationEvent.create(
+            "research_result_registration_failed",
+            event_project.state.project_id,
+            payload,
+        )
+    )
+
+
+def _pending_path(project: ResearchProject):
+    return resolve_project_artifact(project.root, _REGISTRATION_PENDING_PATH)
+
+
+def _clear_pending_registration(project: ResearchProject) -> None:
+    path = _pending_path(project)
+    path.unlink(missing_ok=True)
+    _fsync_directory(path.parent)
+
+
+def _load_pending_registration(
+    project: ResearchProject,
+) -> _PendingResearchResultRegistration | None:
+    path = _pending_path(project)
+    if not os.path.lexists(path):
+        return None
+    try:
+        raw_bytes = _read_project_file_snapshot(
+            project.root, _REGISTRATION_PENDING_PATH
+        )
+        raw = json.loads(
+            raw_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+        expected_fields = {
+            "schema_version",
+            "project_id",
+            "result_path",
+            "result_sha256",
+            "result_size",
+            "prior_state",
+            "target_state",
+            "success_event",
+        }
+        if not isinstance(raw, dict) or set(raw) != expected_fields:
+            raise ValueError("invalid pending registration shape")
+        if type(raw["schema_version"]) is not int or raw["schema_version"] != 1:
+            raise ValueError("invalid pending registration schema")
+        project_id = raw["project_id"]
+        result_path = raw["result_path"]
+        result_sha256 = raw["result_sha256"]
+        result_size = raw["result_size"]
+        if (
+            not isinstance(project_id, str)
+            or result_path != RESEARCH_RESULT_PATH
+            or not isinstance(result_sha256, str)
+            or len(result_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in result_sha256)
+            or not isinstance(result_size, int)
+            or isinstance(result_size, bool)
+            or result_size < 0
+        ):
+            raise ValueError("invalid pending registration identity")
+        prior_state = ProjectState.from_dict(raw["prior_state"])
+        target_state = ProjectState.from_dict(raw["target_state"])
+        success_event = EvaluationEvent.from_dict(raw["success_event"])
+        result_ref = target_state.artifacts.get(RESEARCH_RESULT_PATH)
+        contract_ref = target_state.artifacts.get(EXECUTION_CONTRACT_PATH)
+        if (
+            prior_state.project_id != project_id
+            or target_state.project_id != project_id
+            or success_event.project_id != project_id
+            or success_event.type != "research_result_registered"
+            or prior_state.current_stage != 12
+            or target_state.current_stage != 13
+            or 12 not in target_state.completed_stages
+            or result_ref is None
+            or result_ref.path != result_path
+            or result_ref.sha256 != result_sha256
+            or result_ref.size != result_size
+            or contract_ref is None
+            or success_event.payload
+            != {
+                "contract_path": contract_ref.path,
+                "contract_sha256": contract_ref.sha256,
+                "result_path": result_path,
+                "result_sha256": result_sha256,
+                "metric_count": success_event.payload.get("metric_count"),
+                "input_count": success_event.payload.get("input_count"),
+            }
+            or not isinstance(success_event.payload.get("metric_count"), int)
+            or isinstance(success_event.payload.get("metric_count"), bool)
+            or success_event.payload["metric_count"] < 1
+            or not isinstance(success_event.payload.get("input_count"), int)
+            or isinstance(success_event.payload.get("input_count"), bool)
+            or success_event.payload["input_count"] < 0
+        ):
+            raise ValueError("invalid pending registration binding")
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
+        raise ValueError("research_result_registration_recovery_invalid") from error
+    return _PendingResearchResultRegistration(
+        project_id=project_id,
+        result_path=result_path,
+        result_sha256=result_sha256,
+        result_size=result_size,
+        prior_state=prior_state,
+        target_state=target_state,
+        success_event=success_event,
+    )
+
+
+def _pending_files_match(
+    project: ResearchProject, pending: _PendingResearchResultRegistration
+) -> bool:
+    for path in (RESEARCH_RESULT_PATH, EXECUTION_CONTRACT_PATH):
+        artifact = pending.target_state.artifacts.get(path)
+        if artifact is None or artifact.path != path:
+            return False
+        try:
+            payload = _read_project_file_snapshot(project.root, path)
+        except (OSError, TypeError, ValueError):
+            return False
+        if len(payload) != artifact.size or _sha256(payload) != artifact.sha256:
+            return False
+    return True
+
+
+def _event_already_present(
+    project: ResearchProject, event: EvaluationEvent
+) -> bool:
+    return any(
+        existing.to_dict() == event.to_dict()
+        for existing in event_log_for(project.root).read_all()
+    )
+
+
+def _registration_status(
+    pending: _PendingResearchResultRegistration,
+) -> ResearchResultRegistrationStatus:
+    return ResearchResultRegistrationStatus(
+        readiness="research_result_registered",
+        approval_eligible=False,
+        result_path=pending.result_path,
+        result_sha256=pending.result_sha256,
+        current_stage=pending.target_state.current_stage,
+        next_action=pending.target_state.next_action,
+    )
+
+
+def _abort_pending_registration(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+    error: ValueError,
+) -> None:
+    current = ResearchProject.open_readonly(project.root)
+    if current.state == pending.target_state:
+        current.persist_state(pending.prior_state)
+    elif current.state != pending.prior_state:
+        raise ValueError("research_result_registration_conflict") from error
+    _clear_pending_registration(project)
+    _append_registration_failure(
+        project,
+        pending.result_path,
+        error,
+        result_sha256=pending.result_sha256,
+    )
+
+
+def _complete_pending_registration(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+) -> ResearchResultRegistrationStatus:
+    current = ResearchProject.open_readonly(project.root)
+    if current.state == pending.prior_state:
+        if not _pending_files_match(current, pending):
+            error = ValueError("research_result_file_invalid")
+            _abort_pending_registration(current, pending, error)
+            raise error
+        current = current.persist_state(pending.target_state)
+    elif current.state != pending.target_state:
+        raise ValueError("research_result_registration_conflict")
+
+    if not _pending_files_match(current, pending):
+        error = ValueError("research_result_file_invalid")
+        _abort_pending_registration(current, pending, error)
+        raise error
+    if not _event_already_present(current, pending.success_event):
+        event_log_for(current.root).append(pending.success_event)
+        if not _event_already_present(current, pending.success_event):
+            raise OSError("research result success event was not persisted")
+    if not _pending_files_match(current, pending):
+        error = ValueError("research_result_file_invalid")
+        _abort_pending_registration(current, pending, error)
+        raise error
+    _clear_pending_registration(current)
+    return _registration_status(pending)
+
+
+def recover_pending_research_result_registration(
+    project: ResearchProject,
+) -> ResearchResultRegistrationStatus | None:
+    """Finish one durable pending registration without duplicating its event."""
+    with _registration_lock(project):
+        pending = _load_pending_registration(project)
+        if pending is None:
+            return None
+        return _complete_pending_registration(project, pending)
+
+
 def register_research_result(
     project: ResearchProject, result_path: str
 ) -> ResearchResultRegistrationStatus:
     """Register one validated research result and complete Stage 12."""
-    try:
-        validated = validate_research_result(project, result_path)
-        current = _current_project(project)
+    with _registration_lock(project):
+        pending = _load_pending_registration(project)
+        if pending is not None:
+            return _complete_pending_registration(project, pending)
         try:
-            result_bytes = _read_project_file_snapshot(
-                current.root, validated.result_path
-            )
-        except (OSError, TypeError, ValueError) as error:
-            raise ValueError("research_result_file_invalid") from error
-        if _sha256(result_bytes) != validated.result_sha256:
-            raise ValueError("research_result_file_invalid")
-    except ValueError as error:
-        try:
-            event_project = ResearchProject.open_readonly(project.root)
-        except (OSError, TypeError, ValueError):
-            event_project = project
-        category = str(error)
-        if category not in _REGISTRATION_ERROR_CATEGORIES:
-            category = "research_result_registration_failed"
-        payload: dict[str, object] = {"error_category": category}
-        contract_ref = event_project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
-        if contract_ref is not None:
-            payload.update(
-                {
-                    "contract_path": contract_ref.path,
-                    "contract_sha256": contract_ref.sha256,
-                }
-            )
-        if result_path == RESEARCH_RESULT_PATH:
-            payload["result_path"] = RESEARCH_RESULT_PATH
-        event_log_for(event_project.root).append(
-            EvaluationEvent.create(
-                "research_result_registration_failed",
-                event_project.state.project_id,
-                payload,
-            )
-        )
-        raise
+            validated = validate_research_result(project, result_path)
+            current = _current_project(project)
+            try:
+                result_bytes = _read_project_file_snapshot(
+                    current.root, validated.result_path
+                )
+            except (OSError, TypeError, ValueError) as error:
+                raise ValueError("research_result_file_invalid") from error
+            if _sha256(result_bytes) != validated.result_sha256:
+                raise ValueError("research_result_file_invalid")
+            latest = ResearchProject.open_readonly(current.root)
+            if latest.state != current.state:
+                raise ValueError("research_result_registration_conflict")
+        except ValueError as error:
+            _append_registration_failure(project, result_path, error)
+            raise
 
-    result_ref = ArtifactRef(
-        path=validated.result_path,
-        sha256=validated.result_sha256,
-        size=len(result_bytes),
-    )
-    state = current.state
-    persisted = current.persist_state(
-        replace(
+        result_ref = ArtifactRef(
+            path=validated.result_path,
+            sha256=validated.result_sha256,
+            size=len(result_bytes),
+        )
+        state = latest.state
+        target_state = replace(
             state,
             current_stage=13,
             status=StageStatus.READY,
@@ -802,13 +1075,11 @@ def register_research_result(
             artifacts={**state.artifacts, validated.result_path: result_ref},
             last_error=None,
         )
-    )
-    contract_reference = validated.payload["execution_contract"]
-    assert isinstance(contract_reference, Mapping)
-    event_log_for(persisted.root).append(
-        EvaluationEvent.create(
+        contract_reference = validated.payload["execution_contract"]
+        assert isinstance(contract_reference, Mapping)
+        success_event = EvaluationEvent.create(
             "research_result_registered",
-            persisted.state.project_id,
+            state.project_id,
             {
                 "contract_path": contract_reference["path"],
                 "contract_sha256": contract_reference["sha256"],
@@ -818,12 +1089,19 @@ def register_research_result(
                 "input_count": validated.input_count,
             },
         )
-    )
-    return ResearchResultRegistrationStatus(
-        readiness="research_result_registered",
-        approval_eligible=False,
-        result_path=validated.result_path,
-        result_sha256=validated.result_sha256,
-        current_stage=persisted.state.current_stage,
-        next_action=persisted.state.next_action,
-    )
+        pending = _PendingResearchResultRegistration(
+            project_id=state.project_id,
+            result_path=validated.result_path,
+            result_sha256=validated.result_sha256,
+            result_size=len(result_bytes),
+            prior_state=state,
+            target_state=target_state,
+            success_event=success_event,
+        )
+        atomic_write_json(
+            _pending_path(project),
+            pending.to_dict(),
+            prefix="research-result-registration-",
+            compact=True,
+        )
+        return _complete_pending_registration(project, pending)
