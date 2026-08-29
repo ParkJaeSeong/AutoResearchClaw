@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import os
+import stat
 from types import MappingProxyType
 
 from .approval import ApprovalRecord, approval_matches_state
@@ -35,6 +36,8 @@ _REGISTRATION_LOCK_PATH = "evaluation/events.jsonl"
 _REGISTRATION_PENDING_PATH = (
     ".researchclaw/research-result-registration.pending.json"
 )
+_MAX_PENDING_REGISTRATION_BYTES = 256 * 1024
+_PENDING_PHASES = frozenset({"committing", "aborting"})
 _APPROVAL_FIELDS = frozenset(
     {
         "schema_version",
@@ -142,28 +145,40 @@ class _PendingResearchResultRegistration:
     result_size: int
     event_log_size: int
     event_log_prefix_sha256: str
+    phase: str
+    success_written: bool
+    event_start_offset: int
     metric_count: int
     input_count: int
     prior_state: ProjectState
     target_state: ProjectState
     success_event: EvaluationEvent
     rollback_event: EvaluationEvent
+    failure_event: EvaluationEvent | None
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "project_id": self.project_id,
             "result_path": self.result_path,
             "result_sha256": self.result_sha256,
             "result_size": self.result_size,
             "event_log_size": self.event_log_size,
             "event_log_prefix_sha256": self.event_log_prefix_sha256,
+            "phase": self.phase,
+            "success_written": self.success_written,
+            "event_start_offset": self.event_start_offset,
             "metric_count": self.metric_count,
             "input_count": self.input_count,
             "prior_state": self.prior_state.to_dict(),
             "target_state": self.target_state.to_dict(),
             "success_event": self.success_event.to_dict(),
             "rollback_event": self.rollback_event.to_dict(),
+            "failure_event": (
+                self.failure_event.to_dict()
+                if self.failure_event is not None
+                else None
+            ),
         }
 
 
@@ -806,13 +821,13 @@ def _registration_lock(project: ResearchProject):
             os.close(descriptor)
 
 
-def _append_registration_failure(
+def _registration_failure_event(
     project: ResearchProject,
     result_path: str,
     error: ValueError,
     *,
     result_sha256: str | None = None,
-) -> None:
+) -> EvaluationEvent:
     try:
         event_project = ResearchProject.open_readonly(project.root)
     except (OSError, TypeError, ValueError):
@@ -833,12 +848,30 @@ def _append_registration_failure(
         payload["result_path"] = RESEARCH_RESULT_PATH
         if result_sha256 is not None:
             payload["result_sha256"] = result_sha256
-    event_log_for(event_project.root).append(
-        EvaluationEvent.create(
-            "research_result_registration_failed",
-            event_project.state.project_id,
-            payload,
-        )
+    return EvaluationEvent.create(
+        "research_result_registration_failed",
+        event_project.state.project_id,
+        payload,
+    )
+
+
+def _append_registration_failure(
+    project: ResearchProject,
+    result_path: str,
+    error: ValueError,
+    *,
+    result_sha256: str | None = None,
+) -> None:
+    event = _registration_failure_event(
+        project,
+        result_path,
+        error,
+        result_sha256=result_sha256,
+    )
+    payload, _events = _read_complete_registration_event_log(project)
+    event_log_for(project.root).append_locked(
+        event,
+        expected_offset=len(payload),
     )
 
 
@@ -852,6 +885,113 @@ def _clear_pending_registration(project: ResearchProject) -> None:
     _fsync_directory(path.parent)
 
 
+def _read_bounded_pending_registration(project: ResearchProject) -> bytes:
+    """Read the regular pending file only when it fits the 256-KiB protocol cap."""
+    path = _pending_path(project)
+    descriptor = os.open(
+        path,
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
+    )
+    try:
+        file_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(file_stat.st_mode)
+            or file_stat.st_size > _MAX_PENDING_REGISTRATION_BYTES
+        ):
+            raise ValueError("pending registration file is invalid")
+        chunks: list[bytes] = []
+        remaining = _MAX_PENDING_REGISTRATION_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > _MAX_PENDING_REGISTRATION_BYTES:
+            raise ValueError("pending registration file is too large")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+_PROJECT_STATE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "project_id",
+        "topic",
+        "profile",
+        "current_stage",
+        "status",
+        "completed_stages",
+        "next_action",
+        "execution_policy",
+        "artifacts",
+        "retry_counts",
+        "last_error",
+        "stage_10_snapshot",
+    }
+)
+_EVENT_FIELDS = frozenset(
+    {"schema_version", "timestamp", "type", "project_id", "payload"}
+)
+
+
+def _require_closed_pending_state(raw: object) -> None:
+    if not isinstance(raw, dict) or set(raw) != _PROJECT_STATE_FIELDS:
+        raise ValueError("pending state must be a closed object")
+    artifacts = raw.get("artifacts")
+    if not isinstance(artifacts, dict) or any(
+        not isinstance(reference, dict)
+        or set(reference) != {"path", "sha256", "size"}
+        for reference in artifacts.values()
+    ):
+        raise ValueError("pending artifacts must contain closed references")
+    snapshot = raw.get("stage_10_snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or set(snapshot) != {"status", "entries"}
+        or not isinstance(snapshot.get("entries"), list)
+        or any(
+            not isinstance(entry, dict)
+            or set(entry) != {"path", "kind", "sha256"}
+            for entry in snapshot["entries"]
+        )
+    ):
+        raise ValueError("pending stage-10 snapshot must be closed")
+    last_error = raw.get("last_error")
+    if last_error is None:
+        return
+    if not isinstance(last_error, dict) or set(last_error) != {
+        "error_class",
+        "stage_id",
+        "attempt_number",
+        "issues",
+        "artifact_hashes",
+        "recommended_action",
+        "retry_state",
+    }:
+        raise ValueError("pending last_error must be closed")
+    issues = last_error.get("issues")
+    if not isinstance(issues, list) or any(
+        not isinstance(issue, dict)
+        or set(issue) != {"code", "path", "message"}
+        for issue in issues
+    ):
+        raise ValueError("pending last_error issues must be closed")
+
+
+def _require_closed_pending_event(raw: object) -> None:
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != _EVENT_FIELDS
+        or not isinstance(raw.get("payload"), dict)
+    ):
+        raise ValueError("pending event must be a closed object")
+
+
 def _load_pending_registration(
     project: ResearchProject,
 ) -> _PendingResearchResultRegistration | None:
@@ -859,9 +999,7 @@ def _load_pending_registration(
     if not os.path.lexists(path):
         return None
     try:
-        raw_bytes = _read_project_file_snapshot(
-            project.root, _REGISTRATION_PENDING_PATH
-        )
+        raw_bytes = _read_bounded_pending_registration(project)
         raw = json.loads(
             raw_bytes.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
@@ -875,16 +1013,20 @@ def _load_pending_registration(
             "result_size",
             "event_log_size",
             "event_log_prefix_sha256",
+            "phase",
+            "success_written",
+            "event_start_offset",
             "metric_count",
             "input_count",
             "prior_state",
             "target_state",
             "success_event",
             "rollback_event",
+            "failure_event",
         }
         if not isinstance(raw, dict) or set(raw) != expected_fields:
             raise ValueError("invalid pending registration shape")
-        if type(raw["schema_version"]) is not int or raw["schema_version"] != 2:
+        if type(raw["schema_version"]) is not int or raw["schema_version"] != 3:
             raise ValueError("invalid pending registration schema")
         project_id = raw["project_id"]
         result_path = raw["result_path"]
@@ -892,6 +1034,9 @@ def _load_pending_registration(
         result_size = raw["result_size"]
         event_log_size = raw["event_log_size"]
         event_log_prefix_sha256 = raw["event_log_prefix_sha256"]
+        phase = raw["phase"]
+        success_written = raw["success_written"]
+        event_start_offset = raw["event_start_offset"]
         metric_count = raw["metric_count"]
         input_count = raw["input_count"]
         if (
@@ -912,6 +1057,11 @@ def _load_pending_registration(
                 character not in "0123456789abcdef"
                 for character in event_log_prefix_sha256
             )
+            or phase not in _PENDING_PHASES
+            or type(success_written) is not bool
+            or not isinstance(event_start_offset, int)
+            or isinstance(event_start_offset, bool)
+            or event_start_offset < 0
             or not isinstance(metric_count, int)
             or isinstance(metric_count, bool)
             or metric_count < 1
@@ -920,10 +1070,21 @@ def _load_pending_registration(
             or input_count < 0
         ):
             raise ValueError("invalid pending registration identity")
+        _require_closed_pending_state(raw["prior_state"])
+        _require_closed_pending_state(raw["target_state"])
+        _require_closed_pending_event(raw["success_event"])
+        _require_closed_pending_event(raw["rollback_event"])
+        if raw["failure_event"] is not None:
+            _require_closed_pending_event(raw["failure_event"])
         prior_state = ProjectState.from_dict(raw["prior_state"])
         target_state = ProjectState.from_dict(raw["target_state"])
         success_event = EvaluationEvent.from_dict(raw["success_event"])
         rollback_event = EvaluationEvent.from_dict(raw["rollback_event"])
+        failure_event = (
+            EvaluationEvent.from_dict(raw["failure_event"])
+            if raw["failure_event"] is not None
+            else None
+        )
         result_ref = target_state.artifacts.get(RESEARCH_RESULT_PATH)
         contract_ref = prior_state.artifacts.get(EXECUTION_CONTRACT_PATH)
         expected_target_state = replace(
@@ -961,6 +1122,18 @@ def _load_pending_registration(
             "result_sha256": result_sha256,
             "registration_event_sha256": _event_identity(success_event),
         } if expected_success_payload is not None else None
+        expected_failure_payload = (
+            {
+                "error_category": "research_result_file_invalid",
+                "contract_path": contract_ref.path,
+                "contract_sha256": contract_ref.sha256,
+                "result_path": result_path,
+                "result_sha256": result_sha256,
+            }
+            if contract_ref is not None
+            else None
+        )
+        success_record_size = len(_canonical_event_record(success_event))
         if (
             prior_state.project_id != project_id
             or target_state.project_id != project_id
@@ -979,8 +1152,85 @@ def _load_pending_registration(
             or target_state != expected_target_state
             or success_event.payload != expected_success_payload
             or rollback_event.payload != expected_rollback_payload
+            or (phase == "committing" and success_written)
+            or (
+                phase == "committing"
+                and event_start_offset != event_log_size
+            )
+            or (phase == "committing" and failure_event is not None)
+            or (
+                phase == "aborting"
+                and event_start_offset
+                != event_log_size
+                + (success_record_size if success_written else 0)
+            )
+            or (phase == "aborting" and failure_event is None)
+            or (
+                failure_event is not None
+                and (
+                    failure_event.project_id != project_id
+                    or failure_event.type
+                    != "research_result_registration_failed"
+                    or failure_event.payload != expected_failure_payload
+                )
+            )
         ):
             raise ValueError("invalid pending registration binding")
+        pending_for_counts = _PendingResearchResultRegistration(
+            project_id=project_id,
+            result_path=result_path,
+            result_sha256=result_sha256,
+            result_size=result_size,
+            event_log_size=event_log_size,
+            event_log_prefix_sha256=event_log_prefix_sha256,
+            phase=phase,
+            success_written=success_written,
+            event_start_offset=event_start_offset,
+            metric_count=metric_count,
+            input_count=input_count,
+            prior_state=prior_state,
+            target_state=target_state,
+            success_event=success_event,
+            rollback_event=rollback_event,
+            failure_event=failure_event,
+        )
+        if _pending_files_match(project, pending_for_counts):
+            result_bytes = _read_project_file_snapshot(project.root, result_path)
+            contract_bytes = _read_project_file_snapshot(
+                project.root, EXECUTION_CONTRACT_PATH
+            )
+            result_payload = json.loads(
+                result_bytes.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_json_constant,
+            )
+            contract_payload = json.loads(
+                contract_bytes.decode("utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_json_constant,
+            )
+            recomputed_metric_count = _validate_result_metrics(
+                result_payload.get("metrics")
+                if isinstance(result_payload, dict)
+                else None
+            )
+            contract_inputs = (
+                contract_payload.get("inputs")
+                if isinstance(contract_payload, dict)
+                and set(contract_payload) == _CONTRACT_FIELDS
+                else None
+            )
+            if (
+                not isinstance(contract_inputs, list)
+                or _canonical_json(contract_payload) != contract_bytes
+                or contract_payload.get("project_id") != project_id
+                or contract_payload.get("result_path") != result_path
+                or contract_payload.get("contract_id")
+                != _sha256(_canonical_json(_contract_id_payload(contract_payload)))
+                or metric_count != recomputed_metric_count
+                or input_count != len(contract_inputs)
+            ):
+                raise ValueError("pending registration counts are invalid")
     except (
         OSError,
         UnicodeError,
@@ -997,12 +1247,16 @@ def _load_pending_registration(
         result_size=result_size,
         event_log_size=event_log_size,
         event_log_prefix_sha256=event_log_prefix_sha256,
+        phase=phase,
+        success_written=success_written,
+        event_start_offset=event_start_offset,
         metric_count=metric_count,
         input_count=input_count,
         prior_state=prior_state,
         target_state=target_state,
         success_event=success_event,
         rollback_event=rollback_event,
+        failure_event=failure_event,
     )
 
 
@@ -1059,11 +1313,10 @@ def _truncate_registration_event_log(project: ResearchProject, size: int) -> Non
     _fsync_directory(path.parent)
 
 
-def _pending_event_log(
+def _pending_event_bytes(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
-) -> list[EvaluationEvent]:
-    """Read the log, repairing only this transaction's incomplete final record."""
+) -> bytes:
     payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
     if (
         len(payload) < pending.event_log_size
@@ -1071,14 +1324,8 @@ def _pending_event_log(
         != pending.event_log_prefix_sha256
     ):
         raise ValueError("research_result_registration_recovery_invalid")
-    last_newline = payload.rfind(b"\n")
-    complete_size = last_newline + 1 if last_newline >= 0 else 0
-    if complete_size < pending.event_log_size:
-        raise ValueError("research_result_registration_recovery_invalid")
-    complete_payload = payload[:complete_size]
-    trailing = payload[complete_size:]
     try:
-        events = _parse_complete_event_records(complete_payload)
+        _parse_complete_event_records(payload[: pending.event_log_size])
     except (
         UnicodeError,
         TypeError,
@@ -1089,29 +1336,170 @@ def _pending_event_log(
         raise ValueError(
             "research_result_registration_recovery_invalid"
         ) from error
-    if trailing:
-        owned_records = (
-            _canonical_event_record(pending.success_event),
-            _canonical_event_record(pending.rollback_event),
-        )
-        if not any(record.startswith(trailing) for record in owned_records):
-            raise ValueError("research_result_registration_recovery_invalid")
-        _truncate_registration_event_log(project, complete_size)
-    return events
+    return payload
 
 
-def _ensure_pending_event(
+def _repair_owned_event_fragment(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+    *,
+    offset: int,
+    fragment: bytes,
+    event: EvaluationEvent,
+) -> None:
+    record = _canonical_event_record(event)
+    identity_markers = (
+        pending.result_sha256.encode("ascii"),
+        str(pending.success_event.payload["contract_sha256"]).encode("ascii"),
+    )
+    if (
+        not fragment
+        or not record.startswith(fragment)
+        or not any(marker in fragment for marker in identity_markers)
+    ):
+        raise ValueError("research_result_registration_recovery_invalid")
+    _truncate_registration_event_log(project, offset)
+
+
+def _committing_success_written(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+    *,
+    repair_partial: bool,
+) -> bool:
+    if pending.phase != "committing":
+        raise ValueError("research_result_registration_recovery_invalid")
+    payload = _pending_event_bytes(project, pending)
+    if pending.event_start_offset != pending.event_log_size:
+        raise ValueError("research_result_registration_recovery_invalid")
+    tail = payload[pending.event_start_offset :]
+    record = _canonical_event_record(pending.success_event)
+    if tail == record:
+        return True
+    if not tail:
+        return False
+    if not repair_partial:
+        raise ValueError("research_result_registration_recovery_invalid")
+    _repair_owned_event_fragment(
+        project,
+        pending,
+        offset=pending.event_start_offset,
+        fragment=tail,
+        event=pending.success_event,
+    )
+    return False
+
+
+def _append_pending_event(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
     event: EvaluationEvent,
-) -> list[EvaluationEvent]:
-    events = _pending_event_log(project, pending)
-    if not any(existing.to_dict() == event.to_dict() for existing in events):
-        event_log_for(project.root).append(event)
-        events = _pending_event_log(project, pending)
-        if not any(existing.to_dict() == event.to_dict() for existing in events):
-            raise OSError("research result transaction event was not persisted")
-    return events
+    *,
+    expected_offset: int,
+) -> None:
+    event_log_for(project.root).append_locked(
+        event,
+        expected_offset=expected_offset,
+    )
+    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
+    record = _canonical_event_record(event)
+    if payload[expected_offset:] != record:
+        raise OSError("research result transaction event was not persisted")
+
+
+def _persist_pending_registration(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+) -> None:
+    atomic_write_json(
+        _pending_path(project),
+        pending.to_dict(),
+        prefix="research-result-registration-",
+        compact=True,
+    )
+
+
+def _begin_aborting_registration(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+    error: ValueError,
+) -> _PendingResearchResultRegistration:
+    if pending.phase == "aborting":
+        return pending
+    success_written = _committing_success_written(
+        project, pending, repair_partial=True
+    )
+    failure_event = _registration_failure_event(
+        project,
+        pending.result_path,
+        error,
+        result_sha256=pending.result_sha256,
+    )
+    aborting = replace(
+        pending,
+        phase="aborting",
+        success_written=success_written,
+        event_start_offset=pending.event_log_size
+        + (
+            len(_canonical_event_record(pending.success_event))
+            if success_written
+            else 0
+        ),
+        failure_event=failure_event,
+    )
+    _persist_pending_registration(project, aborting)
+    return aborting
+
+
+def _ensure_aborting_events(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+) -> None:
+    if pending.phase != "aborting" or pending.failure_event is None:
+        raise ValueError("research_result_registration_recovery_invalid")
+    payload = _pending_event_bytes(project, pending)
+    expected_prefix = pending.event_log_size
+    if pending.success_written:
+        success_record = _canonical_event_record(pending.success_event)
+        if payload[expected_prefix : expected_prefix + len(success_record)] != success_record:
+            raise ValueError("research_result_registration_recovery_invalid")
+        expected_prefix += len(success_record)
+    if expected_prefix != pending.event_start_offset:
+        raise ValueError("research_result_registration_recovery_invalid")
+
+    events = (
+        (pending.rollback_event, pending.failure_event)
+        if pending.success_written
+        else (pending.failure_event,)
+    )
+    offset = pending.event_start_offset
+    for event in events:
+        record = _canonical_event_record(event)
+        payload = _read_project_file_snapshot(
+            project.root, _REGISTRATION_LOCK_PATH
+        )
+        tail = payload[offset:]
+        if tail.startswith(record):
+            offset += len(record)
+            continue
+        if tail:
+            _repair_owned_event_fragment(
+                project,
+                pending,
+                offset=offset,
+                fragment=tail,
+                event=event,
+            )
+        _append_pending_event(
+            project,
+            pending,
+            event,
+            expected_offset=offset,
+        )
+        offset += len(record)
+    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
+    if len(payload) != offset:
+        raise ValueError("research_result_registration_recovery_invalid")
 
 
 def effective_research_result_registration_events(
@@ -1153,24 +1541,22 @@ def _abort_pending_registration(
     pending: _PendingResearchResultRegistration,
     error: ValueError,
 ) -> None:
+    pending = _begin_aborting_registration(project, pending, error)
+    _finish_aborting_registration(project, pending)
+
+
+def _finish_aborting_registration(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+) -> None:
+    if pending.phase != "aborting":
+        raise ValueError("research_result_registration_recovery_invalid")
     current = ResearchProject.open_readonly(project.root)
     if current.state == pending.target_state:
         current = current.persist_state(pending.prior_state)
     elif current.state != pending.prior_state:
-        raise ValueError("research_result_registration_conflict") from error
-    events = _pending_event_log(current, pending)
-    success_present = any(
-        existing.to_dict() == pending.success_event.to_dict()
-        for existing in events
-    )
-    if success_present:
-        _ensure_pending_event(current, pending, pending.rollback_event)
-    _append_registration_failure(
-        current,
-        pending.result_path,
-        error,
-        result_sha256=pending.result_sha256,
-    )
+        raise ValueError("research_result_registration_conflict")
+    _ensure_aborting_events(current, pending)
     _clear_pending_registration(current)
 
 
@@ -1178,6 +1564,8 @@ def _complete_pending_registration(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
 ) -> ResearchResultRegistrationStatus:
+    if pending.phase != "committing":
+        raise ValueError("research_result_registration_recovery_invalid")
     current = ResearchProject.open_readonly(project.root)
     if current.state == pending.prior_state:
         if not _pending_files_match(current, pending):
@@ -1192,7 +1580,13 @@ def _complete_pending_registration(
         error = ValueError("research_result_file_invalid")
         _abort_pending_registration(current, pending, error)
         raise error
-    _ensure_pending_event(current, pending, pending.success_event)
+    if not _committing_success_written(current, pending, repair_partial=True):
+        _append_pending_event(
+            current,
+            pending,
+            pending.success_event,
+            expected_offset=pending.event_start_offset,
+        )
     if not _pending_files_match(current, pending):
         error = ValueError("research_result_file_invalid")
         _abort_pending_registration(current, pending, error)
@@ -1216,6 +1610,9 @@ def _recover_pending_registration_locked(
     pending = _load_pending_registration(project)
     if pending is None:
         return None
+    if pending.phase == "aborting":
+        _finish_aborting_registration(project, pending)
+        return None
     return _complete_pending_registration(project, pending)
 
 
@@ -1226,6 +1623,14 @@ def register_research_result(
     with _registration_lock(project):
         pending = _load_pending_registration(project)
         if pending is not None:
+            if pending.phase == "aborting":
+                category = (
+                    pending.failure_event.payload["error_category"]
+                    if pending.failure_event is not None
+                    else "research_result_registration_recovery_invalid"
+                )
+                _finish_aborting_registration(project, pending)
+                raise ValueError(str(category))
             return _complete_pending_registration(project, pending)
         try:
             validated = validate_research_result(project, result_path)
@@ -1312,17 +1717,16 @@ def register_research_result(
             result_size=len(result_bytes),
             event_log_size=len(event_log_bytes),
             event_log_prefix_sha256=_sha256(event_log_bytes),
+            phase="committing",
+            success_written=False,
+            event_start_offset=len(event_log_bytes),
             metric_count=validated.metric_count,
             input_count=validated.input_count,
             prior_state=state,
             target_state=target_state,
             success_event=success_event,
             rollback_event=rollback_event,
+            failure_event=None,
         )
-        atomic_write_json(
-            _pending_path(project),
-            pending.to_dict(),
-            prefix="research-result-registration-",
-            compact=True,
-        )
+        _persist_pending_registration(project, pending)
         return _complete_pending_registration(project, pending)

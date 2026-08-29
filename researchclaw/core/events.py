@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
 
 _SCHEMA_VERSION = 1
 _TOTAL_STAGES = 23
+_REGISTRATION_PENDING_NAME = "research-result-registration.pending.json"
 
 
 @dataclass(frozen=True)
@@ -86,13 +88,75 @@ class EventLog:
         self.path = Path(path)
 
     def append(self, event: EvaluationEvent) -> None:
-        record = json.dumps(event.to_dict(), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        """Append while cooperating with the project registration transaction."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(record)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        descriptor = os.open(
+            self.path,
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o644,
+        )
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            pending = self._registration_pending_path()
+            if pending is not None and os.path.lexists(pending):
+                raise RuntimeError(
+                    "research result registration is pending; recover it before "
+                    "appending an unrelated event"
+                )
+            self._write_record(descriptor, event)
+        finally:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+
+    def append_locked(
+        self, event: EvaluationEvent, *, expected_offset: int
+    ) -> int:
+        """Append at an exact offset while the caller owns the event-log flock."""
+        descriptor = os.open(
+            self.path,
+            os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            actual_offset = os.fstat(descriptor).st_size
+            if actual_offset != expected_offset:
+                raise ValueError("event log changed before locked append")
+            self._write_record(descriptor, event)
+            return actual_offset
+        finally:
+            os.close(descriptor)
+
+    def _registration_pending_path(self) -> Path | None:
+        if self.path.name != "events.jsonl" or self.path.parent.name != "evaluation":
+            return None
+        return (
+            self.path.parent.parent
+            / ".researchclaw"
+            / _REGISTRATION_PENDING_NAME
+        )
+
+    @staticmethod
+    def _write_record(descriptor: int, event: EvaluationEvent) -> None:
+        record = (
+            json.dumps(
+                event.to_dict(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            + b"\n"
+        )
+        written = 0
+        while written < len(record):
+            count = os.write(descriptor, record[written:])
+            if count <= 0:
+                raise OSError("event log append made no progress")
+            written += count
+        os.fsync(descriptor)
 
     def read_all(self) -> list[EvaluationEvent]:
         if not self.path.exists():

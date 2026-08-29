@@ -179,19 +179,19 @@ def test_register_result_recovers_event_append_failure_exactly_once(
     prepare_research_execution(project)
     contract = load_execution_contract(project.root)
     write_contract_bound_research_result(project, contract)
-    original_append = EventLog.append
+    original_append = EventLog.append_locked
     failed = False
 
-    def fail_first_success_append(self, event):
+    def fail_first_success_append(self, event, *, expected_offset):
         nonlocal failed
         if event.type == "research_result_registered" and not failed:
             failed = True
             if append_then_fail:
-                original_append(self, event)
+                original_append(self, event, expected_offset=expected_offset)
             raise OSError("injected success-event append failure")
-        return original_append(self, event)
+        return original_append(self, event, expected_offset=expected_offset)
 
-    monkeypatch.setattr(EventLog, "append", fail_first_success_append)
+    monkeypatch.setattr(EventLog, "append_locked", fail_first_success_append)
 
     with pytest.raises(OSError, match="injected success-event append failure"):
         register_research_result(project, "experiment/results.json")
@@ -202,7 +202,7 @@ def test_register_result_recovers_event_append_failure_exactly_once(
     )
     assert pending_path.is_file()
     assert ResearchProject.open(project.root).state.current_stage == 13
-    monkeypatch.setattr(EventLog, "append", original_append)
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
 
     recovered = register_research_result(project, "experiment/results.json")
 
@@ -228,10 +228,10 @@ def test_register_result_repairs_owned_partial_success_event_tail(
     write_contract_bound_research_result(project, contract)
     event_path = project.root / "evaluation/events.jsonl"
     prefix = event_path.read_bytes()
-    original_append = EventLog.append
+    original_append = EventLog.append_locked
     failed = False
 
-    def append_partial_success(self, event):
+    def append_partial_success(self, event, *, expected_offset):
         nonlocal failed
         if event.type == "research_result_registered" and not failed:
             failed = True
@@ -243,9 +243,9 @@ def test_register_result_repairs_owned_partial_success_event_tail(
                 handle.flush()
                 os.fsync(handle.fileno())
             raise OSError("injected partial success-event write")
-        return original_append(self, event)
+        return original_append(self, event, expected_offset=expected_offset)
 
-    monkeypatch.setattr(EventLog, "append", append_partial_success)
+    monkeypatch.setattr(EventLog, "append_locked", append_partial_success)
 
     with pytest.raises(OSError, match="injected partial success-event write"):
         register_research_result(project, "experiment/results.json")
@@ -253,7 +253,7 @@ def test_register_result_repairs_owned_partial_success_event_tail(
     assert event_path.read_bytes().startswith(prefix)
     with pytest.raises(ValueError, match="malformed event"):
         event_log_for(project.root).read_all()
-    monkeypatch.setattr(EventLog, "append", original_append)
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
 
     if recovery == "register":
         recovered_stage = register_research_result(
@@ -280,14 +280,14 @@ def test_result_mutation_during_success_append_is_logically_rolled_back(
     contract = load_execution_contract(project.root)
     result_path = write_contract_bound_research_result(project, contract)
     state_before = (project.root / ".researchclaw/state.json").read_bytes()
-    original_append = EventLog.append
+    original_append = EventLog.append_locked
 
-    def mutate_after_success_append(self, event):
-        original_append(self, event)
+    def mutate_after_success_append(self, event, *, expected_offset):
+        original_append(self, event, expected_offset=expected_offset)
         if event.type == "research_result_registered":
             result_path.write_bytes(b'{"changed-during-success-append":true}\n')
 
-    monkeypatch.setattr(EventLog, "append", mutate_after_success_append)
+    monkeypatch.setattr(EventLog, "append_locked", mutate_after_success_append)
 
     with pytest.raises(ValueError, match="^research_result_file_invalid$"):
         register_research_result(project, "experiment/results.json")
@@ -319,17 +319,17 @@ def test_pending_recovery_rejects_noncanonical_state_or_event_binding(
     prepare_research_execution(project)
     contract = load_execution_contract(project.root)
     write_contract_bound_research_result(project, contract)
-    original_append = EventLog.append
+    original_append = EventLog.append_locked
 
-    def fail_success_append(self, event):
+    def fail_success_append(self, event, *, expected_offset):
         if event.type == "research_result_registered":
             raise OSError("leave pending transaction")
-        return original_append(self, event)
+        return original_append(self, event, expected_offset=expected_offset)
 
-    monkeypatch.setattr(EventLog, "append", fail_success_append)
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
     with pytest.raises(OSError, match="leave pending transaction"):
         register_research_result(project, "experiment/results.json")
-    monkeypatch.setattr(EventLog, "append", original_append)
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
     pending_path = (
         project.root
         / ".researchclaw/research-result-registration.pending.json"
@@ -359,6 +359,317 @@ def test_pending_recovery_rejects_noncanonical_state_or_event_binding(
     assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
     assert ResearchProject.open(project.root).state.topic != "tampered topic"
     assert pending_path.is_file()
+
+
+def test_ordinary_event_append_fails_closed_while_registration_is_pending(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_append = EventLog.append_locked
+    registration_entered_append = threading.Event()
+    release_registration = threading.Event()
+    ordinary_finished = threading.Event()
+    registration_errors = []
+    ordinary_errors = []
+    event_path = project.root / "evaluation/events.jsonl"
+    events_before = event_path.read_bytes()
+
+    def fail_success_append(self, event, *, expected_offset):
+        if event.type == "research_result_registered":
+            registration_entered_append.set()
+            assert release_registration.wait(2.0)
+            raise OSError("leave pending transaction")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
+
+    def register():
+        try:
+            register_research_result(project, "experiment/results.json")
+        except BaseException as error:
+            registration_errors.append(error)
+
+    def append_unrelated():
+        try:
+            event_log_for(project.root).append(
+                research_execution.EvaluationEvent.create(
+                    "unrelated_event", project.state.project_id, {"value": 1}
+                )
+            )
+        except BaseException as error:
+            ordinary_errors.append(error)
+        finally:
+            ordinary_finished.set()
+
+    registration_thread = threading.Thread(target=register)
+    ordinary_thread = threading.Thread(target=append_unrelated)
+    registration_thread.start()
+    assert registration_entered_append.wait(1.0)
+    ordinary_thread.start()
+    try:
+        assert not ordinary_finished.wait(0.2)
+    finally:
+        release_registration.set()
+    registration_thread.join(timeout=2.0)
+    ordinary_thread.join(timeout=2.0)
+
+    assert len(registration_errors) == 1
+    assert isinstance(registration_errors[0], OSError)
+    assert str(registration_errors[0]) == "leave pending transaction"
+    assert len(ordinary_errors) == 1
+    assert isinstance(ordinary_errors[0], RuntimeError)
+    assert "registration is pending" in str(ordinary_errors[0])
+    assert event_path.read_bytes() == events_before
+
+
+def test_pending_recovery_never_truncates_ambiguous_unrelated_fragment(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_append = EventLog.append_locked
+
+    def fail_success_append(self, event, *, expected_offset):
+        if event.type == "research_result_registered":
+            raise OSError("leave pending transaction")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
+    with pytest.raises(OSError, match="leave pending transaction"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+    event_path = project.root / "evaluation/events.jsonl"
+    event_path.write_bytes(event_path.read_bytes() + b"{")
+    corrupted = event_path.read_bytes()
+
+    with pytest.raises(
+        ValueError, match="^research_result_registration_recovery_invalid$"
+    ):
+        register_research_result(project, "experiment/results.json")
+
+    assert event_path.read_bytes() == corrupted
+    assert ResearchProject.open(project.root).state.current_stage == 13
+
+
+@pytest.mark.parametrize("recovery", ("register", "handoff"))
+def test_aborting_registration_never_resurrects_after_compensation_interruption(
+    tmp_path, monkeypatch, recovery
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    valid_result = result_path.read_bytes()
+    original_append = EventLog.append_locked
+    rollback_written = False
+
+    def interrupt_after_rollback(self, event, *, expected_offset):
+        nonlocal rollback_written
+        if (
+            event.type == "research_result_registration_failed"
+            and rollback_written
+        ):
+            raise OSError("injected failure after rollback")
+        original_append(self, event, expected_offset=expected_offset)
+        if event.type == "research_result_registered":
+            result_path.write_bytes(b'{"changed-during-success-append":true}\n')
+        elif event.type == "research_result_registration_rolled_back":
+            rollback_written = True
+
+    monkeypatch.setattr(EventLog, "append_locked", interrupt_after_rollback)
+    with pytest.raises(OSError, match="injected failure after rollback"):
+        register_research_result(project, "experiment/results.json")
+
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert pending["phase"] == "aborting"
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    result_path.write_bytes(valid_result)
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+
+    if recovery == "register":
+        with pytest.raises(ValueError, match="^research_result_file_invalid$"):
+            register_research_result(project, "experiment/results.json")
+    else:
+        assert build_handoff(project).current_stage == 12
+
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert research_execution.effective_research_result_registration_events(
+        project
+    ) == ()
+    assert not pending_path.exists()
+
+
+def test_pending_recovery_recomputes_jointly_tampered_counts_and_event_digest(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_append = EventLog.append_locked
+
+    def fail_success_append(self, event, *, expected_offset):
+        if event.type == "research_result_registered":
+            raise OSError("leave pending transaction")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
+    with pytest.raises(OSError, match="leave pending transaction"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    pending["metric_count"] = 99
+    pending["input_count"] = 88
+    pending["success_event"]["payload"]["metric_count"] = 99
+    pending["success_event"]["payload"]["input_count"] = 88
+    success_bytes = json.dumps(
+        pending["success_event"],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    pending["rollback_event"]["payload"][
+        "registration_event_sha256"
+    ] = hashlib.sha256(success_bytes).hexdigest()
+    pending_path.write_text(
+        json.dumps(pending, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match="^research_result_registration_recovery_invalid$"
+    ):
+        register_research_result(project, "experiment/results.json")
+
+    assert ResearchProject.open(project.root).state.current_stage == 13
+    assert pending_path.is_file()
+
+
+@pytest.mark.parametrize(
+    "nested_location",
+    ("prior_state", "target_result_ref", "success_event", "rollback_event"),
+)
+def test_pending_recovery_rejects_undeclared_nested_keys(
+    tmp_path, monkeypatch, nested_location
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_append = EventLog.append_locked
+
+    def fail_success_append(self, event, *, expected_offset):
+        if event.type == "research_result_registered":
+            raise OSError("leave pending transaction")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
+    with pytest.raises(OSError, match="leave pending transaction"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    if nested_location == "prior_state":
+        pending["prior_state"]["undeclared"] = True
+    elif nested_location == "target_result_ref":
+        pending["target_state"]["artifacts"]["experiment/results.json"][
+            "undeclared"
+        ] = True
+    elif nested_location == "success_event":
+        pending["success_event"]["undeclared"] = True
+    else:
+        pending["rollback_event"]["undeclared"] = True
+    pending_path.write_text(
+        json.dumps(pending, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError, match="^research_result_registration_recovery_invalid$"
+    ):
+        register_research_result(project, "experiment/results.json")
+
+    assert ResearchProject.open(project.root).state.current_stage == 13
+    assert pending_path.is_file()
+
+
+def test_pending_recovery_rejects_oversize_before_json_decode(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_append = EventLog.append_locked
+
+    def fail_success_append(self, event, *, expected_offset):
+        if event.type == "research_result_registered":
+            raise OSError("leave pending transaction")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", fail_success_append)
+    with pytest.raises(OSError, match="leave pending transaction"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending_path.write_bytes(b" " * (256 * 1024 + 1))
+
+    def json_decode_must_not_run(*_args, **_kwargs):
+        raise AssertionError("oversize pending JSON reached decoder")
+
+    monkeypatch.setattr(research_execution.json, "loads", json_decode_must_not_run)
+    with pytest.raises(
+        ValueError, match="^research_result_registration_recovery_invalid$"
+    ):
+        register_research_result(project, "experiment/results.json")
+
+    assert pending_path.stat().st_size == 256 * 1024 + 1
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    (
+        b'{"schema_version":3,"schema_version":3}',
+        b'{"schema_version":NaN}',
+        b"[" * 2000 + b"0" + b"]" * 2000,
+    ),
+    ids=("duplicate", "nonfinite", "deep"),
+)
+def test_pending_recovery_normalizes_malformed_json_failures(tmp_path, malformed):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    pending_path.write_bytes(malformed)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(
+        ValueError, match="^research_result_registration_recovery_invalid$"
+    ):
+        register_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert pending_path.read_bytes() == malformed
 
 
 def test_concurrent_registrations_are_serialized_to_one_logical_success(
