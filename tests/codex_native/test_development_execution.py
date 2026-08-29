@@ -48,6 +48,193 @@ def _write_csv_and_update_manifest(project, relative_path, payload_key, text):
     manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _execution_event(project):
+    events = [
+        json.loads(line)
+        for line in (project.root / "evaluation/events.jsonl").read_text().splitlines()
+    ]
+    return events[-1]
+
+
+def _write_hand_computable_split_fixture(
+    project,
+    *,
+    validation_label: int,
+    calibration_label: int,
+    test_label: int,
+):
+    """Write one dataset whose train-only Ridge prediction is exactly 3.0."""
+    write_runnable_development_fixture(project)
+    cells = (
+        "dataset_id,condition_id,cell_id,split_role,feature_cutoff_cycle,cycle_life_cycles\n"
+        "HAND,G01,C01,train,1,2\n"
+        "HAND,G02,C02,train,1,4\n"
+        f"HAND,G03,C03,validation,1,{validation_label}\n"
+        f"HAND,G04,C04,calibration,1,{calibration_label}\n"
+        f"HAND,G05,C05,test,1,{test_label}\n"
+    )
+    features = (
+        "dataset_id,condition_id,cell_id,cycle_index,capacity_ah\n"
+        "HAND,G01,C01,1,0.0\n"
+        "HAND,G02,C02,1,1.0\n"
+        "HAND,G03,C03,1,0.25\n"
+        "HAND,G04,C04,1,0.75\n"
+        "HAND,G05,C05,1,0.5\n"
+    )
+    manifest_path = project.root / "experiment/input_manifest.dev.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for relative_path, payload_key, text in (
+        ("experiment/dev_data/cells.dev.csv", "cell_records", cells),
+        ("experiment/dev_data/features.dev.csv", "features", features),
+    ):
+        path = project.root / relative_path
+        path.write_text(text, encoding="utf-8")
+        manifest[payload_key]["row_count"] = 5
+        manifest[payload_key]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def test_timeout_preserves_existing_result_and_records_sanitized_failure(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    manifest = write_runnable_development_fixture(project)
+    result = project.root / "experiment/dev_results.json"
+    result.write_bytes(b'{"prior":true}\n')
+    ticks = iter([0.0, 0.1, 2.0])
+
+    with pytest.raises(ValueError, match="development_timeout"):
+        run_development_experiment(
+            project,
+            "experiment/input_manifest.dev.json",
+            max_seconds=1,
+            clock=lambda: next(ticks),
+        )
+
+    assert result.read_bytes() == b'{"prior":true}\n'
+    event = _execution_event(project)
+    assert event["type"] == "development_execution_failed"
+    assert event["payload"] == {
+        "input_manifest_path": "experiment/input_manifest.dev.json",
+        "input_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "error_category": "development_timeout",
+    }
+
+
+def test_completion_event_contains_only_finalized_artifact_metadata(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    manifest = write_runnable_development_fixture(project)
+    ticks = iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+
+    run_development_experiment(
+        project,
+        "experiment/input_manifest.dev.json",
+        max_seconds=1,
+        clock=lambda: next(ticks),
+    )
+
+    result_path = project.root / "experiment/dev_results.json"
+    event = _execution_event(project)
+    assert event["type"] == "development_execution_completed"
+    assert event["payload"] == {
+        "input_manifest_path": "experiment/input_manifest.dev.json",
+        "input_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "result_path": "experiment/dev_results.json",
+        "result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+        "elapsed_seconds": 0.6,
+        "dataset_count": 1,
+        "cell_count": 8,
+    }
+
+
+def test_failure_event_never_includes_rows_labels_predictions_or_exception_text(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    manifest = write_runnable_development_fixture(project)
+    features_path = project.root / "experiment/dev_data/features.dev.csv"
+    feature_text = features_path.read_text(encoding="utf-8").replace(
+        "SYNTH_DEV,G01,C01,1,2.01,41.0",
+        "SYNTH_DEV,G01,C01,1,not-a-number,41.0",
+    )
+    _write_csv_and_update_manifest(
+        project,
+        "experiment/dev_data/features.dev.csv",
+        "features",
+        feature_text,
+    )
+
+    with pytest.raises(ValueError, match="invalid_numeric_value"):
+        run_development_experiment(project, "experiment/input_manifest.dev.json")
+
+    event = _execution_event(project)
+    assert event["type"] == "development_execution_failed"
+    assert event["payload"] == {
+        "input_manifest_path": "experiment/input_manifest.dev.json",
+        "input_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "error_category": "invalid_numeric_value",
+    }
+
+
+@pytest.mark.parametrize("max_seconds", (0, -1, 1.5, True))
+def test_run_requires_a_positive_integer_deadline(tmp_path, max_seconds):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+
+    with pytest.raises(ValueError, match="invalid_max_seconds"):
+        run_development_experiment(
+            project,
+            "experiment/input_manifest.dev.json",
+            max_seconds=max_seconds,
+        )
+
+
+def test_only_train_labels_fit_ridge_and_metrics_use_test_rows(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    _write_hand_computable_split_fixture(
+        project, validation_label=100, calibration_label=200, test_label=8
+    )
+
+    run_development_experiment(project, "experiment/input_manifest.dev.json")
+    baseline = json.loads((project.root / "experiment/dev_results.json").read_text())
+    assert baseline["aggregate_metrics"] == {
+        "mae_cycles": pytest.approx(5.0),
+        "rmse_cycles": pytest.approx(5.0),
+    }
+
+    _write_hand_computable_split_fixture(
+        project, validation_label=500, calibration_label=600, test_label=8
+    )
+    run_development_experiment(project, "experiment/input_manifest.dev.json")
+    held_out_label_mutation = json.loads(
+        (project.root / "experiment/dev_results.json").read_text()
+    )
+    assert held_out_label_mutation["aggregate_metrics"] == {
+        "mae_cycles": pytest.approx(5.0),
+        "rmse_cycles": pytest.approx(5.0),
+    }
+
+    _write_hand_computable_split_fixture(
+        project, validation_label=500, calibration_label=600, test_label=10
+    )
+    run_development_experiment(project, "experiment/input_manifest.dev.json")
+    test_label_mutation = json.loads(
+        (project.root / "experiment/dev_results.json").read_text()
+    )
+    assert test_label_mutation["aggregate_metrics"] == {
+        "mae_cycles": pytest.approx(7.0),
+        "rmse_cycles": pytest.approx(7.0),
+    }
+
+
 @pytest.mark.parametrize("value", ("", "not-a-number", "nan", "inf"))
 def test_run_rejects_non_finite_or_non_numeric_predictors(tmp_path, value):
     project, _ = build_stage_twelve_project(

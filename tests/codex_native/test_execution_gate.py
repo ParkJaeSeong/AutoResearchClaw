@@ -167,6 +167,8 @@ def test_development_recheck_validates_fixture_without_mutating_execution_gate(
 def test_validate_development_input_returns_verified_rows(stage_12_missing_project):
     project, _ = stage_12_missing_project
     manifest = write_runnable_development_fixture(project)
+    event_path = project.root / "evaluation/events.jsonl"
+    events_before = event_path.read_bytes()
     status, validated = execution_gate.validate_development_input(
         project, "experiment/input_manifest.dev.json", record_event=False
     )
@@ -174,6 +176,7 @@ def test_validate_development_input_returns_verified_rows(stage_12_missing_proje
     assert validated.manifest_sha256 == hashlib.sha256(manifest.read_bytes()).hexdigest()
     assert len(validated.cell_rows) == 8
     assert len(validated.feature_rows) == 16
+    assert event_path.read_bytes() == events_before
 
 
 def test_development_recheck_rejects_project_escape(stage_12_missing_project):

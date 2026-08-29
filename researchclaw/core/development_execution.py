@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
+import hashlib
 import math
 from pathlib import Path
 import time
 
 import numpy as np
 
+from .events import EvaluationEvent, event_log_for
 from .execution_gate import ValidatedDevelopmentInput, validate_development_input
+from .persistence import atomic_write_json
 from .project import ResearchProject
 
 
@@ -167,6 +169,35 @@ def _result_path(project: ResearchProject) -> Path:
     return project.root / "experiment" / "dev_results.json"
 
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _append_execution_failure(
+    project: ResearchProject,
+    input_manifest_path: str,
+    validated: ValidatedDevelopmentInput | None,
+    error: ValueError,
+) -> None:
+    payload: dict[str, object] = {
+        "error_category": "development_input_validation_failed"
+    }
+    if isinstance(error, _DevelopmentExecutionError):
+        payload["error_category"] = error.category
+    if validated is not None:
+        payload["input_manifest_path"] = validated.manifest_path
+        payload["input_manifest_sha256"] = validated.manifest_sha256
+    elif isinstance(input_manifest_path, str) and input_manifest_path:
+        payload["input_manifest_path"] = input_manifest_path
+    event_log_for(project.root).append(
+        EvaluationEvent.create(
+            "development_execution_failed",
+            project.state.project_id,
+            payload,
+        )
+    )
+
+
 def run_development_experiment(
     project: ResearchProject,
     input_manifest_path: str,
@@ -175,64 +206,98 @@ def run_development_experiment(
     clock: object = time.monotonic,
 ) -> DevelopmentRunStatus:
     """Run deterministic Ridge evaluation on validated synthetic development data."""
-    del max_seconds, clock
-    _status, validated = validate_development_input(
-        project,
-        input_manifest_path,
-        record_event=False,
-    )
-    predictor_names = _predictor_names(validated)
-    datasets = _dataset_rows(validated, predictor_names)
-    dataset_results: list[dict[str, object]] = []
-    predictions: list[np.ndarray] = []
-    labels: list[np.ndarray] = []
-    for dataset_id in sorted(datasets):
-        result, dataset_predictions, dataset_labels = _fit_dataset(
-            dataset_id,
-            datasets[dataset_id],
+    validated: ValidatedDevelopmentInput | None = None
+    try:
+        if (
+            not isinstance(max_seconds, int)
+            or isinstance(max_seconds, bool)
+            or max_seconds <= 0
+        ):
+            raise _DevelopmentExecutionError("invalid_max_seconds")
+        started = clock()
+
+        def check_deadline() -> None:
+            if clock() - started > max_seconds:
+                raise _DevelopmentExecutionError("development_timeout")
+
+        _status, validated = validate_development_input(
+            project,
+            input_manifest_path,
+            record_event=False,
         )
-        dataset_results.append(result)
-        predictions.append(dataset_predictions)
-        labels.append(dataset_labels)
-    aggregate_mae, aggregate_rmse = _metric_values(
-        np.concatenate(predictions), np.concatenate(labels)
-    )
-    result_payload: dict[str, object] = {
-        "schema_version": 1,
-        "project_id": project.state.project_id,
-        "development_only": True,
-        "evidence_eligible": False,
-        "input_manifest": {
-            "path": validated.manifest_path,
-            "sha256": validated.manifest_sha256,
-        },
-        "model": {
-            "name": "ridge",
-            "alpha": 1.0,
-            "implementation": "numpy_closed_form",
-        },
-        "predictor_names": list(predictor_names),
-        "numpy_version": np.__version__,
-        "dataset_results": dataset_results,
-        "aggregate_metrics": {
-            "mae_cycles": aggregate_mae,
-            "rmse_cycles": aggregate_rmse,
-        },
-        "leakage_audit": {
-            "cell_overlap_count": 0,
-            "group_overlap_count": 0,
-            "feature_cutoff_violation_count": 0,
-        },
-    }
-    destination = _result_path(project)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        json.dumps(result_payload, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return DevelopmentRunStatus(
-        readiness="development_run_complete",
-        approval_eligible=False,
-        input_manifest_path=validated.manifest_path,
-        input_manifest_sha256=validated.manifest_sha256,
-    )
+        check_deadline()
+        predictor_names = _predictor_names(validated)
+        datasets = _dataset_rows(validated, predictor_names)
+        check_deadline()
+        dataset_results: list[dict[str, object]] = []
+        predictions: list[np.ndarray] = []
+        labels: list[np.ndarray] = []
+        for dataset_id in sorted(datasets):
+            result, dataset_predictions, dataset_labels = _fit_dataset(
+                dataset_id,
+                datasets[dataset_id],
+            )
+            dataset_results.append(result)
+            predictions.append(dataset_predictions)
+            labels.append(dataset_labels)
+            check_deadline()
+        aggregate_mae, aggregate_rmse = _metric_values(
+            np.concatenate(predictions), np.concatenate(labels)
+        )
+        check_deadline()
+        result_payload: dict[str, object] = {
+            "schema_version": 1,
+            "project_id": project.state.project_id,
+            "development_only": True,
+            "evidence_eligible": False,
+            "input_manifest": {
+                "path": validated.manifest_path,
+                "sha256": validated.manifest_sha256,
+            },
+            "model": {
+                "name": "ridge",
+                "alpha": 1.0,
+                "implementation": "numpy_closed_form",
+            },
+            "predictor_names": list(predictor_names),
+            "numpy_version": np.__version__,
+            "dataset_results": dataset_results,
+            "aggregate_metrics": {
+                "mae_cycles": aggregate_mae,
+                "rmse_cycles": aggregate_rmse,
+            },
+            "leakage_audit": {
+                "cell_overlap_count": 0,
+                "group_overlap_count": 0,
+                "feature_cutoff_violation_count": 0,
+            },
+        }
+        check_deadline()
+        destination = _result_path(project)
+        atomic_write_json(destination, result_payload, prefix="dev-results-")
+        result_sha256 = _sha256(destination)
+        elapsed_seconds = clock() - started
+        event_log_for(project.root).append(
+            EvaluationEvent.create(
+                "development_execution_completed",
+                project.state.project_id,
+                {
+                    "input_manifest_path": validated.manifest_path,
+                    "input_manifest_sha256": validated.manifest_sha256,
+                    "result_path": "experiment/dev_results.json",
+                    "result_sha256": result_sha256,
+                    "elapsed_seconds": elapsed_seconds,
+                    "dataset_count": len(dataset_results),
+                    "cell_count": len(validated.cell_rows),
+                },
+            )
+        )
+        return DevelopmentRunStatus(
+            readiness="development_run_complete",
+            approval_eligible=False,
+            input_manifest_path=validated.manifest_path,
+            input_manifest_sha256=validated.manifest_sha256,
+        )
+    except ValueError as error:
+        _append_execution_failure(project, input_manifest_path, validated, error)
+        raise
