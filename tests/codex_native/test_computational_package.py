@@ -208,8 +208,14 @@ def test_package_rejects_nonclosed_manifest_or_config_fields(
             lambda files: files[-1].update({"path": "experiment/package_manifest.json"}),
             "manifest_file_set",
         ),
+        (lambda files: files.append(dict(files[0])), "manifest_file_set"),
     ],
-    ids=("file-entry-extra", "file-entry-missing", "manifest-self-listing"),
+    ids=(
+        "file-entry-extra",
+        "file-entry-missing",
+        "manifest-self-listing",
+        "duplicate-file-entry",
+    ),
 )
 def test_package_rejects_nonclosed_or_self_listed_manifest_file_entries(
     tmp_path, mutate, expected_code
