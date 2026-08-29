@@ -279,10 +279,25 @@ def _existing_current_contract(
         return None
     try:
         payload = _read_project_file_snapshot(project.root, EXECUTION_CONTRACT_PATH)
-        existing = json.loads(payload.decode("utf-8"))
+        existing = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         raise ValueError("execution_contract_invalid") from error
-    if not isinstance(existing, dict) or set(existing) != _CONTRACT_FIELDS:
+    artifact = project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    if artifact is not None and (
+        artifact.path != EXECUTION_CONTRACT_PATH
+        or artifact.size != len(payload)
+        or artifact.sha256 != _sha256(payload)
+    ):
+        raise ValueError("execution_contract_invalid")
+    if (
+        not isinstance(existing, dict)
+        or set(existing) != _CONTRACT_FIELDS
+        or _canonical_json(existing) != payload
+    ):
         raise ValueError("execution_contract_invalid")
     if not isinstance(existing.get("created_at"), str) or not existing["created_at"]:
         raise ValueError("execution_contract_invalid")
@@ -296,6 +311,19 @@ def _existing_current_contract(
         if field != "created_at" and existing.get(field) != value:
             raise ValueError("execution_contract_invalid")
     return payload
+
+
+def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if not isinstance(key, str) or key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_value: str) -> object:
+    raise ValueError("non-finite JSON constant")
 
 
 def _record_contract_artifact(project: ResearchProject, payload: bytes) -> None:
@@ -322,7 +350,12 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
     existing = _existing_current_contract(current, contract)
     if existing is None:
         path = resolve_project_artifact(current.root, EXECUTION_CONTRACT_PATH)
-        atomic_write_json(path, contract, prefix="execution-contract-")
+        atomic_write_json(
+            path,
+            contract,
+            prefix="execution-contract-",
+            compact=True,
+        )
         try:
             existing = _read_project_file_snapshot(current.root, EXECUTION_CONTRACT_PATH)
         except (OSError, TypeError, ValueError) as error:

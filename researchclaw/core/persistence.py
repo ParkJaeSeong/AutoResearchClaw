@@ -27,7 +27,13 @@ def _fsync_directory(directory: Path) -> None:
         os.close(directory_fd)
 
 
-def atomic_write_json(path: Path, payload: Mapping[str, object], *, prefix: str) -> None:
+def atomic_write_json(
+    path: Path,
+    payload: Mapping[str, object],
+    *,
+    prefix: str,
+    compact: bool = False,
+) -> None:
     """Write JSON through an fsynced temporary file and durable atomic replace."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +53,7 @@ def atomic_write_json(path: Path, payload: Mapping[str, object], *, prefix: str)
                 handle,
                 ensure_ascii=False,
                 sort_keys=True,
+                separators=(",", ":") if compact else None,
                 allow_nan=False,
             )
             handle.flush()

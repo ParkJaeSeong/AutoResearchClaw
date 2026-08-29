@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
@@ -553,13 +554,27 @@ def build_stage_twelve_project(
     root: Path,
     *,
     readiness: str = "ready_for_execution",
+    include_execution_marker: bool = False,
 ) -> tuple[ResearchProject, Path]:
     """Build a real Stage-12 boundary with an optional missing declared input."""
     project = build_completed_validation_design_project(root)
     write_valid_fixture_artifacts(project.root, 10)
+    marker_scaffold = (
+        _write_marker_execution_fixture(project.root)
+        if include_execution_marker
+        else None
+    )
     set_stage_ten_required_paths(project.root, ["data/input.csv"])
     declared_input = project.root / "data/input.csv"
-    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    if marker_scaffold is None:
+        report = validate_current_stage(ResearchProject.open(project.root))
+    else:
+        with patch(
+            "researchclaw.core.computational_package.canonical_computational_scaffold",
+            return_value=marker_scaffold,
+        ):
+            report = validate_current_stage(ResearchProject.open(project.root))
+    assert report.valid is True
     project = ResearchProject.open(project.root)
     if readiness == "ready_for_execution":
         declared_input.parent.mkdir(parents=True)
@@ -638,10 +653,14 @@ def build_stage_twelve_project(
     return ResearchProject.open(project.root), declared_input
 
 
-def build_approved_stage_twelve_project(root: Path) -> ResearchProject:
+def build_approved_stage_twelve_project(
+    root: Path, *, include_execution_marker: bool = False
+) -> ResearchProject:
     """Build a current explicit-execution approval without writing its record directly."""
     project, declared_input = build_stage_twelve_project(
-        root, readiness="ready_for_execution"
+        root,
+        readiness="ready_for_execution",
+        include_execution_marker=include_execution_marker,
     )
     declared_input.parent.mkdir(parents=True, exist_ok=True)
     declared_input.write_bytes(b"approved research input\n")
@@ -649,3 +668,27 @@ def build_approved_stage_twelve_project(root: Path) -> ResearchProject:
     project = ResearchProject.open(root)
     approve_current_gate(project, "approve", "Explicit execution approved")
     return ResearchProject.open(root)
+
+
+def _write_marker_execution_fixture(root: Path) -> dict[str, str]:
+    """Inject a test-only canonical Stage-10 scaffold before its normal validation."""
+    main_path = root / "experiment/code/main.py"
+    marker_main = main_path.read_text(encoding="utf-8").replace(
+        "if __name__ == '__main__':\n    main()\n",
+        "if __name__ == '__main__':\n"
+        "    Path('project-code-executed').write_text('executed', encoding='utf-8')\n"
+        "    main()\n",
+    )
+    main_path.write_text(marker_main, encoding="utf-8")
+    manifest_path = root / "experiment/package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        if entry["path"] == "experiment/code/main.py":
+            entry["sha256"] = hashlib.sha256(marker_main.encode("utf-8")).hexdigest()
+            break
+    manifest_path.write_text(
+        json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    scaffold = canonical_computational_scaffold()
+    scaffold["experiment/code/main.py"] = marker_main
+    return scaffold
