@@ -1,0 +1,57 @@
+import json
+import re
+
+import pytest
+
+from researchclaw.core.project import ResearchProject
+
+
+def test_create_project_builds_durable_layout(tmp_path):
+    project = ResearchProject.create(
+        tmp_path / "demo",
+        topic="Predicting formation energy from crystal structures",
+        profile="materials_ai",
+    )
+
+    assert project.state.current_stage == 1
+    assert project.state.status.value == "ready"
+    assert re.fullmatch(r"rc-[0-9a-f]{12}", project.state.project_id)
+    assert (project.root / ".researchclaw" / "state.json").is_file()
+    assert (project.root / "artifacts").is_dir()
+    assert (project.root / "evaluation").is_dir()
+    assert (project.root / "approvals").is_dir()
+
+
+def test_create_rejects_existing_nonempty_directory(tmp_path):
+    root = tmp_path / "demo"
+    root.mkdir()
+    (root / "existing.txt").write_text("keep", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="non-empty"):
+        ResearchProject.create(root, topic="Formation energy", profile="materials_ai")
+
+
+def test_open_requires_durable_state_document(tmp_path):
+    root = tmp_path / "demo"
+    root.mkdir()
+
+    with pytest.raises(ValueError, match="state.json"):
+        ResearchProject.open(root)
+
+
+def test_open_explicitly_migrates_pre_stage_ten_state_without_snapshot(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("stage_10_snapshot", None)
+    state.pop("prepared_stage_paths", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    reopened = ResearchProject.open(project.root)
+
+    assert reopened.state.stage_10_snapshot.status == "not_prepared"
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    assert persisted["stage_10_snapshot"] == {
+        "status": "not_prepared",
+        "entries": [],
+    }

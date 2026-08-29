@@ -1,0 +1,18 @@
+version: foundation-v1
+metrics:
+  - name: stage_completion_rate
+    direction: higher
+  - name: validation_failure_count
+    direction: lower
+  - name: retry_count
+    direction: lower
+  - name: approval_count
+    direction: higher
+  - name: resume_count
+    direction: lower
+  - name: artifact_count
+    direction: higher
+  - name: external_llm_calls
+    direction: lower
+  - name: nested_agent_processes
+    direction: lower

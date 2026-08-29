@@ -1,0 +1,15 @@
+id: materials_ai
+display_name: Materials AI
+preferred_sources:
+  - matbench
+  - materials_project
+  - nomad
+quality_checks:
+  - data_leakage
+  - composition_split
+  - duplicate_structure
+  - units_consistency
+metric_guidance:
+  - Report mean absolute error (MAE) with units.
+  - Report root mean squared error (RMSE) with units.
+  - Report calibrated predictive uncertainty and its coverage.

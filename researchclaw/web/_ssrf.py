@@ -6,8 +6,13 @@ import ipaddress
 import socket
 from urllib.parse import urlparse
 
+_WELL_KNOWN_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
 
 def _is_blocked_addr(addr: ipaddress._BaseAddress) -> bool:
+    if isinstance(addr, ipaddress.IPv6Address) and addr in _WELL_KNOWN_NAT64:
+        embedded_ipv4 = ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+        return not embedded_ipv4.is_global or _is_blocked_addr(embedded_ipv4)
     return (
         addr.is_private
         or addr.is_loopback

@@ -1,0 +1,7 @@
+interface:
+  display_name: "ResearchClaw"
+  short_description: "Run a durable Codex-native research workflow"
+  default_prompt: "Use $researchclaw to start or resume a durable research milestone."
+
+policy:
+  allow_implicit_invocation: false
