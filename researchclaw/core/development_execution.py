@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+import sys
 import tempfile
 import time
 from typing import Any
@@ -246,11 +247,31 @@ def _result_path(project: ResearchProject) -> Path:
     return project.root / "experiment" / "dev_results.json"
 
 
-def _load_numpy() -> Any:
+def _load_numpy(project_root: Path) -> Any:
+    project_root = project_root.resolve()
+    original_path = list(sys.path)
+    safe_path: list[str] = []
+    for entry in original_path:
+        try:
+            resolved = Path(entry or os.getcwd()).resolve()
+            resolved.relative_to(project_root)
+        except ValueError:
+            safe_path.append(entry)
+    sys.path[:] = safe_path
     try:
-        return importlib.import_module("numpy")
+        module = importlib.import_module("numpy")
     except ImportError as error:
         raise _DevelopmentExecutionError("numpy_unavailable") from error
+    finally:
+        sys.path[:] = original_path
+    module_file = getattr(module, "__file__", None)
+    if not isinstance(module_file, str):
+        raise _DevelopmentExecutionError("numpy_unavailable")
+    try:
+        Path(module_file).resolve().relative_to(project_root)
+    except ValueError:
+        return module
+    raise _DevelopmentExecutionError("numpy_unavailable")
 
 
 def _validate_finite_json(value: object) -> None:
@@ -459,9 +480,11 @@ def run_development_experiment(
             raise _DevelopmentExecutionError("invalid_max_seconds")
         started = clock()
 
-        def check_deadline() -> None:
-            if clock() - started > max_seconds:
+        def check_deadline() -> float:
+            observed = clock() - started
+            if observed > max_seconds:
                 raise _DevelopmentExecutionError("development_timeout")
+            return observed
 
         _status, validated = validate_development_input(
             project,
@@ -469,7 +492,7 @@ def run_development_experiment(
             record_event=False,
         )
         check_deadline()
-        np = _load_numpy()
+        np = _load_numpy(project.root)
         predictor_names = _predictor_names(validated)
         datasets = _dataset_rows(np, validated, predictor_names)
         check_deadline()
@@ -532,7 +555,17 @@ def run_development_experiment(
         }
         destination = _result_path(project)
         staged_result, result_sha256 = _stage_result_json(destination, result_payload)
-        check_deadline()
+        final_elapsed_seconds = check_deadline()
+        if final_elapsed_seconds != elapsed_seconds:
+            staged_result.unlink(missing_ok=True)
+            staged_result = None
+            result_payload["runtime"] = {
+                "elapsed_seconds": final_elapsed_seconds,
+                "max_seconds": max_seconds,
+            }
+            staged_result, result_sha256 = _stage_result_json(
+                destination, result_payload
+            )
         _commit_staged_result(staged_result, destination)
         staged_result = None
         event_log_for(project.root).append(
@@ -544,7 +577,7 @@ def run_development_experiment(
                     "input_manifest_sha256": validated.manifest_sha256,
                     "result_path": "experiment/dev_results.json",
                     "result_sha256": result_sha256,
-                    "elapsed_seconds": elapsed_seconds,
+                    "elapsed_seconds": final_elapsed_seconds,
                     "dataset_count": len(dataset_results),
                     "cell_count": len(validated.cell_rows),
                 },

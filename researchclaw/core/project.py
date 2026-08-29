@@ -159,6 +159,15 @@ class ResearchProject:
             store.save(state)
         return cls(root=root, state=state)
 
+    @classmethod
+    def open_readonly(cls, root: Path) -> "ResearchProject":
+        """Load persisted state without legacy normalization or other writes."""
+        root = Path(root)
+        state_path = root / ".researchclaw" / "state.json"
+        if not state_path.is_file():
+            raise ValueError(f"project state.json not found: {state_path}")
+        return cls(root=root, state=StateStore(state_path.parent).load())
+
     def status_dict(self) -> dict[str, object]:
         from .handoff import normalize_durable_project
         from .resource_planning import validated_execution_readiness

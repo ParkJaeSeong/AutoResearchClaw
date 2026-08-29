@@ -201,6 +201,54 @@ def test_execution_run_cli_completes_explicit_development_fixture(tmp_path, caps
     assert (project.root / "experiment/dev_results.json").exists()
 
 
+def test_development_run_wrong_stage_does_not_normalize_legacy_state(tmp_path, capsys):
+    project = ResearchProject.create(tmp_path / "project", "Formation energy", "materials_ai")
+    _remove_stage_ten_snapshot(project)
+    state_path = project.root / ".researchclaw/state.json"
+    before = state_path.read_bytes()
+
+    assert main([
+        "execution", "run", str(project.root),
+        "--input-manifest", "experiment/input_manifest.dev.json",
+        "--development", "--confirm-development-run", "--json",
+    ]) == 2
+
+    assert state_path.read_bytes() == before
+    assert "Stage 12" in capsys.readouterr().err
+
+
+def test_development_run_ignores_project_local_numpy_shadow(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+    marker = project.root / "numpy-shadow-executed"
+    (project.root / "numpy.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+        "raise ImportError('project shadow must not execute')\n",
+        encoding="utf-8",
+    )
+    repository_root = Path(__file__).resolve().parents[2]
+    environment = {**os.environ, "PYTHONPATH": str(repository_root)}
+
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "researchclaw.codex.cli", "execution", "run",
+            str(project.root), "--input-manifest", "experiment/input_manifest.dev.json",
+            "--development", "--confirm-development-run", "--json",
+        ],
+        cwd=project.root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not marker.exists()
+    assert json.loads(result.stdout)["readiness"] == "development_run_complete"
+
+
 def test_numpy_absence_is_bounded_to_development_execution_in_fresh_process(tmp_path):
     project, _ = build_stage_twelve_project(
         tmp_path / "project", readiness="needs_input"

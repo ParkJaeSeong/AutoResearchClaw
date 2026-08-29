@@ -545,7 +545,7 @@ def _validate_development_structure(
             raise ValueError("development feature cycle and cutoff must be integers") from error
         if cycle_index > cutoff_cycle:
             raise ValueError(f"development feature cutoff violated for cell: {cell_id}")
-        cycle_key = (cell_id, row[cycle_field])
+        cycle_key = (cell_id, str(cycle_index))
         if cycle_key in seen_cycles:
             raise ValueError(f"development cell-cycle is duplicated: {cell_id}")
         seen_cycles.add(cycle_key)

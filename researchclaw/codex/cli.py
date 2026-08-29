@@ -131,8 +131,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             project = ResearchProject.open(args.root)
             payload = build_foundation_report(project)
         elif args.command == "execution" and args.execution_command == "recheck":
-            project = ResearchProject.open(args.root)
             if args.development:
+                project = ResearchProject.open_readonly(args.root)
                 if args.input_manifest is None:
                     raise ValueError("--development requires --input-manifest")
                 payload = recheck_development_input(
@@ -142,11 +142,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif args.input_manifest is not None:
                 raise ValueError("--input-manifest requires --development")
             else:
+                project = ResearchProject.open(args.root)
                 payload = recheck_execution_readiness(project).to_dict()
         elif args.command == "execution" and args.execution_command == "run":
             if args.max_seconds <= 0:
                 raise ValueError("--max-seconds must be a positive integer")
-            project = ResearchProject.open(args.root)
+            project = ResearchProject.open_readonly(args.root)
             payload = run_development_experiment(
                 project,
                 args.input_manifest,

@@ -287,6 +287,37 @@ def test_timeout_during_result_staging_preserves_prior_result(tmp_path):
     }
 
 
+def test_result_and_event_use_final_deadline_observation(tmp_path, monkeypatch):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+    now = [0.0]
+    original_stage = development_execution._stage_result_json
+
+    def stage_after_time_advances(destination, payload):
+        now[0] = 5.0
+        return original_stage(destination, payload)
+
+    monkeypatch.setattr(
+        development_execution, "_stage_result_json", stage_after_time_advances
+    )
+
+    run_development_experiment(
+        project,
+        "experiment/input_manifest.dev.json",
+        max_seconds=10,
+        clock=lambda: now[0],
+    )
+
+    result = json.loads(
+        (project.root / "experiment/dev_results.json").read_text(encoding="utf-8")
+    )
+    event = _execution_event(project)
+    assert result["runtime"]["elapsed_seconds"] == 5.0
+    assert event["payload"]["elapsed_seconds"] == 5.0
+
+
 def test_completion_event_contains_only_finalized_artifact_metadata(tmp_path):
     project, _ = build_stage_twelve_project(
         tmp_path / "project", readiness="needs_input"
@@ -309,7 +340,7 @@ def test_completion_event_contains_only_finalized_artifact_metadata(tmp_path):
         "input_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
         "result_path": "experiment/dev_results.json",
         "result_sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
-        "elapsed_seconds": 0.5,
+        "elapsed_seconds": 0.6,
         "dataset_count": 1,
         "cell_count": 8,
     }

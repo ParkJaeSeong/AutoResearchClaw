@@ -415,6 +415,25 @@ def test_development_recheck_rejects_feature_cutoff_violation(
         )
 
 
+def test_development_recheck_rejects_integer_equivalent_duplicate_cycles(
+    stage_12_missing_project,
+):
+    project, _ = stage_12_missing_project
+    manifest_path = write_runnable_development_fixture(project)
+    features = project.root / "experiment/dev_data/features.dev.csv"
+    lines = features.read_text(encoding="utf-8").splitlines()
+    lines[2] = lines[2].replace(",2,", ",01,", 1)
+    features.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest = _load_json(manifest_path)
+    manifest["features"]["sha256"] = hashlib.sha256(features.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cell-cycle is duplicated"):
+        importlib.import_module("researchclaw.core.execution_gate").recheck_development_input(
+            project, "experiment/input_manifest.dev.json"
+        )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
