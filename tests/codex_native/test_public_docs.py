@@ -11,6 +11,8 @@ SUPPORTED_BOUNDARY = re.compile(
     re.IGNORECASE,
 )
 PUBLIC_STAGE_TEN_BOUNDARIES = (
+    r"stage[-\s]?9(?:\s+validation-design)?(?:\s+is\s+an)?\s+approval\s+gate",
+    r"(?:after|for)\s+an\s+approved\s+computational\s+design,?\s+stage\s+10",
     r"stage\s+10\s+authors?\s+and\s+statically\s+validat",
     r"does not execute (?:it|the package)",
     r"policy-evidence and laboratory stage 10 packages are unsupported",
