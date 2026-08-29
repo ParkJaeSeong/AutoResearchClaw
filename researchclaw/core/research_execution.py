@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
+from types import MappingProxyType
 
 from .approval import ApprovalRecord, approval_matches_state, load_approval_record
 from .execution_gate import (
@@ -71,6 +73,15 @@ class ExecutionPreparationStatus:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class ValidatedResearchResult:
+    result_path: str
+    result_sha256: str
+    payload: Mapping[str, object]
+    metric_count: int
+    input_count: int
+
+
 def _sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
@@ -105,7 +116,9 @@ def _load_current_stage_twelve_approval(project: ResearchProject) -> ApprovalRec
     return record
 
 
-def _load_current_resource_plan(project: ResearchProject) -> dict[str, object]:
+def _load_current_resource_plan(
+    project: ResearchProject, *, allow_result: bool = False
+) -> dict[str, object]:
     """Reopen and revalidate the persisted Stage-11 resource plan."""
     current = _current_project(project)
     try:
@@ -113,6 +126,8 @@ def _load_current_resource_plan(project: ResearchProject) -> dict[str, object]:
         _plan, issues = validate_stage_eleven(current, raw)
     except (OSError, ValueError, TypeError) as error:
         raise ValueError("execution_prerequisites_changed") from error
+    if allow_result:
+        issues = tuple(issue for issue in issues if issue.code != "preexisting_result")
     if issues:
         raise ValueError("execution_prerequisites_changed")
     if (
@@ -220,11 +235,13 @@ def _contract_id_payload(contract: Mapping[str, object]) -> dict[str, object]:
     }
 
 
-def _build_execution_contract(project: ResearchProject) -> dict[str, object]:
+def _build_execution_contract(
+    project: ResearchProject, *, allow_result: bool = False
+) -> dict[str, object]:
     """Return a closed contract whose identity binds the current approved inputs."""
     current = _current_project(project)
     hashes = stage_twelve_artifact_hashes(current)
-    plan = _load_current_resource_plan(current)
+    plan = _load_current_resource_plan(current, allow_result=allow_result)
     command = plan.get("deferred_command")
     raw_prohibitions = plan.get("prohibitions")
     if not isinstance(command, str) or not command or not isinstance(raw_prohibitions, Mapping):
@@ -272,7 +289,10 @@ def _build_execution_contract(project: ResearchProject) -> dict[str, object]:
 
 
 def _existing_current_contract(
-    project: ResearchProject, candidate: Mapping[str, object]
+    project: ResearchProject,
+    candidate: Mapping[str, object],
+    *,
+    stale_category: bool = False,
 ) -> bytes | None:
     path = project.root / EXECUTION_CONTRACT_PATH
     if not path.exists():
@@ -302,14 +322,20 @@ def _existing_current_contract(
     if not isinstance(existing.get("created_at"), str) or not existing["created_at"]:
         raise ValueError("execution_contract_invalid")
     if existing.get("contract_id") != candidate.get("contract_id"):
-        raise ValueError("execution_contract_invalid")
+        raise ValueError(
+            "execution_contract_stale" if stale_category else "execution_contract_invalid"
+        )
     if existing.get("contract_id") != _sha256(
         _canonical_json(_contract_id_payload(existing))
     ):
         raise ValueError("execution_contract_invalid")
     for field, value in candidate.items():
         if field != "created_at" and existing.get(field) != value:
-            raise ValueError("execution_contract_invalid")
+            raise ValueError(
+                "execution_contract_stale"
+                if stale_category
+                else "execution_contract_invalid"
+            )
     return payload
 
 
@@ -324,6 +350,143 @@ def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict[str, obje
 
 def _reject_json_constant(_value: str) -> object:
     raise ValueError("non-finite JSON constant")
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _is_non_negative_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _is_finite_number(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _expected_isolation_key(
+    project: ResearchProject, contract: Mapping[str, object]
+) -> str:
+    bindings = contract.get("bindings")
+    config_binding = bindings.get("config") if isinstance(bindings, Mapping) else None
+    if not isinstance(config_binding, Mapping):
+        raise ValueError("execution_contract_invalid")
+    config_path = config_binding.get("path")
+    config_digest = config_binding.get("sha256")
+    if not isinstance(config_path, str) or not isinstance(config_digest, str):
+        raise ValueError("execution_contract_invalid")
+    try:
+        config_bytes = _read_project_file_snapshot(project.root, config_path)
+        config = json.loads(
+            config_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("execution_contract_stale") from error
+    if _sha256(config_bytes) != config_digest or not isinstance(config, Mapping):
+        raise ValueError("execution_contract_stale")
+    split_strategy = config.get("split_strategy")
+    isolation_key = (
+        split_strategy.get("isolation_key")
+        if isinstance(split_strategy, Mapping)
+        else None
+    )
+    if not isinstance(isolation_key, str) or not isolation_key:
+        raise ValueError("execution_contract_stale")
+    return isolation_key
+
+
+def _validate_result_metrics(metrics: object) -> int:
+    if not isinstance(metrics, dict) or not metrics:
+        raise ValueError("research_result_metrics_invalid")
+    for metric_key, metric in metrics.items():
+        if (
+            not isinstance(metric_key, str)
+            or not metric_key
+            or not isinstance(metric, dict)
+            or set(metric) != {"name", "value", "unit"}
+        ):
+            raise ValueError("research_result_metrics_invalid")
+        name = metric["name"]
+        unit = metric["unit"]
+        value = metric["value"]
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(unit, str)
+            or not unit
+            or not _is_finite_number(value)
+        ):
+            raise ValueError("research_result_metrics_invalid")
+    return len(metrics)
+
+
+def _validate_result_splits(split_summary: object, isolation_key: str) -> None:
+    expected_split_fields = {
+        "isolation_key",
+        "roles",
+        "cell_overlap_count",
+        "group_overlap_count",
+        "leakage_count",
+    }
+    if not isinstance(split_summary, dict) or set(split_summary) != expected_split_fields:
+        raise ValueError("research_result_split_invalid")
+    roles = split_summary["roles"]
+    if (
+        split_summary["isolation_key"] != isolation_key
+        or not isinstance(roles, dict)
+        or set(roles) != {"train", "validation", "calibration", "test"}
+    ):
+        raise ValueError("research_result_split_invalid")
+    for role in roles.values():
+        if (
+            not isinstance(role, dict)
+            or set(role) != {"cell_count", "group_count"}
+            or not _is_non_negative_integer(role["cell_count"])
+            or not _is_non_negative_integer(role["group_count"])
+        ):
+            raise ValueError("research_result_split_invalid")
+    leakage_values = (
+        split_summary["cell_overlap_count"],
+        split_summary["group_overlap_count"],
+        split_summary["leakage_count"],
+    )
+    if not all(_is_non_negative_integer(value) for value in leakage_values):
+        raise ValueError("research_result_split_invalid")
+    if any(value != 0 for value in leakage_values):
+        raise ValueError("research_result_leakage_detected")
+
+
+def _validate_result_runtime(runtime: object, approved_maximum: object) -> None:
+    if not isinstance(runtime, dict) or set(runtime) != {
+        "elapsed_seconds",
+        "maximum_seconds",
+    }:
+        raise ValueError("research_result_schema_invalid")
+    elapsed = runtime["elapsed_seconds"]
+    maximum = runtime["maximum_seconds"]
+    if (
+        not _is_finite_number(elapsed)
+        or elapsed < 0
+        or not isinstance(maximum, int)
+        or isinstance(maximum, bool)
+        or maximum <= 0
+        or not isinstance(approved_maximum, int)
+        or isinstance(approved_maximum, bool)
+        or approved_maximum <= 0
+        or elapsed > maximum
+        or maximum > approved_maximum
+    ):
+        raise ValueError("research_result_schema_invalid")
 
 
 def _record_contract_artifact(project: ResearchProject, payload: bytes) -> None:
@@ -368,4 +531,109 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
         result_path=RESEARCH_RESULT_PATH,
         contract_path=EXECUTION_CONTRACT_PATH,
         contract_sha256=_sha256(existing),
+    )
+
+
+def validate_research_result(
+    project: ResearchProject, result_path: str
+) -> ValidatedResearchResult:
+    """Return a validated result snapshot without mutating project state or events."""
+    if result_path == "experiment/dev_results.json":
+        raise ValueError("development_result_not_registerable")
+    if result_path != RESEARCH_RESULT_PATH:
+        raise ValueError("research_result_file_invalid")
+    current = _current_project(project)
+    _load_current_stage_twelve_approval(current)
+    resource_plan = _load_current_resource_plan(current, allow_result=True)
+    contract_bytes = _existing_current_contract(
+        current,
+        _build_execution_contract(current, allow_result=True),
+        stale_category=True,
+    )
+    if contract_bytes is None:
+        raise ValueError("execution_contract_invalid")
+    contract = json.loads(contract_bytes.decode("utf-8"))
+    try:
+        result_bytes = _read_project_file_snapshot(current.root, result_path)
+    except (OSError, TypeError, ValueError) as error:
+        raise ValueError("research_result_file_invalid") from error
+    try:
+        payload = json.loads(
+            result_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("research_result_schema_invalid") from error
+
+    root_fields = {
+        "schema_version",
+        "project_id",
+        "execution_contract",
+        "development_only",
+        "evidence_eligible",
+        "status",
+        "metrics",
+        "split_summary",
+        "provenance",
+        "runtime",
+    }
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != root_fields
+        or not isinstance(payload["schema_version"], int)
+        or payload["schema_version"] != 1
+        or isinstance(payload["schema_version"], bool)
+    ):
+        raise ValueError("research_result_schema_invalid")
+    if payload["development_only"] is not False or payload["evidence_eligible"] is not True:
+        raise ValueError("development_result_not_registerable")
+    if payload["project_id"] != current.state.project_id:
+        raise ValueError("research_result_project_mismatch")
+    if payload["status"] != "completed":
+        raise ValueError("research_result_schema_invalid")
+
+    result_contract = payload["execution_contract"]
+    if not isinstance(result_contract, dict) or set(result_contract) != {
+        "path",
+        "contract_id",
+        "sha256",
+    }:
+        raise ValueError("research_result_schema_invalid")
+    if (
+        result_contract["path"] != EXECUTION_CONTRACT_PATH
+        or result_contract["contract_id"] != contract.get("contract_id")
+        or result_contract["sha256"] != _sha256(contract_bytes)
+    ):
+        raise ValueError("research_result_contract_mismatch")
+
+    metric_count = _validate_result_metrics(payload["metrics"])
+    _validate_result_splits(
+        payload["split_summary"], _expected_isolation_key(current, contract)
+    )
+    provenance = payload["provenance"]
+    if (
+        not isinstance(provenance, dict)
+        or set(provenance) != {"bindings", "inputs"}
+        or provenance["bindings"] != contract.get("bindings")
+        or provenance["inputs"] != contract.get("inputs")
+    ):
+        raise ValueError("research_result_provenance_mismatch")
+    budget = resource_plan.get("budget")
+    approved_maximum = (
+        budget.get("total_estimated_duration_seconds")
+        if isinstance(budget, Mapping)
+        else None
+    )
+    _validate_result_runtime(payload["runtime"], approved_maximum)
+
+    inputs = contract.get("inputs")
+    frozen_payload = _freeze_json(payload)
+    assert isinstance(frozen_payload, Mapping)
+    return ValidatedResearchResult(
+        result_path=result_path,
+        result_sha256=_sha256(result_bytes),
+        payload=frozen_payload,
+        metric_count=metric_count,
+        input_count=len(inputs) if isinstance(inputs, list) else 0,
     )

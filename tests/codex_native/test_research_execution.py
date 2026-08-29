@@ -1,6 +1,7 @@
 import hashlib
 import json
 import runpy
+from copy import deepcopy
 from dataclasses import replace
 
 import pytest
@@ -11,8 +12,345 @@ from researchclaw.core.research_execution import (
     EXECUTION_CONTRACT_PATH,
     _build_execution_contract,
     prepare_research_execution,
+    validate_research_result,
 )
-from tests.codex_native.helpers import build_approved_stage_twelve_project
+from tests.codex_native.helpers import (
+    build_approved_stage_twelve_project,
+    load_execution_contract,
+    write_contract_bound_research_result,
+)
+
+
+def test_validate_research_result_accepts_exact_binding_without_mutation(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+
+    validated = validate_research_result(project, "experiment/results.json")
+
+    assert validated.result_sha256 == hashlib.sha256(result_path.read_bytes()).hexdigest()
+    assert validated.metric_count == 1
+    assert validated.input_count == 1
+    with pytest.raises(TypeError):
+        validated.payload["status"] = "failed"
+    with pytest.raises(TypeError):
+        validated.payload["metrics"]["primary"]["value"] = 0
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+
+
+_INVALID_RESULT_CASES = (
+    ("extra_root", "research_result_schema_invalid"),
+    ("missing_root", "research_result_schema_invalid"),
+    ("extra_contract_key", "research_result_schema_invalid"),
+    ("missing_contract_key", "research_result_schema_invalid"),
+    ("extra_metric_key", "research_result_metrics_invalid"),
+    ("missing_metric_key", "research_result_metrics_invalid"),
+    ("extra_split_key", "research_result_split_invalid"),
+    ("missing_split_key", "research_result_split_invalid"),
+    ("extra_role_key", "research_result_split_invalid"),
+    ("missing_role_key", "research_result_split_invalid"),
+    ("extra_role_count_key", "research_result_split_invalid"),
+    ("missing_role_count_key", "research_result_split_invalid"),
+    ("extra_provenance_key", "research_result_provenance_mismatch"),
+    ("missing_provenance_key", "research_result_provenance_mismatch"),
+    ("extra_runtime_key", "research_result_schema_invalid"),
+    ("missing_runtime_key", "research_result_schema_invalid"),
+    ("float_schema_version", "research_result_schema_invalid"),
+    ("nan_metric", "research_result_schema_invalid"),
+    ("inf_runtime", "research_result_schema_invalid"),
+    ("empty_metrics", "research_result_metrics_invalid"),
+    ("partial_status", "research_result_schema_invalid"),
+    ("failed_status", "research_result_schema_invalid"),
+    ("development_flag", "development_result_not_registerable"),
+    ("non_evidence_flag", "development_result_not_registerable"),
+    ("wrong_project", "research_result_project_mismatch"),
+    ("wrong_contract_id", "research_result_contract_mismatch"),
+    ("wrong_contract_hash", "research_result_contract_mismatch"),
+    ("changed_bindings", "research_result_provenance_mismatch"),
+    ("changed_inputs", "research_result_provenance_mismatch"),
+    ("negative_cell_count", "research_result_split_invalid"),
+    ("missing_split_role", "research_result_split_invalid"),
+    ("wrong_isolation_key", "research_result_split_invalid"),
+    ("cell_overlap", "research_result_leakage_detected"),
+    ("group_overlap", "research_result_leakage_detected"),
+    ("leakage", "research_result_leakage_detected"),
+    ("boolean_metric", "research_result_metrics_invalid"),
+    ("empty_metric_name", "research_result_metrics_invalid"),
+    ("negative_elapsed", "research_result_schema_invalid"),
+    ("huge_elapsed", "research_result_schema_invalid"),
+    ("elapsed_over_maximum", "research_result_schema_invalid"),
+    ("zero_maximum", "research_result_schema_invalid"),
+    ("budget_mismatch", "research_result_schema_invalid"),
+)
+
+
+def _mutate_research_result(payload, case):
+    mutated = deepcopy(payload)
+    if case == "extra_root":
+        mutated["unexpected"] = True
+    elif case == "missing_root":
+        del mutated["status"]
+    elif case == "extra_contract_key":
+        mutated["execution_contract"]["unexpected"] = True
+    elif case == "missing_contract_key":
+        del mutated["execution_contract"]["sha256"]
+    elif case == "extra_metric_key":
+        mutated["metrics"]["primary"]["unexpected"] = True
+    elif case == "missing_metric_key":
+        del mutated["metrics"]["primary"]["unit"]
+    elif case == "extra_split_key":
+        mutated["split_summary"]["unexpected"] = True
+    elif case == "missing_split_key":
+        del mutated["split_summary"]["isolation_key"]
+    elif case == "extra_role_key":
+        mutated["split_summary"]["roles"]["holdout"] = {
+            "cell_count": 1,
+            "group_count": 1,
+        }
+    elif case == "missing_role_key":
+        del mutated["split_summary"]["roles"]["test"]
+    elif case == "extra_role_count_key":
+        mutated["split_summary"]["roles"]["train"]["unexpected"] = 0
+    elif case == "missing_role_count_key":
+        del mutated["split_summary"]["roles"]["train"]["group_count"]
+    elif case == "extra_provenance_key":
+        mutated["provenance"]["unexpected"] = True
+    elif case == "missing_provenance_key":
+        del mutated["provenance"]["inputs"]
+    elif case == "extra_runtime_key":
+        mutated["runtime"]["unexpected"] = True
+    elif case == "missing_runtime_key":
+        del mutated["runtime"]["maximum_seconds"]
+    elif case == "float_schema_version":
+        mutated["schema_version"] = 1.0
+    elif case == "nan_metric":
+        mutated["metrics"]["primary"]["value"] = float("nan")
+    elif case == "inf_runtime":
+        mutated["runtime"]["elapsed_seconds"] = float("inf")
+    elif case == "empty_metrics":
+        mutated["metrics"] = {}
+    elif case == "partial_status":
+        mutated["status"] = "partial"
+    elif case == "failed_status":
+        mutated["status"] = "failed"
+    elif case == "development_flag":
+        mutated["development_only"] = True
+    elif case == "non_evidence_flag":
+        mutated["evidence_eligible"] = False
+    elif case == "wrong_project":
+        mutated["project_id"] = "other-project"
+    elif case == "wrong_contract_id":
+        mutated["execution_contract"]["contract_id"] = "0" * 64
+    elif case == "wrong_contract_hash":
+        mutated["execution_contract"]["sha256"] = "0" * 64
+    elif case == "changed_bindings":
+        mutated["provenance"]["bindings"]["design"]["sha256"] = "0" * 64
+    elif case == "changed_inputs":
+        mutated["provenance"]["inputs"][0]["sha256"] = "0" * 64
+    elif case == "negative_cell_count":
+        mutated["split_summary"]["roles"]["train"]["cell_count"] = -1
+    elif case == "missing_split_role":
+        del mutated["split_summary"]["roles"]["calibration"]
+    elif case == "wrong_isolation_key":
+        mutated["split_summary"]["isolation_key"] = "condition_id"
+    elif case == "cell_overlap":
+        mutated["split_summary"]["cell_overlap_count"] = 1
+    elif case == "group_overlap":
+        mutated["split_summary"]["group_overlap_count"] = 1
+    elif case == "leakage":
+        mutated["split_summary"]["leakage_count"] = 1
+    elif case == "boolean_metric":
+        mutated["metrics"]["primary"]["value"] = True
+    elif case == "empty_metric_name":
+        mutated["metrics"]["primary"]["name"] = ""
+    elif case == "negative_elapsed":
+        mutated["runtime"]["elapsed_seconds"] = -0.1
+    elif case == "huge_elapsed":
+        mutated["runtime"]["elapsed_seconds"] = 10**1000
+    elif case == "elapsed_over_maximum":
+        mutated["runtime"]["elapsed_seconds"] = 3.0
+    elif case == "zero_maximum":
+        mutated["runtime"]["maximum_seconds"] = 0
+    elif case == "budget_mismatch":
+        mutated["runtime"]["maximum_seconds"] = 3
+    else:  # pragma: no cover - guarded by the literal parameter table
+        raise AssertionError(case)
+    return mutated
+
+
+@pytest.mark.parametrize(
+    ("case", "category"),
+    _INVALID_RESULT_CASES,
+    ids=[case for case, _category in _INVALID_RESULT_CASES],
+)
+def test_validate_research_result_rejects_invalid_payload_without_mutation(
+    tmp_path, case, category
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    result_path.write_text(
+        json.dumps(_mutate_research_result(payload, case), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    controls = {
+        relative: (project.root / relative).read_bytes()
+        for relative in (
+            ".researchclaw/state.json",
+            "evaluation/events.jsonl",
+            "approvals/stage-12.json",
+            "experiment/resources.json",
+            "experiment/execution_contract.json",
+            "experiment/results.json",
+        )
+    }
+
+    with pytest.raises(ValueError, match=f"^{category}$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert {
+        relative: (project.root / relative).read_bytes() for relative in controls
+    } == controls
+
+
+@pytest.mark.parametrize(
+    ("result_path", "category"),
+    (
+        ("/tmp/results.json", "research_result_file_invalid"),
+        ("../results.json", "research_result_file_invalid"),
+        ("experiment/../results.json", "research_result_file_invalid"),
+        ("experiment/other.json", "research_result_file_invalid"),
+        ("experiment/dev_results.json", "development_result_not_registerable"),
+    ),
+)
+def test_validate_research_result_rejects_noncanonical_paths_before_reading(
+    tmp_path, result_path, category
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+
+    with pytest.raises(ValueError, match=f"^{category}$"):
+        validate_research_result(project, result_path)
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+
+
+@pytest.mark.parametrize("file_case", ("symlink", "directory"))
+def test_validate_research_result_rejects_non_regular_result_files(tmp_path, file_case):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    result_path = project.root / "experiment/results.json"
+    if file_case == "symlink":
+        target = tmp_path / "outside.json"
+        target.write_text("{}\n", encoding="utf-8")
+        result_path.symlink_to(target)
+    else:
+        result_path.mkdir()
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="^research_result_file_invalid$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    if file_case == "symlink":
+        assert result_path.is_symlink()
+        assert target.read_bytes() == b"{}\n"
+    else:
+        assert result_path.is_dir()
+
+
+def test_validate_research_result_rejects_duplicate_json_keys(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    result_path.write_bytes(
+        result_path.read_bytes().replace(b'"status": "completed"', b'"status": "partial", "status": "completed"')
+    )
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    result_before = result_path.read_bytes()
+
+    with pytest.raises(ValueError, match="^research_result_schema_invalid$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert result_path.read_bytes() == result_before
+
+
+def test_validate_research_result_rejects_unregistered_contract(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    current = ResearchProject.open(project.root)
+    current.persist_state(
+        replace(
+            current.state,
+            artifacts={
+                path: artifact
+                for path, artifact in current.state.artifacts.items()
+                if path != EXECUTION_CONTRACT_PATH
+            },
+        )
+    )
+    write_contract_bound_research_result(project, contract)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="^execution_contract_invalid$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+
+
+def test_validate_research_result_rejects_stale_registered_contract(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    input_path = project.root / contract["inputs"][0]["path"]
+    input_path.write_bytes(b"newly approved research input\n")
+    input_digest = hashlib.sha256(input_path.read_bytes()).hexdigest()
+    resources_path = project.root / "experiment/resources.json"
+    resources = json.loads(resources_path.read_text(encoding="utf-8"))
+    resources["inputs"][0]["size_bytes"] = input_path.stat().st_size
+    resources["inputs"][0]["sha256"] = input_digest
+    resources["inputs"][0]["exists"] = True
+    resources["inputs"][0]["is_regular_file"] = True
+    resources_path.write_text(json.dumps(resources, sort_keys=True) + "\n", encoding="utf-8")
+    resource_bytes = resources_path.read_bytes()
+    resource_digest = hashlib.sha256(resource_bytes).hexdigest()
+    current = ResearchProject.open(project.root)
+    current.persist_state(
+        replace(
+            current.state,
+            artifacts={
+                **current.state.artifacts,
+                "experiment/resources.json": ArtifactRef(
+                    path="experiment/resources.json",
+                    sha256=resource_digest,
+                    size=len(resource_bytes),
+                ),
+            },
+        )
+    )
+    approval_path = project.root / "approvals/stage-12.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["artifact_hashes"]["experiment/resources.json"] = resource_digest
+    approval_path.write_text(json.dumps(approval, sort_keys=True) + "\n", encoding="utf-8")
+    write_contract_bound_research_result(project, contract)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="^execution_contract_stale$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
 
 
 def test_prepare_run_writes_bound_contract_without_executing_project_code(tmp_path):

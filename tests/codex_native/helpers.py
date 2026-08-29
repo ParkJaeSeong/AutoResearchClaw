@@ -670,6 +670,68 @@ def build_approved_stage_twelve_project(
     return ResearchProject.open(root)
 
 
+def load_execution_contract(root: Path) -> dict[str, object]:
+    """Load the canonical execution contract written by preparation."""
+    return json.loads(
+        (root / "experiment/execution_contract.json").read_text(encoding="utf-8")
+    )
+
+
+def write_contract_bound_research_result(
+    project: ResearchProject,
+    contract: dict[str, object],
+    **overrides: object,
+) -> Path:
+    """Write a canonical result bound to the supplied execution contract."""
+    contract_path = project.root / "experiment/execution_contract.json"
+    resource_plan = json.loads(
+        (project.root / "experiment/resources.json").read_text(encoding="utf-8")
+    )
+    maximum_seconds = resource_plan["budget"]["total_estimated_duration_seconds"]
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "execution_contract": {
+            "path": "experiment/execution_contract.json",
+            "contract_id": contract["contract_id"],
+            "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {
+            "primary": {"name": "mae_cycles", "value": 2.5, "unit": "cycles"}
+        },
+        "split_summary": {
+            "isolation_key": "cell_id",
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "bindings": contract["bindings"],
+            "inputs": contract["inputs"],
+        },
+        "runtime": {
+            "elapsed_seconds": min(1.0, float(maximum_seconds)),
+            "maximum_seconds": maximum_seconds,
+        },
+    }
+    payload.update(overrides)
+    result_path = project.root / "experiment/results.json"
+    result_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
 def _write_marker_execution_fixture(root: Path) -> dict[str, str]:
     """Inject a test-only canonical Stage-10 scaffold before its normal validation."""
     main_path = root / "experiment/code/main.py"
