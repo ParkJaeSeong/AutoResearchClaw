@@ -9,6 +9,52 @@ from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
 
 
+def valid_resource_plan(project, observation, *, readiness="ready_for_execution"):
+    """Return the smallest structurally valid Stage-11 resource plan."""
+    return {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "bindings": {},
+        "saved_hardware_profile": {},
+        "hardware_observation": observation.to_dict(),
+        "inputs": [],
+        "tasks": [
+            {
+                "task_id": "run_experiment",
+                "kind": "experiment",
+                "depends_on": [],
+                "priority": 1,
+                "cpu_count": 1,
+                "memory_bytes": 1,
+                "gpu_count": 0,
+                "temporary_disk_bytes": 1,
+                "estimated_duration_seconds": 1,
+            }
+        ],
+        "budget": {
+            "max_parallel_tasks": 1,
+            "peak_cpu_count": 1,
+            "peak_memory_bytes": 1,
+            "peak_gpu_count": 0,
+            "peak_temporary_disk_bytes": 1,
+            "total_estimated_duration_seconds": 1,
+        },
+        "deferred_command": "python experiment/code/main.py --config experiment/code/config.json",
+        "result_path": "experiment/results.json",
+        "prohibitions": {
+            "network_access": False,
+            "downloads": False,
+            "package_installation": False,
+            "external_llm_calls": False,
+            "nested_agent_processes": False,
+            "generated_code_execution": False,
+        },
+        "warnings": [],
+        "unmet_prerequisites": [],
+        "readiness": readiness,
+    }
+
+
 def run_cli(*args: str) -> int:
     return main(list(args))
 
