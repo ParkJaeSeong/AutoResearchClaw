@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import platform
-import re
 import shutil
 import stat
 from types import MappingProxyType
@@ -107,7 +106,6 @@ _REQUIRED_BINDINGS = MappingProxyType(
         "hardware_profile": "scope/hardware_profile.json",
     }
 )
-_ACTIONABLE_PREREQUISITE = re.compile(r"^[^\s].*\s+.*[.!?]$")
 
 
 @dataclass(frozen=True)
@@ -519,6 +517,13 @@ def _validate_budget(
             "budget.max_parallel_tasks",
             "max_parallel_tasks must be exactly 1",
         )
+    if budget.peak_gpu_count > 1:
+        _issue(
+            issues,
+            "unsupported_gpu_count",
+            "budget.peak_gpu_count",
+            "passive GPU availability can support at most one declared GPU",
+        )
     if not tasks:
         return
     expected_budget = {
@@ -697,8 +702,10 @@ def _hardware_drift_warnings(plan: ResourcePlan) -> tuple[str, ...]:
     return tuple(sorted(warnings))
 
 
-def _hardware_prerequisites(plan: ResourcePlan) -> tuple[str, ...]:
-    observation = plan.hardware_observation
+def _hardware_prerequisites(
+    plan: ResourcePlan, current: HardwareObservation
+) -> tuple[str, ...]:
+    observation = current
     budget = plan.budget
     prerequisites: list[str] = []
     if observation.logical_cpu_count < budget.peak_cpu_count:
@@ -807,7 +814,7 @@ def validate_stage_eleven(
             )
         )
     else:
-        if saved_profile != dict(plan.saved_hardware_profile):
+        if _freeze_json(saved_profile) != plan.saved_hardware_profile:
             issues.append(
                 _validation_issue(
                     "saved_profile_mismatch",
@@ -844,7 +851,7 @@ def validate_stage_eleven(
                 "declared free disk exceeds the current passive observation",
             )
         )
-    if current.gpu_available is not None and observation.gpu_available != current.gpu_available:
+    if observation.gpu_available != current.gpu_available:
         issues.append(
             _validation_issue(
                 "hardware_observation_mismatch",
@@ -873,7 +880,7 @@ def validate_stage_eleven(
             )
         )
 
-    prerequisites = list(_hardware_prerequisites(plan))
+    prerequisites = list(_hardware_prerequisites(plan, current))
     for index, input_fact in enumerate(plan.inputs):
         base_path = f"inputs[{index}]"
         if input_fact.license_status not in _LICENSE_VALUES:
@@ -918,26 +925,23 @@ def validate_stage_eleven(
                         "declared input fact does not match the current filesystem",
                     )
                 )
-        if input_fact.required and (
-            not exists
-            or not is_regular
-            or input_fact.license_status == "unconfirmed"
-        ):
-            prerequisites.append(input_fact.preparation_note)
+        if input_fact.required:
+            if not exists:
+                prerequisites.append(
+                    f"Provide required input file at {input_fact.path}."
+                )
+            elif not is_regular:
+                prerequisites.append(
+                    f"Replace {input_fact.path} with a regular input file."
+                )
+            if input_fact.license_status == "unconfirmed":
+                prerequisites.append(
+                    "Confirm license authorization for required input "
+                    f"{input_fact.path}."
+                )
 
     expected_prerequisites = tuple(sorted(set(prerequisites)))
-    prerequisite_entries_are_closed = (
-        plan.unmet_prerequisites == tuple(sorted(set(plan.unmet_prerequisites)))
-        and all(
-            value == value.strip()
-            and _ACTIONABLE_PREREQUISITE.fullmatch(value) is not None
-            for value in plan.unmet_prerequisites
-        )
-    )
-    if (
-        not prerequisite_entries_are_closed
-        or plan.unmet_prerequisites != expected_prerequisites
-    ):
+    if plan.unmet_prerequisites != expected_prerequisites:
         issues.append(
             _validation_issue(
                 "unmet_prerequisites_mismatch",

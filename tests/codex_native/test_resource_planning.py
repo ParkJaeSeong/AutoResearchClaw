@@ -1,11 +1,12 @@
 import copy
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from researchclaw.core.models import StageStatus
+from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.resource_planning import (
     HardwareObservation,
@@ -27,6 +28,10 @@ _BINDING_PATHS = {
     "config": "experiment/code/config.json",
     "hardware_profile": "scope/hardware_profile.json",
 }
+_MISSING_INPUT_PREREQUISITES = [
+    "Confirm license authorization for required input data/input.csv.",
+    "Provide required input file at data/input.csv.",
+]
 
 
 def _sha256(path: Path) -> str:
@@ -94,7 +99,7 @@ def missing_plan(stage_11_project):
     )
     plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
     plan["budget"]["total_estimated_duration_seconds"] = 2
-    plan["unmet_prerequisites"] = ["Provide the licensed input at data/input.csv."]
+    plan["unmet_prerequisites"] = list(_MISSING_INPUT_PREREQUISITES)
     return plan
 
 
@@ -427,6 +432,7 @@ def test_stage_eleven_requires_truthful_hardware_prerequisites(
     budget_field,
     observation_field,
     value,
+    monkeypatch,
 ):
     ready_plan["hardware_observation"][observation_field] = value
     required = 2 if budget_field != "peak_gpu_count" else 1
@@ -439,6 +445,11 @@ def test_stage_eleven_requires_truthful_hardware_prerequisites(
         }[budget_field]
     ] = required
     ready_plan["budget"][budget_field] = required
+    current = HardwareObservation(**ready_plan["hardware_observation"])
+    monkeypatch.setattr(
+        "researchclaw.core.resource_planning.observe_local_hardware",
+        lambda _root: current,
+    )
 
     _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
 
@@ -481,3 +492,100 @@ def test_stage_eleven_rejects_saved_hardware_profile_drift(
     _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
 
     assert "saved_profile_mismatch" in {issue.code for issue in issues}
+
+
+def test_stage_eleven_never_trusts_plan_authored_gpu_availability(
+    stage_11_project, ready_plan
+):
+    ready_plan["hardware_observation"]["gpu_available"] = True
+    ready_plan["tasks"][0]["gpu_count"] = 1
+    ready_plan["budget"]["peak_gpu_count"] = 1
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+    codes = {issue.code for issue in issues}
+
+    assert "hardware_observation_mismatch" in codes
+    assert "readiness_mismatch" in codes
+
+
+def test_stage_eleven_records_unknown_single_gpu_as_unmet(
+    stage_11_project, ready_plan
+):
+    ready_plan["tasks"][0]["gpu_count"] = 1
+    ready_plan["budget"]["peak_gpu_count"] = 1
+    ready_plan["readiness"] = "needs_input"
+    ready_plan["unmet_prerequisites"] = ["Provide at least 1 available GPU."]
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert issues == ()
+
+
+def test_closed_plan_rejects_gpu_counts_the_passive_boolean_cannot_prove(
+    resource_plan,
+):
+    resource_plan["tasks"][0]["gpu_count"] = 2
+    resource_plan["budget"]["peak_gpu_count"] = 2
+
+    issues = validate_resource_plan_structure(resource_plan).issues
+
+    assert any(
+        issue.code == "unsupported_gpu_count"
+        and issue.path == "budget.peak_gpu_count"
+        for issue in issues
+    )
+
+
+def test_stage_eleven_rejects_author_controlled_generic_missing_input_message(
+    stage_11_project, missing_plan
+):
+    missing_plan["inputs"][0]["preparation_note"] = "Input is absent."
+    missing_plan["unmet_prerequisites"] = ["Input is absent."]
+
+    _plan, issues = validate_stage_eleven(stage_11_project, missing_plan)
+
+    assert "unmet_prerequisites_mismatch" in {issue.code for issue in issues}
+
+
+def test_stage_eleven_accepts_engine_derived_missing_input_actions(
+    stage_11_project, missing_plan
+):
+    missing_plan["inputs"][0]["preparation_note"] = "Input is absent."
+
+    _plan, issues = validate_stage_eleven(stage_11_project, missing_plan)
+
+    assert issues == ()
+
+
+def test_stage_eleven_compares_saved_profile_arrays_by_json_value(
+    stage_11_project, ready_plan
+):
+    profile = {
+        "cpu": "apple",
+        "memory_gb": 128,
+        "storage": ["internal", ["encrypted", "apfs"]],
+    }
+    profile_path = stage_11_project.root / "scope/hardware_profile.json"
+    payload = (json.dumps(profile, sort_keys=True) + "\n").encode("utf-8")
+    profile_path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    state = stage_11_project.state
+    updated = stage_11_project.persist_state(
+        replace(
+            state,
+            artifacts={
+                **state.artifacts,
+                "scope/hardware_profile.json": ArtifactRef(
+                    path="scope/hardware_profile.json",
+                    sha256=digest,
+                    size=len(payload),
+                ),
+            },
+        )
+    )
+    ready_plan["bindings"]["hardware_profile"]["sha256"] = digest
+    ready_plan["saved_hardware_profile"] = profile
+
+    _plan, issues = validate_stage_eleven(updated, ready_plan)
+
+    assert "saved_profile_mismatch" not in {issue.code for issue in issues}

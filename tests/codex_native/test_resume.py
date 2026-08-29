@@ -94,7 +94,10 @@ def test_resume_uses_only_project_files(tmp_path):
         ("ready_for_execution", [], "approve_experiment_execution", True),
         (
             "needs_input",
-            ["Provide the licensed input at data/input.csv."],
+            [
+                "Confirm license authorization for required input data/input.csv.",
+                "Provide required input file at data/input.csv.",
+            ],
             "report_missing_execution_inputs",
             False,
         ),
@@ -134,7 +137,7 @@ def test_stage_twelve_status_and_handoff_report_validated_execution_readiness(
                 "size_bytes": 0,
                 "sha256": None,
                 "license_status": "unconfirmed",
-                "preparation_note": unmet[0],
+                "preparation_note": "Document how to prepare data/input.csv.",
             }
         ]
         plan["tasks"].insert(
