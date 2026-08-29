@@ -310,6 +310,8 @@ def test_package_rejects_unbounded_or_forbidden_requirements(tmp_path):
         "google-generativeai==0.8.5",
         "semantic-kernel==1.0.0",
         "pydantic-ai==0.0.1",
+        "haystack-ai==2.0.0",
+        "farm-haystack==1.0.0",
     ],
 )
 def test_package_rejects_normalized_forbidden_requirement_names(tmp_path, requirement):

@@ -94,6 +94,7 @@ _FORBIDDEN_IMPORTS = (
     "semantic_kernel",
     "haystack",
 )
+_FORBIDDEN_DISTRIBUTIONS = (*_FORBIDDEN_IMPORTS, "haystack-ai", "farm-haystack")
 _FAKE_RESULT_NAME = re.compile(
     r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
     re.IGNORECASE,
@@ -275,7 +276,7 @@ def _normalized_distribution_name(name: str) -> str:
 
 def _forbidden_distribution(name: str) -> bool:
     return _normalized_distribution_name(name) in {
-        _normalized_distribution_name(forbidden) for forbidden in _FORBIDDEN_IMPORTS
+        _normalized_distribution_name(forbidden) for forbidden in _FORBIDDEN_DISTRIBUTIONS
     }
 
 
