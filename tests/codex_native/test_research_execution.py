@@ -976,6 +976,50 @@ def test_research_execution_rejects_unsafe_stage_twelve_approval(
     assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
 
 
+@pytest.mark.parametrize("operation", ("prepare", "validate"))
+def test_research_execution_rejects_wrong_stage_twelve_approval_project_id(
+    tmp_path, operation
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    if operation == "validate":
+        contract = load_execution_contract(project.root)
+        write_contract_bound_research_result(project, contract)
+    approval_path = project.root / "approvals/stage-12.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["project_id"] = "rc-wrong-project"
+    approval_path.write_text(
+        json.dumps(approval, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    control_paths = (
+        ".researchclaw/state.json",
+        "approvals/stage-12.json",
+        "experiment/resources.json",
+        "experiment/execution_contract.json",
+    )
+    controls = {
+        relative: (project.root / relative).read_bytes()
+        for relative in control_paths
+    }
+    result_path = project.root / "experiment/results.json"
+    result_before = result_path.read_bytes() if result_path.exists() else None
+
+    with pytest.raises(ValueError, match="^execution_approval_invalid$"):
+        if operation == "prepare":
+            prepare_research_execution(project)
+        else:
+            validate_research_result(project, "experiment/results.json")
+
+    assert {
+        relative: (project.root / relative).read_bytes()
+        for relative in control_paths
+    } == controls
+    assert result_path.exists() is (result_before is not None)
+    if result_before is not None:
+        assert result_path.read_bytes() == result_before
+
+
 def test_validate_research_result_rejects_fifo_promptly(tmp_path):
     project = build_approved_stage_twelve_project(tmp_path / "project")
     prepare_research_execution(project)

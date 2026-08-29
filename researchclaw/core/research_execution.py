@@ -292,7 +292,8 @@ def _load_current_stage_twelve_approval(project: ResearchProject) -> ApprovalRec
         raise ValueError("execution_approval_invalid")
     record = _load_strict_stage_twelve_approval(current)
     if (
-        record.decision != "approve"
+        record.project_id != state.project_id
+        or record.decision != "approve"
         or record.artifact_hashes != _current_stage_twelve_artifact_hashes(current)
     ):
         raise ValueError("execution_approval_invalid")
