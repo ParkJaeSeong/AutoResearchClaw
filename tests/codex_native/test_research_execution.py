@@ -9,6 +9,7 @@ from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.research_execution import (
     EXECUTION_CONTRACT_PATH,
+    _build_execution_contract,
     prepare_research_execution,
 )
 from tests.codex_native.helpers import build_approved_stage_twelve_project
@@ -252,6 +253,29 @@ def test_prepare_run_rejects_preseeded_duplicate_key_contract(tmp_path):
 
     assert contract_path.read_bytes() == b'{"project_id":"first","project_id":"second"}'
     assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+
+
+def test_prepare_run_rejects_preseeded_canonical_candidate_without_artifact(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    candidate = _build_execution_contract(project)
+    contract_path = project.root / EXECUTION_CONTRACT_PATH
+    preseeded_bytes = json.dumps(
+        candidate,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    contract_path.write_bytes(preseeded_bytes)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    approval_before = (project.root / "approvals/stage-12.json").read_bytes()
+
+    with pytest.raises(ValueError, match="execution_contract_invalid"):
+        prepare_research_execution(project)
+
+    assert contract_path.read_bytes() == preseeded_bytes
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "approvals/stage-12.json").read_bytes() == approval_before
 
 
 @pytest.mark.parametrize(

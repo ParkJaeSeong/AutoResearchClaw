@@ -287,7 +287,7 @@ def _existing_current_contract(
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         raise ValueError("execution_contract_invalid") from error
     artifact = project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
-    if artifact is not None and (
+    if artifact is None or (
         artifact.path != EXECUTION_CONTRACT_PATH
         or artifact.size != len(payload)
         or artifact.sha256 != _sha256(payload)
