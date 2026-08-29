@@ -5,6 +5,7 @@ from pathlib import Path
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
+from researchclaw.core.execution_gate import recheck_execution_readiness
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.resource_planning import (
     hardware_drift_warnings,
@@ -635,3 +636,16 @@ def build_stage_twelve_project(
     resources.write_text(json.dumps(plan, sort_keys=True) + "\n", encoding="utf-8")
     assert validate_current_stage(project).valid is True
     return ResearchProject.open(project.root), declared_input
+
+
+def build_approved_stage_twelve_project(root: Path) -> ResearchProject:
+    """Build a current explicit-execution approval without writing its record directly."""
+    project, declared_input = build_stage_twelve_project(
+        root, readiness="ready_for_execution"
+    )
+    declared_input.parent.mkdir(parents=True, exist_ok=True)
+    declared_input.write_bytes(b"approved research input\n")
+    recheck_execution_readiness(project)
+    project = ResearchProject.open(root)
+    approve_current_gate(project, "approve", "Explicit execution approved")
+    return ResearchProject.open(root)
