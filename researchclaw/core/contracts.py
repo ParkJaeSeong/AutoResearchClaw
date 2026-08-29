@@ -138,7 +138,7 @@ _CONTRACT_DATA = (
         ),
         ("experiment/resources.json",),
     ),
-    ("experiment_run", "Run the approved experiment", ("experiment/code/manifest.json", "experiment/resources.json"), ("experiment/results.json",)),
+    ("experiment_run", "Run the approved experiment", ("experiment/package_manifest.json", "experiment/resources.json"), ("experiment/results.json",)),
     ("iterative_refine", "Refine the experiment from results", ("experiment/results.json",), ("experiment/iterations.jsonl",)),
     ("result_analysis", "Analyze experimental results", ("experiment/results.json",), ("analysis/results.json",)),
     ("research_decision", "Make a research decision from evidence", ("analysis/results.json",), ("analysis/decision.json",)),

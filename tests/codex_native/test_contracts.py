@@ -29,6 +29,17 @@ def test_all_23_stage_contracts_are_present_and_ordered():
     assert [stage for phase in PHASES for stage in phase.stage_ids] == list(range(1, 24))
 
 
+def test_stage_twelve_consumes_the_stage_ten_package_manifest():
+    contract = get_contract(12)
+
+    assert contract.name == "experiment_run"
+    assert contract.required_inputs == (
+        "experiment/package_manifest.json",
+        "experiment/resources.json",
+    )
+    assert contract.required_outputs == ("experiment/results.json",)
+
+
 def test_literature_gate_contract_is_hash_approved():
     contract = get_contract(5)
     assert contract.name == "literature_screen"
