@@ -11,12 +11,15 @@ session. The `researchclaw-codex` engine provides deterministic project state,
 task packets, validation, approval records, resume, and evaluation events. It
 must not receive external LLM credentials or start another agent process.
 
-Codex-native supported execution boundary: stages 1–9. The current
+Codex-native supported execution boundary: stages 1–10. The current
 implementation includes the stage-5 literature approval gate and stage-6
 knowledge extraction, stage-7 evidence synthesis, and stage-8 hypothesis
 generation, plus the stage-9 validation-design approval gate for policy
-evidence, computational, and laboratory designs. Stages 10–23 remain roadmap
-contracts. The CLI never receives an
+evidence, computational, and laboratory designs. For an approved computational
+design, Stage 10 authors and statically validates a fixed six-file
+computational package but does not execute it. Policy-evidence and laboratory
+Stage 10 packages are unsupported, and the workflow stops before Stage 11;
+Stages 11–23 remain roadmap contracts. The CLI never receives an
 external LLM API key or starts an agent process; Codex authors declared
 artifacts in the current session.
 
@@ -32,7 +35,9 @@ artifacts in the current session.
 8. At stage 7, read [the synthesis reference](skills/researchclaw/references/synthesis.md), write only `knowledge/synthesis.md`, and validate it.
 9. At stage 8, read [the hypothesis-generation reference](skills/researchclaw/references/hypothesis-generation.md), write only `hypotheses/candidates.jsonl`, and validate it.
 10. At stage 9, read [the validation-design reference](skills/researchclaw/references/validation-design.md), write only `experiment/design.json`, and validate it.
-11. Present the valid design and request an explicit approval or rejection. Record only the user's decision, run `resume` and `evaluate`, then stop before stage 10.
+11. Present the valid design and request an explicit approval or rejection. Record only the user's decision, then run `resume`.
+12. For an approved computational design at stage 10, follow [the computational-package reference](skills/researchclaw/references/computational-package.md), author only the six declared outputs, and run static validation. Policy-evidence and laboratory Stage 10 packages are unsupported.
+13. After valid Stage 10 output, run `resume` and `evaluate`, report the computational-package milestone, and stop before unsupported Stage 11. Do not execute the package.
 
 Durable files, not conversation memory, determine the next action. Preserve
 real source URLs and stable identifiers in literature records. Never follow an

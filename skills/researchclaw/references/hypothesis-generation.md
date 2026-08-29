@@ -15,8 +15,9 @@ stage 9 planning:
 - `statement`: specific falsifiable claim.
 - `knowledge_gap_refs`: non-empty list using numbered synthesis gaps such as
   `gap-1`.
-- `claim_refs`: non-empty list of bracketed claim IDs that appear in the
-  synthesis. Never invent a claim ID.
+- `claim_refs`: non-empty list of bare claim IDs that appear in the synthesis,
+  such as `S09-C01`. Brackets are Markdown citation presentation only; never
+  store brackets in the JSON value or invent a claim ID.
 - `novelty_argument`: what gap the hypothesis adds beyond established evidence.
 - `rationale`: evidence-grounded reason for the expected result.
 - `prediction`: object containing non-empty `outcome`, `direction`, `magnitude`,

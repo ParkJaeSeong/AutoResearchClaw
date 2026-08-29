@@ -47,6 +47,9 @@ Run `researchclaw-codex stage validate ROOT --json` and revise only the
 declared output until validation succeeds. A valid stage-9 artifact is a human
 gate: present the design and validation result, then request an explicit
 approve or reject decision. A general instruction to continue is not approval.
-After the user decides, record that decision with `approve`, run `resume` and
-`evaluate`, report the `9 / 23` validation-design milestone, and stop before
-unsupported stage 10. Do not execute the design.
+After the user decides, record that decision with `approve`, then run `resume`.
+For an approved `computational` design, prepare Stage 10 and follow
+[computational-package.md](computational-package.md) to author and statically
+validate the declared package without execution. `policy_evidence` and
+`laboratory` designs remain unsupported at Stage 10; report that boundary and
+stop. Do not execute the design.
