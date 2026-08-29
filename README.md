@@ -142,6 +142,27 @@ This runs only the fixed local NumPy-only Ridge model and writes
 creates `experiment/results.json` nor makes synthetic results research
 evidence.
 
+After the user has explicitly approved a ready Stage-12 research plan, prepare
+the durable handoff:
+
+```bash
+researchclaw-codex execution prepare-run ROOT --json
+```
+
+This writes `experiment/execution_contract.json` and returns the approved
+command. It does not execute that command: the user runs the returned command
+in the project root. Command stdout and every development result are never
+research evidence. Only a contract-bound `experiment/results.json` can be
+registered:
+
+```bash
+researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
+```
+
+Successful registration records the validated result and advances the project
+to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
+not refine or execute research on the user's behalf.
+
 Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to its producing stage; changing the
 approved shortlist also requires a new user decision. After an unchanged

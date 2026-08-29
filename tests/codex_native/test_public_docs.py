@@ -123,3 +123,19 @@ def test_public_docs_describe_the_explicit_development_run_boundary():
     assert "research approval gate unchanged" in readme
     assert "After reporting the development result, stop." in skill
     assert "Do not describe it as research execution." in skill
+
+
+def test_public_docs_describe_explicit_research_result_registration_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    reference = RESOURCE_REFERENCE.read_text(encoding="utf-8")
+
+    for text in (readme, skill, reference):
+        assert "execution prepare-run ROOT --json" in text
+        assert (
+            "execution register-result ROOT --result experiment/results.json "
+            "--confirm-research-result --json"
+        ) in text
+        assert "does not execute" in text
+        assert "development result" in text
+        assert "Stage 13" in text

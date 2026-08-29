@@ -229,3 +229,30 @@ deferred command. A passive `execution recheck` cannot erase a current human
 rejection. Report its JSON readiness and then stop. Do not execute
 `python experiment/code/main.py --config experiment/code/config.json`; do not
 write `experiment/results.json`; do not prepare or run a Stage-12 experiment.
+
+## Explicit research handoff and registration
+
+After a ready plan has the user's explicit Stage-12 approval, a separate
+explicit command may prepare the immutable execution handoff:
+
+```text
+researchclaw-codex execution prepare-run ROOT --json
+```
+
+It writes `experiment/execution_contract.json` and returns the approved
+command. It does not execute that command. The user runs the returned command
+in the project root. Command stdout and any development result are never
+research evidence, and a development result is never registerable as research
+evidence.
+
+Only the result path bound by that contract, `experiment/results.json`, can be
+registered after the user-run command completes:
+
+```text
+researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
+```
+
+`--confirm-research-result` is required. Registration validates the contract
+binding and result schema before it changes durable state. A successful
+registration advances to Stage 13; Stage 13 refinement remains separate and
+is not executed or implemented by this Stage-12 interface.

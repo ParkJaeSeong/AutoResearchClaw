@@ -18,6 +18,10 @@ from researchclaw.core.development_execution import (
     run_development_experiment,
     validate_development_result,
 )
+from researchclaw.core.research_execution import (
+    prepare_research_execution,
+    register_research_result,
+)
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -121,6 +125,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirm that the saved result is development-only",
     )
     validate_result.add_argument("--json", action="store_true", help="emit JSON")
+    prepare_run = execution_commands.add_parser(
+        "prepare-run", help="write the approved research execution handoff"
+    )
+    prepare_run.add_argument("root", metavar="ROOT")
+    prepare_run.add_argument("--json", action="store_true", help="emit JSON")
+    register_result = execution_commands.add_parser(
+        "register-result", help="register an explicit research result"
+    )
+    register_result.add_argument("root", metavar="ROOT")
+    register_result.add_argument(
+        "--result", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_result.add_argument(
+        "--confirm-research-result",
+        action="store_true",
+        required=True,
+        help="confirm registration of a contract-bound research result",
+    )
+    register_result.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -173,6 +196,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "execution" and args.execution_command == "validate-result":
             project = ResearchProject.open_readonly(args.root)
             payload = validate_development_result(project, args.result).to_dict()
+        elif args.command == "execution" and args.execution_command == "prepare-run":
+            project = ResearchProject.open(args.root)
+            payload = prepare_research_execution(project).to_dict()
+        elif args.command == "execution" and args.execution_command == "register-result":
+            project = ResearchProject.open(args.root)
+            payload = register_research_result(project, args.result).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(

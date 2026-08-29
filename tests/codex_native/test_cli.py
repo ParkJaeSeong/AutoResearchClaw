@@ -9,10 +9,14 @@ import pytest
 
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.research_execution import prepare_research_execution
 from tests.codex_native.helpers import (
+    build_approved_stage_twelve_project,
     build_completed_validation_design_project,
     build_stage_twelve_project,
+    load_execution_contract,
     write_runnable_development_fixture,
+    write_contract_bound_research_result,
 )
 
 
@@ -232,6 +236,94 @@ def test_execution_validate_result_cli_checks_existing_development_result(
     assert payload["result_path"] == "experiment/dev_results.json"
     assert len(payload["result_sha256"]) == 64
     assert captured.err == ""
+
+
+def test_execution_prepare_run_cli_emits_handoff_without_running_command(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(
+        tmp_path / "project", include_execution_marker=True
+    )
+
+    assert main(["execution", "prepare-run", str(project.root), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["readiness"] == "ready_for_explicit_execution"
+    assert payload["result_path"] == "experiment/results.json"
+    assert captured.err == ""
+    assert not (project.root / "project-code-executed").exists()
+
+
+def test_execution_prepare_run_cli_rejects_unapproved_project_without_mutating_state(
+    tmp_path, capsys
+):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="ready_for_execution"
+    )
+    state_path = project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+
+    assert main(["execution", "prepare-run", str(project.root), "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "execution_approval_invalid" in captured.err
+    assert state_path.read_bytes() == state_before
+    assert not (project.root / "experiment/execution_contract.json").exists()
+
+
+def test_execution_register_result_cli_advances_to_thirteen(tmp_path, capsys):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    assert main(
+        [
+            "execution",
+            "register-result",
+            str(project.root),
+            "--result",
+            "experiment/results.json",
+            "--confirm-research-result",
+            "--json",
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["readiness"] == "research_result_registered"
+    assert payload["current_stage"] == 13
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("omitted_flag", ["--result", "--confirm-research-result"])
+def test_execution_register_result_cli_requires_explicit_research_intent(
+    tmp_path, capsys, omitted_flag
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    state_path = project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+    arguments = [
+        "execution",
+        "register-result",
+        str(project.root),
+        "--result",
+        "experiment/results.json",
+        "--confirm-research-result",
+        "--json",
+    ]
+    index = arguments.index(omitted_flag)
+    del arguments[index : index + (2 if omitted_flag == "--result" else 1)]
+
+    assert main(arguments) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert omitted_flag in captured.err
+    assert state_path.read_bytes() == state_before
 
 
 def test_development_run_wrong_stage_does_not_normalize_legacy_state(tmp_path, capsys):
