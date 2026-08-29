@@ -129,7 +129,8 @@ def _stage_thirteen_registration_is_grounded(
         result.get("execution_contract") if isinstance(result, dict) else None
     )
     contract_ref = state.artifacts["experiment/execution_contract.json"]
-    return (
+    result_ref = state.artifacts["experiment/results.json"]
+    structurally_grounded = (
         isinstance(result_contract, dict)
         and isinstance(contract, dict)
         and result.get("project_id") == state.project_id
@@ -137,6 +138,19 @@ def _stage_thirteen_registration_is_grounded(
         and result_contract.get("path") == "experiment/execution_contract.json"
         and result_contract.get("sha256") == contract_ref.sha256
         and result_contract.get("contract_id") == contract.get("contract_id")
+    )
+    if not structurally_grounded:
+        return False
+    from .research_execution import effective_research_result_registration_events
+
+    project = ResearchProject(root=root, state=state)
+    return any(
+        event.project_id == state.project_id
+        and event.payload.get("contract_path") == contract_ref.path
+        and event.payload.get("contract_sha256") == contract_ref.sha256
+        and event.payload.get("result_path") == result_ref.path
+        and event.payload.get("result_sha256") == result_ref.sha256
+        for event in effective_research_result_registration_events(project)
     )
 
 
@@ -220,11 +234,11 @@ def _command(root: Path, *arguments: str) -> str:
     return shlex.join(("researchclaw-codex", *arguments, str(root.resolve()), "--json"))
 
 
-def normalize_durable_project(project: ResearchProject) -> ResearchProject:
+def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProject:
     """Fail closed on stale artifacts or an unsubstantiated Stage-12 approval."""
-    from .research_execution import recover_pending_research_result_registration
+    from .research_execution import _recover_pending_registration_locked
 
-    recover_pending_research_result_registration(project)
+    _recover_pending_registration_locked(project)
     current_project = ResearchProject.open(project.root)
     state = current_project.state
     invalid_artifact_stage = (
@@ -296,6 +310,14 @@ def normalize_durable_project(project: ResearchProject) -> ResearchProject:
     return current_project
 
 
+def normalize_durable_project(project: ResearchProject) -> ResearchProject:
+    """Normalize durable state while excluding Stage-12 registration races."""
+    from .research_execution import _registration_lock
+
+    with _registration_lock(project):
+        return _normalize_durable_project_locked(project)
+
+
 def require_current_durable_project(project: ResearchProject) -> ResearchProject:
     """Reopen and verify durable lineage without normalizing or persisting it."""
     from .state import StateStore
@@ -312,9 +334,9 @@ def require_current_durable_project(project: ResearchProject) -> ResearchProject
     return current_project
 
 
-def build_handoff(project: ResearchProject) -> HandoffSummary:
+def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     """Build a handoff using only durable state, artifacts, and approval records."""
-    current_project = normalize_durable_project(project)
+    current_project = _normalize_durable_project_locked(project)
     state = current_project.state
 
     milestone_complete = (
@@ -446,3 +468,11 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         unmet_prerequisites=unmet_prerequisites,
         approval_eligible=approval_eligible,
     )
+
+
+def build_handoff(project: ResearchProject) -> HandoffSummary:
+    """Build a durable handoff while excluding Stage-12 registration races."""
+    from .research_execution import _registration_lock
+
+    with _registration_lock(project):
+        return _build_handoff_locked(project)

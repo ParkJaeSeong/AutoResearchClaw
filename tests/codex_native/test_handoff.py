@@ -1,10 +1,12 @@
 import hashlib
 import json
 import shlex
+import threading
 from dataclasses import replace
 
 import pytest
 
+from researchclaw.core.events import event_log_for
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
@@ -104,3 +106,75 @@ def test_stage_thirteen_handoff_rewinds_missing_or_stale_registration_grounding(
     assert reopened.state.current_stage == 12
     assert reopened.state.status is StageStatus.NEEDS_REVISION
     assert 12 not in reopened.state.completed_stages
+
+
+def test_handoff_holds_registration_lock_through_durable_normalization(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    original_open = ResearchProject.open.__func__
+    handoff_opened_stage_twelve = threading.Event()
+    release_handoff = threading.Event()
+    registration_finished = threading.Event()
+    blocked_once = False
+
+    def controlled_open(cls, root):
+        nonlocal blocked_once
+        opened = original_open(cls, root)
+        if (
+            threading.current_thread().name == "controlled-handoff"
+            and opened.state.current_stage == 12
+            and not blocked_once
+        ):
+            blocked_once = True
+            handoff_opened_stage_twelve.set()
+            assert release_handoff.wait(2.0)
+        return opened
+
+    monkeypatch.setattr(ResearchProject, "open", classmethod(controlled_open))
+    handoffs = []
+    registrations = []
+    errors = []
+
+    def handoff():
+        try:
+            handoffs.append(build_handoff(project))
+        except BaseException as error:
+            errors.append(error)
+
+    def register():
+        try:
+            registrations.append(
+                register_research_result(project, "experiment/results.json")
+            )
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            registration_finished.set()
+
+    handoff_thread = threading.Thread(target=handoff, name="controlled-handoff")
+    registration_thread = threading.Thread(target=register)
+    handoff_thread.start()
+    assert handoff_opened_stage_twelve.wait(1.0)
+    registration_thread.start()
+    try:
+        assert not registration_finished.wait(0.2)
+    finally:
+        release_handoff.set()
+    handoff_thread.join(timeout=2.0)
+    registration_thread.join(timeout=2.0)
+
+    assert not errors
+    assert len(handoffs) == 1
+    assert handoffs[0].current_stage == 12
+    assert len(registrations) == 1
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 13
+    assert reopened.state.completed_stages.count(12) == 1
+    assert sum(
+        event.type == "research_result_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
