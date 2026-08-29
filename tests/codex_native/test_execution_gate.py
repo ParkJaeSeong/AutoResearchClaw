@@ -6,9 +6,13 @@ from dataclasses import replace
 
 import pytest
 
+from researchclaw.core import execution_gate
 from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
-from tests.codex_native.helpers import build_stage_twelve_project
+from tests.codex_native.helpers import (
+    build_stage_twelve_project,
+    write_runnable_development_fixture,
+)
 
 
 def _load_json(path):
@@ -158,6 +162,18 @@ def test_development_recheck_validates_fixture_without_mutating_execution_gate(
         for line in (project.root / "evaluation/events.jsonl").read_text().splitlines()
     ]
     assert events[-1]["type"] == "development_input_rechecked"
+
+
+def test_validate_development_input_returns_verified_rows(stage_12_missing_project):
+    project, _ = stage_12_missing_project
+    manifest = write_runnable_development_fixture(project)
+    status, validated = execution_gate.validate_development_input(
+        project, "experiment/input_manifest.dev.json", record_event=False
+    )
+    assert status.readiness == "ready_for_development"
+    assert validated.manifest_sha256 == hashlib.sha256(manifest.read_bytes()).hexdigest()
+    assert len(validated.cell_rows) == 8
+    assert len(validated.feature_rows) == 16
 
 
 def test_development_recheck_rejects_project_escape(stage_12_missing_project):

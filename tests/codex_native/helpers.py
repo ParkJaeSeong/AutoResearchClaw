@@ -59,6 +59,84 @@ def valid_resource_plan(project, observation, *, readiness="ready_for_execution"
     }
 
 
+def write_runnable_development_fixture(project: ResearchProject) -> Path:
+    """Write the deterministic synthetic input used by the development runner tests."""
+    cells_payload = (
+        "dataset_id,condition_id,cell_id,split_role,feature_cutoff_cycle,cycle_life_cycles\n"
+        "SYNTH_DEV,G01,C01,train,2,5\n"
+        "SYNTH_DEV,G01,C02,train,2,6\n"
+        "SYNTH_DEV,G02,C03,train,2,7\n"
+        "SYNTH_DEV,G03,C04,validation,2,8\n"
+        "SYNTH_DEV,G04,C05,calibration,2,9\n"
+        "SYNTH_DEV,G05,C06,test,2,10\n"
+        "SYNTH_DEV,G06,C07,test,2,11\n"
+        "SYNTH_DEV,G06,C08,test,2,12\n"
+    ).encode("utf-8")
+    feature_payload = (
+        "dataset_id,condition_id,cell_id,cycle_index,capacity_ah,internal_resistance_mohm\n"
+        "SYNTH_DEV,G01,C01,1,2.01,41.0\n"
+        "SYNTH_DEV,G01,C01,2,1.99,41.5\n"
+        "SYNTH_DEV,G01,C02,1,2.02,42.0\n"
+        "SYNTH_DEV,G01,C02,2,2.00,42.5\n"
+        "SYNTH_DEV,G02,C03,1,2.03,43.0\n"
+        "SYNTH_DEV,G02,C03,2,2.01,43.5\n"
+        "SYNTH_DEV,G03,C04,1,2.04,44.0\n"
+        "SYNTH_DEV,G03,C04,2,2.02,44.5\n"
+        "SYNTH_DEV,G04,C05,1,2.05,45.0\n"
+        "SYNTH_DEV,G04,C05,2,2.03,45.5\n"
+        "SYNTH_DEV,G05,C06,1,2.06,46.0\n"
+        "SYNTH_DEV,G05,C06,2,2.04,46.5\n"
+        "SYNTH_DEV,G06,C07,1,2.07,47.0\n"
+        "SYNTH_DEV,G06,C07,2,2.05,47.5\n"
+        "SYNTH_DEV,G06,C08,1,2.08,48.0\n"
+        "SYNTH_DEV,G06,C08,2,2.06,48.5\n"
+    ).encode("utf-8")
+    data_root = project.root / "experiment" / "dev_data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    cells_path = data_root / "cells.dev.csv"
+    features_path = data_root / "features.dev.csv"
+    cells_path.write_bytes(cells_payload)
+    features_path.write_bytes(feature_payload)
+    manifest_path = project.root / "experiment" / "input_manifest.dev.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "manifest_type": "synthetic_development_input",
+                "evidence_eligible": False,
+                "datasets": [{"dataset_id": "SYNTH_DEV"}],
+                "cell_records": {
+                    "path": "experiment/dev_data/cells.dev.csv",
+                    "row_count": 8,
+                    "sha256": hashlib.sha256(cells_payload).hexdigest(),
+                },
+                "features": {
+                    "path": "experiment/dev_data/features.dev.csv",
+                    "row_count": 16,
+                    "sha256": hashlib.sha256(feature_payload).hexdigest(),
+                },
+                "labels": {
+                    "path": "experiment/dev_data/cells.dev.csv",
+                    "field": "cycle_life_cycles",
+                },
+                "groups": {"independent_group_key": "condition_id"},
+                "feature_cutoff": {
+                    "cutoff_field": "feature_cutoff_cycle",
+                    "measurement_cycle_field": "cycle_index",
+                },
+                "provenance": {
+                    "license_status": "not_required_synthetic",
+                    "research_evidence_use": False,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 def run_cli(*args: str) -> int:
     return main(list(args))
 

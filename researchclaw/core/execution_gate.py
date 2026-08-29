@@ -83,6 +83,15 @@ class DevelopmentInputStatus:
         }
 
 
+@dataclass(frozen=True)
+class ValidatedDevelopmentInput:
+    manifest_path: str
+    manifest_sha256: str
+    manifest: dict[str, object]
+    cell_rows: tuple[dict[str, str], ...]
+    feature_rows: tuple[dict[str, str], ...]
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -453,10 +462,12 @@ def _validate_development_structure(
         seen_cycles.add(cycle_key)
 
 
-def recheck_development_input(
+def validate_development_input(
     project: ResearchProject,
     input_manifest_path: str,
-) -> DevelopmentInputStatus:
+    *,
+    record_event: bool = True,
+) -> tuple[DevelopmentInputStatus, ValidatedDevelopmentInput]:
     """Validate an explicit synthetic fixture without changing the execution gate."""
     from .handoff import normalize_durable_project
 
@@ -527,13 +538,30 @@ def recheck_development_input(
         input_manifest_path=input_manifest_path,
         input_manifest_sha256=digest,
     )
-    event_log_for(current_project.root).append(
-        EvaluationEvent.create(
-            "development_input_rechecked",
-            state.project_id,
-            status.to_dict(),
+    if record_event:
+        event_log_for(current_project.root).append(
+            EvaluationEvent.create(
+                "development_input_rechecked",
+                state.project_id,
+                status.to_dict(),
+            )
         )
+    validated = ValidatedDevelopmentInput(
+        manifest_path=input_manifest_path,
+        manifest_sha256=digest,
+        manifest=manifest,
+        cell_rows=tuple(cell_rows),
+        feature_rows=tuple(feature_rows),
     )
+    return status, validated
+
+
+def recheck_development_input(
+    project: ResearchProject,
+    input_manifest_path: str,
+) -> DevelopmentInputStatus:
+    """Validate an explicit synthetic fixture without changing the execution gate."""
+    status, _validated = validate_development_input(project, input_manifest_path)
     return status
 
 
