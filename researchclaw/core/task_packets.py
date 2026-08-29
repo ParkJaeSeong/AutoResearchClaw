@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from .profiles import load_profile
 from .project import ResearchProject
 
 _HASH_CHUNK_SIZE = 1024 * 1024
+_SUSPICIOUS_LEGACY_STAGE_TEN_NAME = re.compile(
+    r"(?:^|[._-])(?:analysis|results?|downloads?|downloaded)(?:[._-]|$)",
+    re.IGNORECASE,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -133,18 +138,75 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
     )
 
 
-def prepare_task_packet(project: ResearchProject) -> TaskPacket:
+def _legacy_stage_ten_baseline_blockers(
+    root: Path, required_outputs: tuple[str, ...]
+) -> tuple[str, ...]:
+    blockers: set[str] = set()
+    outputs = set(required_outputs)
+    for entry in snapshot_project(root):
+        relative = entry.path
+        parts = Path(relative).parts
+        if relative in outputs or relative == "experiment/code" or relative.startswith(
+            "experiment/code/"
+        ):
+            blockers.add(relative)
+            continue
+        if any(
+            _SUSPICIOUS_LEGACY_STAGE_TEN_NAME.search(part) is not None
+            or part.lower().endswith(".ipynb")
+            for part in parts
+        ):
+            blockers.add(relative)
+    return tuple(sorted(blockers))
+
+
+def prepare_task_packet(
+    project: ResearchProject, *, establish_legacy_baseline: bool = False
+) -> TaskPacket:
     """Build a packet and record the explicit prepare action."""
     current_project = ResearchProject.open(project.root)
+    if establish_legacy_baseline and (
+        current_project.state.current_stage != 10
+        or current_project.state.stage_10_snapshot.status != "legacy_missing"
+    ):
+        raise ValueError(
+            "--establish-legacy-baseline is only valid for legacy-missing Stage 10 state"
+        )
     packet = build_task_packet(current_project)
     for relative_path in packet.required_outputs:
         resolve_project_artifact(current_project.root, relative_path)
     if packet.stage_id == 10:
         snapshot = current_project.state.stage_10_snapshot
         if snapshot.status == "legacy_missing":
-            raise ValueError(
-                "legacy Stage 10 state is missing its immutable filesystem snapshot"
+            if not establish_legacy_baseline:
+                raise ValueError(
+                    "legacy Stage 10 state is missing its immutable filesystem snapshot"
+                )
+            blockers = _legacy_stage_ten_baseline_blockers(
+                current_project.root, packet.required_outputs
             )
+            if blockers:
+                raise ValueError(
+                    "refusing legacy Stage 10 baseline because suspicious artifacts exist: "
+                    + ", ".join(blockers)
+                )
+            baseline = snapshot_project(current_project.root)
+            current_project = current_project.persist_state(
+                replace(
+                    current_project.state,
+                    stage_10_snapshot=StageTenSnapshot("captured", baseline),
+                )
+            )
+            from .events import EvaluationEvent, event_log_for
+
+            event_log_for(current_project.root).append(
+                EvaluationEvent.create(
+                    "legacy_stage_10_baseline_established",
+                    packet.project_id,
+                    {"stage_id": 10, "entry_count": len(baseline)},
+                )
+            )
+            snapshot = current_project.state.stage_10_snapshot
         if snapshot.status == "not_prepared":
             baseline = snapshot_project(current_project.root)
             current_project = current_project.persist_state(

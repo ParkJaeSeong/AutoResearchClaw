@@ -5,11 +5,24 @@ import pytest
 
 from researchclaw.core.models import StageStatus
 from researchclaw.core.approval import approve_current_gate
+from researchclaw.core.events import event_log_for
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import complete_first_four_stages, write_valid_fixture_artifacts
+from tests.codex_native.helpers import (
+    build_completed_validation_design_project,
+    complete_first_four_stages,
+    write_valid_fixture_artifacts,
+)
+
+
+def _mark_stage_ten_state_as_legacy(project):
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("stage_10_snapshot", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    return ResearchProject.open(project.root)
 
 
 def _approved_project(root):
@@ -80,6 +93,68 @@ def test_stage_prepare_cli_emits_packet_json(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["stage_id"] == 1
     assert "artifact_root" not in payload
+
+
+def test_prepare_legacy_stage_ten_stays_fail_closed_by_default(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    legacy = _mark_stage_ten_state_as_legacy(project)
+
+    with pytest.raises(ValueError, match="legacy.*snapshot"):
+        prepare_task_packet(legacy)
+
+    assert ResearchProject.open(project.root).state.stage_10_snapshot.status == "legacy_missing"
+
+
+def test_prepare_can_explicitly_establish_safe_legacy_stage_ten_baseline(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    legacy = _mark_stage_ten_state_as_legacy(project)
+
+    packet = prepare_task_packet(legacy, establish_legacy_baseline=True)
+
+    assert packet.stage_id == 10
+    snapshot = ResearchProject.open(project.root).state.stage_10_snapshot
+    assert snapshot.status == "captured"
+    assert snapshot.entries
+    events = event_log_for(project.root).read_all()
+    migration = [event for event in events if event.type == "legacy_stage_10_baseline_established"]
+    assert len(migration) == 1
+    assert migration[0].payload == {
+        "entry_count": len(snapshot.entries),
+        "stage_id": 10,
+    }
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "experiment/code/main.py",
+        "analysis.ipynb",
+        "downloads/payload.bin",
+        "data/downloaded.csv",
+        "artifacts/model-results.json",
+        "experiment/results.json",
+    ],
+)
+def test_prepare_refuses_legacy_baseline_when_stage_ten_artifacts_exist(
+    tmp_path, relative_path
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    legacy = _mark_stage_ten_state_as_legacy(project)
+    artifact = project.root / relative_path
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("untrusted", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="refusing legacy Stage 10 baseline"):
+        prepare_task_packet(legacy, establish_legacy_baseline=True)
+
+    assert ResearchProject.open(project.root).state.stage_10_snapshot.status == "legacy_missing"
+
+
+def test_prepare_refuses_legacy_baseline_flag_for_nonlegacy_state(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+
+    with pytest.raises(ValueError, match="only valid for legacy-missing Stage 10"):
+        prepare_task_packet(project, establish_legacy_baseline=True)
 
 
 def test_prepare_rejects_required_input_symlink_even_when_content_matches(tmp_path):

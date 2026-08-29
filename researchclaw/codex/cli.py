@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     stage_commands = stage.add_subparsers(dest="stage_command", required=True)
     prepare = stage_commands.add_parser("prepare", help="prepare a stage task packet")
     prepare.add_argument("root", metavar="ROOT")
+    prepare.add_argument(
+        "--establish-legacy-baseline",
+        action="store_true",
+        help="explicitly establish a safe missing Stage-10 legacy baseline",
+    )
     prepare.add_argument("--json", action="store_true", help="emit JSON")
     validate = stage_commands.add_parser("validate", help="validate and advance the current stage")
     validate.add_argument("root", metavar="ROOT")
@@ -78,7 +83,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = build_foundation_report(project)
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
-            payload = prepare_task_packet(project).to_dict()
+            payload = prepare_task_packet(
+                project,
+                establish_legacy_baseline=args.establish_legacy_baseline,
+            ).to_dict()
         else:
             project = ResearchProject.open(args.root)
             report = validate_current_stage(project)

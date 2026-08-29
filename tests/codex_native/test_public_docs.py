@@ -59,5 +59,7 @@ def test_stage_ten_docs_author_and_validate_without_execution():
     assert "byte-for-byte" in reference.lower()
     assert "sole authority" in reference.lower()
     assert "pytest==8.3.0" not in reference
+    assert "--establish-legacy-baseline" in reference
+    assert "default remains fail-closed" in reference.lower()
     for path in canonical_computational_scaffold():
         assert path in reference

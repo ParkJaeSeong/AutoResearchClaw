@@ -181,9 +181,22 @@ reapproval.
 Legacy state migration is conservative. A legacy state encountered before
 Stage 10 is explicitly migrated to `not_prepared` and may capture its first
 snapshot later. A legacy state already at Stage 10 or beyond without a typed
-snapshot is marked `legacy_missing`; prepare and validation refuse to create a
-new baseline from its current filesystem. Restoration requires an explicitly
-authorized state recovery outside this authoring workflow.
+snapshot is marked `legacy_missing`; the default remains fail-closed and plain
+prepare refuses to create a baseline from its current filesystem. For an
+operator-reviewed legacy project that is currently at Stage 10 and has not
+started Stage-10 authoring, explicitly run:
+
+```bash
+researchclaw-codex stage prepare ROOT --establish-legacy-baseline --json
+```
+
+This opt-in is valid only for `legacy_missing` Stage-10 state. It refuses the
+migration if any declared package output, any `experiment/code` path, any
+notebook, or any result/download-like artifact exists. On success it captures
+the typed, content-hashed baseline once, appends a durable
+`legacy_stage_10_baseline_established` audit event, and returns the normal task
+packet. Never use this option to bless a project where Stage-10 authoring may
+already have begun.
 
 When validation succeeds, run:
 

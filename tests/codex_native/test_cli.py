@@ -3,6 +3,15 @@ import subprocess
 import sys
 
 from researchclaw.codex.cli import main
+from researchclaw.core.project import ResearchProject
+from tests.codex_native.helpers import build_completed_validation_design_project
+
+
+def _remove_stage_ten_snapshot(project):
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("stage_10_snapshot", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
 
 
 def test_init_then_status_outputs_machine_readable_json(tmp_path, capsys):
@@ -53,3 +62,36 @@ def test_module_help_uses_the_public_codex_cli_name():
 
     assert result.returncode == 0
     assert result.stdout.startswith("usage: researchclaw-codex ")
+
+
+def test_stage_prepare_cli_keeps_legacy_baseline_migration_opt_in(tmp_path, capsys):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    _remove_stage_ten_snapshot(project)
+
+    assert main(["stage", "prepare", str(project.root), "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "legacy Stage 10" in captured.err
+    assert ResearchProject.open(project.root).state.stage_10_snapshot.status == "legacy_missing"
+
+
+def test_stage_prepare_cli_explicitly_establishes_safe_legacy_baseline(
+    tmp_path, capsys
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    _remove_stage_ten_snapshot(project)
+
+    assert main(
+        [
+            "stage",
+            "prepare",
+            str(project.root),
+            "--establish-legacy-baseline",
+            "--json",
+        ]
+    ) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["stage_id"] == 10
+    assert ResearchProject.open(project.root).state.stage_10_snapshot.status == "captured"
