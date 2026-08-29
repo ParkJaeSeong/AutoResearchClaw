@@ -1,3 +1,4 @@
+import json
 import re
 
 import pytest
@@ -36,3 +37,15 @@ def test_open_requires_durable_state_document(tmp_path):
 
     with pytest.raises(ValueError, match="state.json"):
         ResearchProject.open(root)
+
+
+def test_open_migrates_state_without_prepare_baselines(tmp_path):
+    project = ResearchProject.create(tmp_path / "demo", "Formation energy", "materials_ai")
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state.pop("prepared_stage_paths", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    reopened = ResearchProject.open(project.root)
+
+    assert reopened.state.prepared_stage_paths == {}

@@ -34,7 +34,7 @@ Type-specific `method` fields:
 | `validation_type` | Exact fields |
 | --- | --- |
 | `policy_evidence` | `data_sources` and `stakeholder_groups` as non-empty string lists; non-empty `candidate_selection`, `scoring_model`, `sensitivity_analysis`, and `conflict_of_interest_plan` strings |
-| `computational` | `datasets` and `baselines` as non-empty string lists; non-empty `split_strategy` and `evaluation_protocol` strings |
+| `computational` | `datasets` and `baselines` as non-empty string lists; `split_strategy` as a closed object containing only non-empty `description` and `isolation_key` strings; non-empty `evaluation_protocol` string |
 | `laboratory` | `materials` and `controls` as non-empty string lists; non-empty `procedure` and `safety` strings |
 
 Choose the validation type that directly tests the referenced hypotheses.

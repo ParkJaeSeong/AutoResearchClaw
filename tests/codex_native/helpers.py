@@ -197,7 +197,15 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
             + "\n",
         },
     }
-    artifacts = _computational_package_fixture(root) if stage_id == 10 else fixtures[stage_id]
+    if stage_id == 10:
+        project = ResearchProject.open(root)
+        if "10" not in project.state.prepared_stage_paths:
+            from researchclaw.core.task_packets import prepare_task_packet
+
+            prepare_task_packet(project)
+        artifacts = _computational_package_fixture(root)
+    else:
+        artifacts = fixtures[stage_id]
     for relative, content in artifacts.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -429,7 +437,10 @@ def build_completed_validation_design_project(
     if validation_type == "computational":
         design["method"] = {
             "datasets": ["versioned public battery dataset"],
-            "split_strategy": "cell-grouped held-out test split",
+            "split_strategy": {
+                "description": "cell-grouped held-out test split",
+                "isolation_key": "cell_id",
+            },
             "baselines": ["random row split"],
             "evaluation_protocol": "fit preprocessing on train only",
         }

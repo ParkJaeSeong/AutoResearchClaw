@@ -12,6 +12,8 @@ from typing import Any, Mapping
 
 from packaging.requirements import InvalidRequirement, Requirement
 
+from .filesystem_baseline import snapshot_project_paths
+
 
 MANIFEST_FIELDS = {
     "schema_version",
@@ -84,6 +86,7 @@ _FORBIDDEN_IMPORTS = (
     "openai",
     "anthropic",
     "google.generativeai",
+    "google.genai",
     "requests",
     "httpx",
     "urllib",
@@ -115,8 +118,14 @@ _FORBIDDEN_IMPORTS = (
     "xmlrpc.client",
     "paramiko",
     "multiprocessing",
+    "ctypes",
 )
-_FORBIDDEN_DISTRIBUTIONS = (*_FORBIDDEN_IMPORTS, "haystack-ai", "farm-haystack")
+_FORBIDDEN_DISTRIBUTIONS = (
+    *_FORBIDDEN_IMPORTS,
+    "google-genai",
+    "haystack-ai",
+    "farm-haystack",
+)
 _FAKE_RESULT_NAME = re.compile(
     r"(?:synthetic|fake|dummy)[_\s-]*(?:result|results|output|outputs|metric|metrics|prediction|predictions)",
     re.IGNORECASE,
@@ -184,6 +193,7 @@ _PROHIBITION_FIELDS = {
 }
 _REPRODUCIBILITY_FIELDS = {"design_sha256", "seeds", "dependencies"}
 _SPLIT_GROUPS = {"train", "validation", "calibration", "test"}
+_LATER_RESULT_PATH = "experiment/results.json"
 
 
 @dataclass(frozen=True)
@@ -328,50 +338,34 @@ def _validate_hashes(
 
 
 def _validate_on_disk_tree(
-    root: Path, issues: list[ComputationalPackageIssue]
+    root: Path,
+    prepared_paths: tuple[str, ...] | None,
+    issues: list[ComputationalPackageIssue],
 ) -> None:
-    experiment_root = root / "experiment"
-    if not experiment_root.is_dir():
-        return
-    allowed = {
-        "experiment",
-        "experiment/design.json",
-        "experiment/package_manifest.json",
-        "experiment/code",
-        "experiment/code/tests",
-        *CODE_PATHS,
-    }
-    reported: set[str] = set()
-    for path in experiment_root.rglob("*"):
-        relative = path.relative_to(root).as_posix()
-        if relative in allowed or relative in reported:
-            continue
-        reported.add(relative)
+    if prepared_paths is None:
         _issue(
             issues,
-            "undeclared_artifact",
-            relative,
-            "stage 10 permits only the approved design and six declared package outputs",
+            "missing_prepare_baseline",
+            MANIFEST_PATH,
+            "stage 10 must be prepared before its outputs are authored",
         )
-    forbidden_roots = {"result", "results", "download", "downloads", "data"}
-    forbidden_files = {"result.json", "results.json"}
-    for path in root.rglob("*"):
-        relative_path = path.relative_to(root)
-        relative = relative_path.as_posix()
-        if relative in reported:
-            continue
-        parts = tuple(part.lower() for part in relative_path.parts)
-        if not parts or (
-            parts[0] not in forbidden_roots
-            and parts[-1] not in forbidden_files
-        ):
-            continue
-        reported.add(relative)
+        return
+    baseline = set(prepared_paths)
+    current = set(snapshot_project_paths(root))
+    expected_additions = set(REQUIRED_OUTPUTS)
+    for relative in sorted((current - baseline) - expected_additions):
         _issue(
             issues,
             "undeclared_artifact",
             relative,
-            "stage 10 forbids result and downloaded-data artifacts",
+            "filesystem paths added after Stage 10 prepare must be declared outputs",
+        )
+    for relative in sorted(baseline - current):
+        _issue(
+            issues,
+            "undeclared_artifact",
+            relative,
+            "filesystem paths present at Stage 10 prepare must not be removed",
         )
 
 
@@ -442,13 +436,41 @@ def _import_aliases(tree: ast.AST) -> dict[str, str]:
     return aliases
 
 
+def _subscript_key(node: ast.Subscript) -> object:
+    return node.slice.value if isinstance(node.slice, ast.Constant) else None
+
+
 def _resolved_call_name(node: ast.AST, aliases: Mapping[str, str]) -> str | None:
-    name = _dotted_name(node)
-    if name is None:
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        parent = _resolved_call_name(node.value, aliases)
+        return f"{parent}.{node.attr}" if parent is not None else None
+    if isinstance(node, ast.Call):
+        called = _resolved_call_name(node.func, aliases)
+        if called in {"getattr", "builtins.getattr"} and len(node.args) >= 2:
+            target = _resolved_call_name(node.args[0], aliases)
+            attribute = (
+                node.args[1].value
+                if isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                else None
+            )
+            if target is not None and attribute is not None:
+                return f"{target}.{attribute}"
+            return None
+        return f"{called}()" if called is not None else None
+    if isinstance(node, ast.Subscript):
+        parent = _resolved_call_name(node.value, aliases)
+        key = _subscript_key(node)
+        if parent == "sys.modules" and isinstance(key, str):
+            return key
+        if parent is not None and parent.endswith(".__dict__") and isinstance(key, str):
+            return f"{parent.removesuffix('.__dict__')}.{key}"
+        if parent in {"globals()", "locals()"} and isinstance(key, str):
+            return key
         return None
-    root, *remainder = name.split(".")
-    target = aliases.get(root)
-    return ".".join((target, *remainder)) if target is not None else name
+    return None
 
 
 def _forbidden_call(name: str | None) -> bool:
@@ -464,14 +486,6 @@ def _forbidden_call(name: str | None) -> bool:
         "__import__",
         "builtins.__import__",
         "__builtins__.__import__",
-        "getattr",
-        "builtins.getattr",
-        "vars",
-        "builtins.vars",
-        "globals",
-        "builtins.globals",
-        "locals",
-        "builtins.locals",
         "importlib.import_module",
         "pty.spawn",
     }:
@@ -488,14 +502,32 @@ def _forbidden_call(name: str | None) -> bool:
     return False
 
 
-def _call_is_dynamic_dispatch(node: ast.Call) -> bool:
-    return isinstance(node.func, (ast.Call, ast.Subscript))
+def _call_is_dynamic_dispatch(node: ast.Call, aliases: Mapping[str, str]) -> bool:
+    current = node.func
+    while isinstance(current, ast.Attribute):
+        current = current.value
+    if isinstance(current, ast.Subscript):
+        return _resolved_call_name(node.func, aliases) is None
+    if not isinstance(current, ast.Call):
+        return False
+    root = _resolved_call_name(current.func, aliases)
+    return root not in {
+        "Path",
+        "pathlib.Path",
+        "PurePath",
+        "pathlib.PurePath",
+        "PurePosixPath",
+        "pathlib.PurePosixPath",
+        "PureWindowsPath",
+        "pathlib.PureWindowsPath",
+    }
 
 
 def _call_writes_artifact(node: ast.Call, aliases: Mapping[str, str]) -> bool:
     name = _resolved_call_name(node.func, aliases)
     leaf = node.func.attr if isinstance(node.func, ast.Attribute) else None
-    if (name.rsplit(".", maxsplit=1)[-1] if name is not None else leaf) in {
+    operation = name.rsplit(".", maxsplit=1)[-1] if name is not None else leaf
+    if operation in {
         "write",
         "writelines",
         "write_text",
@@ -513,43 +545,175 @@ def _call_writes_artifact(node: ast.Call, aliases: Mapping[str, str]) -> bool:
         "to_pickle",
     }:
         return True
+    if operation in {"mkdir", "makedirs"}:
+        return True
     if name is None:
         return False
-    if name in {"open", "io.open", "builtins.open"}:
+    if name in {"os.open"} or name.startswith("shutil.copy") or name == "shutil.move":
+        return True
+    if operation == "open":
         mode: object = "r"
         for keyword in node.keywords:
             if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
                 mode = keyword.value.value
-        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
-            mode = node.args[1].value
+        mode_index = 1 if name in {"open", "io.open", "builtins.open"} else 0
+        if len(node.args) > mode_index and isinstance(node.args[mode_index], ast.Constant):
+            mode = node.args[mode_index].value
         return isinstance(mode, str) and any(marker in mode for marker in "wax+")
     return False
 
 
-def _tree_writes_artifacts(tree: ast.AST, aliases: Mapping[str, str]) -> bool:
+class _ReachableNodeCollector(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.nodes: list[ast.AST] = []
+
+    def visit_block(self, statements: list[ast.stmt]) -> None:
+        for statement in statements:
+            self.visit(statement)
+            if isinstance(statement, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+                break
+
+    def generic_visit(self, node: ast.AST) -> None:
+        self.nodes.append(node)
+        super().generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.nodes.append(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.nodes.append(node)
+
+    def visit_If(self, node: ast.If) -> None:
+        self.nodes.append(node)
+        self.visit(node.test)
+        if isinstance(node.test, ast.Constant):
+            branch = node.body if bool(node.test.value) else node.orelse
+            self.visit_block(branch)
+        else:
+            self.visit_block(node.body)
+            self.visit_block(node.orelse)
+
+    def visit_While(self, node: ast.While) -> None:
+        self.nodes.append(node)
+        self.visit(node.test)
+        if not isinstance(node.test, ast.Constant) or bool(node.test.value):
+            self.visit_block(node.body)
+        self.visit_block(node.orelse)
+
+
+def _reachable_nodes(node: ast.AST) -> list[ast.AST]:
+    collector = _ReachableNodeCollector()
+    if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+        collector.visit_block(node.body)
+    else:
+        collector.visit(node)
+    return collector.nodes
+
+
+def _top_level_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
+def _expand_local_call_graph(
+    initial_nodes: list[ast.AST],
+    functions: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    aliases: Mapping[str, str],
+) -> list[ast.AST]:
+    expanded = list(initial_nodes)
+    queued = [
+        name.rsplit(".", maxsplit=1)[-1]
+        for node in initial_nodes
+        if isinstance(node, ast.Call)
+        and (name := _resolved_call_name(node.func, aliases)) is not None
+    ]
+    visited: set[str] = set()
+    while queued:
+        function_name = queued.pop()
+        if function_name in visited or function_name not in functions:
+            continue
+        visited.add(function_name)
+        nodes = _reachable_nodes(functions[function_name])
+        expanded.extend(nodes)
+        queued.extend(
+            name.rsplit(".", maxsplit=1)[-1]
+            for node in nodes
+            if isinstance(node, ast.Call)
+            and (name := _resolved_call_name(node.func, aliases)) is not None
+        )
+    return expanded
+
+
+def _nodes_write_artifacts(
+    nodes: list[ast.AST], aliases: Mapping[str, str]
+) -> bool:
     return any(
         isinstance(node, ast.Call) and _call_writes_artifact(node, aliases)
-        for node in ast.walk(tree)
+        for node in nodes
     )
 
 
-def _dry_run_writes_artifacts(tree: ast.AST, aliases: Mapping[str, str]) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and re.search(
-            r"dry_?run", node.name, re.IGNORECASE
+def _smoke_reaches_artifact_write(
+    tree: ast.Module, aliases: Mapping[str, str]
+) -> bool:
+    functions = _top_level_functions(tree)
+    for name, function in functions.items():
+        if not name.startswith("test_"):
+            continue
+        nodes = _expand_local_call_graph(
+            _reachable_nodes(function), functions, aliases
+        )
+        if _nodes_write_artifacts(nodes, aliases):
+            return True
+    return False
+
+
+def _dry_run_reaches_artifact_write(
+    tree: ast.Module, aliases: Mapping[str, str]
+) -> bool:
+    functions = _top_level_functions(tree)
+    main = functions.get("main")
+    if main is None:
+        return False
+    main_nodes = _expand_local_call_graph(_reachable_nodes(main), functions, aliases)
+    called_functions = {
+        name.rsplit(".", maxsplit=1)[-1]
+        for name in _call_names(main_nodes, aliases)
+    }
+    for name, function in functions.items():
+        if (
+            name in called_functions
+            and re.search(r"dry_?run", name, re.IGNORECASE)
+            and _nodes_write_artifacts(
+                _expand_local_call_graph(
+                    _reachable_nodes(function), functions, aliases
+                ),
+                aliases,
+            )
         ):
-            if _tree_writes_artifacts(node, aliases):
-                return True
-        if isinstance(node, ast.If):
-            names = {
-                value
-                for child in ast.walk(node.test)
-                if (value := _dotted_name(child)) is not None
-            }
-            if any(re.search(r"dry_?run", name, re.IGNORECASE) for name in names) and any(
-                _tree_writes_artifacts(statement, aliases) for statement in node.body
-            ):
-                return True
+            return True
+    for node in _reachable_nodes(main):
+        if not isinstance(node, ast.If):
+            continue
+        test_names = {
+            name
+            for child in ast.walk(node.test)
+            if (name := _dotted_name(child)) is not None
+        }
+        if not any(re.search(r"dry_?run", name, re.IGNORECASE) for name in test_names):
+            continue
+        collector = _ReachableNodeCollector()
+        collector.visit_block(node.body)
+        branch_nodes = _expand_local_call_graph(
+            collector.nodes, functions, aliases
+        )
+        if _nodes_write_artifacts(branch_nodes, aliases):
+            return True
     return False
 
 
@@ -623,7 +787,7 @@ def _validate_python_capabilities(
             elif isinstance(node, ast.Call):
                 forbidden = forbidden or _forbidden_call(
                     _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node)
+                ) or _call_is_dynamic_dispatch(node, aliases)
                 unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
@@ -636,14 +800,14 @@ def _validate_python_capabilities(
 
         if fake_result_assignment and not (
             path == "experiment/code/tests/test_smoke.py"
-            and not _tree_writes_artifacts(tree, aliases)
+            and not _smoke_reaches_artifact_write(tree, aliases)
         ):
             forbidden = True
-        if path == "experiment/code/tests/test_smoke.py" and _tree_writes_artifacts(
+        if path == "experiment/code/tests/test_smoke.py" and _smoke_reaches_artifact_write(
             tree, aliases
         ):
             forbidden = True
-        if path == "experiment/code/main.py" and _dry_run_writes_artifacts(
+        if path == "experiment/code/main.py" and _dry_run_reaches_artifact_write(
             tree, aliases
         ):
             forbidden = True
@@ -825,11 +989,13 @@ def _validate_config_contract(
     if split is not None:
         groups = split.get("groups")
         invalid = invalid or (
-            split.get("design_binding") != split_source
+            not isinstance(split_source, dict)
+            or set(split_source) != {"description", "isolation_key"}
+            or split.get("design_binding") != split_source
             or not isinstance(groups, list)
             or len(groups) != len(_SPLIT_GROUPS)
             or set(groups) != _SPLIT_GROUPS
-            or not _nonempty_text(split.get("isolation_key"))
+            or split.get("isolation_key") != split_source.get("isolation_key")
             or split.get("overlap_policy") != "disjoint"
         )
 
@@ -865,7 +1031,7 @@ def _validate_config_contract(
     if output_contract is not None:
         invalid = invalid or (
             output_contract.get("design_binding") != output_source
-            or not _project_relative_path(output_contract.get("result_path"))
+            or output_contract.get("result_path") != _LATER_RESULT_PATH
             or not _nonempty_text_list(output_contract.get("required_fields"))
         )
 
@@ -911,7 +1077,7 @@ def _validate_manifest_contracts(
     if output_contract is not None:
         valid = valid and (
             _config_section_is_nonempty(output_contract.get("design_binding"))
-            and _project_relative_path(output_contract.get("result_path"))
+            and output_contract.get("result_path") == _LATER_RESULT_PATH
             and _nonempty_text_list(output_contract.get("required_fields"))
         )
     valid = valid and prohibitions is not None
@@ -972,22 +1138,21 @@ def _validate_traceability(
         )
 
 
-def _function_calls(
-    function: ast.FunctionDef | ast.AsyncFunctionDef,
-    aliases: Mapping[str, str],
+def _call_names(
+    nodes: list[ast.AST], aliases: Mapping[str, str]
 ) -> set[str]:
     return {
         name
-        for node in ast.walk(function)
+        for node in nodes
         if isinstance(node, ast.Call)
         and (name := _resolved_call_name(node.func, aliases)) is not None
     }
 
 
-def _string_literals(tree: ast.AST) -> set[str]:
+def _node_literals(nodes: list[ast.AST]) -> set[str]:
     return {
         node.value
-        for node in ast.walk(tree)
+        for node in nodes
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
 
@@ -1004,20 +1169,24 @@ def _validate_python_contracts(
             tree = None
         if tree is not None:
             aliases = _import_aliases(tree)
-            functions = {
-                node.name: node
-                for node in tree.body
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            }
+            functions = _top_level_functions(tree)
             required = {"load_config", "validate_inputs", "build_plan", "main"}
             valid = required <= set(functions)
             if valid:
-                load_calls = _function_calls(functions["load_config"], aliases)
-                validate_calls = _function_calls(functions["validate_inputs"], aliases)
-                validate_literals = _string_literals(functions["validate_inputs"])
-                plan_literals = _string_literals(functions["build_plan"])
-                main_calls = _function_calls(functions["main"], aliases)
-                main_literals = _string_literals(functions["main"])
+                load_nodes = _reachable_nodes(functions["load_config"])
+                validate_nodes = _reachable_nodes(functions["validate_inputs"])
+                plan_nodes = _reachable_nodes(functions["build_plan"])
+                main_direct_nodes = _reachable_nodes(functions["main"])
+                main_nodes = _expand_local_call_graph(
+                    main_direct_nodes, functions, aliases
+                )
+                module_nodes = _reachable_nodes(tree)
+                load_calls = _call_names(load_nodes, aliases)
+                validate_calls = _call_names(validate_nodes, aliases)
+                validate_literals = _node_literals(validate_nodes)
+                plan_literals = _node_literals(plan_nodes)
+                main_calls = _call_names(main_nodes, aliases)
+                main_literals = _node_literals(main_direct_nodes)
                 valid = (
                     any(name in {"json.load", "json.loads"} for name in load_calls)
                     and any(name.split(".")[-1] in {"open", "read_text"} for name in load_calls)
@@ -1033,13 +1202,13 @@ def _validate_python_contracts(
                     )
                     and any(
                         isinstance(node, ast.Raise)
-                        for node in ast.walk(functions["validate_inputs"])
+                        for node in validate_nodes
                     )
                     and {"split_strategy", "metrics", "baselines", "seeds"}
                     <= plan_literals
                     and any(
                         isinstance(node, ast.Return) and node.value is not None
-                        for node in ast.walk(functions["build_plan"])
+                        for node in plan_nodes
                     )
                     and {"load_config", "validate_inputs", "build_plan"}
                     <= {name.split(".")[-1] for name in main_calls}
@@ -1051,12 +1220,12 @@ def _validate_python_contracts(
                             and re.search(r"dry_?run", name, re.IGNORECASE)
                             for child in ast.walk(node.test)
                         )
-                        for node in ast.walk(functions["main"])
+                        for node in main_direct_nodes
                     )
                     and any(
                         isinstance(node, ast.Call)
                         and _resolved_call_name(node.func, aliases) == "main"
-                        for node in ast.walk(tree)
+                        for node in module_nodes
                     )
                 )
             if not valid:
@@ -1076,25 +1245,31 @@ def _validate_python_contracts(
             smoke_tree = None
         if smoke_tree is not None:
             aliases = _import_aliases(smoke_tree)
+            functions = _top_level_functions(smoke_tree)
+            module_nodes = _reachable_nodes(smoke_tree)
             imported = {
                 alias.name
-                for node in ast.walk(smoke_tree)
+                for node in module_nodes
                 if isinstance(node, ast.ImportFrom)
                 and node.module is not None
                 and node.module.endswith("main")
                 for alias in node.names
             }
-            calls = {
-                name.split(".")[-1]
-                for node in ast.walk(smoke_tree)
-                if isinstance(node, ast.Call)
-                and (name := _resolved_call_name(node.func, aliases)) is not None
-            }
-            literals = _string_literals(smoke_tree)
-            valid = (
-                {"load_config", "validate_inputs", "build_plan", "main"} <= imported
-                and {"load_config", "validate_inputs", "build_plan", "main"} <= calls
-                and "--dry-run" in literals
+            required = {"load_config", "validate_inputs", "build_plan", "main"}
+            valid = required <= imported and any(
+                required
+                <= {
+                    name.rsplit(".", maxsplit=1)[-1]
+                    for name in _call_names(nodes, aliases)
+                }
+                and "--dry-run" in _node_literals(nodes)
+                for name, function in functions.items()
+                if name.startswith("test_")
+                for nodes in (
+                    _expand_local_call_graph(
+                        _reachable_nodes(function), functions, aliases
+                    ),
+                )
             )
             if not valid:
                 _issue(
@@ -1131,6 +1306,7 @@ def validate_computational_package(
     project_id: str,
     *,
     approved_design_sha256: str | None = None,
+    prepared_paths: tuple[str, ...] | None = None,
 ) -> tuple[ComputationalPackageIssue, ...]:
     """Validate package structure without importing or executing package code.
 
@@ -1200,7 +1376,7 @@ def validate_computational_package(
         _validate_traceability(design_json, config, issues)
         _validate_config_contract(design, config, issues)
 
-    _validate_on_disk_tree(root, issues)
+    _validate_on_disk_tree(root, prepared_paths, issues)
     _validate_python_syntax(outputs, issues)
     _validate_python_capabilities(outputs, issues)
     _validate_python_contracts(outputs, issues)

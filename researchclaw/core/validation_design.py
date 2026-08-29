@@ -53,6 +53,7 @@ _REPRODUCIBILITY_FIELDS = frozenset(
     {"protocol_version", "data_provenance", "analysis_plan", "audit_trail"}
 )
 _RISK_FIELDS = frozenset({"risk", "mitigation"})
+_COMPUTATIONAL_SPLIT_FIELDS = frozenset({"description", "isolation_key"})
 _METHOD_FIELDS = {
     "policy_evidence": frozenset(
         {
@@ -258,8 +259,24 @@ def validate_validation_design(
         issues.append(ValidationDesignIssue("invalid_validation_method", "method does not match validation_type"))
     else:
         list_fields = _METHOD_LIST_FIELDS[validation_type]
+        text_fields = expected_method_fields - list_fields
+        split = None
+        if validation_type == "computational":
+            text_fields = text_fields - {"split_strategy"}
+            split = _closed_object(
+                method.get("split_strategy"),
+                _COMPUTATIONAL_SPLIT_FIELDS,
+                issues,
+                "method.split_strategy",
+            )
         if any(not _text_list(method.get(field)) for field in list_fields) or any(
-            not _text(method.get(field)) for field in expected_method_fields - list_fields
+            not _text(method.get(field)) for field in text_fields
+        ) or (
+            validation_type == "computational"
+            and (
+                split is None
+                or not all(_text(split.get(field)) for field in _COMPUTATIONAL_SPLIT_FIELDS)
+            )
         ):
             issues.append(ValidationDesignIssue("invalid_validation_method", "method fields must be non-empty"))
 

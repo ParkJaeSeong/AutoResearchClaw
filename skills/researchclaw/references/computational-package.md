@@ -42,7 +42,8 @@ these fields:
   `design_binding`, a non-empty list of project-relative `required_paths`, and
   a non-empty text list of `required_fields`.
 - `output_contract`: the exact closed later-execution contract also used in
-  config, with `design_binding`, a project-relative `result_path`, and a
+  config, with `design_binding`, exact `result_path`
+  `experiment/results.json`, and a
   non-empty text list of `required_fields`. Declaring this path does not create
   it during Stage 10.
 - `commands`: exactly the command object below.
@@ -82,9 +83,10 @@ fields:
 - `metrics`: the complete approved metric objects, including each target and
   threshold, copied without omission or substitution.
 - `split_strategy`: exactly `design_binding`, `groups`, `isolation_key`, and
-  `overlap_policy`. The binding equals the approved split strategy; `groups`
-  contains each of `train`, `validation`, `calibration`, and `test` exactly
-  once; `isolation_key` is non-empty text; and `overlap_policy` is `disjoint`.
+  `overlap_policy`. The binding equals the approved closed split-strategy
+  object; `groups` contains each of `train`, `validation`, `calibration`, and
+  `test` exactly once; `isolation_key` exactly equals the approved
+  split-strategy `isolation_key`; and `overlap_policy` is `disjoint`.
 - `seeds`: exactly `design_binding` and `values`; the binding equals the
   approved reproducibility source selected by traceability and `values` is a
   non-empty list of JSON integers.
@@ -94,8 +96,9 @@ fields:
   fields are non-empty text.
 - `output_contract`: exactly `design_binding`, `result_path`, and
   `required_fields`. Its binding equals the approved metric/success/failure
-  source selected by traceability, and its path is project-relative and
-  non-traversing.
+  source selected by traceability, and its path is exactly the later-stage-safe
+  `experiment/results.json`. This path is disjoint from the approved design
+  and all six Stage-10 package outputs.
 - `traceability`: an object with exactly `datasets`, `baselines`,
   `split_strategy`, `metrics`, `seeds`, `input_contract`, and
   `output_contract`, mapping every preceding translation field to its approved
@@ -150,6 +153,16 @@ traceability, and README/manifest command agreement. It does not import or
 execute the generated package. If it returns issues, revise only these six
 declared outputs using the reported issues and the prepared packet, then run
 the same validation command again. Do not create outputs to bypass a failure.
+
+The first Stage-10 `prepare` durably records the existing non-output project
+file paths. Repeated prepare calls do not refresh that baseline. Static
+validation requires the paths added after prepare to be exactly the six
+declared outputs and rejects removal of a baseline path. Files such as supplied
+inputs that existed before prepare remain allowed; a notebook, download,
+result, or other undeclared path added afterward is rejected regardless of its
+directory name. A migrated state without this field acquires it at the next
+Stage-10 prepare; declared output paths are excluded from the captured baseline
+so their content and hashes remain subject to the ordinary six-output checks.
 
 When validation succeeds, run:
 

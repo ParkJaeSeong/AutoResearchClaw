@@ -74,7 +74,10 @@ def test_valid_policy_design_stops_at_stage_nine_approval_gate(tmp_path):
             "computational",
             {
                 "datasets": ["versioned public battery dataset"],
-                "split_strategy": "cell-grouped held-out test split",
+                "split_strategy": {
+                    "description": "cell-grouped held-out test split",
+                    "isolation_key": "cell_id",
+                },
                 "baselines": ["random row split"],
                 "evaluation_protocol": "fit preprocessing on train only",
             },
@@ -101,6 +104,25 @@ def test_stage_nine_accepts_each_declared_validation_type(tmp_path, validation_t
     report = validate_current_stage(project)
 
     assert report.valid is True
+
+
+def test_stage_nine_rejects_unstructured_computational_split_semantics(tmp_path):
+    project = build_completed_hypothesis_milestone_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 9)
+    design = _design(project)
+    design["validation_type"] = "computational"
+    design["method"] = {
+        "datasets": ["versioned public battery dataset"],
+        "split_strategy": "cell-grouped held-out test split",
+        "baselines": ["random row split"],
+        "evaluation_protocol": "fit preprocessing on train only",
+    }
+    _write_design(project, design)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_validation_method" for issue in report.issues)
 
 
 def test_stage_nine_rejects_unknown_hypothesis_and_unquantified_metric(tmp_path):
@@ -214,7 +236,10 @@ def test_approved_stage_nine_prepares_supported_stage_ten(tmp_path):
     design["validation_type"] = "computational"
     design["method"] = {
         "datasets": ["versioned public battery dataset"],
-        "split_strategy": "cell-grouped held-out test split",
+        "split_strategy": {
+            "description": "cell-grouped held-out test split",
+            "isolation_key": "cell_id",
+        },
         "baselines": ["random row split"],
         "evaluation_protocol": "fit preprocessing on train only",
     }
