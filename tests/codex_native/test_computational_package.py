@@ -258,6 +258,12 @@ def test_package_rejects_nonclosed_or_self_listed_manifest_file_entries(
         ("import requests", "forbidden_capability"),
         ("import subprocess", "forbidden_capability"),
         ("os.system('x')", "forbidden_capability"),
+        ("import os as runner\nrunner.system('x')", "forbidden_capability"),
+        ("from os import system as shell\nshell('x')", "forbidden_capability"),
+        ("from os import popen as reader\nreader('x')", "forbidden_capability"),
+        ("from builtins import eval as evaluate\nevaluate('1 + 1')", "forbidden_capability"),
+        ("from builtins import exec as execute\nexecute('x = 1')", "forbidden_capability"),
+        ("__import__('openai')", "forbidden_capability"),
         ("Path('/tmp/result.json')", "unsafe_path"),
         ("synthetic_results = {'rmse': 0.1}", "forbidden_capability"),
     ],
@@ -298,12 +304,90 @@ def test_package_rejects_unbounded_or_forbidden_requirements(tmp_path):
     }
 
 
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "google-generativeai==0.8.5",
+        "semantic-kernel==1.0.0",
+        "pydantic-ai==0.0.1",
+    ],
+)
+def test_package_rejects_normalized_forbidden_requirement_names(tmp_path, requirement):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(project, "experiment/code/requirements.txt", f"{requirement}\n")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_capability"
+        and issue.path == "experiment/code/requirements.txt"
+        for issue in report.issues
+    )
+
+
 def test_package_rejects_missing_design_traceability(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
     config_path = "experiment/code/config.json"
     config = json.loads((project.root / config_path).read_text(encoding="utf-8"))
     config["traceability"] = {"datasets": "method.datasets"}
+    _replace_package_file(project, config_path, json.dumps(config) + "\n")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "missing_traceability" and issue.path == config_path
+        for issue in report.issues
+    )
+
+
+def test_package_rejects_traceability_to_unrelated_design_fields(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    config_path = "experiment/code/config.json"
+    config = json.loads((project.root / config_path).read_text(encoding="utf-8"))
+    config["traceability"] = {
+        field: "title"
+        for field in (
+            "datasets",
+            "baselines",
+            "split_strategy",
+            "metrics",
+            "seeds",
+            "input_contract",
+            "output_contract",
+        )
+    }
+    _replace_package_file(project, config_path, json.dumps(config) + "\n")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "missing_traceability" and issue.path == config_path
+        for issue in report.issues
+    )
+
+
+def test_package_rejects_empty_config_sections_despite_traceability(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    config_path = "experiment/code/config.json"
+    config = json.loads((project.root / config_path).read_text(encoding="utf-8"))
+    config.update(
+        {
+            "datasets": [],
+            "baselines": [],
+            "split_strategy": "",
+            "metrics": [],
+            "seeds": [],
+            "input_contract": {},
+            "output_contract": {},
+        }
+    )
     _replace_package_file(project, config_path, json.dumps(config) + "\n")
 
     report = validate_current_stage(project)

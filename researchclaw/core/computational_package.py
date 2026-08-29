@@ -69,6 +69,15 @@ _TRACEABILITY_FIELDS = (
     "input_contract",
     "output_contract",
 )
+_TRACEABILITY_SOURCES = {
+    "datasets": frozenset({"method.datasets"}),
+    "baselines": frozenset({"method.baselines", "comparators"}),
+    "split_strategy": frozenset({"method.split_strategy"}),
+    "metrics": frozenset({"metrics"}),
+    "seeds": frozenset({"reproducibility", "reproducibility.protocol_version"}),
+    "input_contract": frozenset({"evidence_sources", "method.datasets"}),
+    "output_contract": frozenset({"metrics", "success_criteria", "failure_criteria"}),
+}
 _FORBIDDEN_IMPORTS = (
     "openai",
     "anthropic",
@@ -260,6 +269,16 @@ def _forbidden_import(name: str) -> bool:
     return any(name == forbidden or name.startswith(f"{forbidden}.") for forbidden in _FORBIDDEN_IMPORTS)
 
 
+def _normalized_distribution_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _forbidden_distribution(name: str) -> bool:
+    return _normalized_distribution_name(name) in {
+        _normalized_distribution_name(forbidden) for forbidden in _FORBIDDEN_IMPORTS
+    }
+
+
 def _absolute_literal(value: object) -> bool:
     return (
         isinstance(value, str)
@@ -310,6 +329,46 @@ def _smoke_test_writes_artifacts(tree: ast.AST) -> bool:
     return False
 
 
+def _import_aliases(tree: ast.AST) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for imported in node.names:
+                aliases[imported.asname or imported.name.split(".")[0]] = imported.name
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            for imported in node.names:
+                aliases[imported.asname or imported.name] = f"{node.module}.{imported.name}"
+    return aliases
+
+
+def _resolved_call_name(node: ast.AST, aliases: Mapping[str, str]) -> str | None:
+    name = _dotted_name(node)
+    if name is None:
+        return None
+    root, *remainder = name.split(".")
+    target = aliases.get(root)
+    return ".".join((target, *remainder)) if target is not None else name
+
+
+def _forbidden_call(name: str | None) -> bool:
+    return (
+        name in {
+            "os.system",
+            "os.popen",
+            "eval",
+            "exec",
+            "builtins.eval",
+            "builtins.exec",
+            "__builtins__.eval",
+            "__builtins__.exec",
+            "__import__",
+            "builtins.__import__",
+            "__builtins__.__import__",
+        }
+        or (name is not None and name.startswith("subprocess."))
+    )
+
+
 def _validate_python_capabilities(
     outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -322,6 +381,7 @@ def _validate_python_capabilities(
         except SyntaxError:
             continue
 
+        aliases = _import_aliases(tree)
         forbidden = False
         unsafe_path = False
         fake_result_assignment = False
@@ -340,10 +400,7 @@ def _validate_python_capabilities(
                     )
                 )
             elif isinstance(node, ast.Call):
-                name = _dotted_name(node.func)
-                forbidden = forbidden or name in {"os.system", "os.popen", "eval", "exec", "builtins.eval", "builtins.exec"} or (
-                    name is not None and name.startswith("subprocess.")
-                )
+                forbidden = forbidden or _forbidden_call(_resolved_call_name(node.func, aliases))
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
                 fake_result_assignment = fake_result_assignment or any(
@@ -381,7 +438,7 @@ def _validate_requirements(
             continue
         match = _REQUIREMENT_NAME.match(line)
         requirement_name = match.group(1).lower() if match else ""
-        if requirement_name and _forbidden_import(requirement_name):
+        if requirement_name and _forbidden_distribution(requirement_name):
             _issue(
                 issues,
                 "forbidden_capability",
@@ -412,6 +469,14 @@ def _design_path_is_nonempty(design: object, path: object) -> bool:
     return value not in (None, "", [], {})
 
 
+def _config_section_is_nonempty(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return bool(value)
+    return value is not None and not isinstance(value, bool)
+
+
 def _validate_traceability(
     design_json: str, config: dict[str, Any], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -421,7 +486,9 @@ def _validate_traceability(
         design = None
     traceability = config.get("traceability")
     if not isinstance(traceability, dict) or any(
-        not _design_path_is_nonempty(design, traceability.get(field))
+        traceability.get(field) not in _TRACEABILITY_SOURCES[field]
+        or not _design_path_is_nonempty(design, traceability.get(field))
+        or not _config_section_is_nonempty(config.get(field))
         for field in _TRACEABILITY_FIELDS
     ):
         _issue(
