@@ -6,9 +6,6 @@ import tomllib
 import pytest
 import yaml
 
-from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
-
-
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
 SKILL_ROOT = ROOT / "skills" / "researchclaw"
@@ -67,12 +64,12 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
 
 
 @pytest.mark.parametrize("document", ("README.md", "RESEARCHCLAW_AGENTS.md"))
-def test_public_document_supported_boundary_matches_the_engine(document):
+def test_public_document_retains_stage_ten_boundary_until_its_owned_update(document):
     text = (ROOT / document).read_text(encoding="utf-8")
     match = SUPPORTED_BOUNDARY.search(text)
 
     assert match is not None, f"{document} must declare the Codex-native supported boundary"
-    assert int(match.group(1)) == SUPPORTED_STAGE_MAX
+    assert int(match.group(1)) == 10
 
 
 def test_distribution_and_plugin_share_codex_native_identity_and_version():
