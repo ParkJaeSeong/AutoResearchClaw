@@ -214,8 +214,14 @@ def validate_computational_package(
     design_json: str,
     outputs: Mapping[str, str],
     project_id: str,
+    *,
+    approved_design_sha256: str | None = None,
 ) -> tuple[ComputationalPackageIssue, ...]:
-    """Validate package structure without importing or executing package code."""
+    """Validate package structure without importing or executing package code.
+
+    ``approved_design_sha256`` binds the package to the exact approved design
+    bytes when the caller has read that durable artifact from disk.
+    """
     issues: list[ComputationalPackageIssue] = []
     for path in REQUIRED_OUTPUTS:
         if not isinstance(outputs.get(path), str):
@@ -224,7 +230,9 @@ def validate_computational_package(
     manifest = _parse_object(outputs.get(MANIFEST_PATH), MANIFEST_PATH, issues)
     config_path = "experiment/code/config.json"
     config = _parse_object(outputs.get(config_path), config_path, issues)
-    design_sha256 = hashlib.sha256(design_json.encode("utf-8")).hexdigest()
+    design_sha256 = approved_design_sha256 or hashlib.sha256(
+        design_json.encode("utf-8")
+    ).hexdigest()
 
     if manifest is not None:
         _validate_closed_fields(manifest, MANIFEST_FIELDS, MANIFEST_PATH, "manifest", issues)

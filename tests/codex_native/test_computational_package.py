@@ -2,11 +2,13 @@ import json
 
 import pytest
 
+from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.task_packets import build_task_packet
 from researchclaw.core.validation import validate_current_stage
 
 from tests.codex_native.helpers import (
+    build_completed_hypothesis_milestone_project,
     build_completed_validation_design_project,
     write_valid_fixture_artifacts,
 )
@@ -84,6 +86,29 @@ def test_valid_computational_package_is_structurally_valid(tmp_path):
     }
 
 
+def test_package_binds_design_sha256_to_approved_crlf_bytes(tmp_path):
+    project = build_completed_hypothesis_milestone_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 9)
+    design_path = project.root / "experiment" / "design.json"
+    design = json.loads(design_path.read_text(encoding="utf-8"))
+    design["validation_type"] = "computational"
+    design["method"] = {
+        "datasets": ["versioned public battery dataset"],
+        "split_strategy": "cell-grouped held-out test split",
+        "baselines": ["random row split"],
+        "evaluation_protocol": "fit preprocessing on train only",
+    }
+    design_path.write_bytes((json.dumps(design) + "\r\n").encode("utf-8"))
+    assert validate_current_stage(project).valid is True
+    approve_current_gate(ResearchProject.open(project.root), "approve", "CRLF design accepted")
+    project = ResearchProject.open(project.root)
+    write_valid_fixture_artifacts(project.root, 10)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+
+
 def test_package_rejects_wrong_design_hash_or_project_id(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
     write_valid_fixture_artifacts(project.root, 10)
@@ -139,3 +164,67 @@ def test_package_rejects_python_syntax_error(tmp_path):
 
     assert report.valid is False
     assert any(issue.code == "invalid_python" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    ("artifact", "field", "mutator", "expected_code"),
+    [
+        ("experiment/package_manifest.json", "undeclared", lambda value: "unexpected", "unknown_field"),
+        ("experiment/package_manifest.json", "runtime", lambda value: None, "missing_required_field"),
+        ("experiment/code/config.json", "undeclared", lambda value: "unexpected", "unknown_field"),
+        ("experiment/code/config.json", "datasets", lambda value: None, "missing_required_field"),
+    ],
+    ids=("manifest-extra", "manifest-missing", "config-extra", "config-missing"),
+)
+def test_package_rejects_nonclosed_manifest_or_config_fields(
+    tmp_path, artifact, field, mutator, expected_code
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    path = project.root / artifact
+    value = json.loads(path.read_text(encoding="utf-8"))
+    replacement = mutator(value.get(field))
+    if replacement is None:
+        value.pop(field)
+    else:
+        value[field] = replacement
+    path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == expected_code and issue.path == artifact for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_code"),
+    [
+        (
+            lambda files: files[0].update({"undeclared": "unexpected"}),
+            "unknown_field",
+        ),
+        (lambda files: files[0].pop("role"), "missing_required_field"),
+        (
+            lambda files: files[-1].update({"path": "experiment/package_manifest.json"}),
+            "manifest_file_set",
+        ),
+    ],
+    ids=("file-entry-extra", "file-entry-missing", "manifest-self-listing"),
+)
+def test_package_rejects_nonclosed_or_self_listed_manifest_file_entries(
+    tmp_path, mutate, expected_code
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    manifest_path = project.root / "experiment" / "package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutate(manifest["files"])
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == expected_code and issue.path == "experiment/package_manifest.json"
+        for issue in report.issues
+    )

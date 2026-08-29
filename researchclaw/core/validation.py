@@ -304,6 +304,7 @@ def _validate_stage_ten(
     design_text = _read_text(design, issues, design_path)
     if design_text is None:
         return
+    design_sha256 = _sha256(design)
     issues.extend(
         ValidationIssue(issue.code, issue.path, issue.message)
         for issue in validate_computational_package(
@@ -311,6 +312,7 @@ def _validate_stage_ten(
             design_text,
             contents,
             project.state.project_id,
+            approved_design_sha256=design_sha256,
         )
     )
 
