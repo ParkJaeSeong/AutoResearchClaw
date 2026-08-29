@@ -1006,6 +1006,40 @@ def test_validate_research_result_rejects_fifo_promptly(tmp_path):
     assert str(errors[0]) == "research_result_file_invalid"
 
 
+def test_prepare_run_rejects_fifo_approved_artifact_promptly(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    design_path = project.root / "experiment/design.json"
+    design_path.unlink()
+    os.mkfifo(design_path)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    approval_before = (project.root / "approvals/stage-12.json").read_bytes()
+    errors = []
+
+    def prepare_fifo():
+        try:
+            prepare_research_execution(project)
+        except BaseException as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=prepare_fifo, daemon=True)
+    worker.start()
+    try:
+        worker.join(timeout=1.0)
+        assert not worker.is_alive(), "approved-artifact FIFO blocked preparation"
+    finally:
+        if worker.is_alive():
+            writer = os.open(design_path, os.O_WRONLY | os.O_NONBLOCK)
+            os.close(writer)
+            worker.join(timeout=2.0)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert str(errors[0]) == "execution_approval_invalid"
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "approvals/stage-12.json").read_bytes() == approval_before
+    assert not (project.root / EXECUTION_CONTRACT_PATH).exists()
+
+
 def test_project_file_snapshot_still_reads_regular_files(tmp_path):
     root = tmp_path / "project"
     path = root / "data/input.bin"

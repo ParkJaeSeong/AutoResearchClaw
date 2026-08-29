@@ -173,9 +173,15 @@ class ResearchProject:
         from .resource_planning import validated_execution_readiness
 
         current_project = normalize_durable_project(self)
-        readiness, prerequisites, approval_eligible = validated_execution_readiness(
-            current_project
-        )
+        if (
+            current_project.state.current_stage == 13
+            and 12 in current_project.state.completed_stages
+        ):
+            readiness, prerequisites, approval_eligible = None, (), False
+        else:
+            readiness, prerequisites, approval_eligible = (
+                validated_execution_readiness(current_project)
+            )
         approval_eligible = (
             approval_eligible
             and current_project.state.current_stage == 12

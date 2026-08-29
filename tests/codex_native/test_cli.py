@@ -249,8 +249,12 @@ def test_execution_prepare_run_cli_emits_handoff_without_running_command(
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
+    contract = load_execution_contract(project.root)
     assert payload["readiness"] == "ready_for_explicit_execution"
     assert payload["result_path"] == "experiment/results.json"
+    assert payload["bindings"] == contract["bindings"]
+    assert payload["inputs"] == contract["inputs"]
+    assert payload["result_template"] == contract["result_template"]
     assert captured.err == ""
     assert not (project.root / "project-code-executed").exists()
 
@@ -294,6 +298,38 @@ def test_execution_register_result_cli_advances_to_thirteen(tmp_path, capsys):
     payload = json.loads(captured.out)
     assert payload["readiness"] == "research_result_registered"
     assert payload["current_stage"] == 13
+    assert captured.err == ""
+
+
+def test_status_cli_does_not_reuse_stage_twelve_readiness_at_stage_thirteen(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(
+        project, load_execution_contract(project.root)
+    )
+    assert main(
+        [
+            "execution",
+            "register-result",
+            str(project.root),
+            "--result",
+            "experiment/results.json",
+            "--confirm-research-result",
+            "--json",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(["status", str(project.root), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["current_stage"] == 13
+    assert payload["execution_readiness"] is None
+    assert payload["unmet_prerequisites"] == []
+    assert payload["approval_eligible"] is False
     assert captured.err == ""
 
 
@@ -354,6 +390,38 @@ def test_execution_register_result_cli_rejects_invalid_pending_recovery_without_
     assert captured.out == ""
     assert captured.err == "error: research_result_registration_recovery_invalid\n"
     assert state_path.read_bytes() == state_before
+
+
+def test_execution_register_result_cli_normalizes_malformed_event_log_without_mutating_state(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(
+        project, load_execution_contract(project.root)
+    )
+    event_path = project.root / "evaluation/events.jsonl"
+    event_path.write_bytes(event_path.read_bytes() + b"{not-json}\n")
+    state_path = project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+
+    assert main(
+        [
+            "execution",
+            "register-result",
+            str(project.root),
+            "--result",
+            "experiment/results.json",
+            "--confirm-research-result",
+            "--json",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: research_result_registration_recovery_invalid\n"
+    assert state_path.read_bytes() == state_before
+    assert event_path.read_bytes().endswith(b"{not-json}\n")
 
 
 def test_development_run_wrong_stage_does_not_normalize_legacy_state(tmp_path, capsys):

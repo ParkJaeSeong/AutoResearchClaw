@@ -14,11 +14,10 @@ import os
 import stat
 from types import MappingProxyType
 
-from .approval import ApprovalRecord, approval_matches_state
+from .approval import ApprovalRecord
 from .execution_gate import (
     _load_validated_resource_plan,
     _read_project_file_snapshot,
-    stage_twelve_artifact_hashes,
 )
 from .events import EvaluationEvent, event_log_for
 from .models import ArtifactRef, ProjectState, StageStatus
@@ -32,6 +31,12 @@ EXECUTION_CONTRACT_PATH = "experiment/execution_contract.json"
 RESEARCH_RESULT_PATH = "experiment/results.json"
 _PACKAGE_MANIFEST_PATH = "experiment/package_manifest.json"
 _STAGE_TWELVE_APPROVAL_PATH = "approvals/stage-12.json"
+_STAGE_TWELVE_ARTIFACT_PATHS = (
+    "experiment/design.json",
+    _PACKAGE_MANIFEST_PATH,
+    "experiment/code/config.json",
+    RESOURCE_PLAN_PATH,
+)
 _REGISTRATION_LOCK_PATH = "evaluation/events.jsonl"
 _REGISTRATION_PENDING_PATH = (
     ".researchclaw/research-result-registration.pending.json"
@@ -110,9 +115,22 @@ class ExecutionPreparationStatus:
     result_path: str
     contract_path: str
     contract_sha256: str
+    bindings: Mapping[str, object]
+    inputs: tuple[object, ...]
+    result_template: Mapping[str, object]
 
     def to_dict(self) -> dict[str, object]:
-        return asdict(self)
+        return {
+            "readiness": self.readiness,
+            "approval_eligible": self.approval_eligible,
+            "command": self.command,
+            "result_path": self.result_path,
+            "contract_path": self.contract_path,
+            "contract_sha256": self.contract_sha256,
+            "bindings": _thaw_json(self.bindings),
+            "inputs": _thaw_json(self.inputs),
+            "result_template": _thaw_json(self.result_template),
+        }
 
 
 @dataclass(frozen=True)
@@ -274,12 +292,34 @@ def _load_current_stage_twelve_approval(project: ResearchProject) -> ApprovalRec
         raise ValueError("execution_approval_invalid")
     record = _load_strict_stage_twelve_approval(current)
     if (
-        record is None
-        or record.decision != "approve"
-        or not approval_matches_state(current.root, state, record)
+        record.decision != "approve"
+        or record.artifact_hashes != _current_stage_twelve_artifact_hashes(current)
     ):
         raise ValueError("execution_approval_invalid")
     return record
+
+
+def _current_stage_twelve_artifact_hashes(
+    project: ResearchProject,
+) -> dict[str, str]:
+    """Hash approved Stage-12 artifacts only through regular-file snapshots."""
+    state = project.state
+    if state.current_stage != 12 or 11 not in state.completed_stages:
+        raise ValueError("execution_approval_invalid")
+    hashes: dict[str, str] = {}
+    for relative_path in _STAGE_TWELVE_ARTIFACT_PATHS:
+        artifact = state.artifacts.get(relative_path)
+        if artifact is None or artifact.path != relative_path:
+            raise ValueError("execution_approval_invalid")
+        try:
+            payload = _read_project_file_snapshot(project.root, relative_path)
+        except (OSError, TypeError, ValueError) as error:
+            raise ValueError("execution_approval_invalid") from error
+        digest = _sha256(payload)
+        if len(payload) != artifact.size or digest != artifact.sha256:
+            raise ValueError("execution_approval_invalid")
+        hashes[relative_path] = digest
+    return hashes
 
 
 def _load_current_resource_plan(
@@ -406,7 +446,7 @@ def _build_execution_contract(
 ) -> dict[str, object]:
     """Return a closed contract whose identity binds the current approved inputs."""
     current = _current_project(project)
-    hashes = stage_twelve_artifact_hashes(current)
+    hashes = _current_stage_twelve_artifact_hashes(current)
     plan = _load_current_resource_plan(current, allow_result=allow_result)
     command = plan.get("deferred_command")
     raw_prohibitions = plan.get("prohibitions")
@@ -523,6 +563,14 @@ def _freeze_json(value: object) -> object:
         return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
     if isinstance(value, list):
         return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _thaw_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
     return value
 
 
@@ -690,6 +738,13 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_contract_invalid") from error
     _record_contract_artifact(_current_project(current), existing)
+    stored_contract = json.loads(existing.decode("utf-8"))
+    bindings = _freeze_json(stored_contract["bindings"])
+    inputs = _freeze_json(stored_contract["inputs"])
+    result_template = _freeze_json(stored_contract["result_template"])
+    assert isinstance(bindings, Mapping)
+    assert isinstance(inputs, tuple)
+    assert isinstance(result_template, Mapping)
     return ExecutionPreparationStatus(
         readiness="ready_for_explicit_execution",
         approval_eligible=False,
@@ -697,6 +752,9 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
         result_path=RESEARCH_RESULT_PATH,
         contract_path=EXECUTION_CONTRACT_PATH,
         contract_sha256=_sha256(existing),
+        bindings=bindings,
+        inputs=inputs,
+        result_template=result_template,
     )
 
 
@@ -868,7 +926,19 @@ def _append_registration_failure(
         error,
         result_sha256=result_sha256,
     )
-    payload, _events = _read_complete_registration_event_log(project)
+    try:
+        payload, _events = _read_complete_registration_event_log(project)
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as log_error:
+        raise ValueError(
+            "research_result_registration_recovery_invalid"
+        ) from log_error
     event_log_for(project.root).append_locked(
         event,
         expected_offset=len(payload),
