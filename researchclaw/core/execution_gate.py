@@ -126,6 +126,7 @@ def _read_project_file_snapshot(root: Path, relative_path: object) -> bytes:
     parts = Path(value).parts
     directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
     descriptor = os.open(Path(root).resolve(strict=True), directory_flags)
     try:
         for part in parts[:-1]:
@@ -138,7 +139,7 @@ def _read_project_file_snapshot(root: Path, relative_path: object) -> bytes:
             descriptor = child
         file_descriptor = os.open(
             parts[-1],
-            os.O_RDONLY | nofollow,
+            os.O_RDONLY | nofollow | nonblock,
             dir_fd=descriptor,
         )
         try:

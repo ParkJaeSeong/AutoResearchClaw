@@ -1,6 +1,8 @@
 import hashlib
 import json
+import os
 import runpy
+import threading
 from copy import deepcopy
 from dataclasses import replace
 
@@ -8,6 +10,7 @@ import pytest
 
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.execution_gate import _read_project_file_snapshot
 from researchclaw.core.research_execution import (
     EXECUTION_CONTRACT_PATH,
     _build_execution_contract,
@@ -26,8 +29,17 @@ def test_validate_research_result_accepts_exact_binding_without_mutation(tmp_pat
     prepare_research_execution(project)
     contract = load_execution_contract(project.root)
     result_path = write_contract_bound_research_result(project, contract)
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+    controls = {
+        relative: (project.root / relative).read_bytes()
+        for relative in (
+            ".researchclaw/state.json",
+            "evaluation/events.jsonl",
+            "approvals/stage-12.json",
+            "experiment/resources.json",
+            "experiment/execution_contract.json",
+            "experiment/results.json",
+        )
+    }
 
     validated = validate_research_result(project, "experiment/results.json")
 
@@ -38,8 +50,103 @@ def test_validate_research_result_accepts_exact_binding_without_mutation(tmp_pat
         validated.payload["status"] = "failed"
     with pytest.raises(TypeError):
         validated.payload["metrics"]["primary"]["value"] = 0
+    assert {
+        relative: (project.root / relative).read_bytes() for relative in controls
+    } == controls
+
+
+@pytest.mark.parametrize("operation", ("prepare", "validate"))
+@pytest.mark.parametrize("approval_case", ("symlink", "duplicate-key"))
+def test_research_execution_rejects_unsafe_stage_twelve_approval(
+    tmp_path, operation, approval_case
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    if operation == "validate":
+        prepare_research_execution(project)
+        contract = load_execution_contract(project.root)
+        write_contract_bound_research_result(project, contract)
+    approval_path = project.root / "approvals/stage-12.json"
+    if approval_case == "symlink":
+        outside = tmp_path / "outside-approval.json"
+        outside.write_bytes(approval_path.read_bytes())
+        approval_path.unlink()
+        approval_path.symlink_to(outside)
+    else:
+        approval_bytes = approval_path.read_bytes()
+        needle = b'"decision": "approve"'
+        assert needle in approval_bytes
+        approval_path.write_bytes(
+            approval_bytes.replace(
+                needle,
+                b'"decision": "reject", "decision": "approve"',
+                1,
+            )
+        )
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+
+    with pytest.raises(ValueError, match="^execution_approval_invalid$"):
+        if operation == "prepare":
+            prepare_research_execution(project)
+        else:
+            validate_research_result(project, "experiment/results.json")
+
     assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
     assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+
+
+def test_validate_research_result_rejects_fifo_promptly(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    result_path = project.root / "experiment/results.json"
+    os.mkfifo(result_path)
+    finished = threading.Event()
+    errors = []
+
+    def validate_fifo():
+        try:
+            validate_research_result(project, "experiment/results.json")
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=validate_fifo, daemon=True)
+    worker.start()
+    completed_promptly = finished.wait(1.0)
+    if not completed_promptly:
+        writer = os.open(result_path, os.O_WRONLY | os.O_NONBLOCK)
+        os.close(writer)
+        worker.join(timeout=1.0)
+
+    assert completed_promptly
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert str(errors[0]) == "research_result_file_invalid"
+
+
+def test_project_file_snapshot_still_reads_regular_files(tmp_path):
+    root = tmp_path / "project"
+    path = root / "data/input.bin"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"regular input\n")
+
+    assert _read_project_file_snapshot(root, "data/input.bin") == b"regular input\n"
+
+
+def test_validate_research_result_normalizes_decoder_recursion(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    result_path = project.root / "experiment/results.json"
+    result_path.write_bytes(b"[" * 2000 + b"0" + b"]" * 2000)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    result_before = result_path.read_bytes()
+
+    with pytest.raises(ValueError, match="^research_result_schema_invalid$"):
+        validate_research_result(project, "experiment/results.json")
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert result_path.read_bytes() == result_before
 
 
 _INVALID_RESULT_CASES = (

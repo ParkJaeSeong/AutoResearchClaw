@@ -10,7 +10,7 @@ import json
 import math
 from types import MappingProxyType
 
-from .approval import ApprovalRecord, approval_matches_state, load_approval_record
+from .approval import ApprovalRecord, approval_matches_state
 from .execution_gate import (
     _load_validated_resource_plan,
     _read_project_file_snapshot,
@@ -26,6 +26,18 @@ from .resource_planning import RESOURCE_PLAN_PATH, validate_stage_eleven
 EXECUTION_CONTRACT_PATH = "experiment/execution_contract.json"
 RESEARCH_RESULT_PATH = "experiment/results.json"
 _PACKAGE_MANIFEST_PATH = "experiment/package_manifest.json"
+_STAGE_TWELVE_APPROVAL_PATH = "approvals/stage-12.json"
+_APPROVAL_FIELDS = frozenset(
+    {
+        "schema_version",
+        "project_id",
+        "stage_id",
+        "decision",
+        "artifact_hashes",
+        "decided_at",
+        "note",
+    }
+)
 _CONTRACT_FIELDS = frozenset(
     {
         "schema_version",
@@ -100,13 +112,71 @@ def _current_project(project: ResearchProject) -> ResearchProject:
     return ResearchProject.open(project.root)
 
 
+def _load_strict_stage_twelve_approval(project: ResearchProject) -> ApprovalRecord:
+    try:
+        payload = _read_project_file_snapshot(
+            project.root, _STAGE_TWELVE_APPROVAL_PATH
+        )
+        raw = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
+        raise ValueError("execution_approval_invalid") from error
+    if not isinstance(raw, dict) or set(raw) != _APPROVAL_FIELDS:
+        raise ValueError("execution_approval_invalid")
+    artifact_hashes = raw["artifact_hashes"]
+    if (
+        type(raw["schema_version"]) is not int
+        or raw["schema_version"] != 1
+        or not isinstance(raw["project_id"], str)
+        or type(raw["stage_id"]) is not int
+        or raw["stage_id"] != 12
+        or not isinstance(raw["decision"], str)
+        or raw["decision"] not in {"approve", "reject"}
+        or not isinstance(artifact_hashes, dict)
+        or not isinstance(raw["decided_at"], str)
+        or not isinstance(raw["note"], str)
+    ):
+        raise ValueError("execution_approval_invalid")
+    for path, digest in artifact_hashes.items():
+        if (
+            not isinstance(path, str)
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError("execution_approval_invalid")
+        try:
+            resolve_project_artifact(project.root, path)
+        except (OSError, TypeError, ValueError) as error:
+            raise ValueError("execution_approval_invalid") from error
+    return ApprovalRecord(
+        schema_version=raw["schema_version"],
+        project_id=raw["project_id"],
+        stage_id=raw["stage_id"],
+        decision=raw["decision"],
+        artifact_hashes=dict(artifact_hashes),
+        decided_at=raw["decided_at"],
+        note=raw["note"],
+    )
+
+
 def _load_current_stage_twelve_approval(project: ResearchProject) -> ApprovalRecord:
     """Require a current, explicit Stage-12 approval."""
     current = _current_project(project)
     state = current.state
     if state.current_stage != 12 or 11 not in state.completed_stages:
         raise ValueError("execution_approval_invalid")
-    record = load_approval_record(current.root, 12)
+    record = _load_strict_stage_twelve_approval(current)
     if (
         record is None
         or record.decision != "approve"
@@ -563,7 +633,7 @@ def validate_research_result(
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_json_constant,
         )
-    except (UnicodeError, ValueError, json.JSONDecodeError) as error:
+    except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("research_result_schema_invalid") from error
 
     root_fields = {
