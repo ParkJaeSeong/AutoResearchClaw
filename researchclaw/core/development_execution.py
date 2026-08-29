@@ -2,22 +2,46 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
+import importlib
+import json
 import math
+import os
 from pathlib import Path
+import tempfile
 import time
-
-import numpy as np
+from typing import Any
 
 from .events import EvaluationEvent, event_log_for
-from .execution_gate import ValidatedDevelopmentInput, validate_development_input
-from .persistence import atomic_write_json
+from .execution_gate import (
+    DevelopmentInputValidationError,
+    ValidatedDevelopmentInput,
+    validate_development_input,
+)
+from .persistence import _fsync_directory
 from .project import ResearchProject
 
 
 _ALLOWED_SPLIT_ROLES = ("train", "validation", "calibration", "test")
 _FEATURE_IDENTIFIER_FIELDS = frozenset({"dataset_id", "condition_id", "cell_id"})
+_RESULT_KEYS = frozenset(
+    {
+        "schema_version",
+        "project_id",
+        "development_only",
+        "evidence_eligible",
+        "input_manifest",
+        "model",
+        "predictor_names",
+        "numpy_version",
+        "dataset_results",
+        "aggregate_metrics",
+        "leakage_audit",
+        "runtime",
+    }
+)
 
 
 class _DevelopmentExecutionError(ValueError):
@@ -56,9 +80,9 @@ def _finite_float(value: object) -> float:
     return parsed
 
 
-def _manifest_field(manifest: dict[str, object], section: str, field: str) -> str:
+def _manifest_field(manifest: Mapping[str, object], section: str, field: str) -> str:
     raw_section = manifest.get(section)
-    if not isinstance(raw_section, dict) or not isinstance(raw_section.get(field), str):
+    if not isinstance(raw_section, Mapping) or not isinstance(raw_section.get(field), str):
         raise _DevelopmentExecutionError("invalid_development_manifest")
     return raw_section[field]
 
@@ -69,6 +93,13 @@ def _predictor_names(validated: ValidatedDevelopmentInput) -> tuple[str, ...]:
     )
     if not validated.feature_rows:
         raise _DevelopmentExecutionError("missing_predictors")
+    label_field = _manifest_field(validated.manifest, "labels", "field")
+    cutoff_field = _manifest_field(
+        validated.manifest, "feature_cutoff", "cutoff_field"
+    )
+    forbidden = {label_field, "cycle_life_cycles", "split_role", cutoff_field}
+    if forbidden.intersection(validated.feature_rows[0]):
+        raise _DevelopmentExecutionError("feature_metadata_leakage")
     names = tuple(
         field
         for field in validated.feature_rows[0]
@@ -80,18 +111,19 @@ def _predictor_names(validated: ValidatedDevelopmentInput) -> tuple[str, ...]:
 
 
 def _dataset_rows(
+    np: Any,
     validated: ValidatedDevelopmentInput,
     predictor_names: tuple[str, ...],
-) -> dict[str, list[tuple[dict[str, str], np.ndarray, float]]]:
+) -> dict[str, list[tuple[Mapping[str, str], object, float]]]:
     manifest = validated.manifest
     label_field = _manifest_field(manifest, "labels", "field")
     cutoff_field = _manifest_field(manifest, "feature_cutoff", "cutoff_field")
     cycle_field = _manifest_field(manifest, "feature_cutoff", "measurement_cycle_field")
-    features_by_cell: dict[str, list[dict[str, str]]] = {}
+    features_by_cell: dict[str, list[Mapping[str, str]]] = {}
     for feature in validated.feature_rows:
         features_by_cell.setdefault(feature["cell_id"], []).append(feature)
 
-    datasets: dict[str, list[tuple[dict[str, str], np.ndarray, float]]] = {}
+    datasets: dict[str, list[tuple[Mapping[str, str], object, float]]] = {}
     for cell in validated.cell_rows:
         role = cell.get("split_role")
         if role not in _ALLOWED_SPLIT_ROLES:
@@ -113,20 +145,50 @@ def _dataset_rows(
             if cycle_index > cutoff:
                 raise _DevelopmentExecutionError("feature_cutoff_violation")
             feature_values.append([_finite_float(feature.get(name)) for name in predictor_names])
-        predictors = np.asarray(feature_values, dtype=float).mean(axis=0)
+        try:
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                feature_array = np.asarray(feature_values, dtype=float)
+                _require_finite_array(np, feature_array)
+                predictors = feature_array.mean(axis=0)
+                _require_finite_array(np, predictors)
+        except (FloatingPointError, OverflowError) as error:
+            raise _DevelopmentExecutionError("numerical_error") from error
         datasets.setdefault(cell["dataset_id"], []).append((cell, predictors, label))
     return datasets
 
 
-def _metric_values(predictions: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
-    residuals = predictions - labels
-    return float(np.abs(residuals).mean()), float(np.sqrt(np.square(residuals).mean()))
+def _require_finite_array(np: Any, value: object) -> None:
+    try:
+        finite = bool(np.isfinite(value).all())
+    except (TypeError, ValueError, FloatingPointError, OverflowError) as error:
+        raise _DevelopmentExecutionError("numerical_error") from error
+    if not finite:
+        raise _DevelopmentExecutionError("numerical_error")
+
+
+def _metric_values(np: Any, predictions: object, labels: object) -> tuple[float, float]:
+    try:
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            _require_finite_array(np, predictions)
+            _require_finite_array(np, labels)
+            residuals = predictions - labels
+            _require_finite_array(np, residuals)
+            squared = np.square(residuals)
+            _require_finite_array(np, squared)
+            mae = float(np.abs(residuals).mean())
+            rmse = float(np.sqrt(squared.mean()))
+    except (FloatingPointError, OverflowError) as error:
+        raise _DevelopmentExecutionError("numerical_error") from error
+    if not math.isfinite(mae) or not math.isfinite(rmse):
+        raise _DevelopmentExecutionError("numerical_error")
+    return mae, rmse
 
 
 def _fit_dataset(
+    np: Any,
     dataset_id: str,
-    rows: list[tuple[dict[str, str], np.ndarray, float]],
-) -> tuple[dict[str, object], np.ndarray, np.ndarray]:
+    rows: list[tuple[Mapping[str, str], object, float]],
+) -> tuple[dict[str, object], object, object]:
     by_role = {role: [row for row in rows if row[0]["split_role"] == role] for role in _ALLOWED_SPLIT_ROLES}
     if not by_role["train"]:
         raise _DevelopmentExecutionError("missing_train_cells")
@@ -137,21 +199,36 @@ def _fit_dataset(
     train_y = np.asarray([row[2] for row in by_role["train"]], dtype=float)
     test_x = np.asarray([row[1] for row in by_role["test"]], dtype=float)
     test_y = np.asarray([row[2] for row in by_role["test"]], dtype=float)
-    mean = train_x.mean(axis=0)
-    std = np.where(train_x.std(axis=0) == 0.0, 1.0, train_x.std(axis=0))
-    design = np.column_stack([np.ones(len(train_x)), (train_x - mean) / std])
-    penalty = np.eye(design.shape[1])
-    penalty[0, 0] = 0.0
     try:
-        beta = np.linalg.solve(
-            design.T @ design + 1.0 * penalty,
-            design.T @ train_y,
-        )
-    except np.linalg.LinAlgError as error:
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            for array in (train_x, train_y, test_x, test_y):
+                _require_finite_array(np, array)
+            mean = train_x.mean(axis=0)
+            raw_std = train_x.std(axis=0)
+            _require_finite_array(np, mean)
+            _require_finite_array(np, raw_std)
+            std = np.where(raw_std == 0.0, 1.0, raw_std)
+            standardized_train = (train_x - mean) / std
+            standardized_test = (test_x - mean) / std
+            _require_finite_array(np, standardized_train)
+            _require_finite_array(np, standardized_test)
+            design = np.column_stack([np.ones(len(train_x)), standardized_train])
+            penalty = np.eye(design.shape[1])
+            penalty[0, 0] = 0.0
+            gram = design.T @ design + 1.0 * penalty
+            target = design.T @ train_y
+            _require_finite_array(np, design)
+            _require_finite_array(np, gram)
+            _require_finite_array(np, target)
+            beta = np.linalg.solve(gram, target)
+            _require_finite_array(np, beta)
+            test_design = np.column_stack([np.ones(len(test_x)), standardized_test])
+            _require_finite_array(np, test_design)
+            predictions = test_design @ beta
+            _require_finite_array(np, predictions)
+    except (np.linalg.LinAlgError, FloatingPointError, OverflowError) as error:
         raise _DevelopmentExecutionError("numerical_error") from error
-    test_design = np.column_stack([np.ones(len(test_x)), (test_x - mean) / std])
-    predictions = test_design @ beta
-    mae, rmse = _metric_values(predictions, test_y)
+    mae, rmse = _metric_values(np, predictions, test_y)
     result = {
         "dataset_id": dataset_id,
         "role_counts": {role: len(by_role[role]) for role in _ALLOWED_SPLIT_ROLES},
@@ -169,8 +246,168 @@ def _result_path(project: ResearchProject) -> Path:
     return project.root / "experiment" / "dev_results.json"
 
 
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _load_numpy() -> Any:
+    try:
+        return importlib.import_module("numpy")
+    except ImportError as error:
+        raise _DevelopmentExecutionError("numpy_unavailable") from error
+
+
+def _validate_finite_json(value: object) -> None:
+    if value is None or isinstance(value, (str, bool, int)):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise _DevelopmentExecutionError("numerical_error")
+        return
+    if isinstance(value, list):
+        for item in value:
+            _validate_finite_json(item)
+        return
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        for item in value.values():
+            _validate_finite_json(item)
+        return
+    raise _DevelopmentExecutionError("invalid_result_payload")
+
+
+def _closed_mapping(value: object, keys: set[str] | frozenset[str]) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    return value
+
+
+def _is_finite_number(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
+def _validate_result_payload(payload: dict[str, object]) -> None:
+    _closed_mapping(payload, _RESULT_KEYS)
+    if (
+        payload["schema_version"] != 1
+        or not isinstance(payload["project_id"], str)
+        or payload["development_only"] is not True
+        or payload["evidence_eligible"] is not False
+        or not isinstance(payload["numpy_version"], str)
+    ):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    manifest = _closed_mapping(payload["input_manifest"], {"path", "sha256"})
+    manifest_digest = manifest["sha256"]
+    if (
+        not isinstance(manifest["path"], str)
+        or not isinstance(manifest_digest, str)
+        or len(manifest_digest) != 64
+        or any(character not in "0123456789abcdef" for character in manifest_digest)
+    ):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    if _closed_mapping(payload["model"], {"name", "alpha", "implementation"}) != {
+        "name": "ridge",
+        "alpha": 1.0,
+        "implementation": "numpy_closed_form",
+    }:
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    predictor_names = payload["predictor_names"]
+    if (
+        not isinstance(predictor_names, list)
+        or not predictor_names
+        or not all(isinstance(name, str) and name for name in predictor_names)
+        or len(set(predictor_names)) != len(predictor_names)
+    ):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    dataset_results = payload["dataset_results"]
+    if not isinstance(dataset_results, list) or not dataset_results:
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    seen_dataset_ids: set[str] = set()
+    for raw_result in dataset_results:
+        result = _closed_mapping(
+            raw_result,
+            {"dataset_id", "role_counts", "group_counts", "mae_cycles", "rmse_cycles"},
+        )
+        dataset_id = result["dataset_id"]
+        if not isinstance(dataset_id, str) or not dataset_id or dataset_id in seen_dataset_ids:
+            raise _DevelopmentExecutionError("invalid_result_payload")
+        seen_dataset_ids.add(dataset_id)
+        for count_key in ("role_counts", "group_counts"):
+            counts = _closed_mapping(result[count_key], set(_ALLOWED_SPLIT_ROLES))
+            if not all(
+                isinstance(count, int) and not isinstance(count, bool) and count >= 0
+                for count in counts.values()
+            ):
+                raise _DevelopmentExecutionError("invalid_result_payload")
+        if not _is_finite_number(result["mae_cycles"]) or not _is_finite_number(
+            result["rmse_cycles"]
+        ):
+            raise _DevelopmentExecutionError("invalid_result_payload")
+    aggregate = _closed_mapping(
+        payload["aggregate_metrics"], {"mae_cycles", "rmse_cycles"}
+    )
+    if not all(_is_finite_number(metric) for metric in aggregate.values()):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    leakage = _closed_mapping(
+        payload["leakage_audit"],
+        {
+            "cell_overlap_count",
+            "group_overlap_count",
+            "feature_cutoff_violation_count",
+        },
+    )
+    if not all(
+        isinstance(count, int) and not isinstance(count, bool) and count >= 0
+        for count in leakage.values()
+    ):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    runtime = _closed_mapping(payload["runtime"], {"elapsed_seconds", "max_seconds"})
+    if (
+        not _is_finite_number(runtime["elapsed_seconds"])
+        or runtime["elapsed_seconds"] < 0
+        or not isinstance(runtime["max_seconds"], int)
+        or isinstance(runtime["max_seconds"], bool)
+        or runtime["max_seconds"] <= 0
+    ):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    _validate_finite_json(payload)
+
+
+def _stage_result_json(
+    destination: Path, payload: dict[str, object]
+) -> tuple[Path, str]:
+    _validate_result_payload(payload)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix="dev-results-",
+            suffix=".tmp",
+            delete=False,
+            dir=destination.parent,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(
+                payload,
+                handle,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            handle.flush()
+            os.fsync(handle.fileno())
+        digest = hashlib.sha256(temporary_path.read_bytes()).hexdigest()
+        return temporary_path, digest
+    except Exception:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _commit_staged_result(temporary_path: Path, destination: Path) -> None:
+    temporary_path.replace(destination)
+    _fsync_directory(destination.parent)
 
 
 def _append_execution_failure(
@@ -187,6 +424,11 @@ def _append_execution_failure(
     if validated is not None:
         payload["input_manifest_path"] = validated.manifest_path
         payload["input_manifest_sha256"] = validated.manifest_sha256
+    elif isinstance(error, DevelopmentInputValidationError):
+        if error.manifest_path:
+            payload["input_manifest_path"] = error.manifest_path
+        if error.manifest_sha256:
+            payload["input_manifest_sha256"] = error.manifest_sha256
     elif isinstance(input_manifest_path, str) and input_manifest_path:
         payload["input_manifest_path"] = input_manifest_path
     event_log_for(project.root).append(
@@ -207,6 +449,7 @@ def run_development_experiment(
 ) -> DevelopmentRunStatus:
     """Run deterministic Ridge evaluation on validated synthetic development data."""
     validated: ValidatedDevelopmentInput | None = None
+    staged_result: Path | None = None
     try:
         if (
             not isinstance(max_seconds, int)
@@ -226,14 +469,16 @@ def run_development_experiment(
             record_event=False,
         )
         check_deadline()
+        np = _load_numpy()
         predictor_names = _predictor_names(validated)
-        datasets = _dataset_rows(validated, predictor_names)
+        datasets = _dataset_rows(np, validated, predictor_names)
         check_deadline()
         dataset_results: list[dict[str, object]] = []
-        predictions: list[np.ndarray] = []
-        labels: list[np.ndarray] = []
+        predictions: list[object] = []
+        labels: list[object] = []
         for dataset_id in sorted(datasets):
             result, dataset_predictions, dataset_labels = _fit_dataset(
+                np,
                 dataset_id,
                 datasets[dataset_id],
             )
@@ -241,10 +486,19 @@ def run_development_experiment(
             predictions.append(dataset_predictions)
             labels.append(dataset_labels)
             check_deadline()
+        aggregate_predictions = np.concatenate(predictions)
+        aggregate_labels = np.concatenate(labels)
+        _require_finite_array(np, aggregate_predictions)
+        _require_finite_array(np, aggregate_labels)
         aggregate_mae, aggregate_rmse = _metric_values(
-            np.concatenate(predictions), np.concatenate(labels)
+            np,
+            aggregate_predictions,
+            aggregate_labels,
         )
         check_deadline()
+        elapsed_seconds = clock() - started
+        if elapsed_seconds > max_seconds:
+            raise _DevelopmentExecutionError("development_timeout")
         result_payload: dict[str, object] = {
             "schema_version": 1,
             "project_id": project.state.project_id,
@@ -271,12 +525,16 @@ def run_development_experiment(
                 "group_overlap_count": 0,
                 "feature_cutoff_violation_count": 0,
             },
+            "runtime": {
+                "elapsed_seconds": elapsed_seconds,
+                "max_seconds": max_seconds,
+            },
         }
-        check_deadline()
         destination = _result_path(project)
-        atomic_write_json(destination, result_payload, prefix="dev-results-")
-        result_sha256 = _sha256(destination)
-        elapsed_seconds = clock() - started
+        staged_result, result_sha256 = _stage_result_json(destination, result_payload)
+        check_deadline()
+        _commit_staged_result(staged_result, destination)
+        staged_result = None
         event_log_for(project.root).append(
             EvaluationEvent.create(
                 "development_execution_completed",
@@ -301,3 +559,6 @@ def run_development_experiment(
     except ValueError as error:
         _append_execution_failure(project, input_manifest_path, validated, error)
         raise
+    finally:
+        if staged_result is not None:
+            staged_result.unlink(missing_ok=True)

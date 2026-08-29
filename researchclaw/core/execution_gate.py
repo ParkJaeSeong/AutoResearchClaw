@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 import csv
 import hashlib
+import io
 import json
+import os
 from pathlib import Path
 import stat
+from types import MappingProxyType
 
 from .events import EvaluationEvent, event_log_for
 from .models import ArtifactRef, ProjectState, StageStatus
-from .paths import resolve_project_artifact
+from .paths import resolve_project_artifact, validate_relative_path
 from .persistence import atomic_write_json
 from .project import ResearchProject
 from .resource_planning import (
@@ -87,9 +91,24 @@ class DevelopmentInputStatus:
 class ValidatedDevelopmentInput:
     manifest_path: str
     manifest_sha256: str
-    manifest: dict[str, object]
-    cell_rows: tuple[dict[str, str], ...]
-    feature_rows: tuple[dict[str, str], ...]
+    manifest: Mapping[str, object]
+    cell_rows: tuple[Mapping[str, str], ...]
+    feature_rows: tuple[Mapping[str, str], ...]
+
+
+class DevelopmentInputValidationError(ValueError):
+    """Validation failure retaining only bounded manifest identity metadata."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        manifest_path: str | None = None,
+        manifest_sha256: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.manifest_path = manifest_path
+        self.manifest_sha256 = manifest_sha256
 
 
 def _sha256(path: Path) -> str:
@@ -98,6 +117,50 @@ def _sha256(path: Path) -> str:
         while chunk := handle.read(_HASH_CHUNK_SIZE):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _read_project_file_snapshot(root: Path, relative_path: object) -> bytes:
+    """Read one regular project file through a no-symlink openat chain."""
+    value = validate_relative_path(relative_path, kind="artifact")
+    resolve_project_artifact(root, value)
+    parts = Path(value).parts
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(Path(root).resolve(strict=True), directory_flags)
+    try:
+        for part in parts[:-1]:
+            child = os.open(
+                part,
+                directory_flags | nofollow,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = child
+        file_descriptor = os.open(
+            parts[-1],
+            os.O_RDONLY | nofollow,
+            dir_fd=descriptor,
+        )
+        try:
+            file_stat = os.fstat(file_descriptor)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError(f"development input file is not regular: {value}")
+            chunks: list[bytes] = []
+            while chunk := os.read(file_descriptor, _HASH_CHUNK_SIZE):
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(file_descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _freeze_json(value: object) -> object:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
 
 
 def _immutable_projection(raw: dict[str, object]) -> dict[str, object]:
@@ -365,22 +428,35 @@ def _development_artifact(
             f"development manifest {section_name} must declare path, positive row_count, and sha256"
         )
     try:
-        path = resolve_project_artifact(root, relative_path)
+        payload = _read_project_file_snapshot(root, relative_path)
     except (OSError, TypeError, ValueError) as error:
         raise ValueError(
             f"development manifest {section_name} path must be project-relative"
         ) from error
-    if not path.is_file():
-        raise ValueError(f"development input file is missing: {relative_path}")
-    if _sha256(path) != expected_sha256:
+    if hashlib.sha256(payload).hexdigest() != expected_sha256:
         raise ValueError(f"development input sha256 mismatch: {relative_path}")
     try:
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-    except (OSError, UnicodeError, csv.Error) as error:
+        text = payload.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text, newline=""))
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    except (UnicodeError, csv.Error) as error:
         raise ValueError(
             f"development input must be readable CSV: {relative_path}"
         ) from error
+    if (
+        not fieldnames
+        or any(not isinstance(field, str) or not field for field in fieldnames)
+        or len(set(fieldnames)) != len(fieldnames)
+        or any(
+            set(row) != set(fieldnames)
+            or any(not isinstance(value, str) for value in row.values())
+            for row in rows
+        )
+    ):
+        raise ValueError(
+            f"development input must have consistent named columns: {relative_path}"
+        )
     if len(rows) != expected_rows:
         raise ValueError(
             f"development input row_count mismatch: {relative_path}"
@@ -420,6 +496,19 @@ def _validate_development_structure(
         raise ValueError("development cell records are missing structural fields")
     if not feature_rows or not required_feature_fields.issubset(feature_rows[0]):
         raise ValueError("development features are missing structural fields")
+    declared_dataset_ids: list[str] = []
+    datasets = manifest["datasets"]
+    if not isinstance(datasets, list):
+        raise ValueError("development input datasets must be an array")
+    for entry in datasets:
+        if not isinstance(entry, dict):
+            raise ValueError("development input dataset entry must be an object")
+        dataset_id = entry.get("dataset_id")
+        if not isinstance(dataset_id, str) or not dataset_id:
+            raise ValueError("development input dataset_id must be non-empty")
+        if dataset_id in declared_dataset_ids:
+            raise ValueError(f"development input dataset_id is duplicated: {dataset_id}")
+        declared_dataset_ids.append(dataset_id)
     cells: dict[str, dict[str, str]] = {}
     group_splits: dict[tuple[str, str], str] = {}
     for row in cell_rows:
@@ -460,6 +549,20 @@ def _validate_development_structure(
         if cycle_key in seen_cycles:
             raise ValueError(f"development cell-cycle is duplicated: {cell_id}")
         seen_cycles.add(cycle_key)
+    declared = set(declared_dataset_ids)
+    cell_datasets = {row["dataset_id"] for row in cell_rows}
+    feature_datasets = {row["dataset_id"] for row in feature_rows}
+    unexpected = sorted((cell_datasets | feature_datasets) - declared)
+    if unexpected:
+        raise ValueError(f"development input has unexpected row dataset: {unexpected[0]}")
+    missing = sorted(declared - cell_datasets)
+    if missing:
+        raise ValueError(f"development declared dataset has no rows: {missing[0]}")
+    if feature_datasets != declared:
+        missing_features = sorted(declared - feature_datasets)
+        raise ValueError(
+            f"development declared dataset has no feature rows: {missing_features[0]}"
+        )
 
 
 def validate_development_input(
@@ -469,68 +572,74 @@ def validate_development_input(
     record_event: bool = True,
 ) -> tuple[DevelopmentInputStatus, ValidatedDevelopmentInput]:
     """Validate an explicit synthetic fixture without changing the execution gate."""
-    from .handoff import normalize_durable_project
+    from .handoff import require_current_durable_project
 
-    current_project = normalize_durable_project(project)
+    current_project = require_current_durable_project(project)
     state = current_project.state
     if state.current_stage != 12 or 11 not in state.completed_stages:
         raise ValueError("development input can only be rechecked at Stage 12")
     if not isinstance(input_manifest_path, str) or not input_manifest_path:
         raise ValueError("development input manifest path must be project-relative")
     try:
-        manifest_path = resolve_project_artifact(
-            current_project.root,
-            input_manifest_path,
+        manifest_bytes = _read_project_file_snapshot(
+            current_project.root, input_manifest_path
         )
     except (OSError, TypeError, ValueError) as error:
         raise ValueError(
             "development input manifest path must be project-relative"
         ) from error
-    if not manifest_path.is_file():
-        raise ValueError(
-            f"development input manifest is missing: {input_manifest_path}"
-        )
+    digest = hashlib.sha256(manifest_bytes).hexdigest()
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise ValueError("development input manifest must be valid JSON") from error
-    required = {
-        "schema_version",
-        "datasets",
-        "cell_records",
-        "features",
-        "labels",
-        "groups",
-        "provenance",
-    }
-    if not isinstance(manifest, dict) or not required.issubset(manifest):
-        raise ValueError("development input manifest is missing required fields")
-    if manifest.get("manifest_type") != "synthetic_development_input":
-        raise ValueError("development input must declare synthetic_development_input")
-    if manifest.get("evidence_eligible") is not False:
-        raise ValueError("development input must not be evidence eligible")
-    provenance = manifest.get("provenance")
-    if (
-        not isinstance(provenance, dict)
-        or provenance.get("license_status") != "not_required_synthetic"
-        or provenance.get("research_evidence_use") is not False
-    ):
-        raise ValueError("development input provenance must prohibit research evidence use")
-    datasets = manifest.get("datasets")
-    if not isinstance(datasets, list) or not datasets:
-        raise ValueError("development input must declare at least one dataset")
-    cell_rows = _development_artifact(
-        current_project.root,
-        manifest["cell_records"],
-        "cell_records",
-    )
-    feature_rows = _development_artifact(
-        current_project.root,
-        manifest["features"],
-        "features",
-    )
-    _validate_development_structure(manifest, cell_rows, feature_rows)
-    digest = _sha256(manifest_path)
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+        required = {
+            "schema_version",
+            "datasets",
+            "cell_records",
+            "features",
+            "labels",
+            "groups",
+            "provenance",
+        }
+        if not isinstance(manifest, dict) or not required.issubset(manifest):
+            raise ValueError("development input manifest is missing required fields")
+        if manifest.get("manifest_type") != "synthetic_development_input":
+            raise ValueError("development input must declare synthetic_development_input")
+        if manifest.get("evidence_eligible") is not False:
+            raise ValueError("development input must not be evidence eligible")
+        provenance = manifest.get("provenance")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("license_status") != "not_required_synthetic"
+            or provenance.get("research_evidence_use") is not False
+        ):
+            raise ValueError(
+                "development input provenance must prohibit research evidence use"
+            )
+        datasets = manifest.get("datasets")
+        if not isinstance(datasets, list) or not datasets:
+            raise ValueError("development input must declare at least one dataset")
+        cell_rows = _development_artifact(
+            current_project.root,
+            manifest["cell_records"],
+            "cell_records",
+        )
+        feature_rows = _development_artifact(
+            current_project.root,
+            manifest["features"],
+            "features",
+        )
+        _validate_development_structure(manifest, cell_rows, feature_rows)
+    except (UnicodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        message = (
+            "development input manifest must be valid JSON"
+            if isinstance(error, (UnicodeError, json.JSONDecodeError))
+            else str(error)
+        )
+        raise DevelopmentInputValidationError(
+            message,
+            manifest_path=input_manifest_path,
+            manifest_sha256=digest,
+        ) from error
     status = DevelopmentInputStatus(
         readiness="ready_for_development",
         approval_eligible=False,
@@ -549,9 +658,9 @@ def validate_development_input(
     validated = ValidatedDevelopmentInput(
         manifest_path=input_manifest_path,
         manifest_sha256=digest,
-        manifest=manifest,
-        cell_rows=tuple(cell_rows),
-        feature_rows=tuple(feature_rows),
+        manifest=_freeze_json(manifest),
+        cell_rows=tuple(_freeze_json(row) for row in cell_rows),
+        feature_rows=tuple(_freeze_json(row) for row in feature_rows),
     )
     return status, validated
 

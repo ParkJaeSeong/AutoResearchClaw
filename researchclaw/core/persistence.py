@@ -42,7 +42,13 @@ def atomic_write_json(path: Path, payload: Mapping[str, object], *, prefix: str)
             dir=destination.parent,
         ) as handle:
             temporary_path = Path(handle.name)
-            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+            json.dump(
+                payload,
+                handle,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+            )
             handle.flush()
             os.fsync(handle.fileno())
         temporary_path.replace(destination)

@@ -179,6 +179,192 @@ def test_validate_development_input_returns_verified_rows(stage_12_missing_proje
     assert event_path.read_bytes() == events_before
 
 
+def test_validated_development_input_is_deeply_immutable(stage_12_missing_project):
+    project, _ = stage_12_missing_project
+    write_runnable_development_fixture(project)
+
+    _status, validated = execution_gate.validate_development_input(
+        project, "experiment/input_manifest.dev.json", record_event=False
+    )
+
+    with pytest.raises(TypeError):
+        validated.manifest["evidence_eligible"] = True
+    with pytest.raises(TypeError):
+        validated.manifest["labels"]["field"] = "changed_label"
+    with pytest.raises(TypeError):
+        validated.cell_rows[0]["cycle_life_cycles"] = "999999"
+    with pytest.raises(TypeError):
+        validated.feature_rows[0]["capacity_ah"] = "999999"
+
+
+@pytest.mark.parametrize(
+    ("declared_datasets", "expected_message"),
+    [
+        ([{"dataset_id": "DECLARED_ONLY"}], "unexpected row dataset"),
+        (
+            [{"dataset_id": "SYNTH_DEV"}, {"dataset_id": "MISSING_ROWS"}],
+            "declared dataset has no rows",
+        ),
+        (
+            [{"dataset_id": "SYNTH_DEV"}, {"dataset_id": "SYNTH_DEV"}],
+            "dataset_id is duplicated",
+        ),
+    ],
+    ids=("unexpected-row-dataset", "missing-declared-dataset", "duplicate-declaration"),
+)
+def test_development_dataset_declarations_exactly_match_row_datasets(
+    stage_12_missing_project, declared_datasets, expected_message
+):
+    project, _ = stage_12_missing_project
+    manifest_path = write_runnable_development_fixture(project)
+    manifest = _load_json(manifest_path)
+    manifest["datasets"] = declared_datasets
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=expected_message):
+        execution_gate.validate_development_input(
+            project, "experiment/input_manifest.dev.json", record_event=False
+        )
+
+
+def test_development_csv_hash_and_rows_come_from_one_byte_snapshot(
+    stage_12_missing_project, monkeypatch
+):
+    project, _ = stage_12_missing_project
+    write_runnable_development_fixture(project)
+    cells_path = project.root / "experiment/dev_data/cells.dev.csv"
+    original_bytes = cells_path.read_bytes()
+    original_digest = hashlib.sha256(original_bytes).hexdigest()
+    replacement = original_bytes.replace(b",train,2,5\n", b",train,2,500\n")
+    real_sha256 = hashlib.sha256
+    swapped = False
+
+    class SwappingDigest:
+        def __init__(self, payload=b""):
+            self._delegate = real_sha256(payload)
+
+        def update(self, payload):
+            self._delegate.update(payload)
+
+        def hexdigest(self):
+            nonlocal swapped
+            digest = self._delegate.hexdigest()
+            if digest == original_digest and not swapped:
+                cells_path.write_bytes(replacement)
+                swapped = True
+            return digest
+
+    monkeypatch.setattr(execution_gate.hashlib, "sha256", SwappingDigest)
+
+    _status, validated = execution_gate.validate_development_input(
+        project, "experiment/input_manifest.dev.json", record_event=False
+    )
+
+    assert swapped is True
+    assert validated.cell_rows[0]["cycle_life_cycles"] == "5"
+
+
+def test_development_manifest_hash_and_parse_share_one_byte_snapshot(
+    stage_12_missing_project, monkeypatch
+):
+    project, _ = stage_12_missing_project
+    manifest_path = write_runnable_development_fixture(project)
+    original_manifest = manifest_path.read_bytes()
+    original_manifest_digest = hashlib.sha256(original_manifest).hexdigest()
+    replacement = json.loads(original_manifest)
+    replacement["datasets"] = [{"dataset_id": "REPLACED"}]
+    replacement_bytes = (json.dumps(replacement) + "\n").encode()
+    cells_path = project.root / "experiment/dev_data/cells.dev.csv"
+    cells_digest = hashlib.sha256(cells_path.read_bytes()).hexdigest()
+    real_sha256 = hashlib.sha256
+    swapped = False
+
+    class SwappingDigest:
+        def __init__(self, payload=b""):
+            self._delegate = real_sha256(payload)
+
+        def update(self, payload):
+            self._delegate.update(payload)
+
+        def hexdigest(self):
+            nonlocal swapped
+            digest = self._delegate.hexdigest()
+            if digest == cells_digest and not swapped:
+                manifest_path.write_bytes(replacement_bytes)
+                swapped = True
+            return digest
+
+    monkeypatch.setattr(execution_gate.hashlib, "sha256", SwappingDigest)
+
+    _status, validated = execution_gate.validate_development_input(
+        project, "experiment/input_manifest.dev.json", record_event=False
+    )
+
+    assert swapped is True
+    assert validated.manifest_sha256 == original_manifest_digest
+    assert validated.manifest["datasets"][0]["dataset_id"] == "SYNTH_DEV"
+
+
+def test_development_csv_rejects_rows_with_mismatched_feature_columns(
+    stage_12_missing_project,
+):
+    project, _ = stage_12_missing_project
+    manifest_path = write_runnable_development_fixture(project)
+    features_path = project.root / "experiment/dev_data/features.dev.csv"
+    lines = features_path.read_text(encoding="utf-8").splitlines()
+    lines[1] += ",unexpected-value"
+    features_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    manifest = _load_json(manifest_path)
+    manifest["features"]["sha256"] = hashlib.sha256(
+        features_path.read_bytes()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="consistent named columns"):
+        execution_gate.validate_development_input(
+            project, "experiment/input_manifest.dev.json", record_event=False
+        )
+
+
+def test_development_validation_rejects_stale_lineage_without_rewriting_state(
+    stage_12_missing_project,
+):
+    project, _ = stage_12_missing_project
+    write_runnable_development_fixture(project)
+    state_path = project.root / ".researchclaw/state.json"
+    approval_paths = sorted((project.root / "approvals").glob("*.json"))
+    state_before = state_path.read_bytes()
+    approvals_before = {path: path.read_bytes() for path in approval_paths}
+    main_path = project.root / "experiment/code/main.py"
+    main_path.write_bytes(main_path.read_bytes() + b"\n# stale lineage\n")
+
+    with pytest.raises(ValueError, match="durable project lineage is stale"):
+        execution_gate.validate_development_input(
+            project, "experiment/input_manifest.dev.json", record_event=False
+        )
+
+    assert state_path.read_bytes() == state_before
+    assert {path: path.read_bytes() for path in approval_paths} == approvals_before
+
+
+def test_development_validation_at_wrong_stage_never_migrates_durable_state(tmp_path):
+    project = ResearchProject.create(
+        tmp_path / "project", topic="Durable boundary", profile="materials_ai"
+    )
+    state_path = project.root / ".researchclaw/state.json"
+    state = _load_json(state_path)
+    state["stage_10_snapshot"] = {"status": "legacy_missing", "entries": []}
+    state_path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+    state_before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="Stage 12"):
+        execution_gate.validate_development_input(
+            project, "experiment/input_manifest.dev.json", record_event=False
+        )
+
+    assert state_path.read_bytes() == state_before
+
+
 def test_development_recheck_rejects_project_escape(stage_12_missing_project):
     project, _declared_input = stage_12_missing_project
     module = importlib.import_module("researchclaw.core.execution_gate")

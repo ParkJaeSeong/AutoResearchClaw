@@ -238,6 +238,22 @@ def normalize_durable_project(project: ResearchProject) -> ResearchProject:
     return current_project
 
 
+def require_current_durable_project(project: ResearchProject) -> ResearchProject:
+    """Reopen and verify durable lineage without normalizing or persisting it."""
+    from .state import StateStore
+
+    root = Path(project.root)
+    state = StateStore(root / ".researchclaw").load()
+    current_project = ResearchProject(root=root, state=state)
+    invalid_artifact_stage = _first_invalid_artifact_stage(
+        current_project.root, current_project.state
+    )
+    invalid_approval_stage = _first_invalid_completed_approval_stage(current_project)
+    if invalid_artifact_stage is not None or invalid_approval_stage is not None:
+        raise ValueError("durable project lineage is stale")
+    return current_project
+
+
 def build_handoff(project: ResearchProject) -> HandoffSummary:
     """Build a handoff using only durable state, artifacts, and approval records."""
     current_project = normalize_durable_project(project)

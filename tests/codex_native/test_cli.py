@@ -1,4 +1,7 @@
+import hashlib
 import json
+import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -196,6 +199,70 @@ def test_execution_run_cli_completes_explicit_development_fixture(tmp_path, caps
     assert payload["approval_eligible"] is False
     assert captured.err == ""
     assert (project.root / "experiment/dev_results.json").exists()
+
+
+def test_numpy_absence_is_bounded_to_development_execution_in_fresh_process(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    manifest = write_runnable_development_fixture(project)
+    prior_result = project.root / "experiment/dev_results.json"
+    prior_result.write_bytes(b'{"prior":true}\n')
+    blocker = tmp_path / "blocked-import"
+    blocker.mkdir()
+    (blocker / "numpy.py").write_text(
+        "raise ImportError('NumPy deliberately unavailable')\n", encoding="utf-8"
+    )
+    repository_root = Path(__file__).resolve().parents[2]
+    environment = {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join((str(blocker), str(repository_root))),
+    }
+
+    ordinary = subprocess.run(
+        [sys.executable, "-m", "researchclaw.codex.cli", "--help"],
+        cwd=repository_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    development = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "researchclaw.codex.cli",
+            "execution",
+            "run",
+            str(project.root),
+            "--input-manifest",
+            "experiment/input_manifest.dev.json",
+            "--development",
+            "--confirm-development-run",
+            "--json",
+        ],
+        cwd=repository_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert ordinary.returncode == 0
+    assert ordinary.stdout.startswith("usage: researchclaw-codex ")
+    assert development.returncode == 2
+    assert development.stdout == ""
+    assert development.stderr == "error: numpy_unavailable\n"
+    assert prior_result.read_bytes() == b'{"prior":true}\n'
+    event = json.loads(
+        (project.root / "evaluation/events.jsonl").read_text().splitlines()[-1]
+    )
+    assert event["type"] == "development_execution_failed"
+    assert event["payload"] == {
+        "input_manifest_path": "experiment/input_manifest.dev.json",
+        "input_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "error_category": "numpy_unavailable",
+    }
 
 
 @pytest.mark.parametrize(
