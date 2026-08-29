@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 
@@ -196,10 +197,75 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
             + "\n",
         },
     }
-    for relative, content in fixtures[stage_id].items():
+    artifacts = _computational_package_fixture(root) if stage_id == 10 else fixtures[stage_id]
+    for relative, content in artifacts.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
+
+def _computational_package_fixture(root: Path) -> dict[str, str]:
+    project_id = ResearchProject.open(root).state.project_id
+    design = (root / "experiment" / "design.json").read_bytes()
+    design_sha256 = hashlib.sha256(design).hexdigest()
+    code_files = {
+        "experiment/code/README.md": (
+            "# Computational validation package\n\n"
+            "This package is bound to the approved validation design.\n"
+        ),
+        "experiment/code/main.py": (
+            "def main() -> None:\n"
+            "    return None\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        ),
+        "experiment/code/config.json": json.dumps(
+            {
+                "schema_version": 1,
+                "project_id": project_id,
+                "design_sha256": design_sha256,
+                "datasets": ["versioned public battery dataset"],
+                "baselines": ["random row split"],
+                "split_strategy": "cell-grouped held-out test split",
+                "metrics": ["coverage error"],
+                "seeds": [17],
+                "input_contract": {"dataset_manifest": "required"},
+                "output_contract": {"result_path": "declared for later execution"},
+                "traceability": {"datasets": "method.datasets"},
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
+        "experiment/code/requirements.txt": "pytest==8.3.0\n",
+        "experiment/code/tests/test_smoke.py": "def test_smoke_contract():\n    assert True\n",
+    }
+    manifest = {
+        "schema_version": 1,
+        "project_id": project_id,
+        "design_sha256": design_sha256,
+        "validation_type": "computational",
+        "files": [
+            {
+                "path": path,
+                "role": path.rsplit("/", maxsplit=1)[-1],
+                "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            }
+            for path, content in code_files.items()
+        ],
+        "entry_point": "experiment/code/main.py",
+        "config_path": "experiment/code/config.json",
+        "runtime": {"python": "3.11"},
+        "input_contract": {"dataset_manifest": "required"},
+        "output_contract": {"result_path": "declared for later execution"},
+        "commands": {"dry_run": "declared later", "smoke_test": "declared later"},
+        "prohibitions": ["no execution during stage 10"],
+        "reproducibility": {"seed": 17},
+    }
+    return {
+        "experiment/package_manifest.json": json.dumps(manifest, separators=(",", ":"))
+        + "\n",
+        **code_files,
+    }
 
 
 def complete_first_four_stages(project: ResearchProject) -> ResearchProject:

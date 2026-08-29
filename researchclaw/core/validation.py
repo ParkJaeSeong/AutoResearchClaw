@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from .contracts import SUPPORTED_STAGE_MAX, StageContract, get_contract
+from .computational_package import validate_computational_package
 from .knowledge_extraction import (
     KnowledgeIssue,
     validate_extraction_shortlist,
@@ -288,6 +289,32 @@ def _validate_stage_nine(
     )
 
 
+def _validate_stage_ten(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (design_path,) = contract.required_inputs
+    try:
+        design = resolve_project_artifact(project.root, design_path)
+    except ValueError as error:
+        issues.append(ValidationIssue("unsafe_artifact_path", design_path, str(error)))
+        return
+    design_text = _read_text(design, issues, design_path)
+    if design_text is None:
+        return
+    issues.extend(
+        ValidationIssue(issue.code, issue.path, issue.message)
+        for issue in validate_computational_package(
+            project.root,
+            design_text,
+            contents,
+            project.state.project_id,
+        )
+    )
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -341,6 +368,8 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             _validate_stage_eight(current_project, contract, contents, issues)
         elif not issues and contract.id == 9:
             _validate_stage_nine(current_project, contract, contents, issues)
+        elif not issues and contract.id == 10:
+            _validate_stage_ten(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
