@@ -92,8 +92,8 @@ fields:
   non-empty list of JSON integers.
 - `input_contract`: exactly `design_binding`, `required_paths`, and
   `required_fields`. Its binding equals the approved source selected by
-  traceability; paths are non-empty, project-relative, and non-traversing; and
-  fields are non-empty text.
+  traceability; paths are non-empty, project-relative, non-traversing, and
+  contain no symlink component; and fields are non-empty text.
 - `output_contract`: exactly `design_binding`, `result_path`, and
   `required_fields`. Its binding equals the approved metric/success/failure
   source selected by traceability, and its path is exactly the later-stage-safe
@@ -131,10 +131,11 @@ from `canonical_computational_scaffold()` in
 `researchclaw.core.computational_package` and copy each returned UTF-8 string
 to its matching project-relative path byte-for-byte. Do not reformat, add a
 comment, rename a symbol, change a dependency, add a helper, or otherwise
-customize these three files. The canonical requirements content is exactly
-`pytest==8.3.0` followed by one newline. All research-specific variation lives
-only in the approved-design-bound `experiment/code/config.json`; the manifest
-records the resulting canonical file hashes.
+customize these three files. The helper is the sole authority for canonical
+requirements and scaffold content; do not duplicate or infer those bytes from
+this prose. All research-specific variation lives only in the
+approved-design-bound `experiment/code/config.json`; the manifest records the
+resulting canonical file hashes.
 
 The validator compares all three files to this repository-owned scaffold
 before semantic acceptance and reports `scaffold_mismatch` for any difference.

@@ -127,6 +127,16 @@ def test_production_exposes_the_exact_canonical_scaffold():
     assert all(isinstance(content, str) and content.endswith("\n") for content in scaffold.values())
 
 
+def test_canonical_scaffold_defensively_rejects_symlinked_inputs():
+    source = computational_package.canonical_computational_scaffold()[
+        "experiment/code/main.py"
+    ]
+
+    assert "cursor.is_symlink()" in source
+    assert "candidate.resolve(strict=True)" in source
+    assert "project_root not in resolved.parents" in source
+
+
 @pytest.mark.parametrize(
     "relative_path",
     [
@@ -778,6 +788,43 @@ def test_package_rejects_config_values_not_bound_to_approved_design(
     assert any(issue.code == "config_design_mismatch" for issue in report.issues)
 
 
+@pytest.mark.parametrize("target_kind", ["outside", "inside"])
+def test_package_rejects_preexisting_symlinked_required_input(tmp_path, target_kind):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    link = project.root / "linked-input.json"
+    if target_kind == "outside":
+        target = tmp_path / "outside.json"
+        target.write_text(
+            '{"schema_version":1,"project_id":"outside","method":{}}\n',
+            encoding="utf-8",
+        )
+        link.symlink_to(target)
+    else:
+        link.symlink_to("experiment/design.json")
+    write_valid_fixture_artifacts(project.root, 10)
+
+    _replace_config(
+        project,
+        lambda config: config["input_contract"].update(
+            {"required_paths": ["linked-input.json"]}
+        ),
+    )
+    config = json.loads(
+        (project.root / "experiment/code/config.json").read_text(encoding="utf-8")
+    )
+    _replace_manifest(
+        project,
+        lambda manifest: manifest.update(
+            {"input_contract": config["input_contract"]}
+        ),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_config_contract" for issue in report.issues)
+
+
 @pytest.mark.parametrize(
     ("field", "replacement"),
     [
@@ -835,7 +882,7 @@ def test_package_requires_input_schema_validation_in_entry_point(tmp_path):
     main_path = project.root / "experiment" / "code" / "main.py"
     source = main_path.read_text(encoding="utf-8")
     source = source.replace(
-        "        with candidate.open(encoding='utf-8') as handle:\n"
+        "        with resolved.open(encoding='utf-8') as handle:\n"
         "            record = json.load(handle)\n"
         "        if not isinstance(record, dict) or any(\n"
         "            field not in record for field in required_fields\n"

@@ -74,6 +74,7 @@ _CANONICAL_MAIN = (
     "        raise ValueError('config must be an object')\n"
     "    return config\n\n"
     "def validate_inputs(config: dict[str, Any]) -> None:\n"
+    "    project_root = Path('.').resolve()\n"
     "    contract = config['input_contract']\n"
     "    required_paths = contract['required_paths']\n"
     "    required_fields = contract['required_fields']\n"
@@ -83,9 +84,17 @@ _CANONICAL_MAIN = (
     "        candidate = Path(raw_path)\n"
     "        if candidate.is_absolute() or '..' in candidate.parts:\n"
     "            raise ValueError('input path must be project-relative')\n"
+    "        cursor = Path()\n"
+    "        for part in candidate.parts:\n"
+    "            cursor /= part\n"
+    "            if cursor.is_symlink():\n"
+    "                raise ValueError('input path must not traverse symlinks')\n"
     "        if not candidate.is_file():\n"
     "            raise FileNotFoundError(raw_path)\n\n"
-    "        with candidate.open(encoding='utf-8') as handle:\n"
+    "        resolved = candidate.resolve(strict=True)\n"
+    "        if project_root not in resolved.parents:\n"
+    "            raise ValueError('input path must remain within the project root')\n"
+    "        with resolved.open(encoding='utf-8') as handle:\n"
     "            record = json.load(handle)\n"
     "        if not isinstance(record, dict) or any(\n"
     "            field not in record for field in required_fields\n"
@@ -240,6 +249,7 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "is_absolute",
         "is_dir",
         "is_file",
+        "is_symlink",
         "items",
         "keys",
         "open",
@@ -247,6 +257,7 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "read",
         "read_bytes",
         "read_text",
+        "resolve",
         "sort",
         "values",
         "write",
@@ -1587,11 +1598,29 @@ def _project_relative_path(value: object) -> bool:
     )
 
 
+def _contained_nonsymlink_input_path(root: Path, value: object) -> bool:
+    if not _project_relative_path(value):
+        return False
+    project_root = root.resolve()
+    relative = Path(value)
+    cursor = project_root
+    try:
+        for part in relative.parts:
+            cursor /= part
+            if cursor.is_symlink():
+                return False
+        resolved = (project_root / relative).resolve(strict=False)
+    except OSError:
+        return False
+    return resolved == project_root or project_root in resolved.parents
+
+
 def _closed_contract(value: object, fields: set[str]) -> dict[str, Any] | None:
     return value if isinstance(value, dict) and set(value) == fields else None
 
 
 def _validate_config_contract(
+    root: Path,
     design: object,
     config: dict[str, Any],
     issues: list[ComputationalPackageIssue],
@@ -1650,7 +1679,10 @@ def _validate_config_contract(
             input_contract.get("design_binding") != input_source
             or not isinstance(required_paths, list)
             or not required_paths
-            or not all(_project_relative_path(item) for item in required_paths)
+            or not all(
+                _contained_nonsymlink_input_path(root, item)
+                for item in required_paths
+            )
             or not _nonempty_text_list(input_contract.get("required_fields"))
         )
 
@@ -1671,7 +1703,7 @@ def _validate_config_contract(
             issues,
             "invalid_config_contract",
             path,
-            "split, seed, input, and output contracts must be typed, design-bound, non-empty, and use isolated groups",
+            "split, seed, input, and output contracts must be typed, design-bound, non-empty, use contained non-symlinked inputs, and use isolated groups",
         )
 
 
@@ -2074,7 +2106,7 @@ def validate_computational_package(
                 "design_sha256 must match the approved design",
             )
         _validate_traceability(design_json, config, issues)
-        _validate_config_contract(design, config, issues)
+        _validate_config_contract(root, design, config, issues)
 
     _validate_on_disk_tree(root, prepared_snapshot, issues)
     _validate_python_syntax(outputs, issues)
