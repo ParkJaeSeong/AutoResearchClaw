@@ -10,6 +10,12 @@ SUPPORTED_BOUNDARY = re.compile(
     r"Codex-native supported execution boundary:\s*stages?\s*1\s*[\N{EN DASH}-]\s*(\d+)",
     re.IGNORECASE,
 )
+PUBLIC_STAGE_TEN_BOUNDARIES = (
+    r"stage\s+10\s+authors?\s+and\s+statically\s+validat",
+    r"does not execute (?:it|the package)",
+    r"policy-evidence and laboratory stage 10 packages are unsupported",
+    r"stops before (?:unsupported )?stage 11",
+)
 
 
 def test_public_docs_match_the_stage_ten_execution_boundary():
@@ -19,6 +25,17 @@ def test_public_docs_match_the_stage_ten_execution_boundary():
 
         assert match is not None, f"{document} must state the supported boundary"
         assert int(match.group(1)) == SUPPORTED_STAGE_MAX == 10
+
+
+def test_public_docs_keep_stage_ten_static_and_stop_before_stage_eleven():
+    for document in ("README.md", "RESEARCHCLAW_AGENTS.md"):
+        text = (ROOT / document).read_text(encoding="utf-8")
+
+        for boundary in PUBLIC_STAGE_TEN_BOUNDARIES:
+            assert re.search(boundary, text, re.IGNORECASE), (
+                f"{document} must retain the Stage-10 author/static/no-execution "
+                f"and Stage-11-stop boundary: {boundary}"
+            )
 
 
 def test_stage_ten_docs_author_and_validate_without_execution():
