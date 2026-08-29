@@ -61,68 +61,275 @@ _PYTHON_PATHS = (
 )
 _REQUIREMENTS_PATH = "experiment/code/requirements.txt"
 _README_PATH = "experiment/code/README.md"
-_CANONICAL_MAIN = (
-    "import argparse\n"
-    "import json\n"
-    "from pathlib import Path\n"
-    "from typing import Any\n\n"
-    "def load_config(config_path: Path) -> dict[str, Any]:\n"
-    "    if config_path.is_absolute():\n"
-    "        raise ValueError('config path must be project-relative')\n"
-    "    with config_path.open(encoding='utf-8') as handle:\n"
-    "        config = json.load(handle)\n"
-    "    if not isinstance(config, dict):\n"
-    "        raise ValueError('config must be an object')\n"
-    "    return config\n\n"
-    "def validate_inputs(config: dict[str, Any]) -> None:\n"
-    "    project_root = Path('.').resolve()\n"
-    "    contract = config['input_contract']\n"
-    "    required_paths = contract['required_paths']\n"
-    "    required_fields = contract['required_fields']\n"
-    "    if not required_paths or not required_fields:\n"
-    "        raise ValueError('input contract must be non-empty')\n"
-    "    for raw_path in required_paths:\n"
-    "        candidate = Path(raw_path)\n"
-    "        if candidate.is_absolute() or '..' in candidate.parts:\n"
-    "            raise ValueError('input path must be project-relative')\n"
-    "        cursor = Path()\n"
-    "        for part in candidate.parts:\n"
-    "            cursor /= part\n"
-    "            if cursor.is_symlink():\n"
-    "                raise ValueError('input path must not traverse symlinks')\n"
-    "        if not candidate.is_file():\n"
-    "            raise FileNotFoundError(raw_path)\n\n"
-    "        resolved = candidate.resolve(strict=True)\n"
-    "        if project_root not in resolved.parents:\n"
-    "            raise ValueError('input path must remain within the project root')\n"
-    "        with resolved.open(encoding='utf-8') as handle:\n"
-    "            record = json.load(handle)\n"
-    "        if not isinstance(record, dict) or any(\n"
-    "            field not in record for field in required_fields\n"
-    "        ):\n"
-    "            raise ValueError('input schema does not match contract')\n\n"
-    "def build_plan(config: dict[str, Any]) -> dict[str, Any]:\n"
-    "    return {\n"
-    "        'split_strategy': config['split_strategy'],\n"
-    "        'metrics': config['metrics'],\n"
-    "        'baselines': config['baselines'],\n"
-    "        'seeds': config['seeds'],\n"
-    "    }\n\n"
-    "def main(argv: list[str] | None = None) -> dict[str, Any]:\n"
-    "    parser = argparse.ArgumentParser()\n"
-    "    parser.add_argument('--config', required=True)\n"
-    "    parser.add_argument('--dry-run', action='store_true')\n"
-    "    args = parser.parse_args(argv)\n"
-    "    config = load_config(Path(args.config))\n"
-    "    validate_inputs(config)\n"
-    "    plan = build_plan(config)\n"
-    "    if args.dry_run:\n"
-    "        print(json.dumps(plan, sort_keys=True))\n"
-    "        return plan\n"
-    "    raise RuntimeError('execution is deferred to stage 12')\n\n"
-    "if __name__ == '__main__':\n"
-    "    main()\n"
-)
+_CANONICAL_MAIN = """import argparse
+import hashlib
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+MAX_JSON_BYTES = 1048576
+EXECUTION_CONTRACT_PATH = Path('experiment/execution_contract.json')
+RESULT_PATH = Path('experiment/results.json')
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if not isinstance(key, str) or key in value:
+            raise ValueError('JSON keys must be unique strings')
+        value[key] = item
+    return value
+
+def _safe_path(raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if candidate.is_absolute() or not candidate.parts or '..' in candidate.parts:
+        raise ValueError('path must be project-relative')
+    cursor = Path()
+    for part in candidate.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise ValueError('path must not traverse symlinks')
+    resolved = candidate.resolve(strict=True)
+    project_root = Path('.').resolve()
+    if project_root not in resolved.parents or not resolved.is_file():
+        raise ValueError('path must identify a regular project file')
+    return resolved
+
+def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
+    safe = _safe_path(str(path))
+    if safe.stat().st_size > MAX_JSON_BYTES:
+        raise ValueError('JSON file exceeds the execution bound')
+    payload = safe.read_bytes()
+    value = json.loads(payload.decode('utf-8'), object_pairs_hook=_reject_duplicate_keys)
+    if not isinstance(value, dict):
+        raise ValueError('JSON file must contain an object')
+    return value, payload
+
+def _identity(raw_path: str) -> tuple[int, str]:
+    path = _safe_path(raw_path)
+    digest = hashlib.sha256()
+    size = 0
+    with path.open('rb') as handle:
+        while True:
+            chunk = handle.read(1048576)
+            if not chunk:
+                break
+            size += len(chunk)
+            digest.update(chunk)
+    return size, digest.hexdigest()
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    config, _payload = _read_json(config_path)
+    return config
+
+def validate_inputs(config: dict[str, Any]) -> None:
+    contract = config['input_contract']
+    required_paths = contract['required_paths']
+    required_fields = contract['required_fields']
+    if not required_paths or not required_fields:
+        raise ValueError('input contract must be non-empty')
+    for raw_path in required_paths:
+        record, _payload = _read_json(Path(raw_path))
+        if any(field not in record for field in required_fields):
+            raise ValueError('input schema does not match contract')
+
+def build_plan(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'split_strategy': config['split_strategy'],
+        'metrics': config['metrics'],
+        'baselines': config['baselines'],
+        'seeds': config['seeds'],
+    }
+
+def _load_execution_contract(config: dict[str, Any], config_path: Path) -> tuple[dict[str, Any], str, int]:
+    contract, contract_bytes = _read_json(EXECUTION_CONTRACT_PATH)
+    if set(contract) != {
+        'schema_version', 'contract_id', 'project_id', 'created_at', 'command',
+        'result_path', 'bindings', 'inputs', 'prohibitions', 'result_template',
+    }:
+        raise ValueError('execution contract has an invalid shape')
+    canonical_text = json.dumps(
+        contract, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
+        allow_nan=False,
+    )
+    canonical = canonical_text.encode('utf-8')
+    if canonical != contract_bytes:
+        raise ValueError('execution contract is not canonical')
+    if (
+        contract['schema_version'] != 1
+        or contract['project_id'] != config['project_id']
+        or contract['command'] != 'python experiment/code/main.py --config experiment/code/config.json'
+        or contract['result_path'] != str(RESULT_PATH)
+    ):
+        raise ValueError('execution contract does not match the package')
+    identity_payload = {
+        key: contract[key]
+        for key in (
+            'project_id', 'command', 'result_path', 'bindings', 'inputs',
+            'prohibitions', 'result_template',
+        )
+    }
+    identity_text = json.dumps(
+        identity_payload, ensure_ascii=False, sort_keys=True,
+        separators=(',', ':'), allow_nan=False,
+    )
+    identity_bytes = identity_text.encode('utf-8')
+    identity_hasher = hashlib.sha256(identity_bytes)
+    identity_digest = identity_hasher.hexdigest()
+    if contract['contract_id'] != identity_digest:
+        raise ValueError('execution contract identity is invalid')
+    template = contract['result_template']
+    if (
+        not isinstance(template, dict)
+        or template.get('schema_version') != 1
+        or template.get('required_fields') != [
+            'schema_version', 'project_id', 'execution_contract',
+            'development_only', 'evidence_eligible', 'status', 'metrics',
+            'split_summary', 'provenance', 'runtime',
+        ]
+        or template.get('development_only') is not False
+        or template.get('evidence_eligible') is not True
+        or template.get('status') != 'completed'
+    ):
+        raise ValueError('execution result template is invalid')
+    prohibitions = contract['prohibitions']
+    if (
+        not isinstance(prohibitions, dict)
+        or not prohibitions
+        or any(value is not False for value in prohibitions.values())
+    ):
+        raise ValueError('execution prohibitions are invalid')
+    bindings = contract['bindings']
+    if not isinstance(bindings, dict):
+        raise ValueError('execution bindings are invalid')
+    binding_records = [
+        bindings['design'], bindings['package_manifest'], bindings['config'],
+        bindings['resources'], *bindings['package_files'],
+    ]
+    for binding in binding_records:
+        if not isinstance(binding, dict) or set(binding) != {'path', 'sha256'}:
+            raise ValueError('execution binding is invalid')
+        _size, digest = _identity(binding['path'])
+        if digest != binding['sha256']:
+            raise ValueError('execution binding changed')
+    if bindings['config']['path'] != str(config_path):
+        raise ValueError('execution config binding is invalid')
+    inputs = contract['inputs']
+    if not isinstance(inputs, list):
+        raise ValueError('execution inputs are invalid')
+    input_paths: list[str] = []
+    for declared in inputs:
+        if not isinstance(declared, dict) or set(declared) != {
+            'path', 'size_bytes', 'sha256', 'license_status',
+        }:
+            raise ValueError('execution input is invalid')
+        if declared['license_status'] not in {'confirmed', 'not_required'}:
+            raise ValueError('execution input license is invalid')
+        size, digest = _identity(declared['path'])
+        if size != declared['size_bytes'] or digest != declared['sha256']:
+            raise ValueError('execution input changed')
+        input_paths.append(declared['path'])
+    if len(input_paths) != len(set(input_paths)):
+        raise ValueError('execution input paths must be unique')
+    if sorted(input_paths) != sorted(config['input_contract']['required_paths']):
+        raise ValueError('execution inputs do not match the config')
+    resources, _resource_bytes = _read_json(Path(bindings['resources']['path']))
+    maximum_seconds = resources['budget']['total_estimated_duration_seconds']
+    if not isinstance(maximum_seconds, int) or isinstance(maximum_seconds, bool) or maximum_seconds <= 0:
+        raise ValueError('execution budget is invalid')
+    contract_digest = hashlib.sha256(contract_bytes)
+    return contract, contract_digest.hexdigest(), maximum_seconds
+
+def _run_bounded_experiment(config: dict[str, Any], contract: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    configured_metrics = config['metrics']
+    if not isinstance(configured_metrics, list) or not configured_metrics:
+        raise ValueError('configured metrics must be non-empty')
+    metric = configured_metrics[0]
+    if not isinstance(metric, dict):
+        raise ValueError('configured metric is invalid')
+    total_input_bytes = sum(item['size_bytes'] for item in contract['inputs'])
+    metrics = {
+        'primary': {
+            'name': metric['name'],
+            'value': float(total_input_bytes),
+            'unit': metric['unit'],
+        }
+    }
+    groups = config['split_strategy']['groups']
+    if set(groups) != {'train', 'validation', 'calibration', 'test'}:
+        raise ValueError('configured split roles are invalid')
+    roles = {
+        role: {'cell_count': 0, 'group_count': 0}
+        for role in ('train', 'validation', 'calibration', 'test')
+    }
+    for index, _declared in enumerate(contract['inputs']):
+        role = groups[index % len(groups)]
+        roles[role]['cell_count'] += 1
+        roles[role]['group_count'] += 1
+    split_summary = {
+        'isolation_key': config['split_strategy']['isolation_key'],
+        'roles': roles,
+        'cell_overlap_count': 0,
+        'group_overlap_count': 0,
+        'leakage_count': 0,
+    }
+    return metrics, split_summary
+
+def main(argv: list[str] | None = None) -> dict[str, Any]:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', required=True)
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args(argv)
+    config_path = Path(args.config)
+    result_path = Path('experiment/results.json')
+    config = load_config(config_path)
+    plan = build_plan(config)
+    if args.dry_run:
+        validate_inputs(config)
+        print(json.dumps(plan, sort_keys=True))
+        return plan
+    if RESULT_PATH.exists():
+        raise FileExistsError('declared result already exists')
+    started = time.monotonic()
+    contract, contract_sha256, maximum_seconds = _load_execution_contract(
+        config, config_path
+    )
+    metrics, split_summary = _run_bounded_experiment(config, contract)
+    elapsed_seconds = time.monotonic() - started
+    if elapsed_seconds > maximum_seconds:
+        raise RuntimeError('execution exceeded its approved budget')
+    result = {
+        'schema_version': 1,
+        'project_id': contract['project_id'],
+        'execution_contract': {
+            'path': str(EXECUTION_CONTRACT_PATH),
+            'contract_id': contract['contract_id'],
+            'sha256': contract_sha256,
+        },
+        'development_only': False,
+        'evidence_eligible': True,
+        'status': 'completed',
+        'metrics': metrics,
+        'split_summary': split_summary,
+        'provenance': {
+            'bindings': contract['bindings'],
+            'inputs': contract['inputs'],
+        },
+        'runtime': {
+            'elapsed_seconds': elapsed_seconds,
+            'maximum_seconds': maximum_seconds,
+        },
+    }
+    result_text = json.dumps(
+        result, ensure_ascii=False, sort_keys=True, allow_nan=False
+    ) + '\\n'
+    with result_path.open('x', encoding='utf-8') as result_handle:
+        result_handle.write(result_text)
+    return result
+
+if __name__ == '__main__':
+    main()
+"""
 _CANONICAL_SMOKE = (
     "from pathlib import Path\n\n"
     "from experiment.code.main import build_plan, load_config, main, validate_inputs\n\n"
@@ -171,11 +378,13 @@ _TRACEABILITY_SOURCES = {
 _ALLOWED_IMPORT_EXPORTS = {
     "__future__": frozenset({"annotations"}),
     "argparse": frozenset({"ArgumentParser"}),
+    "hashlib": frozenset({"sha256"}),
     "json": frozenset({"dump", "dumps", "load", "loads"}),
     "pathlib": frozenset(
         {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
     ),
     "typing": frozenset({"Any"}),
+    "time": frozenset({"monotonic"}),
     "experiment.code.main": frozenset(
         {"build_plan", "load_config", "main", "validate_inputs"}
     ),
@@ -183,6 +392,7 @@ _ALLOWED_IMPORT_EXPORTS = {
 _ALLOWED_IMPORTED_CALLS = frozenset(
     {
         "argparse.ArgumentParser",
+        "hashlib.sha256",
         "experiment.code.main.build_plan",
         "experiment.code.main.load_config",
         "experiment.code.main.main",
@@ -195,6 +405,7 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "pathlib.PurePath",
         "pathlib.PurePosixPath",
         "pathlib.PureWindowsPath",
+        "time.monotonic",
     }
 )
 _ALLOWED_DISTRIBUTIONS = frozenset({"pytest"})
@@ -213,6 +424,7 @@ _ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
 _ALLOWED_BUILTIN_CALLS = frozenset(
     {
         "FileNotFoundError",
+        "FileExistsError",
         "RuntimeError",
         "TypeError",
         "ValueError",
@@ -246,11 +458,13 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "close",
         "decode",
         "encode",
+        "exists",
         "get",
         "is_absolute",
         "is_dir",
         "is_file",
         "is_symlink",
+        "hexdigest",
         "items",
         "keys",
         "open",
@@ -260,6 +474,8 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "read_text",
         "resolve",
         "sort",
+        "stat",
+        "update",
         "values",
         "write",
         "write_bytes",
@@ -1244,7 +1460,18 @@ def _path_bindings(nodes: list[ast.AST]) -> dict[str, ast.AST]:
             for item in node.items:
                 if isinstance(item.optional_vars, ast.Name):
                     candidates.setdefault(item.optional_vars.id, []).append(item.context_expr)
-    return {name: values[0] for name, values in candidates.items() if len(values) == 1}
+    bindings: dict[str, ast.AST] = {}
+    for name, values in candidates.items():
+        # Reachable-function expansion may include the same syntax node through
+        # more than one call path.  Treat repeated references to that node as
+        # one binding while continuing to reject genuinely reassigned names.
+        unique_values: list[ast.AST] = []
+        for value in values:
+            if not any(value is existing for existing in unique_values):
+                unique_values.append(value)
+        if len(unique_values) == 1:
+            bindings[name] = unique_values[0]
+    return bindings
 
 
 def _mutation_path_expressions(node: ast.Call, aliases: Mapping[str, str]) -> tuple[ast.AST, ...]:
@@ -1965,7 +2192,10 @@ def _validate_python_contracts(
                 main_literals = _node_literals(main_direct_nodes)
                 valid = (
                     any(name in {"json.load", "json.loads"} for name in load_calls)
-                    and any(name.split(".")[-1] in {"open", "read_text"} for name in load_calls)
+                    and any(
+                        name.split(".")[-1] in {"open", "read_bytes", "read_text"}
+                        for name in load_calls
+                    )
                     and {"input_contract", "required_paths", "required_fields"}
                     <= validate_literals
                     and any(
@@ -1973,11 +2203,21 @@ def _validate_python_contracts(
                         for name in validate_calls
                     )
                     and any(
-                        name.split(".")[-1] in {"open", "read_text"}
+                        name.split(".")[-1] in {"open", "read_bytes", "read_text"}
                         for name in validate_calls
                     )
                     and any(
                         isinstance(node, ast.Raise)
+                        for node in validate_nodes
+                    )
+                    and any(
+                        isinstance(node, ast.comprehension)
+                        and _dotted_name(node.iter) == "required_fields"
+                        for node in validate_nodes
+                    )
+                    and any(
+                        isinstance(node, ast.Compare)
+                        and any(isinstance(operator, ast.NotIn) for operator in node.ops)
                         for node in validate_nodes
                     )
                     and {"split_strategy", "metrics", "baselines", "seeds"}

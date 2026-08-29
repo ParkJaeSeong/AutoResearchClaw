@@ -430,11 +430,28 @@ Create a small approved Stage 12 fixture; do not register the user's long-runnin
 
 ```bash
 PYTHONPATH=. /opt/homebrew/opt/python@3.11/bin/python3.11 -m researchclaw.codex.cli execution prepare-run /ABSOLUTE/FIXTURE/PROJECT --json
+cd /ABSOLUTE/FIXTURE/PROJECT
+python experiment/code/main.py --config experiment/code/config.json
 PYTHONPATH=. /opt/homebrew/opt/python@3.11/bin/python3.11 -m researchclaw.codex.cli execution register-result /ABSOLUTE/FIXTURE/PROJECT --result experiment/results.json --confirm-research-result --json
 PYTHONPATH=. /opt/homebrew/opt/python@3.11/bin/python3.11 -m researchclaw.codex.cli status /ABSOLUTE/FIXTURE/PROJECT --json
 ```
 
-Expect `ready_for_explicit_execution`, `research_result_registered`, and `current_stage: 13`. Verify design, package, config, resources, approvals, inputs, contract, and result retain pre-registration SHA-256 values; only state and append-only events change during registration.
+Expect `ready_for_explicit_execution`, the exact returned command to create only
+`experiment/results.json`, `research_result_registered`, and `current_stage:
+13`. Verify design, package, config, resources, approvals, inputs, contract, and
+result retain pre-registration SHA-256 values; only state and append-only events
+change during registration.
+
+### Final review amendment
+
+The release-blocking review extends the implementation with one common project
+mutation transaction, strict shared result validation for initial registration,
+pending recovery, and Stage-13 grounding, bounded JSON/event streaming, a
+contract-preparation journal, and supported Stage-12 rewind actions. The fixed
+Stage-10 non-dry entry point is the approved external runner; ResearchClaw
+itself still never starts that process. Final verification must invoke the
+exact returned command rather than a fixture writer and must not push or merge
+the review branch.
 
 - [ ] **Step 4: Run final verification**
 

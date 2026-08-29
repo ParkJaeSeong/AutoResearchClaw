@@ -15,6 +15,7 @@ from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import atomic_write_json
 from .project import ResearchProject
+from .transactions import project_mutation
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _SCHEMA_VERSION = 1
@@ -114,6 +115,7 @@ def load_approval_record(root: Path, stage_id: int) -> ApprovalRecord | None:
         return None
 
 
+@project_mutation
 def approve_current_gate(project: ResearchProject, decision: str, note: str) -> ApprovalRecord:
     """Persist an approval decision after confirming validated artifacts are unchanged."""
     if decision not in _ALLOWED_DECISIONS:
@@ -217,6 +219,12 @@ def _approve_stage_twelve(
         and prior_record.decision == "reject"
         and approval_matches_state(project.root, state, prior_record)
     )
+    registration_recovery = (
+        state.next_action == "approve_experiment_execution"
+        and isinstance(state.last_error, dict)
+        and state.last_error.get("retry_state")
+        == "stage_twelve_registration_recovery"
+    )
     if state.next_action != "approve_experiment_execution" and not (
         state.next_action == "report_missing_execution_inputs"
         and current_rejection
@@ -225,6 +233,7 @@ def _approve_stage_twelve(
     status = _recheck_execution_readiness(
         project,
         allow_rejected_decision=current_rejection,
+        allow_preexisting_result=registration_recovery,
     )
     if not status.approval_eligible or status.readiness != "ready_for_execution":
         raise ValueError("execution prerequisites are not ready for approval")
@@ -250,11 +259,19 @@ def _approve_stage_twelve(
             current_stage=12,
             status=StageStatus.READY,
             completed_stages=refreshed_project.state.completed_stages,
-            next_action="report_resource_plan_milestone_only",
+            next_action=(
+                "prepare_run"
+                if registration_recovery
+                else "report_resource_plan_milestone_only"
+            ),
             execution_policy=refreshed_project.state.execution_policy,
             artifacts=refreshed_project.state.artifacts,
             retry_counts=refreshed_project.state.retry_counts,
-            last_error=refreshed_project.state.last_error,
+            last_error=(
+                state.last_error
+                if registration_recovery
+                else refreshed_project.state.last_error
+            ),
             stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
         )
     else:
@@ -270,7 +287,11 @@ def _approve_stage_twelve(
             execution_policy=refreshed_project.state.execution_policy,
             artifacts=refreshed_project.state.artifacts,
             retry_counts=refreshed_project.state.retry_counts,
-            last_error=refreshed_project.state.last_error,
+            last_error=(
+                state.last_error
+                if registration_recovery
+                else refreshed_project.state.last_error
+            ),
             stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
         )
     refreshed_project.persist_state(updated_state)

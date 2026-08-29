@@ -59,17 +59,17 @@ def _registered_stage_thirteen_project(root):
 
 
 @pytest.mark.parametrize(
-    ("artifact_path", "mutation"),
+    ("artifact_path", "mutation", "expected_action"),
     (
-        ("experiment/results.json", "missing"),
-        ("experiment/results.json", "stale"),
-        ("experiment/execution_contract.json", "missing"),
-        ("experiment/execution_contract.json", "stale"),
-        ("experiment/results.json", "ungrounded"),
+        ("experiment/results.json", "missing", "register_research_result"),
+        ("experiment/results.json", "stale", "register_research_result"),
+        ("experiment/execution_contract.json", "missing", "prepare_run"),
+        ("experiment/execution_contract.json", "stale", "prepare_run"),
+        ("experiment/results.json", "ungrounded", "prepare_run"),
     ),
 )
 def test_stage_thirteen_handoff_rewinds_missing_or_stale_registration_grounding(
-    tmp_path, artifact_path, mutation
+    tmp_path, artifact_path, mutation, expected_action
 ):
     project = _registered_stage_thirteen_project(tmp_path / "project")
     artifacts = dict(project.state.artifacts)
@@ -102,9 +102,9 @@ def test_stage_thirteen_handoff_rewinds_missing_or_stale_registration_grounding(
     reopened = ResearchProject.open(project.root)
     assert handoff.current_stage == 12
     assert handoff.milestone_complete is False
-    assert handoff.next_action == "validate_stage"
+    assert handoff.next_action == expected_action
     assert reopened.state.current_stage == 12
-    assert reopened.state.status is StageStatus.NEEDS_REVISION
+    assert reopened.state.status is StageStatus.READY
     assert 12 not in reopened.state.completed_stages
 
 

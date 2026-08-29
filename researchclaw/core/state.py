@@ -15,4 +15,10 @@ class StateStore:
             return ProjectState.from_dict(json.load(handle))
 
     def save(self, state: ProjectState) -> None:
-        atomic_write_json(self.path, state.to_dict(), prefix="state-")
+        if self.root.name != ".researchclaw":
+            atomic_write_json(self.path, state.to_dict(), prefix="state-")
+            return
+        from .transactions import project_transaction
+
+        with project_transaction(self.root.parent):
+            atomic_write_json(self.path, state.to_dict(), prefix="state-")

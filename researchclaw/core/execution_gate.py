@@ -26,8 +26,10 @@ from .resource_planning import (
     validate_resource_plan_structure,
     validate_stage_eleven,
 )
+from .transactions import project_mutation
 
 _HASH_CHUNK_SIZE = 1024 * 1024
+_MAX_RESOURCE_PLAN_BYTES = 1024 * 1024
 _STAGE_TWELVE_ARTIFACT_PATHS = (
     "experiment/design.json",
     "experiment/package_manifest.json",
@@ -111,16 +113,16 @@ class DevelopmentInputValidationError(ValueError):
         self.manifest_sha256 = manifest_sha256
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(_HASH_CHUNK_SIZE):
-            digest.update(chunk)
-    return digest.hexdigest()
+@dataclass(frozen=True)
+class ProjectFileIdentity:
+    """A regular project's stable size and streaming SHA-256 identity."""
+
+    size: int
+    sha256: str
 
 
-def _read_project_file_snapshot(root: Path, relative_path: object) -> bytes:
-    """Read one regular project file through a no-symlink openat chain."""
+def _open_project_file_descriptor(root: Path, relative_path: object) -> tuple[int, str]:
+    """Open one regular project file through a no-symlink openat chain."""
     value = validate_relative_path(relative_path, kind="artifact")
     resolve_project_artifact(root, value)
     parts = Path(value).parts
@@ -142,16 +144,72 @@ def _read_project_file_snapshot(root: Path, relative_path: object) -> bytes:
             os.O_RDONLY | nofollow | nonblock,
             dir_fd=descriptor,
         )
-        try:
-            file_stat = os.fstat(file_descriptor)
-            if not stat.S_ISREG(file_stat.st_mode):
-                raise ValueError(f"development input file is not regular: {value}")
-            chunks: list[bytes] = []
-            while chunk := os.read(file_descriptor, _HASH_CHUNK_SIZE):
-                chunks.append(chunk)
-            return b"".join(chunks)
-        finally:
+        file_stat = os.fstat(file_descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
             os.close(file_descriptor)
+            raise ValueError(f"project file is not regular: {value}")
+        return file_descriptor, value
+    finally:
+        os.close(descriptor)
+
+
+def _project_file_identity(root: Path, relative_path: object) -> ProjectFileIdentity:
+    """Hash a regular project file without retaining its contents in memory."""
+    descriptor, _value = _open_project_file_descriptor(root, relative_path)
+    try:
+        initial = os.fstat(descriptor)
+        digest = hashlib.sha256()
+        observed_size = 0
+        while chunk := os.read(descriptor, _HASH_CHUNK_SIZE):
+            observed_size += len(chunk)
+            digest.update(chunk)
+        final = os.fstat(descriptor)
+        if (
+            observed_size != initial.st_size
+            or final.st_size != initial.st_size
+            or final.st_mtime_ns != initial.st_mtime_ns
+            or final.st_ctime_ns != initial.st_ctime_ns
+        ):
+            raise ValueError("project file changed while hashing")
+        return ProjectFileIdentity(size=observed_size, sha256=digest.hexdigest())
+    finally:
+        os.close(descriptor)
+
+
+def _read_project_file_snapshot(
+    root: Path,
+    relative_path: object,
+    *,
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read a bounded regular project file through a no-symlink openat chain."""
+    if max_bytes is not None and (
+        not isinstance(max_bytes, int)
+        or isinstance(max_bytes, bool)
+        or max_bytes < 0
+    ):
+        raise ValueError("max_bytes must be a non-negative integer")
+    descriptor, value = _open_project_file_descriptor(root, relative_path)
+    try:
+        initial = os.fstat(descriptor)
+        if max_bytes is not None and initial.st_size > max_bytes:
+            raise ValueError(f"project file exceeds byte limit: {value}")
+        chunks: list[bytes] = []
+        observed_size = 0
+        while chunk := os.read(descriptor, _HASH_CHUNK_SIZE):
+            observed_size += len(chunk)
+            if max_bytes is not None and observed_size > max_bytes:
+                raise ValueError(f"project file exceeds byte limit: {value}")
+            chunks.append(chunk)
+        final = os.fstat(descriptor)
+        if (
+            observed_size != initial.st_size
+            or final.st_size != initial.st_size
+            or final.st_mtime_ns != initial.st_mtime_ns
+            or final.st_ctime_ns != initial.st_ctime_ns
+        ):
+            raise ValueError("project file changed while reading")
+        return b"".join(chunks)
     finally:
         os.close(descriptor)
 
@@ -189,22 +247,25 @@ def _load_validated_resource_plan(
         raise ValueError("validated Stage 11 resource plan is missing")
     try:
         path = resolve_project_artifact(project.root, RESOURCE_PLAN_PATH)
-        file_stat = path.stat()
-        digest = _sha256(path)
+        payload = _read_project_file_snapshot(
+            project.root,
+            RESOURCE_PLAN_PATH,
+            max_bytes=_MAX_RESOURCE_PLAN_BYTES,
+        )
+        digest = hashlib.sha256(payload).hexdigest()
     except (OSError, ValueError) as error:
         raise ValueError(
             "resource plan changed since Stage 11 validation; return to Stage 11"
         ) from error
     if (
-        not path.is_file()
-        or file_stat.st_size != artifact.size
+        len(payload) != artifact.size
         or digest != artifact.sha256
     ):
         raise ValueError(
             "resource plan changed since Stage 11 validation; return to Stage 11"
         )
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(payload.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValueError("validated Stage 11 resource plan cannot be read") from error
     outcome = validate_resource_plan_structure(raw)
@@ -219,8 +280,9 @@ def _refresh_input_facts(root: Path, raw_input: dict[str, object]) -> None:
         path = resolve_project_artifact(root, relative_path)
         exists = path.exists()
         is_regular = exists and stat.S_ISREG(path.stat().st_mode)
-        size_bytes = path.stat().st_size if is_regular else 0
-        digest = _sha256(path) if is_regular else None
+        identity = _project_file_identity(root, relative_path) if is_regular else None
+        size_bytes = identity.size if identity is not None else 0
+        digest = identity.sha256 if identity is not None else None
     except (KeyError, OSError, TypeError, ValueError) as error:
         raise ValueError(
             f"declared input cannot be rechecked safely: {relative_path!r}"
@@ -301,6 +363,7 @@ def _recheck_execution_readiness(
     project: ResearchProject,
     *,
     allow_rejected_decision: bool,
+    allow_preexisting_result: bool = False,
 ) -> ExecutionGateStatus:
     current_project = ResearchProject.open(project.root)
     state = current_project.state
@@ -343,6 +406,8 @@ def _recheck_execution_readiness(
     if not outcome.valid or outcome.plan is None:
         raise ValueError("refreshed resource plan is malformed; return to Stage 11")
     _plan, issues = validate_stage_eleven(current_project, refreshed)
+    if allow_preexisting_result:
+        issues = tuple(issue for issue in issues if issue.code != "preexisting_result")
     if issues:
         details = "; ".join(
             f"{issue.path}: {issue.message}" for issue in issues
@@ -359,8 +424,8 @@ def _recheck_execution_readiness(
         )
 
     atomic_write_json(path, refreshed, prefix="resources-")
-    file_stat = path.stat()
-    digest = _sha256(path)
+    identity = _project_file_identity(current_project.root, RESOURCE_PLAN_PATH)
+    digest = identity.sha256
     updated_state = replace(
         state,
         status=StageStatus.AWAITING_APPROVAL,
@@ -374,7 +439,7 @@ def _recheck_execution_readiness(
             RESOURCE_PLAN_PATH: ArtifactRef(
                 path=RESOURCE_PLAN_PATH,
                 sha256=digest,
-                size=file_stat.st_size,
+                size=identity.size,
             ),
         },
         last_error=None,
@@ -396,6 +461,7 @@ def _recheck_execution_readiness(
     return status
 
 
+@project_mutation
 def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus:
     """Refresh passive facts unless a current human rejection locks the gate."""
     from .handoff import normalize_durable_project
@@ -566,6 +632,7 @@ def _validate_development_structure(
         )
 
 
+@project_mutation
 def validate_development_input(
     project: ResearchProject,
     input_manifest_path: str,
@@ -666,6 +733,7 @@ def validate_development_input(
     return status, validated
 
 
+@project_mutation
 def recheck_development_input(
     project: ResearchProject,
     input_manifest_path: str,
@@ -686,12 +754,10 @@ def _stage_twelve_artifact_hashes(
         artifact = state.artifacts.get(relative_path)
         if artifact is None or artifact.path != relative_path:
             raise ValueError(f"persisted artifact hash is missing for {relative_path}")
-        path = resolve_project_artifact(root, relative_path)
-        file_stat = path.stat()
-        digest = _sha256(path)
+        identity = _project_file_identity(root, relative_path)
+        digest = identity.sha256
         if (
-            not path.is_file()
-            or file_stat.st_size != artifact.size
+            identity.size != artifact.size
             or digest != artifact.sha256
         ):
             raise ValueError(f"artifact has changed since validation: {relative_path}")

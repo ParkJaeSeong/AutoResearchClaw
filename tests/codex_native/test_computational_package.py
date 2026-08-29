@@ -221,6 +221,7 @@ def test_package_rejects_disguised_capabilities_and_unreachable_helpers(
     source = path.read_text(encoding="utf-8")
     dry_body = (
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
     )
@@ -908,11 +909,7 @@ def test_package_requires_input_schema_validation_in_entry_point(tmp_path):
     main_path = project.root / "experiment" / "code" / "main.py"
     source = main_path.read_text(encoding="utf-8")
     source = source.replace(
-        "        with resolved.open(encoding='utf-8') as handle:\n"
-        "            record = json.load(handle)\n"
-        "        if not isinstance(record, dict) or any(\n"
-        "            field not in record for field in required_fields\n"
-        "        ):\n"
+        "        if any(field not in record for field in required_fields):\n"
         "            raise ValueError('input schema does not match contract')\n",
         "",
     )
@@ -1150,23 +1147,21 @@ def test_package_rejects_dead_code_entrypoint_contract_spoof(tmp_path):
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
     active = (
-        "    config = load_config(Path(args.config))\n"
-        "    validate_inputs(config)\n"
+        "    config = load_config(config_path)\n"
         "    plan = build_plan(config)\n"
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
     )
     dead = (
         "    if False:\n"
-        "        config = load_config(Path(args.config))\n"
-        "        validate_inputs(config)\n"
+        "        config = load_config(config_path)\n"
         "        plan = build_plan(config)\n"
         "        if args.dry_run:\n"
+        "            validate_inputs(config)\n"
         "            print(json.dumps(plan, sort_keys=True))\n"
         "            return plan\n"
-        "        raise RuntimeError('execution is deferred to stage 12')\n"
         "    return {}\n"
     )
     _replace_package_file(project, "experiment/code/main.py", source.replace(active, dead))
@@ -1506,13 +1501,13 @@ def test_package_rejects_write_in_inverted_dry_run_else_branch(tmp_path):
     source = path.read_text(encoding="utf-8")
     active = (
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
     )
     inverted = (
         "    if not args.dry_run:\n"
-        "        raise RuntimeError('execution is deferred to stage 12')\n"
+        "        pass\n"
         "    else:\n"
         "        Path('experiment/results.json').write_text('{}')\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
@@ -1533,12 +1528,12 @@ def test_package_rejects_noncanonical_declared_non_dry_write(tmp_path):
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
-    active = "    raise RuntimeError('execution is deferred to stage 12')\n"
+    active = "    started = time.monotonic()\n"
     execution = (
         "    Path('experiment/results.json').write_text(\n"
         "        json.dumps({'plan': plan}, sort_keys=True)\n"
         "    )\n"
-        "    return plan\n"
+        "    started = time.monotonic()\n"
     )
     _replace_package_file(
         project, "experiment/code/main.py", source.replace(active, execution)
@@ -1631,13 +1626,12 @@ def test_package_rejects_constant_false_entrypoint_contract_spoof(
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
     active = (
-        "    config = load_config(Path(args.config))\n"
-        "    validate_inputs(config)\n"
+        "    config = load_config(config_path)\n"
         "    plan = build_plan(config)\n"
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
     )
     dead = "    if " + condition + ":\n" + "".join(
         f"    {line}" for line in active.splitlines(True)
@@ -1658,7 +1652,7 @@ def test_package_rejects_contract_after_statically_unconditional_return(tmp_path
     write_valid_fixture_artifacts(project.root, 10)
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
-    marker = "    config = load_config(Path(args.config))\n"
+    marker = "    config = load_config(config_path)\n"
     source = source.replace(
         marker,
         "    if (3 >= 2) and not False:\n        return {}\n" + marker,
@@ -1677,23 +1671,22 @@ def test_package_does_not_follow_nested_helper_defined_in_dead_branch(tmp_path):
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
     active = (
-        "    config = load_config(Path(args.config))\n"
-        "    validate_inputs(config)\n"
+        "    config = load_config(config_path)\n"
         "    plan = build_plan(config)\n"
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
     )
     nested = (
         "    if 1 == 2:\n"
         "        def perform_contract():\n"
-        "            config = load_config(Path(args.config))\n"
+        "            config = load_config(config_path)\n"
         "            validate_inputs(config)\n"
         "            return build_plan(config)\n"
         "    if args.dry_run:\n"
         "        return perform_contract()\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
+        "    return {}\n"
     )
     _replace_package_file(
         project, "experiment/code/main.py", source.replace(active, nested)
@@ -1901,10 +1894,10 @@ def test_package_rejects_non_dry_mutation_outside_declared_result(
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
     source = source.replace(
-        "    raise RuntimeError('execution is deferred to stage 12')\n",
+        "    started = time.monotonic()\n",
         f"    target_path = config['output_contract']['result_path']\n"
         f"    {mutation}\n"
-        "    return plan\n",
+        "    started = time.monotonic()\n",
     )
     _replace_package_file(project, "experiment/code/main.py", source)
 
@@ -1925,13 +1918,12 @@ def test_package_rejects_contract_evidence_inside_empty_for_loop(
         path = project.root / relative
         source = path.read_text(encoding="utf-8")
         active = (
-            "    config = load_config(Path(args.config))\n"
-            "    validate_inputs(config)\n"
+            "    config = load_config(config_path)\n"
             "    plan = build_plan(config)\n"
             "    if args.dry_run:\n"
+            "        validate_inputs(config)\n"
             "        print(json.dumps(plan, sort_keys=True))\n"
             "        return plan\n"
-            "    raise RuntimeError('execution is deferred to stage 12')\n"
         )
         dead = "    for never in ():\n" + "".join(
             f"    {line}" for line in active.splitlines(True)
@@ -1974,13 +1966,12 @@ def test_package_rejects_contract_evidence_in_unmodelled_control_flow(
     path = project.root / "experiment" / "code" / "main.py"
     source = path.read_text(encoding="utf-8")
     active = (
-        "    config = load_config(Path(args.config))\n"
-        "    validate_inputs(config)\n"
+        "    config = load_config(config_path)\n"
         "    plan = build_plan(config)\n"
         "    if args.dry_run:\n"
+        "        validate_inputs(config)\n"
         "        print(json.dumps(plan, sort_keys=True))\n"
         "        return plan\n"
-        "    raise RuntimeError('execution is deferred to stage 12')\n"
     )
     if construct == "match":
         wrapped = "    match 1:\n        case 2:\n" + "".join(

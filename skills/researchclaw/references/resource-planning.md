@@ -244,9 +244,11 @@ researchclaw-codex execution prepare-run ROOT --json
 
 It writes `experiment/execution_contract.json` and returns the approved
 command. It does not execute that command. The user runs the returned command
-in the project root. Command stdout and any development result are never
-research evidence, and a development result is never registerable as research
-evidence.
+in the project root. The fixed Stage-10 entry point validates the current
+contract, all bound package files, and every required input before running its
+bounded behavior and writing only `experiment/results.json`. Command stdout
+and any development result are never research evidence, and a development
+result is never registerable as research evidence.
 
 Only the result path bound by that contract, `experiment/results.json`, can be
 registered after the user-run command completes:

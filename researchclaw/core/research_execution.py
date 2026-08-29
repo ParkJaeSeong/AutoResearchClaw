@@ -3,28 +3,30 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import json
 import math
 import os
+from pathlib import Path
 import stat
 from types import MappingProxyType
 
 from .approval import ApprovalRecord
 from .execution_gate import (
     _load_validated_resource_plan,
+    _open_project_file_descriptor,
+    _project_file_identity,
     _read_project_file_snapshot,
 )
-from .events import EvaluationEvent, event_log_for
+from .events import EventLog, EvaluationEvent, MAX_EVENT_RECORD_BYTES, event_log_for
 from .models import ArtifactRef, ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import _fsync_directory, atomic_write_json
 from .project import ResearchProject
 from .resource_planning import RESOURCE_PLAN_PATH, validate_stage_eleven
+from .transactions import project_transaction, project_mutation
 
 
 EXECUTION_CONTRACT_PATH = "experiment/execution_contract.json"
@@ -42,6 +44,14 @@ _REGISTRATION_PENDING_PATH = (
     ".researchclaw/research-result-registration.pending.json"
 )
 _MAX_PENDING_REGISTRATION_BYTES = 256 * 1024
+MAX_RESEARCH_RESULT_BYTES = 1024 * 1024
+MAX_EXECUTION_CONTRACT_BYTES = 256 * 1024
+_MAX_APPROVAL_BYTES = 256 * 1024
+_MAX_PACKAGE_MANIFEST_BYTES = 1024 * 1024
+_CONTRACT_PREPARATION_PENDING_PATH = (
+    ".researchclaw/execution-contract-preparation.pending.json"
+)
+_MAX_CONTRACT_PREPARATION_PENDING_BYTES = 4096
 _PENDING_PHASES = frozenset({"committing", "aborting"})
 _APPROVAL_FIELDS = frozenset(
     {
@@ -137,6 +147,7 @@ class ExecutionPreparationStatus:
 class ValidatedResearchResult:
     result_path: str
     result_sha256: str
+    result_size: int
     payload: Mapping[str, object]
     metric_count: int
     input_count: int
@@ -214,8 +225,37 @@ def _canonical_json(payload: object) -> bytes:
     ).encode("utf-8")
 
 
+def _bounded_canonical_json(
+    payload: object,
+    *,
+    maximum_bytes: int,
+    error_category: str,
+) -> bytes:
+    encoder = json.JSONEncoder(
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        for text_chunk in encoder.iterencode(payload):
+            for start in range(0, len(text_chunk), 4096):
+                chunk = text_chunk[start : start + 4096].encode("utf-8")
+                size += len(chunk)
+                if size > maximum_bytes:
+                    raise ValueError(error_category)
+                chunks.append(chunk)
+    except (TypeError, ValueError) as error:
+        if isinstance(error, ValueError) and str(error) == error_category:
+            raise
+        raise ValueError(error_category) from error
+    return b"".join(chunks)
+
+
 def _canonical_event_record(event: EvaluationEvent) -> bytes:
-    return _canonical_json(event.to_dict()) + b"\n"
+    return EventLog._bounded_record(event)
 
 
 def _event_identity(event: EvaluationEvent) -> str:
@@ -229,7 +269,9 @@ def _current_project(project: ResearchProject) -> ResearchProject:
 def _load_strict_stage_twelve_approval(project: ResearchProject) -> ApprovalRecord:
     try:
         payload = _read_project_file_snapshot(
-            project.root, _STAGE_TWELVE_APPROVAL_PATH
+            project.root,
+            _STAGE_TWELVE_APPROVAL_PATH,
+            max_bytes=_MAX_APPROVAL_BYTES,
         )
         raw = json.loads(
             payload.decode("utf-8"),
@@ -249,10 +291,12 @@ def _load_strict_stage_twelve_approval(project: ResearchProject) -> ApprovalReco
         raise ValueError("execution_approval_invalid")
     artifact_hashes = raw["artifact_hashes"]
     if (
-        type(raw["schema_version"]) is not int
+        not isinstance(raw["schema_version"], int)
+        or isinstance(raw["schema_version"], bool)
         or raw["schema_version"] != 1
         or not isinstance(raw["project_id"], str)
-        or type(raw["stage_id"]) is not int
+        or not isinstance(raw["stage_id"], int)
+        or isinstance(raw["stage_id"], bool)
         or raw["stage_id"] != 12
         or not isinstance(raw["decision"], str)
         or raw["decision"] not in {"approve", "reject"}
@@ -286,15 +330,14 @@ def _load_strict_stage_twelve_approval(project: ResearchProject) -> ApprovalReco
 
 def _load_current_stage_twelve_approval(project: ResearchProject) -> ApprovalRecord:
     """Require a current, explicit Stage-12 approval."""
-    current = _current_project(project)
-    state = current.state
+    state = project.state
     if state.current_stage != 12 or 11 not in state.completed_stages:
         raise ValueError("execution_approval_invalid")
-    record = _load_strict_stage_twelve_approval(current)
+    record = _load_strict_stage_twelve_approval(project)
     if (
         record.project_id != state.project_id
         or record.decision != "approve"
-        or record.artifact_hashes != _current_stage_twelve_artifact_hashes(current)
+        or record.artifact_hashes != _current_stage_twelve_artifact_hashes(project)
     ):
         raise ValueError("execution_approval_invalid")
     return record
@@ -313,11 +356,11 @@ def _current_stage_twelve_artifact_hashes(
         if artifact is None or artifact.path != relative_path:
             raise ValueError("execution_approval_invalid")
         try:
-            payload = _read_project_file_snapshot(project.root, relative_path)
+            identity = _project_file_identity(project.root, relative_path)
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_approval_invalid") from error
-        digest = _sha256(payload)
-        if len(payload) != artifact.size or digest != artifact.sha256:
+        digest = identity.sha256
+        if identity.size != artifact.size or digest != artifact.sha256:
             raise ValueError("execution_approval_invalid")
         hashes[relative_path] = digest
     return hashes
@@ -327,10 +370,9 @@ def _load_current_resource_plan(
     project: ResearchProject, *, allow_result: bool = False
 ) -> dict[str, object]:
     """Reopen and revalidate the persisted Stage-11 resource plan."""
-    current = _current_project(project)
     try:
-        _path, raw = _load_validated_resource_plan(current)
-        _plan, issues = validate_stage_eleven(current, raw)
+        _path, raw = _load_validated_resource_plan(project)
+        _plan, issues = validate_stage_eleven(project, raw)
     except (OSError, ValueError, TypeError) as error:
         raise ValueError("execution_prerequisites_changed") from error
     if allow_result:
@@ -373,16 +415,16 @@ def _snapshot_required_inputs(
         ):
             raise ValueError("execution_prerequisites_changed")
         try:
-            snapshot = _read_project_file_snapshot(project.root, path)
+            identity = _project_file_identity(project.root, path)
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_prerequisites_changed") from error
-        digest = _sha256(snapshot)
-        if len(snapshot) != declared_size or digest != declared_digest:
+        digest = identity.sha256
+        if identity.size != declared_size or digest != declared_digest:
             raise ValueError("execution_prerequisites_changed")
         snapshots.append(
             {
                 "path": path,
-                "size_bytes": len(snapshot),
+                "size_bytes": identity.size,
                 "sha256": digest,
                 "license_status": license_status,
             }
@@ -393,7 +435,9 @@ def _snapshot_required_inputs(
 def _package_file_bindings(project: ResearchProject) -> list[dict[str, str]]:
     try:
         manifest_bytes = _read_project_file_snapshot(
-            project.root, _PACKAGE_MANIFEST_PATH
+            project.root,
+            _PACKAGE_MANIFEST_PATH,
+            max_bytes=_MAX_PACKAGE_MANIFEST_BYTES,
         )
         manifest = json.loads(manifest_bytes.decode("utf-8"))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
@@ -417,10 +461,10 @@ def _package_file_bindings(project: ResearchProject) -> list[dict[str, str]]:
             raise ValueError("execution_approval_invalid")
         seen_paths.add(path)
         try:
-            payload = _read_project_file_snapshot(project.root, path)
+            identity = _project_file_identity(project.root, path)
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_approval_invalid") from error
-        actual_digest = _sha256(payload)
+        actual_digest = identity.sha256
         if actual_digest != expected_digest:
             raise ValueError("execution_approval_invalid")
         bindings.append({"path": path, "sha256": actual_digest})
@@ -446,15 +490,16 @@ def _build_execution_contract(
     project: ResearchProject, *, allow_result: bool = False
 ) -> dict[str, object]:
     """Return a closed contract whose identity binds the current approved inputs."""
-    current = _current_project(project)
-    hashes = _current_stage_twelve_artifact_hashes(current)
-    plan = _load_current_resource_plan(current, allow_result=allow_result)
+    hashes = _current_stage_twelve_artifact_hashes(project)
+    plan = _load_current_resource_plan(project, allow_result=allow_result)
     command = plan.get("deferred_command")
     raw_prohibitions = plan.get("prohibitions")
     if not isinstance(command, str) or not command or not isinstance(raw_prohibitions, Mapping):
         raise ValueError("execution_prerequisites_changed")
     if hashes.get(RESOURCE_PLAN_PATH) != _sha256(
-        _read_project_file_snapshot(current.root, RESOURCE_PLAN_PATH)
+        _read_project_file_snapshot(
+            project.root, RESOURCE_PLAN_PATH, max_bytes=MAX_EXECUTION_CONTRACT_BYTES
+        )
     ):
         raise ValueError("execution_approval_invalid")
 
@@ -469,11 +514,11 @@ def _build_execution_contract(
         digest = hashes.get(path)
         if digest is None:
             raise ValueError("execution_approval_invalid")
-        payload = _read_project_file_snapshot(current.root, path)
-        if _sha256(payload) != digest:
+        identity = _project_file_identity(project.root, path)
+        if identity.sha256 != digest:
             raise ValueError("execution_approval_invalid")
         bindings[name] = {"path": path, "sha256": digest}
-    bindings["package_files"] = _package_file_bindings(current)
+    bindings["package_files"] = _package_file_bindings(project)
 
     prohibitions = dict(raw_prohibitions)
     if not all(isinstance(value, bool) and value is False for value in prohibitions.values()):
@@ -482,12 +527,12 @@ def _build_execution_contract(
     contract: dict[str, object] = {
         "schema_version": 1,
         "contract_id": "",
-        "project_id": current.state.project_id,
+        "project_id": project.state.project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "command": command,
         "result_path": RESEARCH_RESULT_PATH,
         "bindings": bindings,
-        "inputs": _snapshot_required_inputs(current, plan),
+        "inputs": _snapshot_required_inputs(project, plan),
         "prohibitions": prohibitions,
         "result_template": _RESULT_TEMPLATE,
     }
@@ -505,21 +550,14 @@ def _existing_current_contract(
     if not path.exists():
         return None
     try:
-        payload = _read_project_file_snapshot(project.root, EXECUTION_CONTRACT_PATH)
-        existing = json.loads(
-            payload.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_json_constant,
+        payload = _read_project_file_snapshot(
+            project.root,
+            EXECUTION_CONTRACT_PATH,
+            max_bytes=MAX_EXECUTION_CONTRACT_BYTES,
         )
+        existing = _decode_execution_contract(payload)
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         raise ValueError("execution_contract_invalid") from error
-    artifact = project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
-    if artifact is None or (
-        artifact.path != EXECUTION_CONTRACT_PATH
-        or artifact.size != len(payload)
-        or artifact.sha256 != _sha256(payload)
-    ):
-        raise ValueError("execution_contract_invalid")
     if (
         not isinstance(existing, dict)
         or set(existing) != _CONTRACT_FIELDS
@@ -543,7 +581,111 @@ def _existing_current_contract(
                 if stale_category
                 else "execution_contract_invalid"
             )
+    artifact = project.state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    if artifact is None:
+        journal = _load_contract_preparation_journal(project)
+        if journal != {
+            "schema_version": 1,
+            "project_id": project.state.project_id,
+            "contract_id": existing["contract_id"],
+            "contract_sha256": _sha256(payload),
+            "contract_size": len(payload),
+        }:
+            raise ValueError("execution_contract_invalid")
+    elif (
+        artifact.path != EXECUTION_CONTRACT_PATH
+        or artifact.size != len(payload)
+        or artifact.sha256 != _sha256(payload)
+    ):
+        raise ValueError("execution_contract_invalid")
     return payload
+
+
+def _contract_preparation_path(project: ResearchProject) -> Path:
+    return resolve_project_artifact(
+        project.root,
+        _CONTRACT_PREPARATION_PENDING_PATH,
+    )
+
+
+def _load_contract_preparation_journal(
+    project: ResearchProject,
+) -> dict[str, object] | None:
+    path = _contract_preparation_path(project)
+    if not os.path.lexists(path):
+        return None
+    try:
+        payload = _read_project_file_snapshot(
+            project.root,
+            _CONTRACT_PREPARATION_PENDING_PATH,
+            max_bytes=_MAX_CONTRACT_PREPARATION_PENDING_BYTES,
+        )
+        raw = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_json_constant,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
+        raise ValueError("execution_contract_invalid") from error
+    fields = {
+        "schema_version",
+        "project_id",
+        "contract_id",
+        "contract_sha256",
+        "contract_size",
+    }
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != fields
+        or raw.get("schema_version") != 1
+        or not isinstance(raw.get("project_id"), str)
+        or not isinstance(raw.get("contract_id"), str)
+        or not isinstance(raw.get("contract_sha256"), str)
+        or len(raw["contract_sha256"]) != 64
+        or not isinstance(raw.get("contract_size"), int)
+        or isinstance(raw.get("contract_size"), bool)
+        or raw["contract_size"] < 0
+    ):
+        raise ValueError("execution_contract_invalid")
+    return raw
+
+
+def _persist_contract_preparation_journal(
+    project: ResearchProject,
+    payload: bytes,
+    contract_id: object,
+) -> None:
+    journal: dict[str, object] = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "contract_id": contract_id,
+        "contract_sha256": _sha256(payload),
+        "contract_size": len(payload),
+    }
+    _bounded_canonical_json(
+        journal,
+        maximum_bytes=_MAX_CONTRACT_PREPARATION_PENDING_BYTES,
+        error_category="execution_contract_invalid",
+    )
+    atomic_write_json(
+        _contract_preparation_path(project),
+        journal,
+        prefix="execution-contract-preparation-",
+        compact=True,
+    )
+
+
+def _clear_contract_preparation_journal(project: ResearchProject) -> None:
+    path = _contract_preparation_path(project)
+    path.unlink(missing_ok=True)
+    _fsync_directory(path.parent)
 
 
 def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict[str, object]:
@@ -557,6 +699,22 @@ def _reject_duplicate_keys(pairs: list[tuple[object, object]]) -> dict[str, obje
 
 def _reject_json_constant(_value: str) -> object:
     raise ValueError("non-finite JSON constant")
+
+
+def _decode_research_result(payload: bytes) -> object:
+    return json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_json_constant,
+    )
+
+
+def _decode_execution_contract(payload: bytes) -> object:
+    return json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_json_constant,
+    )
 
 
 def _freeze_json(value: object) -> object:
@@ -599,7 +757,9 @@ def _expected_isolation_key(
     if not isinstance(config_path, str) or not isinstance(config_digest, str):
         raise ValueError("execution_contract_invalid")
     try:
-        config_bytes = _read_project_file_snapshot(project.root, config_path)
+        config_bytes = _read_project_file_snapshot(
+            project.root, config_path, max_bytes=MAX_EXECUTION_CONTRACT_BYTES
+        )
         config = json.loads(
             config_bytes.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
@@ -720,13 +880,43 @@ def _record_contract_artifact(project: ResearchProject, payload: bytes) -> None:
     )
 
 
+@project_mutation
 def prepare_research_execution(project: ResearchProject) -> ExecutionPreparationStatus:
     """Write an approved immutable handoff without importing or running project code."""
     current = _current_project(project)
     _load_current_stage_twelve_approval(current)
-    contract = _build_execution_contract(current)
-    existing = _existing_current_contract(current, contract)
+    registration_recovery = (
+        current.state.next_action == "prepare_run"
+        and isinstance(current.state.last_error, dict)
+        and current.state.last_error.get("retry_state")
+        == "stage_twelve_registration_recovery"
+    )
+    contract = _build_execution_contract(
+        current,
+        allow_result=registration_recovery,
+    )
+    try:
+        existing = _existing_current_contract(current, contract)
+    except ValueError as error:
+        if (
+            not registration_recovery
+            or str(error)
+            not in {"execution_contract_invalid", "execution_contract_stale"}
+            or current.state.artifacts.get(EXECUTION_CONTRACT_PATH) is None
+        ):
+            raise
+        existing = None
     if existing is None:
+        candidate_bytes = _bounded_canonical_json(
+            contract,
+            maximum_bytes=MAX_EXECUTION_CONTRACT_BYTES,
+            error_category="execution_contract_invalid",
+        )
+        _persist_contract_preparation_journal(
+            current,
+            candidate_bytes,
+            contract.get("contract_id"),
+        )
         path = resolve_project_artifact(current.root, EXECUTION_CONTRACT_PATH)
         atomic_write_json(
             path,
@@ -735,11 +925,16 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
             compact=True,
         )
         try:
-            existing = _read_project_file_snapshot(current.root, EXECUTION_CONTRACT_PATH)
+            existing = _read_project_file_snapshot(
+                current.root,
+                EXECUTION_CONTRACT_PATH,
+                max_bytes=MAX_EXECUTION_CONTRACT_BYTES,
+            )
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_contract_invalid") from error
     _record_contract_artifact(_current_project(current), existing)
-    stored_contract = json.loads(existing.decode("utf-8"))
+    _clear_contract_preparation_journal(current)
+    stored_contract = _decode_execution_contract(existing)
     bindings = _freeze_json(stored_contract["bindings"])
     inputs = _freeze_json(stored_contract["inputs"])
     result_template = _freeze_json(stored_contract["result_template"])
@@ -763,11 +958,25 @@ def validate_research_result(
     project: ResearchProject, result_path: str
 ) -> ValidatedResearchResult:
     """Return a validated result snapshot without mutating project state or events."""
+    current = ResearchProject.open_readonly(project.root)
+    return _validate_research_result_against_stage_twelve_state(
+        current.root,
+        current.state,
+        result_path,
+    )
+
+
+def _validate_research_result_against_stage_twelve_state(
+    root: Path,
+    stage_twelve_state: ProjectState,
+    result_path: str,
+) -> ValidatedResearchResult:
+    """Strict side-effect-free validator shared by registration and recovery."""
     if result_path == "experiment/dev_results.json":
         raise ValueError("development_result_not_registerable")
     if result_path != RESEARCH_RESULT_PATH:
         raise ValueError("research_result_file_invalid")
-    current = _current_project(project)
+    current = ResearchProject(root=Path(root).resolve(strict=True), state=stage_twelve_state)
     _load_current_stage_twelve_approval(current)
     resource_plan = _load_current_resource_plan(current, allow_result=True)
     contract_bytes = _existing_current_contract(
@@ -779,15 +988,15 @@ def validate_research_result(
         raise ValueError("execution_contract_invalid")
     contract = json.loads(contract_bytes.decode("utf-8"))
     try:
-        result_bytes = _read_project_file_snapshot(current.root, result_path)
+        result_bytes = _read_project_file_snapshot(
+            current.root,
+            result_path,
+            max_bytes=MAX_RESEARCH_RESULT_BYTES,
+        )
     except (OSError, TypeError, ValueError) as error:
         raise ValueError("research_result_file_invalid") from error
     try:
-        payload = json.loads(
-            result_bytes.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_json_constant,
-        )
+        payload = _decode_research_result(result_bytes)
     except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("research_result_schema_invalid") from error
 
@@ -858,26 +1067,16 @@ def validate_research_result(
     return ValidatedResearchResult(
         result_path=result_path,
         result_sha256=_sha256(result_bytes),
+        result_size=len(result_bytes),
         payload=frozen_payload,
         metric_count=metric_count,
         input_count=len(inputs) if isinstance(inputs, list) else 0,
     )
 
 
-@contextmanager
 def _registration_lock(project: ResearchProject):
     """Serialize result registration and recovery for one project."""
-    lock_path = resolve_project_artifact(project.root, _REGISTRATION_LOCK_PATH)
-    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(lock_path, flags)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        yield
-    finally:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
+    return project_transaction(project.root, allow_pending=True)
 
 
 def _registration_failure_event(
@@ -928,7 +1127,9 @@ def _append_registration_failure(
         result_sha256=result_sha256,
     )
     try:
-        payload, _events = _read_complete_registration_event_log(project)
+        event_log_size, _event_log_sha256 = (
+            _read_complete_registration_event_log(project)
+        )
     except (
         OSError,
         UnicodeError,
@@ -942,7 +1143,7 @@ def _append_registration_failure(
         ) from log_error
     event_log_for(project.root).append_locked(
         event,
-        expected_offset=len(payload),
+        expected_offset=event_log_size,
     )
 
 
@@ -1097,7 +1298,11 @@ def _load_pending_registration(
         }
         if not isinstance(raw, dict) or set(raw) != expected_fields:
             raise ValueError("invalid pending registration shape")
-        if type(raw["schema_version"]) is not int or raw["schema_version"] != 3:
+        if (
+            not isinstance(raw["schema_version"], int)
+            or isinstance(raw["schema_version"], bool)
+            or raw["schema_version"] != 3
+        ):
             raise ValueError("invalid pending registration schema")
         project_id = raw["project_id"]
         result_path = raw["result_path"]
@@ -1129,7 +1334,7 @@ def _load_pending_registration(
                 for character in event_log_prefix_sha256
             )
             or phase not in _PENDING_PHASES
-            or type(success_written) is not bool
+            or not isinstance(success_written, bool)
             or not isinstance(event_start_offset, int)
             or isinstance(event_start_offset, bool)
             or event_start_offset < 0
@@ -1193,9 +1398,8 @@ def _load_pending_registration(
             "result_sha256": result_sha256,
             "registration_event_sha256": _event_identity(success_event),
         } if expected_success_payload is not None else None
-        expected_failure_payload = (
+        expected_failure_binding = (
             {
-                "error_category": "research_result_file_invalid",
                 "contract_path": contract_ref.path,
                 "contract_sha256": contract_ref.sha256,
                 "result_path": result_path,
@@ -1242,7 +1446,14 @@ def _load_pending_registration(
                     failure_event.project_id != project_id
                     or failure_event.type
                     != "research_result_registration_failed"
-                    or failure_event.payload != expected_failure_payload
+                    or failure_event.payload.get("error_category")
+                    not in _REGISTRATION_ERROR_CATEGORIES
+                    or {
+                        key: value
+                        for key, value in failure_event.payload.items()
+                        if key != "error_category"
+                    }
+                    != expected_failure_binding
                 )
             )
         ):
@@ -1266,20 +1477,18 @@ def _load_pending_registration(
             failure_event=failure_event,
         )
         if _pending_files_match(project, pending_for_counts):
-            result_bytes = _read_project_file_snapshot(project.root, result_path)
+            result_bytes = _read_project_file_snapshot(
+                project.root,
+                result_path,
+                max_bytes=MAX_RESEARCH_RESULT_BYTES,
+            )
             contract_bytes = _read_project_file_snapshot(
-                project.root, EXECUTION_CONTRACT_PATH
+                project.root,
+                EXECUTION_CONTRACT_PATH,
+                max_bytes=MAX_EXECUTION_CONTRACT_BYTES,
             )
-            result_payload = json.loads(
-                result_bytes.decode("utf-8"),
-                object_pairs_hook=_reject_duplicate_keys,
-                parse_constant=_reject_json_constant,
-            )
-            contract_payload = json.loads(
-                contract_bytes.decode("utf-8"),
-                object_pairs_hook=_reject_duplicate_keys,
-                parse_constant=_reject_json_constant,
-            )
+            result_payload = _decode_research_result(result_bytes)
+            contract_payload = _decode_execution_contract(contract_bytes)
             recomputed_metric_count = _validate_result_metrics(
                 result_payload.get("metrics")
                 if isinstance(result_payload, dict)
@@ -1339,35 +1548,90 @@ def _pending_files_match(
         if artifact is None or artifact.path != path:
             return False
         try:
-            payload = _read_project_file_snapshot(project.root, path)
+            identity = _project_file_identity(project.root, path)
         except (OSError, TypeError, ValueError):
             return False
-        if len(payload) != artifact.size or _sha256(payload) != artifact.sha256:
+        if identity.size != artifact.size or identity.sha256 != artifact.sha256:
             return False
     return True
 
 
-def _parse_complete_event_records(payload: bytes) -> list[EvaluationEvent]:
-    events: list[EvaluationEvent] = []
-    for line in payload.splitlines():
-        if not line:
-            raise ValueError("empty event record")
-        raw = json.loads(
-            line.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_json_constant,
-        )
-        events.append(EvaluationEvent.from_dict(raw))
-    return events
+def _parse_event_record(line: bytes) -> EvaluationEvent:
+    if not line or not line.endswith(b"\n"):
+        raise ValueError("incomplete event record")
+    raw = json.loads(
+        line[:-1].decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_json_constant,
+    )
+    return EvaluationEvent.from_dict(raw)
 
 
 def _read_complete_registration_event_log(
     project: ResearchProject,
-) -> tuple[bytes, list[EvaluationEvent]]:
-    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
-    if payload and not payload.endswith(b"\n"):
-        raise ValueError("event log has an incomplete trailing record")
-    return payload, _parse_complete_event_records(payload)
+) -> tuple[int, str]:
+    for _event in event_log_for(project.root).iter_events():
+        pass
+    identity = _project_file_identity(project.root, _REGISTRATION_LOCK_PATH)
+    return identity.size, identity.sha256
+
+
+def _event_prefix_tail(
+    project: ResearchProject,
+    *,
+    prefix_size: int,
+    prefix_sha256: str,
+    maximum_tail_bytes: int,
+) -> bytes:
+    """Validate a streamed JSONL prefix and retain only its bounded tail."""
+    descriptor, _relative_path = _open_project_file_descriptor(
+        project.root, _REGISTRATION_LOCK_PATH
+    )
+    try:
+        total_size = os.fstat(descriptor).st_size
+        if (
+            prefix_size < 0
+            or total_size < prefix_size
+            or total_size - prefix_size > maximum_tail_bytes
+        ):
+            raise ValueError("research_result_registration_recovery_invalid")
+        digest = hashlib.sha256()
+        remaining = prefix_size
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            while remaining:
+                line = handle.readline(min(MAX_EVENT_RECORD_BYTES + 1, remaining + 1))
+                if (
+                    not line
+                    or len(line) > MAX_EVENT_RECORD_BYTES
+                    or len(line) > remaining
+                ):
+                    raise ValueError(
+                        "research_result_registration_recovery_invalid"
+                    )
+                _parse_event_record(line)
+                digest.update(line)
+                remaining -= len(line)
+            if digest.hexdigest() != prefix_sha256:
+                raise ValueError("research_result_registration_recovery_invalid")
+            tail = handle.read(maximum_tail_bytes + 1)
+            if len(tail) > maximum_tail_bytes or handle.read(1):
+                raise ValueError("research_result_registration_recovery_invalid")
+            return tail
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
+        if isinstance(error, ValueError) and str(error) == (
+            "research_result_registration_recovery_invalid"
+        ):
+            raise
+        raise ValueError("research_result_registration_recovery_invalid") from error
+    finally:
+        os.close(descriptor)
 
 
 def _truncate_registration_event_log(project: ResearchProject, size: int) -> None:
@@ -1384,30 +1648,16 @@ def _truncate_registration_event_log(project: ResearchProject, size: int) -> Non
     _fsync_directory(path.parent)
 
 
-def _pending_event_bytes(
+def _pending_event_tail(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
 ) -> bytes:
-    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
-    if (
-        len(payload) < pending.event_log_size
-        or _sha256(payload[: pending.event_log_size])
-        != pending.event_log_prefix_sha256
-    ):
-        raise ValueError("research_result_registration_recovery_invalid")
-    try:
-        _parse_complete_event_records(payload[: pending.event_log_size])
-    except (
-        UnicodeError,
-        TypeError,
-        ValueError,
-        json.JSONDecodeError,
-        RecursionError,
-    ) as error:
-        raise ValueError(
-            "research_result_registration_recovery_invalid"
-        ) from error
-    return payload
+    return _event_prefix_tail(
+        project,
+        prefix_size=pending.event_log_size,
+        prefix_sha256=pending.event_log_prefix_sha256,
+        maximum_tail_bytes=3 * MAX_EVENT_RECORD_BYTES,
+    )
 
 
 def _require_owned_event_fragment(
@@ -1453,10 +1703,9 @@ def _committing_success_written(
 ) -> bool:
     if pending.phase != "committing":
         raise ValueError("research_result_registration_recovery_invalid")
-    payload = _pending_event_bytes(project, pending)
+    tail = _pending_event_tail(project, pending)
     if pending.event_start_offset != pending.event_log_size:
         raise ValueError("research_result_registration_recovery_invalid")
-    tail = payload[pending.event_start_offset :]
     record = _canonical_event_record(pending.success_event)
     if tail == record:
         return True
@@ -1483,9 +1732,18 @@ def _append_pending_event(
         event,
         expected_offset=expected_offset,
     )
-    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
     record = _canonical_event_record(event)
-    if payload[expected_offset:] != record:
+    descriptor, _relative_path = _open_project_file_descriptor(
+        project.root, _REGISTRATION_LOCK_PATH
+    )
+    try:
+        if os.fstat(descriptor).st_size != expected_offset + len(record):
+            raise OSError("research result transaction event was not persisted")
+        os.lseek(descriptor, expected_offset, os.SEEK_SET)
+        persisted = os.read(descriptor, len(record) + 1)
+    finally:
+        os.close(descriptor)
+    if persisted != record:
         raise OSError("research result transaction event was not persisted")
 
 
@@ -1493,6 +1751,11 @@ def _persist_pending_registration(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
 ) -> None:
+    _bounded_canonical_json(
+        pending.to_dict(),
+        maximum_bytes=_MAX_PENDING_REGISTRATION_BYTES,
+        error_category="research_result_registration_recovery_invalid",
+    )
     atomic_write_json(
         _pending_path(project),
         pending.to_dict(),
@@ -1539,29 +1802,32 @@ def _ensure_aborting_events(
 ) -> None:
     if pending.phase != "aborting" or pending.failure_event is None:
         raise ValueError("research_result_registration_recovery_invalid")
-    payload = _pending_event_bytes(project, pending)
+    tail = _pending_event_tail(project, pending)
     expected_prefix = pending.event_log_size
     if pending.success_written:
         success_record = _canonical_event_record(pending.success_event)
-        if payload[expected_prefix : expected_prefix + len(success_record)] != success_record:
+        success_offset = expected_prefix - pending.event_log_size
+        if tail[success_offset : success_offset + len(success_record)] != success_record:
             raise ValueError("research_result_registration_recovery_invalid")
         expected_prefix += len(success_record)
     if expected_prefix != pending.event_start_offset:
         raise ValueError("research_result_registration_recovery_invalid")
 
     if not pending.success_written:
-        tail = payload[pending.event_start_offset :]
+        event_tail = tail[
+            pending.event_start_offset - pending.event_log_size :
+        ]
         success_record = _canonical_event_record(pending.success_event)
         if (
-            tail
-            and len(tail) < len(success_record)
-            and success_record.startswith(tail)
+            event_tail
+            and len(event_tail) < len(success_record)
+            and success_record.startswith(event_tail)
         ):
             _repair_owned_event_fragment(
                 project,
                 pending,
                 offset=pending.event_start_offset,
-                fragment=tail,
+                fragment=event_tail,
                 event=pending.success_event,
             )
 
@@ -1573,19 +1839,17 @@ def _ensure_aborting_events(
     offset = pending.event_start_offset
     for event in events:
         record = _canonical_event_record(event)
-        payload = _read_project_file_snapshot(
-            project.root, _REGISTRATION_LOCK_PATH
-        )
-        tail = payload[offset:]
-        if tail.startswith(record):
+        current_tail = _pending_event_tail(project, pending)
+        fragment = current_tail[offset - pending.event_log_size :]
+        if fragment.startswith(record):
             offset += len(record)
             continue
-        if tail:
+        if fragment:
             _repair_owned_event_fragment(
                 project,
                 pending,
                 offset=offset,
-                fragment=tail,
+                fragment=fragment,
                 event=event,
             )
         _append_pending_event(
@@ -1595,8 +1859,8 @@ def _ensure_aborting_events(
             expected_offset=offset,
         )
         offset += len(record)
-    payload = _read_project_file_snapshot(project.root, _REGISTRATION_LOCK_PATH)
-    if len(payload) != offset:
+    final_identity = _project_file_identity(project.root, _REGISTRATION_LOCK_PATH)
+    if final_identity.size != offset:
         raise ValueError("research_result_registration_recovery_invalid")
 
 
@@ -1618,6 +1882,52 @@ def effective_research_result_registration_events(
         for event in events
         if event.type == "research_result_registered"
         and _event_identity(event) not in rolled_back
+    )
+
+
+def research_result_registration_is_grounded(
+    project: ResearchProject,
+    *,
+    contract_path: str,
+    contract_sha256: str,
+    result_path: str,
+    result_sha256: str,
+    metric_count: int,
+    input_count: int,
+) -> bool:
+    """Stream the log twice to ground one result with constant memory."""
+    expected_success = {
+        "contract_path": contract_path,
+        "contract_sha256": contract_sha256,
+        "result_path": result_path,
+        "result_sha256": result_sha256,
+        "metric_count": metric_count,
+        "input_count": input_count,
+    }
+    latest_identity: str | None = None
+    log = event_log_for(project.root)
+    for event in log.iter_events():
+        if (
+            event.project_id == project.state.project_id
+            and event.type == "research_result_registered"
+            and event.payload == expected_success
+        ):
+            latest_identity = _event_identity(event)
+    if latest_identity is None:
+        return False
+
+    expected_rollback = {
+        "contract_path": contract_path,
+        "contract_sha256": contract_sha256,
+        "result_path": result_path,
+        "result_sha256": result_sha256,
+        "registration_event_sha256": latest_identity,
+    }
+    return not any(
+        event.project_id == project.state.project_id
+        and event.type == "research_result_registration_rolled_back"
+        and event.payload == expected_rollback
+        for event in log.iter_events()
     )
 
 
@@ -1661,10 +1971,36 @@ def _finish_aborting_registration(
 def _complete_pending_registration(
     project: ResearchProject,
     pending: _PendingResearchResultRegistration,
-) -> ResearchResultRegistrationStatus:
+    *,
+    suppress_validation_failure: bool = False,
+) -> ResearchResultRegistrationStatus | None:
     if pending.phase != "committing":
         raise ValueError("research_result_registration_recovery_invalid")
     current = ResearchProject.open_readonly(project.root)
+    try:
+        validated = _validate_research_result_against_stage_twelve_state(
+            current.root,
+            pending.prior_state,
+            pending.result_path,
+        )
+        if (
+            validated.result_sha256 != pending.result_sha256
+            or validated.result_size != pending.result_size
+            or validated.metric_count != pending.metric_count
+            or validated.input_count != pending.input_count
+        ):
+            raise ValueError("research_result_registration_recovery_invalid")
+    except ValueError as error:
+        category = str(error)
+        normalized = (
+            error
+            if category in _REGISTRATION_ERROR_CATEGORIES
+            else ValueError("research_result_registration_recovery_invalid")
+        )
+        _abort_pending_registration(current, pending, normalized)
+        if suppress_validation_failure:
+            return None
+        raise normalized
     if current.state == pending.prior_state:
         if not _pending_files_match(current, pending):
             error = ValueError("research_result_file_invalid")
@@ -1703,6 +2039,8 @@ def recover_pending_research_result_registration(
 
 def _recover_pending_registration_locked(
     project: ResearchProject,
+    *,
+    suppress_validation_failure: bool = False,
 ) -> ResearchResultRegistrationStatus | None:
     """Recover a pending registration while the caller owns the project lock."""
     pending = _load_pending_registration(project)
@@ -1711,7 +2049,11 @@ def _recover_pending_registration_locked(
     if pending.phase == "aborting":
         _finish_aborting_registration(project, pending)
         return None
-    return _complete_pending_registration(project, pending)
+    return _complete_pending_registration(
+        project,
+        pending,
+        suppress_validation_failure=suppress_validation_failure,
+    )
 
 
 def register_research_result(
@@ -1731,15 +2073,18 @@ def register_research_result(
                 raise ValueError(str(category))
             return _complete_pending_registration(project, pending)
         try:
-            validated = validate_research_result(project, result_path)
             current = _current_project(project)
+            validated = validate_research_result(current, result_path)
             try:
-                result_bytes = _read_project_file_snapshot(
+                result_identity = _project_file_identity(
                     current.root, validated.result_path
                 )
             except (OSError, TypeError, ValueError) as error:
                 raise ValueError("research_result_file_invalid") from error
-            if _sha256(result_bytes) != validated.result_sha256:
+            if (
+                result_identity.sha256 != validated.result_sha256
+                or result_identity.size != validated.result_size
+            ):
                 raise ValueError("research_result_file_invalid")
             latest = ResearchProject.open_readonly(current.root)
             if latest.state != current.state:
@@ -1751,7 +2096,7 @@ def register_research_result(
         result_ref = ArtifactRef(
             path=validated.result_path,
             sha256=validated.result_sha256,
-            size=len(result_bytes),
+            size=validated.result_size,
         )
         state = latest.state
         target_state = replace(
@@ -1792,7 +2137,7 @@ def register_research_result(
             },
         )
         try:
-            event_log_bytes, _events = _read_complete_registration_event_log(
+            event_log_size, event_log_prefix_sha256 = _read_complete_registration_event_log(
                 latest
             )
         except (
@@ -1812,12 +2157,12 @@ def register_research_result(
             project_id=state.project_id,
             result_path=validated.result_path,
             result_sha256=validated.result_sha256,
-            result_size=len(result_bytes),
-            event_log_size=len(event_log_bytes),
-            event_log_prefix_sha256=_sha256(event_log_bytes),
+            result_size=validated.result_size,
+            event_log_size=event_log_size,
+            event_log_prefix_sha256=event_log_prefix_sha256,
             phase="committing",
             success_written=False,
-            event_start_offset=len(event_log_bytes),
+            event_start_offset=event_log_size,
             metric_count=validated.metric_count,
             input_count=validated.input_count,
             prior_state=state,

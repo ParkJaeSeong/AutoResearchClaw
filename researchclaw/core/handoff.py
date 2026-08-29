@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shlex
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -16,7 +15,6 @@ from .contracts import (
     get_contract,
     stage_for_output,
 )
-from .execution_gate import _read_project_file_snapshot
 from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .project import ResearchProject
@@ -97,61 +95,72 @@ def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None
     return None
 
 
-def _stage_thirteen_registration_is_grounded(
+def _stage_thirteen_recovery_action(
     root: Path, state: ProjectState
-) -> bool:
-    """Require the registered result and execution contract identities at Stage 13."""
+) -> str | None:
+    """Return the supported Stage-12 action for an ungrounded Stage 13."""
     if state.current_stage != 13 or 12 not in state.completed_stages:
-        return True
-    snapshots: dict[str, bytes] = {}
-    for relative_path in (
-        "experiment/results.json",
-        "experiment/execution_contract.json",
-    ):
-        artifact = state.artifacts.get(relative_path)
-        if artifact is None or artifact.path != relative_path:
-            return False
-        try:
-            payload = _read_project_file_snapshot(root, relative_path)
-            if len(payload) != artifact.size or hashlib.sha256(payload).hexdigest() != artifact.sha256:
-                return False
-            snapshots[relative_path] = payload
-        except (OSError, TypeError, ValueError):
-            return False
-    try:
-        result = json.loads(snapshots["experiment/results.json"].decode("utf-8"))
-        contract = json.loads(
-            snapshots["experiment/execution_contract.json"].decode("utf-8")
-        )
-    except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError):
-        return False
-    result_contract = (
-        result.get("execution_contract") if isinstance(result, dict) else None
+        return None
+    from .research_execution import (
+        EXECUTION_CONTRACT_PATH,
+        RESEARCH_RESULT_PATH,
+        _load_current_stage_twelve_approval,
+        _validate_research_result_against_stage_twelve_state,
+        research_result_registration_is_grounded,
     )
-    contract_ref = state.artifacts["experiment/execution_contract.json"]
-    result_ref = state.artifacts["experiment/results.json"]
-    structurally_grounded = (
-        isinstance(result_contract, dict)
-        and isinstance(contract, dict)
-        and result.get("project_id") == state.project_id
-        and contract.get("project_id") == state.project_id
-        and result_contract.get("path") == "experiment/execution_contract.json"
-        and result_contract.get("sha256") == contract_ref.sha256
-        and result_contract.get("contract_id") == contract.get("contract_id")
-    )
-    if not structurally_grounded:
-        return False
-    from .research_execution import effective_research_result_registration_events
 
-    project = ResearchProject(root=root, state=state)
-    return any(
-        event.project_id == state.project_id
-        and event.payload.get("contract_path") == contract_ref.path
-        and event.payload.get("contract_sha256") == contract_ref.sha256
-        and event.payload.get("result_path") == result_ref.path
-        and event.payload.get("result_sha256") == result_ref.sha256
-        for event in effective_research_result_registration_events(project)
+    stage_twelve_state = replace(
+        state,
+        current_stage=12,
+        status=StageStatus.READY,
+        completed_stages=tuple(
+            stage_id for stage_id in state.completed_stages if stage_id != 12
+        ),
+        next_action="report_resource_plan_milestone_only",
+        artifacts={
+            path: artifact
+            for path, artifact in state.artifacts.items()
+            if path != RESEARCH_RESULT_PATH
+        },
+        last_error=None,
     )
+    stage_twelve_project = ResearchProject(root=root, state=stage_twelve_state)
+    try:
+        _load_current_stage_twelve_approval(stage_twelve_project)
+    except ValueError:
+        return "approve_experiment_execution"
+    try:
+        validated = _validate_research_result_against_stage_twelve_state(
+            root,
+            stage_twelve_state,
+            RESEARCH_RESULT_PATH,
+        )
+    except ValueError as error:
+        if str(error) == "execution_approval_invalid":
+            return "approve_experiment_execution"
+        return "prepare_run"
+
+    contract_ref = state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    result_ref = state.artifacts.get(RESEARCH_RESULT_PATH)
+    if (
+        contract_ref is None
+        or result_ref is None
+        or result_ref.path != validated.result_path
+        or result_ref.sha256 != validated.result_sha256
+        or result_ref.size != validated.result_size
+    ):
+        return "register_research_result"
+    project = ResearchProject(root=root, state=state)
+    grounded = research_result_registration_is_grounded(
+        project,
+        contract_path=contract_ref.path,
+        contract_sha256=contract_ref.sha256,
+        result_path=result_ref.path,
+        result_sha256=result_ref.sha256,
+        metric_count=validated.metric_count,
+        input_count=validated.input_count,
+    )
+    return None if grounded else "register_research_result"
 
 
 def _first_invalid_completed_approval_stage(project: ResearchProject) -> int | None:
@@ -218,6 +227,51 @@ def _rewind_for_revalidation(
     )
 
 
+def _rewind_stage_twelve_registration(
+    project: ResearchProject,
+    next_action: str,
+) -> ResearchProject:
+    """Rewind Stage 13 to one action that Stage 12 actually implements."""
+    state = project.state
+    status = (
+        StageStatus.AWAITING_APPROVAL
+        if next_action == "approve_experiment_execution"
+        else StageStatus.READY
+    )
+    last_error: dict[str, object] = {
+        "error_class": StageStatus.NEEDS_REVISION.value,
+        "stage_id": 12,
+        "attempt_number": state.retry_counts.get("12", 0) + 1,
+        "issues": [
+            {
+                "code": "research_result_grounding_invalid",
+                "path": "experiment/results.json",
+                "message": "Stage-13 research evidence must be re-grounded through a supported Stage-12 action.",
+            }
+        ],
+        "artifact_hashes": {},
+        "recommended_action": next_action,
+        "retry_state": "stage_twelve_registration_recovery",
+    }
+    return project.persist_state(
+        replace(
+            state,
+            current_stage=12,
+            status=status,
+            completed_stages=tuple(
+                stage_id for stage_id in state.completed_stages if stage_id != 12
+            ),
+            next_action=next_action,
+            artifacts={
+                path: artifact
+                for path, artifact in state.artifacts.items()
+                if path != "experiment/results.json"
+            },
+            last_error=last_error,
+        )
+    )
+
+
 def _available_artifacts(root: Path, state: ProjectState) -> tuple[str, ...]:
     available: list[str] = []
     for relative_path in sorted(state.artifacts):
@@ -238,14 +292,22 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
     """Fail closed on stale artifacts or an unsubstantiated Stage-12 approval."""
     from .research_execution import _recover_pending_registration_locked
 
-    _recover_pending_registration_locked(project)
+    _recover_pending_registration_locked(
+        project,
+        suppress_validation_failure=True,
+    )
     current_project = ResearchProject.open(project.root)
     state = current_project.state
-    invalid_artifact_stage = (
-        None
-        if _stage_thirteen_registration_is_grounded(current_project.root, state)
-        else 12
+    stage_thirteen_action = _stage_thirteen_recovery_action(
+        current_project.root,
+        state,
     )
+    if stage_thirteen_action is not None:
+        return _rewind_stage_twelve_registration(
+            current_project,
+            stage_thirteen_action,
+        )
+    invalid_artifact_stage = None
     if invalid_artifact_stage is None:
         invalid_artifact_stage = _first_invalid_artifact_stage(
             current_project.root, state
@@ -269,6 +331,18 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
 
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
     if execution_boundary:
+        if (
+            state.next_action
+            in {
+                "prepare_run",
+                "register_research_result",
+                "approve_experiment_execution",
+            }
+            and isinstance(state.last_error, dict)
+            and state.last_error.get("retry_state")
+            == "stage_twelve_registration_recovery"
+        ):
+            return current_project
         execution_record = load_approval_record(current_project.root, 12)
         current_decision = (
             execution_record.decision
@@ -363,7 +437,12 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         execution_record = load_approval_record(current_project.root, 12)
         execution_approved = (
             state.status is StageStatus.READY
-            and state.next_action == "report_resource_plan_milestone_only"
+            and state.next_action
+            in {
+                "report_resource_plan_milestone_only",
+                "prepare_run",
+                "register_research_result",
+            }
             and execution_record is not None
             and execution_record.decision == "approve"
             and approval_matches_state(
@@ -391,13 +470,29 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if execution_boundary:
-        next_action = (
-            state.next_action
-            if execution_approved
-            or state.status is not StageStatus.READY
-            else "report_missing_execution_inputs"
-        )
-        if approval_eligible:
+        if state.next_action == "prepare_run":
+            next_action = state.next_action
+            next_command = _command(
+                current_project.root,
+                "execution",
+                "prepare-run",
+            )
+        elif state.next_action == "register_research_result":
+            next_action = state.next_action
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "execution",
+                    "register-result",
+                    str(current_project.root.resolve()),
+                    "--result",
+                    "experiment/results.json",
+                    "--confirm-research-result",
+                    "--json",
+                )
+            )
+        elif approval_eligible:
+            next_action = "approve_experiment_execution"
             next_command = shlex.join(
                 (
                     "researchclaw-codex",
@@ -413,8 +508,15 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             and execution_readiness == "needs_input"
             and state.next_action == "report_missing_execution_inputs"
         ):
+            next_action = state.next_action
             next_command = _command(current_project.root, "execution", "recheck")
         else:
+            next_action = (
+                state.next_action
+                if execution_approved
+                or state.status is not StageStatus.READY
+                else "report_missing_execution_inputs"
+            )
             next_command = _command(current_project.root, "status")
     elif stage_thirteen_boundary:
         next_action = "report_stage_thirteen_implementation_boundary"

@@ -40,12 +40,18 @@ class ResearchProject:
             topic=topic,
             profile=profile,
         )
-        StateStore(metadata_root).save(state)
         from .events import EvaluationEvent, event_log_for
+        from .transactions import project_transaction
 
-        event_log_for(root).append(
-            EvaluationEvent.create("project_created", state.project_id, {"topic": topic, "profile": profile})
-        )
+        with project_transaction(root):
+            StateStore(metadata_root).save(state)
+            event_log_for(root).append(
+                EvaluationEvent.create(
+                    "project_created",
+                    state.project_id,
+                    {"topic": topic, "profile": profile},
+                )
+            )
         return cls(root=root, state=state)
 
     @classmethod
@@ -204,17 +210,19 @@ class ResearchProject:
         """Reconstruct a durable handoff after reopening project files."""
         from .events import EvaluationEvent, event_log_for
         from .handoff import build_handoff
+        from .transactions import project_transaction
 
-        handoff = build_handoff(self)
-        event_log_for(self.root).append(
-            EvaluationEvent.create(
-                "resume",
-                handoff.project_id,
-                {
-                    "current_stage": handoff.current_stage,
-                    "status": handoff.status,
-                    "next_action": handoff.next_action,
-                },
+        with project_transaction(self.root, allow_pending=True):
+            handoff = build_handoff(self)
+            event_log_for(self.root).append(
+                EvaluationEvent.create(
+                    "resume",
+                    handoff.project_id,
+                    {
+                        "current_stage": handoff.current_stage,
+                        "status": handoff.status,
+                        "next_action": handoff.next_action,
+                    },
+                )
             )
-        )
         return handoff

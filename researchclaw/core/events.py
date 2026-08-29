@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-import fcntl
 import os
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +16,22 @@ if TYPE_CHECKING:
 _SCHEMA_VERSION = 1
 _TOTAL_STAGES = 23
 _REGISTRATION_PENDING_NAME = "research-result-registration.pending.json"
+MAX_EVENT_RECORD_BYTES = 64 * 1024
+
+
+def _reject_duplicate_event_keys(
+    pairs: list[tuple[object, object]],
+) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if not isinstance(key, str) or key in value:
+            raise ValueError("event JSON keys must be unique strings")
+        value[key] = item
+    return value
+
+
+def _reject_event_constant(_value: str) -> object:
+    raise ValueError("event JSON numbers must be finite")
 
 
 @dataclass(frozen=True)
@@ -88,7 +104,17 @@ class EventLog:
         self.path = Path(path)
 
     def append(self, event: EvaluationEvent) -> None:
-        """Append while cooperating with the project registration transaction."""
+        """Append under the common project mutation transaction."""
+        from .transactions import project_transaction
+
+        if self._registration_pending_path() is None:
+            self._append_record(event)
+            return
+        project_root = self.path.parent.parent
+        with project_transaction(project_root):
+            self._append_record(event)
+
+    def _append_record(self, event: EvaluationEvent) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(
             self.path,
@@ -99,19 +125,9 @@ class EventLog:
             0o644,
         )
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
-            pending = self._registration_pending_path()
-            if pending is not None and os.path.lexists(pending):
-                raise RuntimeError(
-                    "research result registration is pending; recover it before "
-                    "appending an unrelated event"
-                )
             self._write_record(descriptor, event)
         finally:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-            finally:
-                os.close(descriptor)
+            os.close(descriptor)
 
     def append_locked(
         self, event: EvaluationEvent, *, expected_offset: int
@@ -140,16 +156,26 @@ class EventLog:
         )
 
     @staticmethod
-    def _write_record(descriptor: int, event: EvaluationEvent) -> None:
-        record = (
-            json.dumps(
-                event.to_dict(),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            ).encode("utf-8")
-            + b"\n"
+    def _bounded_record(event: EvaluationEvent) -> bytes:
+        encoder = json.JSONEncoder(
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
         )
+        chunks: list[bytes] = []
+        size = 1
+        for text_chunk in encoder.iterencode(event.to_dict()):
+            for start in range(0, len(text_chunk), 4096):
+                chunk = text_chunk[start : start + 4096].encode("utf-8")
+                size += len(chunk)
+                if size > MAX_EVENT_RECORD_BYTES:
+                    raise ValueError("event_record_too_large")
+                chunks.append(chunk)
+        return b"".join(chunks) + b"\n"
+
+    @staticmethod
+    def _write_record(descriptor: int, event: EvaluationEvent) -> None:
+        record = EventLog._bounded_record(event)
         written = 0
         while written < len(record):
             count = os.write(descriptor, record[written:])
@@ -158,18 +184,55 @@ class EventLog:
             written += count
         os.fsync(descriptor)
 
-    def read_all(self) -> list[EvaluationEvent]:
+    def iter_events(self):
+        """Yield bounded JSONL records without loading the whole log."""
         if not self.path.exists():
-            return []
-        events: list[EvaluationEvent] = []
-        with self.path.open(encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                try:
-                    data: Any = json.loads(line)
-                    events.append(EvaluationEvent.from_dict(data))
-                except (json.JSONDecodeError, ValueError) as error:
-                    raise ValueError(f"malformed event at line {line_number}: {error}") from error
-        return events
+            return
+        descriptor = os.open(
+            self.path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("event log must be a regular file")
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                line_number = 0
+                while True:
+                    line = handle.readline(MAX_EVENT_RECORD_BYTES + 1)
+                    if not line:
+                        break
+                    line_number += 1
+                    if len(line) > MAX_EVENT_RECORD_BYTES:
+                        raise ValueError(
+                            f"malformed event at line {line_number}: record is too large"
+                        )
+                    if not line.endswith(b"\n"):
+                        raise ValueError(
+                            f"malformed event at line {line_number}: incomplete record"
+                        )
+                    try:
+                        data: Any = json.loads(
+                            line.decode("utf-8"),
+                            object_pairs_hook=_reject_duplicate_event_keys,
+                            parse_constant=_reject_event_constant,
+                        )
+                        yield EvaluationEvent.from_dict(data)
+                    except (
+                        UnicodeError,
+                        json.JSONDecodeError,
+                        ValueError,
+                        RecursionError,
+                    ) as error:
+                        raise ValueError(
+                            f"malformed event at line {line_number}: {error}"
+                        ) from error
+        finally:
+            os.close(descriptor)
+
+    def read_all(self) -> list[EvaluationEvent]:
+        return list(self.iter_events())
 
 
 def event_log_for(project_root: Path) -> EventLog:

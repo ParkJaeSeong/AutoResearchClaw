@@ -131,6 +131,13 @@ split/evaluation plan, and invokes `main` from its module guard. The dry run
 establishes readiness only; it does not fit a model, evaluate data, or write a
 result.
 
+The same fixed entry point is the bounded Stage 12 runner when invoked without
+`--dry-run`. Stage 10 never invokes that path. After `prepare-run`, the user runs
+the exact returned command outside ResearchClaw; the entry point recomputes and
+checks the execution contract and result template, streams and verifies package
+and input bindings, enforces the declared prohibitions and resource budget, and
+exclusively creates `experiment/results.json`.
+
 `test_smoke.py` imports and calls all four entry-point functions to check
 importability, configuration loading, input-contract validation, plan
 construction, and `--dry-run` readiness only. It must not write any artifact,

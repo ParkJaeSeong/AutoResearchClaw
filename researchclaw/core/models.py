@@ -25,11 +25,19 @@ _NEXT_ACTIONS = frozenset(
         "report_resource_plan_milestone_only",
         "approve_experiment_execution",
         "report_missing_execution_inputs",
+        "prepare_run",
+        "register_research_result",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})
 _RETRY_STATES = frozenset(
-    {"retry_available", "retry_limit_reached", "approval_invalidated", "artifact_invalidated"}
+    {
+        "retry_available",
+        "retry_limit_reached",
+        "approval_invalidated",
+        "artifact_invalidated",
+        "stage_twelve_registration_recovery",
+    }
 )
 
 

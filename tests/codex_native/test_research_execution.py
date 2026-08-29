@@ -420,8 +420,8 @@ def test_ordinary_event_append_fails_closed_while_registration_is_pending(
     assert isinstance(registration_errors[0], OSError)
     assert str(registration_errors[0]) == "leave pending transaction"
     assert len(ordinary_errors) == 1
-    assert isinstance(ordinary_errors[0], RuntimeError)
-    assert "registration is pending" in str(ordinary_errors[0])
+    assert isinstance(ordinary_errors[0], ValueError)
+    assert str(ordinary_errors[0]) == "project_transaction_pending"
     assert event_path.read_bytes() == events_before
 
 
@@ -581,7 +581,7 @@ def test_abort_intent_is_durable_before_partial_success_tail_mutation(
     )
 
     if recovery == "register":
-        with pytest.raises(ValueError, match="^research_result_file_invalid$"):
+        with pytest.raises(ValueError, match="^research_result_schema_invalid$"):
             register_research_result(project, "experiment/results.json")
         recovered_stage = ResearchProject.open(project.root).state.current_stage
     else:

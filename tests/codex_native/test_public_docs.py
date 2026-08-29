@@ -162,32 +162,38 @@ def test_public_docs_describe_explicit_research_result_registration_boundary():
     skill_workflow_normalized = " ".join(skill_workflow.split())
     assert (
         "It does not execute that command: the user runs the returned command "
-        "in the project root. Command stdout and every development result are never "
-        "research evidence. Only a contract-bound `experiment/results.json` can be "
-        "registered:"
+        "in the project root. The fixed Stage-10 entry point consumes that exact current "
+        "contract, streams and verifies every bound package file and required input, "
+        "runs its bounded generated experiment behavior, and creates only the declared "
+        "`experiment/results.json`. Command stdout and every development result are "
+        "never research evidence. Only that contract-bound result can be registered:"
         in readme_handoff_normalized
     )
     assert (
         "It does not execute that command. The user runs the returned command "
-        "in the project root. Command stdout and any development result are never "
-        "research evidence, and a development result is never registerable as research "
-        "evidence."
+        "in the project root. The fixed Stage-10 entry point validates the current "
+        "contract, all bound package files, and every required input before running its "
+        "bounded behavior and writing only `experiment/results.json`. Command stdout "
+        "and any development result are never research evidence, and a development "
+        "result is never registerable as research evidence."
         in reference_handoff_normalized
     )
     assert (
         "returns the approved command, but does not execute it. The user runs that "
-        "returned command in the project root; never treat command stdout or a "
-        "development result as research evidence."
+        "exact command in the project root. The fixed Stage-10 entry point validates "
+        "the current contract, bound package files, and required inputs, then writes "
+        "only `experiment/results.json`; never treat command stdout or a development "
+        "result as research evidence."
         in skill_workflow_normalized
     )
     assert (
-        "Only after the user-run command writes the contract-bound "
+        "Only after the user-run command writes that contract-bound "
         "`experiment/results.json`"
         in skill_workflow_normalized
     )
     assert (
         "It writes the immutable handoff and returns a command, but does not execute "
-        "it; the user runs that command in the project root."
+        "it; the user runs that exact command in the project root."
         in " ".join(agent_workflow.split())
     )
     for section in (
