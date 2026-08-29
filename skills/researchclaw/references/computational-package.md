@@ -37,12 +37,20 @@ these fields:
   SHA-256 of that file's exact bytes. Do not list the manifest itself.
 - `entry_point`: exact string `experiment/code/main.py`.
 - `config_path`: exact string `experiment/code/config.json`.
-- `runtime`: non-empty runtime description.
-- `input_contract`: non-empty input-data contract.
-- `output_contract`: non-empty later-execution output contract.
+- `runtime`: a closed object with only a non-empty `python` constraint.
+- `input_contract`: the exact closed input contract also used in config, with
+  `design_binding`, a non-empty list of project-relative `required_paths`, and
+  a non-empty text list of `required_fields`.
+- `output_contract`: the exact closed later-execution contract also used in
+  config, with `design_binding`, a project-relative `result_path`, and a
+  non-empty text list of `required_fields`. Declaring this path does not create
+  it during Stage 10.
 - `commands`: exactly the command object below.
-- `prohibitions`: non-empty safety constraints.
-- `reproducibility`: non-empty reproducibility metadata.
+- `prohibitions`: exactly the closed object
+  `{"stage_10_execution": false, "network_access": false,
+  "external_llm_calls": 0, "nested_agent_processes": 0}`.
+- `reproducibility`: exactly `design_sha256`, a non-empty integer `seeds`
+  list equal to the config seed values, and `dependencies: "bounded"`.
 
 The `files` paths are exactly:
 
@@ -69,9 +77,25 @@ fields:
 - `schema_version`: integer `1`.
 - `project_id` and `design_sha256`: exact values from the approved design
   binding.
-- `datasets`, `baselines`, `split_strategy`, `metrics`, `seeds`,
-  `input_contract`, and `output_contract`: non-empty translations of the
-  approved design.
+- `datasets` and `baselines`: exact copies of the approved fields named by
+  their traceability entries.
+- `metrics`: the complete approved metric objects, including each target and
+  threshold, copied without omission or substitution.
+- `split_strategy`: exactly `design_binding`, `groups`, `isolation_key`, and
+  `overlap_policy`. The binding equals the approved split strategy; `groups`
+  contains each of `train`, `validation`, `calibration`, and `test` exactly
+  once; `isolation_key` is non-empty text; and `overlap_policy` is `disjoint`.
+- `seeds`: exactly `design_binding` and `values`; the binding equals the
+  approved reproducibility source selected by traceability and `values` is a
+  non-empty list of JSON integers.
+- `input_contract`: exactly `design_binding`, `required_paths`, and
+  `required_fields`. Its binding equals the approved source selected by
+  traceability; paths are non-empty, project-relative, and non-traversing; and
+  fields are non-empty text.
+- `output_contract`: exactly `design_binding`, `result_path`, and
+  `required_fields`. Its binding equals the approved metric/success/failure
+  source selected by traceability, and its path is project-relative and
+  non-traversing.
 - `traceability`: an object with exactly `datasets`, `baselines`,
   `split_strategy`, `metrics`, `seeds`, `input_contract`, and
   `output_contract`, mapping every preceding translation field to its approved
@@ -82,28 +106,35 @@ fields:
   → `evidence_sources` or `method.datasets`; `output_contract` → `metrics`,
   `success_criteria`, or `failure_criteria`.
 
-`main.py` may load the configuration, validate declared input paths and
-schemas, construct the documented split/evaluation plan, and expose
-`--dry-run`. It must use only project-relative paths and must not download
+`main.py` defines `load_config`, `validate_inputs`, `build_plan`, and `main`.
+The entry point accepts `--config` and `--dry-run`, loads JSON configuration,
+validates declared input paths and schemas, constructs the documented
+split/evaluation plan, and invokes `main` from its module guard. It must use
+only project-relative paths and must not download
 data, use a network client, invoke an LLM or remote/nested agent, run a shell
 or subprocess, use `eval`/`exec`, manufacture synthetic results, or silently
 replace absent inputs. The dry run establishes readiness only; it does not fit
 a model, evaluate data, or write a result.
 
-`test_smoke.py` checks importability, configuration loading, input-contract
-validation, and dry-run readiness only. It must not run research computation,
-network access, a subprocess, or result generation. `README.md` must state the
+`test_smoke.py` imports and calls all four entry-point functions to check
+importability, configuration loading, input-contract validation, plan
+construction, and `--dry-run` readiness only. It must not write any artifact,
+run research computation, use network access or a subprocess, or generate a
+result. `README.md` must state the
 approved-design binding, required input preparation, entry point, both exact
 commands above, expected later outputs, limitations, and that Stage 10 did not
 execute the validation.
 
-`requirements.txt` contains only the minimal runtime dependencies, each with
-an exact (`==`), compatible (`~=`), or bounded lower-and-upper version range.
-Do not include external LLM SDKs, remote-agent frameworks, network/download
-clients, or unbounded dependencies. In particular, prohibited imports and
+`requirements.txt` contains only valid PEP 508 runtime requirements with an
+exact (`==`), compatible (`~=`), or bounded lower-and-upper version range.
+Requirement-file options, direct references, URLs, local paths, and VCS
+sources are forbidden even when their text resembles a version pin. Do not
+include external LLM SDKs, remote-agent frameworks, network/download clients,
+or unbounded dependencies. In particular, prohibited imports and
 distributions include OpenAI, Anthropic, Google Generative AI, requests,
-httpx, urllib, socket, subprocess, LangChain, AutoGen, CrewAI, Pydantic AI,
-Semantic Kernel, Haystack, `haystack-ai`, and `farm-haystack`.
+httpx, urllib, socket, FTP/HTTP clients, subprocess and multiprocessing,
+LiteLLM, LangChain, LlamaIndex, AutoGen, CrewAI, Pydantic AI, Semantic Kernel,
+Haystack, `haystack-ai`, and `farm-haystack`.
 
 ## Validate, repair, and stop
 

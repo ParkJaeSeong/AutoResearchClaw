@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping
 
+from packaging.requirements import InvalidRequirement, Requirement
+
 
 MANIFEST_FIELDS = {
     "schema_version",
@@ -93,6 +95,26 @@ _FORBIDDEN_IMPORTS = (
     "pydantic_ai",
     "semantic_kernel",
     "haystack",
+    "litellm",
+    "cohere",
+    "mistralai",
+    "groq",
+    "together",
+    "ollama",
+    "llama_index",
+    "smolagents",
+    "ftplib",
+    "http",
+    "aiohttp",
+    "urllib3",
+    "websockets",
+    "smtplib",
+    "imaplib",
+    "poplib",
+    "telnetlib",
+    "xmlrpc.client",
+    "paramiko",
+    "multiprocessing",
 )
 _FORBIDDEN_DISTRIBUTIONS = (*_FORBIDDEN_IMPORTS, "haystack-ai", "farm-haystack")
 _FAKE_RESULT_NAME = re.compile(
@@ -100,7 +122,68 @@ _FAKE_RESULT_NAME = re.compile(
     re.IGNORECASE,
 )
 _TRACEABILITY_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
-_REQUIREMENT_NAME = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9_.-]*)")
+_PATH_ASSIGNMENT = re.compile(r"(?:^|_)(?:path|file|dir|directory|root)(?:$|_)", re.IGNORECASE)
+_FILESYSTEM_CALLS = frozenset(
+    {
+        "Path",
+        "PurePath",
+        "PurePosixPath",
+        "PureWindowsPath",
+        "pathlib.Path",
+        "pathlib.PurePath",
+        "pathlib.PurePosixPath",
+        "pathlib.PureWindowsPath",
+        "open",
+        "io.open",
+        "os.open",
+        "os.access",
+        "os.chdir",
+        "os.chmod",
+        "os.listdir",
+        "os.lstat",
+        "os.makedirs",
+        "os.mkdir",
+        "os.path.abspath",
+        "os.path.join",
+        "os.path.realpath",
+        "os.readlink",
+        "os.remove",
+        "os.rename",
+        "os.replace",
+        "os.rmdir",
+        "os.scandir",
+        "os.stat",
+        "os.symlink",
+        "os.unlink",
+        "os.walk",
+        "shutil.copy",
+        "shutil.copy2",
+        "shutil.copyfile",
+        "shutil.copytree",
+        "shutil.move",
+        "shutil.rmtree",
+        "glob.glob",
+        "glob.iglob",
+    }
+)
+_INPUT_CONTRACT_FIELDS = {"design_binding", "required_paths", "required_fields"}
+_OUTPUT_CONTRACT_FIELDS = {"design_binding", "result_path", "required_fields"}
+_SPLIT_STRATEGY_FIELDS = {
+    "design_binding",
+    "groups",
+    "isolation_key",
+    "overlap_policy",
+}
+_SEEDS_FIELDS = {"design_binding", "values"}
+_RUNTIME_FIELDS = {"python"}
+_PROHIBITION_FIELDS = {
+    "stage_10_execution",
+    "network_access",
+    "external_llm_calls",
+    "nested_agent_processes",
+}
+_REPRODUCIBILITY_FIELDS = {"design_sha256", "seeds", "dependencies"}
+_SPLIT_GROUPS = {"train", "validation", "calibration", "test"}
 
 
 @dataclass(frozen=True)
@@ -244,6 +327,54 @@ def _validate_hashes(
             )
 
 
+def _validate_on_disk_tree(
+    root: Path, issues: list[ComputationalPackageIssue]
+) -> None:
+    experiment_root = root / "experiment"
+    if not experiment_root.is_dir():
+        return
+    allowed = {
+        "experiment",
+        "experiment/design.json",
+        "experiment/package_manifest.json",
+        "experiment/code",
+        "experiment/code/tests",
+        *CODE_PATHS,
+    }
+    reported: set[str] = set()
+    for path in experiment_root.rglob("*"):
+        relative = path.relative_to(root).as_posix()
+        if relative in allowed or relative in reported:
+            continue
+        reported.add(relative)
+        _issue(
+            issues,
+            "undeclared_artifact",
+            relative,
+            "stage 10 permits only the approved design and six declared package outputs",
+        )
+    forbidden_roots = {"result", "results", "download", "downloads", "data"}
+    forbidden_files = {"result.json", "results.json"}
+    for path in root.rglob("*"):
+        relative_path = path.relative_to(root)
+        relative = relative_path.as_posix()
+        if relative in reported:
+            continue
+        parts = tuple(part.lower() for part in relative_path.parts)
+        if not parts or (
+            parts[0] not in forbidden_roots
+            and parts[-1] not in forbidden_files
+        ):
+            continue
+        reported.add(relative)
+        _issue(
+            issues,
+            "undeclared_artifact",
+            relative,
+            "stage 10 forbids result and downloaded-data artifacts",
+        )
+
+
 def _validate_python_syntax(
     outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -287,47 +418,16 @@ def _absolute_literal(value: object) -> bool:
     )
 
 
+def _constant_absolute_path(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and _absolute_literal(node.value)
+
+
 def _assignment_names(node: ast.AST) -> tuple[str, ...]:
     if isinstance(node, ast.Name):
         return (node.id,)
     if isinstance(node, (ast.Tuple, ast.List)):
         return tuple(name for element in node.elts for name in _assignment_names(element))
     return ()
-
-
-def _smoke_test_writes_artifacts(tree: ast.AST) -> bool:
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _dotted_name(node.func)
-        if name is None:
-            continue
-        if name.split(".")[-1] in {
-            "write_text",
-            "write_bytes",
-            "touch",
-            "replace",
-            "rename",
-            "unlink",
-            "dump",
-        }:
-            return True
-        if name in {"open", "io.open"}:
-            mode = next(
-                (
-                    keyword.value.value
-                    for keyword in node.keywords
-                    if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant)
-                    and isinstance(keyword.value.value, str)
-                ),
-                node.args[1].value
-                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-                else "r",
-            )
-            if any(marker in mode for marker in "wax+"):
-                return True
-    return False
 
 
 def _import_aliases(tree: ast.AST) -> dict[str, str]:
@@ -352,22 +452,141 @@ def _resolved_call_name(node: ast.AST, aliases: Mapping[str, str]) -> str | None
 
 
 def _forbidden_call(name: str | None) -> bool:
-    return (
-        name in {
-            "os.system",
-            "os.popen",
-            "eval",
-            "exec",
-            "builtins.eval",
-            "builtins.exec",
-            "__builtins__.eval",
-            "__builtins__.exec",
-            "__import__",
-            "builtins.__import__",
-            "__builtins__.__import__",
-        }
-        or (name is not None and name.startswith("subprocess."))
+    if name is None:
+        return False
+    if name in {
+        "eval",
+        "exec",
+        "builtins.eval",
+        "builtins.exec",
+        "__builtins__.eval",
+        "__builtins__.exec",
+        "__import__",
+        "builtins.__import__",
+        "__builtins__.__import__",
+        "getattr",
+        "builtins.getattr",
+        "vars",
+        "builtins.vars",
+        "globals",
+        "builtins.globals",
+        "locals",
+        "builtins.locals",
+        "importlib.import_module",
+        "pty.spawn",
+    }:
+        return True
+    if name.startswith(("subprocess.", "multiprocessing.")):
+        return True
+    if name.startswith("asyncio.create_subprocess_"):
+        return True
+    if name.startswith("os."):
+        operation = name.rsplit(".", maxsplit=1)[-1]
+        return operation in {"system", "popen", "fork", "forkpty", "startfile"} or operation.startswith(
+            ("spawn", "exec", "posix_spawn")
+        )
+    return False
+
+
+def _call_is_dynamic_dispatch(node: ast.Call) -> bool:
+    return isinstance(node.func, (ast.Call, ast.Subscript))
+
+
+def _call_writes_artifact(node: ast.Call, aliases: Mapping[str, str]) -> bool:
+    name = _resolved_call_name(node.func, aliases)
+    leaf = node.func.attr if isinstance(node.func, ast.Attribute) else None
+    if (name.rsplit(".", maxsplit=1)[-1] if name is not None else leaf) in {
+        "write",
+        "writelines",
+        "write_text",
+        "write_bytes",
+        "touch",
+        "replace",
+        "rename",
+        "unlink",
+        "dump",
+        "save",
+        "savefig",
+        "to_csv",
+        "to_json",
+        "to_parquet",
+        "to_pickle",
+    }:
+        return True
+    if name is None:
+        return False
+    if name in {"open", "io.open", "builtins.open"}:
+        mode: object = "r"
+        for keyword in node.keywords:
+            if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
+                mode = keyword.value.value
+        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+            mode = node.args[1].value
+        return isinstance(mode, str) and any(marker in mode for marker in "wax+")
+    return False
+
+
+def _tree_writes_artifacts(tree: ast.AST, aliases: Mapping[str, str]) -> bool:
+    return any(
+        isinstance(node, ast.Call) and _call_writes_artifact(node, aliases)
+        for node in ast.walk(tree)
     )
+
+
+def _dry_run_writes_artifacts(tree: ast.AST, aliases: Mapping[str, str]) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and re.search(
+            r"dry_?run", node.name, re.IGNORECASE
+        ):
+            if _tree_writes_artifacts(node, aliases):
+                return True
+        if isinstance(node, ast.If):
+            names = {
+                value
+                for child in ast.walk(node.test)
+                if (value := _dotted_name(child)) is not None
+            }
+            if any(re.search(r"dry_?run", name, re.IGNORECASE) for name in names) and any(
+                _tree_writes_artifacts(statement, aliases) for statement in node.body
+            ):
+                return True
+    return False
+
+
+def _call_uses_absolute_path(node: ast.Call, aliases: Mapping[str, str]) -> bool:
+    name = _resolved_call_name(node.func, aliases)
+    if name not in _FILESYSTEM_CALLS:
+        return False
+    return any(_constant_absolute_path(argument) for argument in node.args) or any(
+        keyword.arg in {"path", "file", "filename", "src", "dst"}
+        and _constant_absolute_path(keyword.value)
+        for keyword in node.keywords
+    )
+
+
+def _assignment_uses_absolute_path(node: ast.AST) -> bool:
+    if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+        return False
+    targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+    value = node.value
+    return _constant_absolute_path(value) and any(
+        _PATH_ASSIGNMENT.search(name) is not None
+        for target in targets
+        for name in _assignment_names(target)
+    )
+
+
+def _add_callable_aliases(tree: ast.AST, aliases: dict[str, str]) -> None:
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+        resolved = _resolved_call_name(node.value, aliases)
+        if not _forbidden_call(resolved):
+            continue
+        for target in targets:
+            for name in _assignment_names(target):
+                aliases[name] = resolved or name
 
 
 def _validate_python_capabilities(
@@ -383,6 +602,7 @@ def _validate_python_capabilities(
             continue
 
         aliases = _import_aliases(tree)
+        _add_callable_aliases(tree, aliases)
         forbidden = False
         unsafe_path = False
         fake_result_assignment = False
@@ -401,7 +621,10 @@ def _validate_python_capabilities(
                     )
                 )
             elif isinstance(node, ast.Call):
-                forbidden = forbidden or _forbidden_call(_resolved_call_name(node.func, aliases))
+                forbidden = forbidden or _forbidden_call(
+                    _resolved_call_name(node.func, aliases)
+                ) or _call_is_dynamic_dispatch(node)
+                unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
                 fake_result_assignment = fake_result_assignment or any(
@@ -409,12 +632,19 @@ def _validate_python_capabilities(
                     for target in targets
                     for name in _assignment_names(target)
                 )
-            if isinstance(node, ast.Constant) and _absolute_literal(node.value):
-                unsafe_path = True
+                unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
 
         if fake_result_assignment and not (
             path == "experiment/code/tests/test_smoke.py"
-            and not _smoke_test_writes_artifacts(tree)
+            and not _tree_writes_artifacts(tree, aliases)
+        ):
+            forbidden = True
+        if path == "experiment/code/tests/test_smoke.py" and _tree_writes_artifacts(
+            tree, aliases
+        ):
+            forbidden = True
+        if path == "experiment/code/main.py" and _dry_run_writes_artifacts(
+            tree, aliases
         ):
             forbidden = True
         if forbidden:
@@ -434,22 +664,66 @@ def _validate_requirements(
     if not isinstance(requirements, str):
         return
     for line_number, raw_line in enumerate(requirements.splitlines(), start=1):
-        line = raw_line.split("#", maxsplit=1)[0].strip()
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        lowered = stripped.lower()
+        if (
+            stripped.startswith("-")
+            or " @ " in stripped
+            or "://" in stripped
+            or lowered.startswith(("git+", "hg+", "svn+", "bzr+"))
+        ):
+            _issue(
+                issues,
+                "forbidden_dependency_source",
+                _REQUIREMENTS_PATH,
+                f"requirements line {line_number} must not use an option, URL, VCS source, or direct reference",
+            )
+            continue
+        line = raw_line.split(" #", maxsplit=1)[0].strip()
         if not line:
             continue
-        match = _REQUIREMENT_NAME.match(line)
-        requirement_name = match.group(1).lower() if match else ""
-        if requirement_name and _forbidden_distribution(requirement_name):
+        try:
+            requirement = Requirement(line)
+        except InvalidRequirement:
+            _issue(
+                issues,
+                "invalid_dependency",
+                _REQUIREMENTS_PATH,
+                f"requirements line {line_number} must be a valid PEP 508 requirement",
+            )
+            continue
+        if requirement.url is not None:
+            _issue(
+                issues,
+                "forbidden_dependency_source",
+                _REQUIREMENTS_PATH,
+                f"requirements line {line_number} must not use a direct reference",
+            )
+            continue
+        if _forbidden_distribution(requirement.name):
             _issue(
                 issues,
                 "forbidden_capability",
                 _REQUIREMENTS_PATH,
                 f"requirements line {line_number} declares a prohibited dependency",
             )
-        bounded = bool(re.search(r"(?:==|~=)\s*[^\s,;]+", line)) or (
-            re.search(r">=?\s*[^\s,;]+", line) is not None
-            and re.search(r"<=?\s*[^\s,;]+", line) is not None
+        specifiers = tuple(requirement.specifier)
+        compatible = any(specifier.operator == "~=" for specifier in specifiers)
+        exact = any(
+            specifier.operator == "==" and "*" not in specifier.version
+            for specifier in specifiers
+        ) and all(specifier.operator in {"==", "!="} for specifier in specifiers)
+        bounded_range = (
+            any(specifier.operator in {">", ">="} for specifier in specifiers)
+            and any(specifier.operator in {"<", "<="} for specifier in specifiers)
+            and all(
+                specifier.operator in {">", ">=", "<", "<=", "!="}
+                for specifier in specifiers
+            )
         )
+        bounded = compatible or exact or bounded_range
         if not bounded:
             _issue(
                 issues,
@@ -478,6 +752,202 @@ def _config_section_is_nonempty(value: object) -> bool:
     return value is not None and not isinstance(value, bool)
 
 
+def _design_path_value(design: object, path: object) -> object:
+    if not isinstance(path, str) or _TRACEABILITY_PATH.fullmatch(path) is None:
+        return None
+    value = design
+    for segment in path.split("."):
+        if not isinstance(value, dict) or segment not in value:
+            return None
+        value = value[segment]
+    return value
+
+
+def _nonempty_text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _nonempty_text_list(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        _nonempty_text(item) for item in value
+    )
+
+
+def _integer_seed_list(value: object) -> bool:
+    return isinstance(value, list) and bool(value) and all(
+        isinstance(seed, int) and not isinstance(seed, bool) for seed in value
+    )
+
+
+def _project_relative_path(value: object) -> bool:
+    if not _nonempty_text(value):
+        return False
+    path = Path(value)
+    windows_path = PureWindowsPath(value)
+    return (
+        not path.is_absolute()
+        and not windows_path.is_absolute()
+        and ".." not in path.parts
+        and ".." not in windows_path.parts
+    )
+
+
+def _closed_contract(value: object, fields: set[str]) -> dict[str, Any] | None:
+    return value if isinstance(value, dict) and set(value) == fields else None
+
+
+def _validate_config_contract(
+    design: object,
+    config: dict[str, Any],
+    issues: list[ComputationalPackageIssue],
+) -> None:
+    path = "experiment/code/config.json"
+    traceability = config.get("traceability")
+    if not isinstance(design, dict) or not isinstance(traceability, dict):
+        return
+
+    mismatch = False
+    for field in ("datasets", "baselines", "metrics"):
+        source = _design_path_value(design, traceability.get(field))
+        mismatch = mismatch or config.get(field) != source
+    if mismatch:
+        _issue(
+            issues,
+            "config_design_mismatch",
+            path,
+            "datasets, baselines, and metrics must exactly preserve their approved design values",
+        )
+
+    invalid = False
+    split = _closed_contract(config.get("split_strategy"), _SPLIT_STRATEGY_FIELDS)
+    split_source = _design_path_value(design, traceability.get("split_strategy"))
+    invalid = invalid or split is None
+    if split is not None:
+        groups = split.get("groups")
+        invalid = invalid or (
+            split.get("design_binding") != split_source
+            or not isinstance(groups, list)
+            or len(groups) != len(_SPLIT_GROUPS)
+            or set(groups) != _SPLIT_GROUPS
+            or not _nonempty_text(split.get("isolation_key"))
+            or split.get("overlap_policy") != "disjoint"
+        )
+
+    seeds = _closed_contract(config.get("seeds"), _SEEDS_FIELDS)
+    seed_source = _design_path_value(design, traceability.get("seeds"))
+    invalid = invalid or seeds is None
+    if seeds is not None:
+        invalid = invalid or (
+            seeds.get("design_binding") != seed_source
+            or not _integer_seed_list(seeds.get("values"))
+        )
+
+    input_contract = _closed_contract(
+        config.get("input_contract"), _INPUT_CONTRACT_FIELDS
+    )
+    input_source = _design_path_value(design, traceability.get("input_contract"))
+    invalid = invalid or input_contract is None
+    if input_contract is not None:
+        required_paths = input_contract.get("required_paths")
+        invalid = invalid or (
+            input_contract.get("design_binding") != input_source
+            or not isinstance(required_paths, list)
+            or not required_paths
+            or not all(_project_relative_path(item) for item in required_paths)
+            or not _nonempty_text_list(input_contract.get("required_fields"))
+        )
+
+    output_contract = _closed_contract(
+        config.get("output_contract"), _OUTPUT_CONTRACT_FIELDS
+    )
+    output_source = _design_path_value(design, traceability.get("output_contract"))
+    invalid = invalid or output_contract is None
+    if output_contract is not None:
+        invalid = invalid or (
+            output_contract.get("design_binding") != output_source
+            or not _project_relative_path(output_contract.get("result_path"))
+            or not _nonempty_text_list(output_contract.get("required_fields"))
+        )
+
+    if invalid:
+        _issue(
+            issues,
+            "invalid_config_contract",
+            path,
+            "split, seed, input, and output contracts must be typed, design-bound, non-empty, and use isolated groups",
+        )
+
+
+def _validate_manifest_contracts(
+    manifest: dict[str, Any],
+    config: dict[str, Any] | None,
+    design_sha256: str,
+    issues: list[ComputationalPackageIssue],
+) -> None:
+    runtime = _closed_contract(manifest.get("runtime"), _RUNTIME_FIELDS)
+    input_contract = _closed_contract(
+        manifest.get("input_contract"), _INPUT_CONTRACT_FIELDS
+    )
+    output_contract = _closed_contract(
+        manifest.get("output_contract"), _OUTPUT_CONTRACT_FIELDS
+    )
+    prohibitions = _closed_contract(
+        manifest.get("prohibitions"), _PROHIBITION_FIELDS
+    )
+    reproducibility = _closed_contract(
+        manifest.get("reproducibility"), _REPRODUCIBILITY_FIELDS
+    )
+    valid = runtime is not None and _nonempty_text(runtime.get("python"))
+    valid = valid and input_contract is not None and output_contract is not None
+    if input_contract is not None:
+        required_paths = input_contract.get("required_paths")
+        valid = valid and (
+            _config_section_is_nonempty(input_contract.get("design_binding"))
+            and isinstance(required_paths, list)
+            and bool(required_paths)
+            and all(_project_relative_path(item) for item in required_paths)
+            and _nonempty_text_list(input_contract.get("required_fields"))
+        )
+    if output_contract is not None:
+        valid = valid and (
+            _config_section_is_nonempty(output_contract.get("design_binding"))
+            and _project_relative_path(output_contract.get("result_path"))
+            and _nonempty_text_list(output_contract.get("required_fields"))
+        )
+    valid = valid and prohibitions is not None
+    if prohibitions is not None:
+        valid = valid and (
+            prohibitions.get("stage_10_execution") is False
+            and prohibitions.get("network_access") is False
+            and type(prohibitions.get("external_llm_calls")) is int
+            and prohibitions.get("external_llm_calls") == 0
+            and type(prohibitions.get("nested_agent_processes")) is int
+            and prohibitions.get("nested_agent_processes") == 0
+        )
+    valid = valid and reproducibility is not None
+    if reproducibility is not None:
+        valid = valid and (
+            reproducibility.get("design_sha256") == design_sha256
+            and _integer_seed_list(reproducibility.get("seeds"))
+            and reproducibility.get("dependencies") == "bounded"
+        )
+    if config is not None:
+        valid = valid and (
+            manifest.get("input_contract") == config.get("input_contract")
+            and manifest.get("output_contract") == config.get("output_contract")
+            and isinstance(reproducibility, dict)
+            and isinstance(config.get("seeds"), dict)
+            and reproducibility.get("seeds") == config["seeds"].get("values")
+        )
+    if not valid:
+        _issue(
+            issues,
+            "invalid_manifest_contract",
+            MANIFEST_PATH,
+            "runtime, input/output contracts, prohibitions, and reproducibility must match their closed non-empty schemas",
+        )
+
+
 def _validate_traceability(
     design_json: str, config: dict[str, Any], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -486,7 +956,9 @@ def _validate_traceability(
     except json.JSONDecodeError:
         design = None
     traceability = config.get("traceability")
-    if not isinstance(traceability, dict) or any(
+    if not isinstance(traceability, dict) or set(traceability) != set(
+        _TRACEABILITY_FIELDS
+    ) or any(
         traceability.get(field) not in _TRACEABILITY_SOURCES[field]
         or not _design_path_is_nonempty(design, traceability.get(field))
         or not _config_section_is_nonempty(config.get(field))
@@ -498,6 +970,139 @@ def _validate_traceability(
             "experiment/code/config.json",
             "traceability must map every required config section to a non-empty stage-9 field path",
         )
+
+
+def _function_calls(
+    function: ast.FunctionDef | ast.AsyncFunctionDef,
+    aliases: Mapping[str, str],
+) -> set[str]:
+    return {
+        name
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and (name := _resolved_call_name(node.func, aliases)) is not None
+    }
+
+
+def _string_literals(tree: ast.AST) -> set[str]:
+    return {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+
+def _validate_python_contracts(
+    outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
+) -> None:
+    main_path = "experiment/code/main.py"
+    main_source = outputs.get(main_path)
+    if isinstance(main_source, str):
+        try:
+            tree = ast.parse(main_source, filename=main_path)
+        except SyntaxError:
+            tree = None
+        if tree is not None:
+            aliases = _import_aliases(tree)
+            functions = {
+                node.name: node
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            required = {"load_config", "validate_inputs", "build_plan", "main"}
+            valid = required <= set(functions)
+            if valid:
+                load_calls = _function_calls(functions["load_config"], aliases)
+                validate_calls = _function_calls(functions["validate_inputs"], aliases)
+                validate_literals = _string_literals(functions["validate_inputs"])
+                plan_literals = _string_literals(functions["build_plan"])
+                main_calls = _function_calls(functions["main"], aliases)
+                main_literals = _string_literals(functions["main"])
+                valid = (
+                    any(name in {"json.load", "json.loads"} for name in load_calls)
+                    and any(name.split(".")[-1] in {"open", "read_text"} for name in load_calls)
+                    and {"input_contract", "required_paths", "required_fields"}
+                    <= validate_literals
+                    and any(
+                        name in {"json.load", "json.loads"}
+                        for name in validate_calls
+                    )
+                    and any(
+                        name.split(".")[-1] in {"open", "read_text"}
+                        for name in validate_calls
+                    )
+                    and any(
+                        isinstance(node, ast.Raise)
+                        for node in ast.walk(functions["validate_inputs"])
+                    )
+                    and {"split_strategy", "metrics", "baselines", "seeds"}
+                    <= plan_literals
+                    and any(
+                        isinstance(node, ast.Return) and node.value is not None
+                        for node in ast.walk(functions["build_plan"])
+                    )
+                    and {"load_config", "validate_inputs", "build_plan"}
+                    <= {name.split(".")[-1] for name in main_calls}
+                    and {"--config", "--dry-run"} <= main_literals
+                    and any(
+                        isinstance(node, ast.If)
+                        and any(
+                            (name := _dotted_name(child)) is not None
+                            and re.search(r"dry_?run", name, re.IGNORECASE)
+                            for child in ast.walk(node.test)
+                        )
+                        for node in ast.walk(functions["main"])
+                    )
+                    and any(
+                        isinstance(node, ast.Call)
+                        and _resolved_call_name(node.func, aliases) == "main"
+                        for node in ast.walk(tree)
+                    )
+                )
+            if not valid:
+                _issue(
+                    issues,
+                    "missing_entrypoint_contract",
+                    main_path,
+                    "main.py must load config, validate input contracts, build the plan, expose --dry-run, and invoke main",
+                )
+
+    smoke_path = "experiment/code/tests/test_smoke.py"
+    smoke_source = outputs.get(smoke_path)
+    if isinstance(smoke_source, str):
+        try:
+            smoke_tree = ast.parse(smoke_source, filename=smoke_path)
+        except SyntaxError:
+            smoke_tree = None
+        if smoke_tree is not None:
+            aliases = _import_aliases(smoke_tree)
+            imported = {
+                alias.name
+                for node in ast.walk(smoke_tree)
+                if isinstance(node, ast.ImportFrom)
+                and node.module is not None
+                and node.module.endswith("main")
+                for alias in node.names
+            }
+            calls = {
+                name.split(".")[-1]
+                for node in ast.walk(smoke_tree)
+                if isinstance(node, ast.Call)
+                and (name := _resolved_call_name(node.func, aliases)) is not None
+            }
+            literals = _string_literals(smoke_tree)
+            valid = (
+                {"load_config", "validate_inputs", "build_plan", "main"} <= imported
+                and {"load_config", "validate_inputs", "build_plan", "main"} <= calls
+                and "--dry-run" in literals
+            )
+            if not valid:
+                _issue(
+                    issues,
+                    "missing_smoke_contract",
+                    smoke_path,
+                    "smoke test must import and exercise config, input, plan, and dry-run readiness",
+                )
 
 
 def _validate_commands(
@@ -543,6 +1148,10 @@ def validate_computational_package(
     design_sha256 = approved_design_sha256 or hashlib.sha256(
         design_json.encode("utf-8")
     ).hexdigest()
+    try:
+        design = json.loads(design_json)
+    except json.JSONDecodeError:
+        design = None
 
     if manifest is not None:
         _validate_closed_fields(manifest, MANIFEST_FIELDS, MANIFEST_PATH, "manifest", issues)
@@ -571,6 +1180,9 @@ def validate_computational_package(
         _validate_commands(manifest, outputs.get(_README_PATH), issues)
         declared_hashes = _validate_manifest_files(manifest, issues)
         _validate_hashes(root, declared_hashes, issues)
+        _validate_manifest_contracts(
+            manifest, config, design_sha256, issues
+        )
 
     if config is not None:
         _validate_closed_fields(config, CONFIG_FIELDS, config_path, "config", issues)
@@ -586,8 +1198,11 @@ def validate_computational_package(
                 "design_sha256 must match the approved design",
             )
         _validate_traceability(design_json, config, issues)
+        _validate_config_contract(design, config, issues)
 
+    _validate_on_disk_tree(root, issues)
     _validate_python_syntax(outputs, issues)
     _validate_python_capabilities(outputs, issues)
+    _validate_python_contracts(outputs, issues)
     _validate_requirements(outputs.get(_REQUIREMENTS_PATH), issues)
     return tuple(issues)

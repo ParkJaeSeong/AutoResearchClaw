@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "AutoResearchClaw Codex — a durable, explicitly invoked Codex-native research workflow."
 requires-python = ">=3.11"
 dependencies = [
+    "packaging>=24.0",
     "pyyaml>=6.0",
     "rich>=13.0",
     "arxiv>=2.1",

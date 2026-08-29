@@ -27,6 +27,20 @@ def _replace_package_file(project, relative_path, content):
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
+def _replace_config(project, mutate):
+    config_path = "experiment/code/config.json"
+    config = json.loads((project.root / config_path).read_text(encoding="utf-8"))
+    mutate(config)
+    _replace_package_file(project, config_path, json.dumps(config) + "\n")
+
+
+def _replace_manifest(project, mutate):
+    manifest_path = project.root / "experiment" / "package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutate(manifest)
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+
+
 def test_stage_ten_packet_declares_fixed_computational_package(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
 
@@ -319,6 +333,8 @@ def test_package_rejects_nonclosed_or_self_listed_manifest_file_entries(
         ("from builtins import exec as execute\nexecute('x = 1')", "forbidden_capability"),
         ("__import__('openai')", "forbidden_capability"),
         ("Path('/tmp/result.json')", "unsafe_path"),
+        ("import os\nos.path.join('/tmp', 'result.json')", "unsafe_path"),
+        ("result_path = '/tmp/result.json'", "unsafe_path"),
         ("synthetic_results = {'rmse': 0.1}", "forbidden_capability"),
     ],
 )
@@ -470,3 +486,335 @@ def test_package_rejects_readme_manifest_command_disagreement(tmp_path):
         issue.code == "command_mismatch" and issue.path == "experiment/package_manifest.json"
         for issue in report.issues
     )
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "import os\nos.spawnvp(os.P_NOWAIT, 'sh', ['sh', '-c', 'true'])",
+        "import os\nos.posix_spawn('/bin/sh', ['sh'], {})",
+        "import os\nos.execvp('sh', ['sh'])",
+        "import asyncio\nasyncio.create_subprocess_shell('true')",
+        "from asyncio import create_subprocess_exec\ncreate_subprocess_exec('true')",
+        "import os\ngetattr(os, 'spawnvp')(os.P_NOWAIT, 'sh', ['sh'])",
+        "import os\nos.__dict__['system']('true')",
+        "import importlib\nimportlib.import_module('litellm')",
+    ],
+    ids=(
+        "os-spawn",
+        "os-posix-spawn",
+        "os-exec",
+        "asyncio-shell",
+        "asyncio-exec-alias",
+        "getattr-dispatch",
+        "mapping-dispatch",
+        "dynamic-import",
+    ),
+)
+def test_package_rejects_process_shell_and_dynamic_dispatch_families(tmp_path, snippet):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/main.py",
+        f"{snippet}\n\ndef main() -> None:\n    return None\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_capability" and issue.path == "experiment/code/main.py"
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "litellm",
+        "ftplib",
+        "http.client",
+        "aiohttp",
+        "multiprocessing",
+        "llama_index",
+    ],
+)
+def test_package_rejects_network_llm_and_agent_import_families(tmp_path, module):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/main.py",
+        f"import {module}\n\ndef main() -> None:\n    return None\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_capability" and issue.path == "experiment/code/main.py"
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "source"),
+    [
+        (
+            "experiment/code/tests/test_smoke.py",
+            "from pathlib import Path\n\ndef test_smoke():\n"
+            "    Path('experiment/results.json').write_text('{}')\n",
+        ),
+        (
+            "experiment/code/tests/test_smoke.py",
+            "def test_smoke():\n"
+            "    with open('experiment/results.json', 'w') as handle:\n"
+            "        handle.write('{}')\n",
+        ),
+        (
+            "experiment/code/main.py",
+            "from pathlib import Path\n\ndef dry_run():\n"
+            "    Path('experiment/results.json').write_text('{}')\n\n"
+            "def main() -> None:\n    dry_run()\n",
+        ),
+    ],
+    ids=("smoke-path-write", "smoke-open-write", "dry-run-result-write"),
+)
+def test_package_rejects_smoke_or_dry_run_artifact_writes(
+    tmp_path, relative_path, source
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(project, relative_path, source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_capability" and issue.path == relative_path
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        "evil @ https://example.invalid/pkg.whl?release==1.0",
+        "evil @ git+https://example.invalid/repo.git@v1.0.0",
+        "https://example.invalid/pkg.whl",
+        "git+ssh://git@example.invalid/repo.git@v1.0.0",
+        "-r other-requirements.txt",
+        "--index-url https://example.invalid/simple",
+        "-e git+https://example.invalid/repo.git#egg=evil",
+    ],
+)
+def test_package_rejects_direct_url_vcs_and_option_requirements(tmp_path, requirement):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project, "experiment/code/requirements.txt", f"{requirement}\n"
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "forbidden_dependency_source"
+        and issue.path == "experiment/code/requirements.txt"
+        for issue in report.issues
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("datasets", ["unapproved private dataset"]),
+        ("baselines", ["unapproved oracle"]),
+        ("metrics", [{"name": "accuracy", "target": "at least 99%"}]),
+    ],
+)
+def test_package_rejects_config_values_not_bound_to_approved_design(
+    tmp_path, field, replacement
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(project, lambda config: config.update({field: replacement}))
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "config_design_mismatch" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("split_strategy", "train and test may share rows"),
+        ("seeds", ["17"]),
+        ("input_contract", {"required_paths": []}),
+        ("output_contract", {"result_path": "experiment/results.json"}),
+    ],
+)
+def test_package_rejects_untyped_or_nonisolated_config_contracts(
+    tmp_path, field, replacement
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(project, lambda config: config.update({field: replacement}))
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_config_contract" for issue in report.issues)
+
+
+def test_package_requires_exact_traceability_keys(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["traceability"].update({"undeclared": "title"}),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_traceability" for issue in report.issues)
+
+
+def test_package_rejects_noop_main_entry_point(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/main.py",
+        "def main() -> None:\n    return None\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_requires_input_schema_validation_in_entry_point(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    main_path = project.root / "experiment" / "code" / "main.py"
+    source = main_path.read_text(encoding="utf-8")
+    source = source.replace(
+        "        with candidate.open(encoding='utf-8') as handle:\n"
+        "            record = json.load(handle)\n"
+        "        if not isinstance(record, dict) or any(\n"
+        "            field not in record for field in required_fields\n"
+        "        ):\n"
+        "            raise ValueError('input schema does not match contract')\n",
+        "",
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_entrypoint_contract" for issue in report.issues)
+
+
+def test_package_rejects_smoke_test_that_does_not_exercise_readiness(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_package_file(
+        project,
+        "experiment/code/tests/test_smoke.py",
+        "def test_smoke_contract():\n    assert True\n",
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "missing_smoke_contract" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("runtime", {}),
+        ("input_contract", {}),
+        ("output_contract", {}),
+        ("prohibitions", []),
+        ("reproducibility", {}),
+    ],
+)
+def test_package_rejects_empty_manifest_contracts(tmp_path, field, replacement):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_manifest(project, lambda manifest: manifest.update({field: replacement}))
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_manifest_contract" for issue in report.issues)
+
+
+def test_package_rejects_undeclared_nested_manifest_contract_fields(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_manifest(
+        project,
+        lambda manifest: manifest["runtime"].update({"shell": "bash"}),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_manifest_contract" for issue in report.issues)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "experiment/code/undeclared.py",
+        "experiment/code/analysis.ipynb",
+        "experiment/code/downloads/data.csv",
+        "experiment/results.json",
+        "experiment/results/run.json",
+        "experiment/downloads/data.csv",
+        "results.json",
+        "results/run.json",
+        "downloads/data.csv",
+        "data/downloaded.csv",
+    ],
+)
+def test_package_rejects_undeclared_results_and_download_artifacts(
+    tmp_path, relative_path
+):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    artifact = project.root / relative_path
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("untrusted", encoding="utf-8")
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(
+        issue.code == "undeclared_artifact" and issue.path == relative_path
+        for issue in report.issues
+    )
+
+
+def test_package_allows_absolute_prefix_guard_outside_filesystem_sink(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    main_path = project.root / "experiment" / "code" / "main.py"
+    source = main_path.read_text(encoding="utf-8")
+    source += (
+        "\ndef reject_absolute(value: str) -> None:\n"
+        "    if value.startswith('/'):\n"
+        "        raise ValueError('absolute paths are forbidden')\n"
+    )
+    _replace_package_file(project, "experiment/code/main.py", source)
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True

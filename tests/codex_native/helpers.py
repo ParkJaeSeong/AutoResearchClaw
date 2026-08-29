@@ -208,46 +208,129 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
     project_id = ResearchProject.open(root).state.project_id
     design = (root / "experiment" / "design.json").read_bytes()
     design_sha256 = hashlib.sha256(design).hexdigest()
+    approved_design = json.loads(design)
+    input_contract = {
+        "design_binding": approved_design["evidence_sources"],
+        "required_paths": ["experiment/design.json"],
+        "required_fields": ["schema_version", "project_id", "method"],
+    }
+    output_contract = {
+        "design_binding": approved_design["success_criteria"],
+        "result_path": "experiment/results.json",
+        "required_fields": ["metrics", "split_summary", "provenance"],
+    }
+    seeds = {
+        "design_binding": approved_design["reproducibility"],
+        "values": [17],
+    }
+    config = {
+        "schema_version": 1,
+        "project_id": project_id,
+        "design_sha256": design_sha256,
+        "datasets": approved_design["method"]["datasets"],
+        "baselines": approved_design["method"]["baselines"],
+        "split_strategy": {
+            "design_binding": approved_design["method"]["split_strategy"],
+            "groups": ["train", "validation", "calibration", "test"],
+            "isolation_key": "cell_id",
+            "overlap_policy": "disjoint",
+        },
+        "metrics": approved_design["metrics"],
+        "seeds": seeds,
+        "input_contract": input_contract,
+        "output_contract": output_contract,
+        "traceability": {
+            "datasets": "method.datasets",
+            "baselines": "method.baselines",
+            "split_strategy": "method.split_strategy",
+            "metrics": "metrics",
+            "seeds": "reproducibility",
+            "input_contract": "evidence_sources",
+            "output_contract": "success_criteria",
+        },
+    }
     code_files = {
         "experiment/code/README.md": (
             "# Computational validation package\n\n"
-            "This package is bound to the approved validation design.\n\n"
-            "python experiment/code/main.py --config experiment/code/config.json --dry-run\n"
-            "python -m pytest experiment/code/tests/test_smoke.py -q\n"
+            "This package is hash-bound to the approved validation design. Stage 10 "
+            "authored and statically validated it but did not execute the validation.\n\n"
+            "Prepare every project-relative input declared by `input_contract`; no "
+            "download or synthetic fallback is allowed. The entry point validates "
+            "those inputs and builds the isolated split/evaluation plan.\n\n"
+            "Dry-run command: `python experiment/code/main.py --config "
+            "experiment/code/config.json --dry-run`\n\n"
+            "Smoke command: `python -m pytest experiment/code/tests/test_smoke.py -q`\n\n"
+            "Later execution must write only the declared result path with metrics, "
+            "split summary, and provenance. Network, external LLM, nested-agent, and "
+            "Stage-10 execution are prohibited.\n"
         ),
         "experiment/code/main.py": (
-            "def main() -> None:\n"
-            "    return None\n\n"
+            "import argparse\n"
+            "import json\n"
+            "from pathlib import Path\n"
+            "from typing import Any\n\n"
+            "def load_config(config_path: Path) -> dict[str, Any]:\n"
+            "    if config_path.is_absolute():\n"
+            "        raise ValueError('config path must be project-relative')\n"
+            "    with config_path.open(encoding='utf-8') as handle:\n"
+            "        config = json.load(handle)\n"
+            "    if not isinstance(config, dict):\n"
+            "        raise ValueError('config must be an object')\n"
+            "    return config\n\n"
+            "def validate_inputs(config: dict[str, Any]) -> None:\n"
+            "    contract = config['input_contract']\n"
+            "    required_paths = contract['required_paths']\n"
+            "    required_fields = contract['required_fields']\n"
+            "    if not required_paths or not required_fields:\n"
+            "        raise ValueError('input contract must be non-empty')\n"
+            "    for raw_path in required_paths:\n"
+            "        candidate = Path(raw_path)\n"
+            "        if candidate.is_absolute() or '..' in candidate.parts:\n"
+            "            raise ValueError('input path must be project-relative')\n"
+            "        if not candidate.is_file():\n"
+            "            raise FileNotFoundError(raw_path)\n\n"
+            "        with candidate.open(encoding='utf-8') as handle:\n"
+            "            record = json.load(handle)\n"
+            "        if not isinstance(record, dict) or any(\n"
+            "            field not in record for field in required_fields\n"
+            "        ):\n"
+            "            raise ValueError('input schema does not match contract')\n\n"
+            "def build_plan(config: dict[str, Any]) -> dict[str, Any]:\n"
+            "    return {\n"
+            "        'split_strategy': config['split_strategy'],\n"
+            "        'metrics': config['metrics'],\n"
+            "        'baselines': config['baselines'],\n"
+            "        'seeds': config['seeds'],\n"
+            "    }\n\n"
+            "def main(argv: list[str] | None = None) -> dict[str, Any]:\n"
+            "    parser = argparse.ArgumentParser()\n"
+            "    parser.add_argument('--config', required=True)\n"
+            "    parser.add_argument('--dry-run', action='store_true')\n"
+            "    args = parser.parse_args(argv)\n"
+            "    config = load_config(Path(args.config))\n"
+            "    validate_inputs(config)\n"
+            "    plan = build_plan(config)\n"
+            "    if args.dry_run:\n"
+            "        print(json.dumps(plan, sort_keys=True))\n"
+            "        return plan\n"
+            "    raise RuntimeError('execution is deferred to stage 12')\n\n"
             "if __name__ == '__main__':\n"
             "    main()\n"
         ),
-        "experiment/code/config.json": json.dumps(
-            {
-                "schema_version": 1,
-                "project_id": project_id,
-                "design_sha256": design_sha256,
-                "datasets": ["versioned public battery dataset"],
-                "baselines": ["random row split"],
-                "split_strategy": "cell-grouped held-out test split",
-                "metrics": ["coverage error"],
-                "seeds": [17],
-                "input_contract": {"dataset_manifest": "required"},
-                "output_contract": {"result_path": "declared for later execution"},
-                "traceability": {
-                    "datasets": "method.datasets",
-                    "baselines": "method.baselines",
-                    "split_strategy": "method.split_strategy",
-                    "metrics": "metrics",
-                    "seeds": "reproducibility.protocol_version",
-                    "input_contract": "evidence_sources",
-                    "output_contract": "success_criteria",
-                },
-            },
-            separators=(",", ":"),
-        )
+        "experiment/code/config.json": json.dumps(config, separators=(",", ":"))
         + "\n",
         "experiment/code/requirements.txt": "pytest==8.3.0\n",
-        "experiment/code/tests/test_smoke.py": "def test_smoke_contract():\n    assert True\n",
+        "experiment/code/tests/test_smoke.py": (
+            "from pathlib import Path\n\n"
+            "from experiment.code.main import build_plan, load_config, main, validate_inputs\n\n"
+            "def test_smoke_contract():\n"
+            "    config_path = Path('experiment/code/config.json')\n"
+            "    config = load_config(config_path)\n"
+            "    validate_inputs(config)\n"
+            "    plan = build_plan(config)\n"
+            "    dry_plan = main(['--config', str(config_path), '--dry-run'])\n"
+            "    assert dry_plan == plan\n"
+        ),
     }
     manifest = {
         "schema_version": 1,
@@ -264,15 +347,24 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
         ],
         "entry_point": "experiment/code/main.py",
         "config_path": "experiment/code/config.json",
-        "runtime": {"python": "3.11"},
-        "input_contract": {"dataset_manifest": "required"},
-        "output_contract": {"result_path": "declared for later execution"},
+        "runtime": {"python": ">=3.11"},
+        "input_contract": input_contract,
+        "output_contract": output_contract,
         "commands": {
             "dry_run": "python experiment/code/main.py --config experiment/code/config.json --dry-run",
             "smoke_test": "python -m pytest experiment/code/tests/test_smoke.py -q",
         },
-        "prohibitions": ["no execution during stage 10"],
-        "reproducibility": {"seed": 17},
+        "prohibitions": {
+            "stage_10_execution": False,
+            "network_access": False,
+            "external_llm_calls": 0,
+            "nested_agent_processes": 0,
+        },
+        "reproducibility": {
+            "design_sha256": design_sha256,
+            "seeds": seeds["values"],
+            "dependencies": "bounded",
+        },
     }
     return {
         "experiment/package_manifest.json": json.dumps(manifest, separators=(",", ":"))
