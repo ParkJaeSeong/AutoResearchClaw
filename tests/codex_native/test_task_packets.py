@@ -133,6 +133,15 @@ def test_prepare_can_explicitly_establish_safe_legacy_stage_ten_baseline(tmp_pat
         "data/downloaded.csv",
         "artifacts/model-results.json",
         "experiment/results.json",
+        "experiment/results2.json",
+        "experiment/modelresults.json",
+        "downloadCache/payload.bin",
+        "analysisOutput/table.csv",
+        "notebook.ipynb.bak",
+        "experiment/Code",
+        "Package_Manifest",
+        "EXPERIMENT/PACKAGE_MANIFEST.JSON",
+        "artifacts/ｍｏｄｅｌｒｅｓｕｌｔｓ.json",
     ],
 )
 def test_prepare_refuses_legacy_baseline_when_stage_ten_artifacts_exist(

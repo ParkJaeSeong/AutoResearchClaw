@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
+import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -17,9 +17,15 @@ from .profiles import load_profile
 from .project import ResearchProject
 
 _HASH_CHUNK_SIZE = 1024 * 1024
-_SUSPICIOUS_LEGACY_STAGE_TEN_NAME = re.compile(
-    r"(?:^|[._-])(?:analysis|results?|downloads?|downloaded)(?:[._-]|$)",
-    re.IGNORECASE,
+_SUSPICIOUS_LEGACY_STAGE_TEN_PATH_FAMILIES = (
+    "analysis",
+    "result",
+    "output",
+    "download",
+    "notebook",
+    "ipynb",
+    "package_manifest",
+    "package-manifest",
 )
 
 
@@ -142,19 +148,20 @@ def _legacy_stage_ten_baseline_blockers(
     root: Path, required_outputs: tuple[str, ...]
 ) -> tuple[str, ...]:
     blockers: set[str] = set()
-    outputs = set(required_outputs)
+    outputs = {
+        unicodedata.normalize("NFKC", output).casefold() for output in required_outputs
+    }
     for entry in snapshot_project(root):
         relative = entry.path
-        parts = Path(relative).parts
-        if relative in outputs or relative == "experiment/code" or relative.startswith(
+        normalized = unicodedata.normalize("NFKC", relative).casefold()
+        if normalized in outputs or normalized == "experiment/code" or normalized.startswith(
             "experiment/code/"
         ):
             blockers.add(relative)
             continue
         if any(
-            _SUSPICIOUS_LEGACY_STAGE_TEN_NAME.search(part) is not None
-            or part.lower().endswith(".ipynb")
-            for part in parts
+            family in normalized
+            for family in _SUSPICIOUS_LEGACY_STAGE_TEN_PATH_FAMILIES
         ):
             blockers.add(relative)
     return tuple(sorted(blockers))
