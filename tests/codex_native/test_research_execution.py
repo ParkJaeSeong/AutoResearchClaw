@@ -508,6 +508,99 @@ def test_aborting_registration_never_resurrects_after_compensation_interruption(
     assert not pending_path.exists()
 
 
+@pytest.mark.parametrize("recovery", ("register", "handoff"))
+def test_abort_intent_is_durable_before_partial_success_tail_mutation(
+    tmp_path, monkeypatch, recovery
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    valid_result = result_path.read_bytes()
+    event_path = project.root / "evaluation/events.jsonl"
+    event_prefix = event_path.read_bytes()
+    original_append = EventLog.append_locked
+    partial_written = False
+
+    def append_partial_success(self, event, *, expected_offset):
+        nonlocal partial_written
+        if event.type == "research_result_registered" and not partial_written:
+            partial_written = True
+            record = json.dumps(
+                event.to_dict(),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+            with self.path.open("ab") as handle:
+                handle.write(record[: len(record) // 2])
+                handle.flush()
+                os.fsync(handle.fileno())
+            raise OSError("injected partial success-event write")
+        return original_append(self, event, expected_offset=expected_offset)
+
+    monkeypatch.setattr(EventLog, "append_locked", append_partial_success)
+    with pytest.raises(OSError, match="injected partial success-event write"):
+        register_research_result(project, "experiment/results.json")
+
+    partial_event_log = event_path.read_bytes()
+    assert partial_event_log.startswith(event_prefix)
+    assert len(partial_event_log) > len(event_prefix)
+    result_path.write_bytes(b'{"invalid-after-partial-success":true}\n')
+    original_persist_pending = research_execution._persist_pending_registration
+    event_logs_seen_at_abort_persist = []
+
+    def persist_abort_then_interrupt(persist_project, pending):
+        if pending.phase == "aborting":
+            event_logs_seen_at_abort_persist.append(event_path.read_bytes())
+            original_persist_pending(persist_project, pending)
+            raise OSError("injected abort-phase persistence failure")
+        return original_persist_pending(persist_project, pending)
+
+    monkeypatch.setattr(EventLog, "append_locked", original_append)
+    monkeypatch.setattr(
+        research_execution,
+        "_persist_pending_registration",
+        persist_abort_then_interrupt,
+    )
+    with pytest.raises(OSError, match="injected abort-phase persistence failure"):
+        register_research_result(project, "experiment/results.json")
+
+    assert event_logs_seen_at_abort_persist == [partial_event_log]
+    assert event_path.read_bytes() == partial_event_log
+    pending_path = (
+        project.root
+        / ".researchclaw/research-result-registration.pending.json"
+    )
+    assert json.loads(pending_path.read_text(encoding="utf-8"))["phase"] == "aborting"
+    result_path.write_bytes(valid_result)
+    monkeypatch.setattr(
+        research_execution,
+        "_persist_pending_registration",
+        original_persist_pending,
+    )
+
+    if recovery == "register":
+        with pytest.raises(ValueError, match="^research_result_file_invalid$"):
+            register_research_result(project, "experiment/results.json")
+        recovered_stage = ResearchProject.open(project.root).state.current_stage
+    else:
+        recovered_stage = build_handoff(project).current_stage
+
+    reopened = ResearchProject.open(project.root)
+    assert recovered_stage == 12
+    assert reopened.state.current_stage == 12
+    assert 12 not in reopened.state.completed_stages
+    assert "experiment/results.json" not in reopened.state.artifacts
+    assert research_execution.effective_research_result_registration_events(
+        project
+    ) == ()
+    assert event_log_for(project.root).read_all()[-1].type == (
+        "research_result_registration_failed"
+    )
+    assert not pending_path.exists()
+
+
 def test_pending_recovery_recomputes_jointly_tampered_counts_and_event_digest(
     tmp_path, monkeypatch
 ):

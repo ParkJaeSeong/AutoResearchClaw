@@ -1339,11 +1339,9 @@ def _pending_event_bytes(
     return payload
 
 
-def _repair_owned_event_fragment(
-    project: ResearchProject,
+def _require_owned_event_fragment(
     pending: _PendingResearchResultRegistration,
     *,
-    offset: int,
     fragment: bytes,
     event: EvaluationEvent,
 ) -> None:
@@ -1358,6 +1356,21 @@ def _repair_owned_event_fragment(
         or not any(marker in fragment for marker in identity_markers)
     ):
         raise ValueError("research_result_registration_recovery_invalid")
+
+
+def _repair_owned_event_fragment(
+    project: ResearchProject,
+    pending: _PendingResearchResultRegistration,
+    *,
+    offset: int,
+    fragment: bytes,
+    event: EvaluationEvent,
+) -> None:
+    _require_owned_event_fragment(
+        pending,
+        fragment=fragment,
+        event=event,
+    )
     _truncate_registration_event_log(project, offset)
 
 
@@ -1378,15 +1391,13 @@ def _committing_success_written(
         return True
     if not tail:
         return False
-    if not repair_partial:
-        raise ValueError("research_result_registration_recovery_invalid")
-    _repair_owned_event_fragment(
-        project,
+    _require_owned_event_fragment(
         pending,
-        offset=pending.event_start_offset,
         fragment=tail,
         event=pending.success_event,
     )
+    if repair_partial:
+        _truncate_registration_event_log(project, pending.event_start_offset)
     return False
 
 
@@ -1427,7 +1438,7 @@ def _begin_aborting_registration(
     if pending.phase == "aborting":
         return pending
     success_written = _committing_success_written(
-        project, pending, repair_partial=True
+        project, pending, repair_partial=False
     )
     failure_event = _registration_failure_event(
         project,
@@ -1466,6 +1477,22 @@ def _ensure_aborting_events(
         expected_prefix += len(success_record)
     if expected_prefix != pending.event_start_offset:
         raise ValueError("research_result_registration_recovery_invalid")
+
+    if not pending.success_written:
+        tail = payload[pending.event_start_offset :]
+        success_record = _canonical_event_record(pending.success_event)
+        if (
+            tail
+            and len(tail) < len(success_record)
+            and success_record.startswith(tail)
+        ):
+            _repair_owned_event_fragment(
+                project,
+                pending,
+                offset=pending.event_start_offset,
+                fragment=tail,
+                event=pending.success_event,
+            )
 
     events = (
         (pending.rollback_event, pending.failure_event)
