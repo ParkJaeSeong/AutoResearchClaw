@@ -122,6 +122,54 @@ def test_execution_recheck_cli_refreshes_declared_readiness(tmp_path, capsys):
     assert not (project.root / "experiment/results.json").exists()
 
 
+def test_execution_recheck_cli_accepts_explicit_development_manifest(
+    tmp_path, capsys
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project",
+        readiness="needs_input",
+    )
+    fixture = project.root / "experiment/dev_data/fixture.csv"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("cell_id\nC01\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(fixture.read_bytes()).hexdigest()
+    manifest = project.root / "experiment/input_manifest.dev.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "manifest_type": "synthetic_development_input",
+                "evidence_eligible": False,
+                "datasets": [{"dataset_id": "SYNTH_A"}],
+                "cell_records": {"path": "experiment/dev_data/fixture.csv", "row_count": 1, "sha256": digest},
+                "features": {"path": "experiment/dev_data/fixture.csv", "row_count": 1, "sha256": digest},
+                "labels": {"path": "experiment/dev_data/fixture.csv"},
+                "groups": {"independent_group_key": "condition_id"},
+                "provenance": {"license_status": "not_required_synthetic", "research_evidence_use": False},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert main(
+        [
+            "execution",
+            "recheck",
+            str(project.root),
+            "--input-manifest",
+            "experiment/input_manifest.dev.json",
+            "--development",
+            "--json",
+        ]
+    ) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["readiness"] == "ready_for_development"
+    assert payload["approval_eligible"] is False
+    assert payload["input_manifest_path"] == "experiment/input_manifest.dev.json"
+
+
 @pytest.mark.parametrize("command", ["approve", "recheck"])
 @pytest.mark.parametrize(
     ("lineage_damage", "expected_stage"),

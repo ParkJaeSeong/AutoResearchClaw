@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -61,6 +62,24 @@ class ExecutionGateStatus:
             "approval_eligible": self.approval_eligible,
             "unmet_prerequisites": list(self.unmet_prerequisites),
             "resource_plan_sha256": self.resource_plan_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class DevelopmentInputStatus:
+    readiness: str
+    approval_eligible: bool
+    unmet_prerequisites: tuple[str, ...]
+    input_manifest_path: str
+    input_manifest_sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "readiness": self.readiness,
+            "approval_eligible": self.approval_eligible,
+            "unmet_prerequisites": list(self.unmet_prerequisites),
+            "input_manifest_path": self.input_manifest_path,
+            "input_manifest_sha256": self.input_manifest_sha256,
         }
 
 
@@ -313,6 +332,209 @@ def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus
         current_project,
         allow_rejected_decision=False,
     )
+
+
+def _development_artifact(
+    root: Path,
+    manifest_section: object,
+    section_name: str,
+) -> list[dict[str, str]]:
+    if not isinstance(manifest_section, dict):
+        raise ValueError(f"development manifest {section_name} must be an object")
+    relative_path = manifest_section.get("path")
+    expected_rows = manifest_section.get("row_count")
+    expected_sha256 = manifest_section.get("sha256")
+    if (
+        not isinstance(relative_path, str)
+        or not isinstance(expected_rows, int)
+        or isinstance(expected_rows, bool)
+        or expected_rows < 1
+        or not isinstance(expected_sha256, str)
+        or len(expected_sha256) != 64
+    ):
+        raise ValueError(
+            f"development manifest {section_name} must declare path, positive row_count, and sha256"
+        )
+    try:
+        path = resolve_project_artifact(root, relative_path)
+    except (OSError, TypeError, ValueError) as error:
+        raise ValueError(
+            f"development manifest {section_name} path must be project-relative"
+        ) from error
+    if not path.is_file():
+        raise ValueError(f"development input file is missing: {relative_path}")
+    if _sha256(path) != expected_sha256:
+        raise ValueError(f"development input sha256 mismatch: {relative_path}")
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except (OSError, UnicodeError, csv.Error) as error:
+        raise ValueError(
+            f"development input must be readable CSV: {relative_path}"
+        ) from error
+    if len(rows) != expected_rows:
+        raise ValueError(
+            f"development input row_count mismatch: {relative_path}"
+        )
+    return rows
+
+
+def _validate_development_structure(
+    manifest: dict[str, object],
+    cell_rows: list[dict[str, str]],
+    feature_rows: list[dict[str, str]],
+) -> None:
+    cutoff = manifest.get("feature_cutoff")
+    if cutoff is None:
+        return
+    if not isinstance(cutoff, dict):
+        raise ValueError("development feature cutoff must be an object")
+    cutoff_field = cutoff.get("cutoff_field")
+    cycle_field = cutoff.get("measurement_cycle_field")
+    if not isinstance(cutoff_field, str) or not isinstance(cycle_field, str):
+        raise ValueError("development feature cutoff fields are required")
+    required_cell_fields = {
+        "dataset_id",
+        "condition_id",
+        "cell_id",
+        "split_role",
+        cutoff_field,
+        "cycle_life_cycles",
+    }
+    required_feature_fields = {
+        "dataset_id",
+        "condition_id",
+        "cell_id",
+        cycle_field,
+    }
+    if not cell_rows or not required_cell_fields.issubset(cell_rows[0]):
+        raise ValueError("development cell records are missing structural fields")
+    if not feature_rows or not required_feature_fields.issubset(feature_rows[0]):
+        raise ValueError("development features are missing structural fields")
+    cells: dict[str, dict[str, str]] = {}
+    group_splits: dict[tuple[str, str], str] = {}
+    for row in cell_rows:
+        cell_id = row["cell_id"]
+        if cell_id in cells:
+            raise ValueError(f"development cell_id is duplicated: {cell_id}")
+        cells[cell_id] = row
+        group_key = (row["dataset_id"], row["condition_id"])
+        prior_split = group_splits.setdefault(group_key, row["split_role"])
+        if prior_split != row["split_role"]:
+            raise ValueError("development condition group crosses split roles")
+        try:
+            if int(row["cycle_life_cycles"]) <= int(row[cutoff_field]):
+                raise ValueError("development label must occur after feature cutoff")
+        except (TypeError, ValueError) as error:
+            if str(error).startswith("development label"):
+                raise
+            raise ValueError("development cell cutoff and label must be integers") from error
+    seen_cycles: set[tuple[str, str]] = set()
+    for row in feature_rows:
+        cell_id = row["cell_id"]
+        cell = cells.get(cell_id)
+        if cell is None:
+            raise ValueError(f"development feature has unknown cell_id: {cell_id}")
+        if (
+            row["dataset_id"] != cell["dataset_id"]
+            or row["condition_id"] != cell["condition_id"]
+        ):
+            raise ValueError(f"development feature keys disagree for cell: {cell_id}")
+        try:
+            cycle_index = int(row[cycle_field])
+            cutoff_cycle = int(cell[cutoff_field])
+        except (TypeError, ValueError) as error:
+            raise ValueError("development feature cycle and cutoff must be integers") from error
+        if cycle_index > cutoff_cycle:
+            raise ValueError(f"development feature cutoff violated for cell: {cell_id}")
+        cycle_key = (cell_id, row[cycle_field])
+        if cycle_key in seen_cycles:
+            raise ValueError(f"development cell-cycle is duplicated: {cell_id}")
+        seen_cycles.add(cycle_key)
+
+
+def recheck_development_input(
+    project: ResearchProject,
+    input_manifest_path: str,
+) -> DevelopmentInputStatus:
+    """Validate an explicit synthetic fixture without changing the execution gate."""
+    from .handoff import normalize_durable_project
+
+    current_project = normalize_durable_project(project)
+    state = current_project.state
+    if state.current_stage != 12 or 11 not in state.completed_stages:
+        raise ValueError("development input can only be rechecked at Stage 12")
+    if not isinstance(input_manifest_path, str) or not input_manifest_path:
+        raise ValueError("development input manifest path must be project-relative")
+    try:
+        manifest_path = resolve_project_artifact(
+            current_project.root,
+            input_manifest_path,
+        )
+    except (OSError, TypeError, ValueError) as error:
+        raise ValueError(
+            "development input manifest path must be project-relative"
+        ) from error
+    if not manifest_path.is_file():
+        raise ValueError(
+            f"development input manifest is missing: {input_manifest_path}"
+        )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("development input manifest must be valid JSON") from error
+    required = {
+        "schema_version",
+        "datasets",
+        "cell_records",
+        "features",
+        "labels",
+        "groups",
+        "provenance",
+    }
+    if not isinstance(manifest, dict) or not required.issubset(manifest):
+        raise ValueError("development input manifest is missing required fields")
+    if manifest.get("manifest_type") != "synthetic_development_input":
+        raise ValueError("development input must declare synthetic_development_input")
+    if manifest.get("evidence_eligible") is not False:
+        raise ValueError("development input must not be evidence eligible")
+    provenance = manifest.get("provenance")
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("license_status") != "not_required_synthetic"
+        or provenance.get("research_evidence_use") is not False
+    ):
+        raise ValueError("development input provenance must prohibit research evidence use")
+    datasets = manifest.get("datasets")
+    if not isinstance(datasets, list) or not datasets:
+        raise ValueError("development input must declare at least one dataset")
+    cell_rows = _development_artifact(
+        current_project.root,
+        manifest["cell_records"],
+        "cell_records",
+    )
+    feature_rows = _development_artifact(
+        current_project.root,
+        manifest["features"],
+        "features",
+    )
+    _validate_development_structure(manifest, cell_rows, feature_rows)
+    digest = _sha256(manifest_path)
+    status = DevelopmentInputStatus(
+        readiness="ready_for_development",
+        approval_eligible=False,
+        unmet_prerequisites=(),
+        input_manifest_path=input_manifest_path,
+        input_manifest_sha256=digest,
+    )
+    event_log_for(current_project.root).append(
+        EvaluationEvent.create(
+            "development_input_rechecked",
+            state.project_id,
+            status.to_dict(),
+        )
+    )
+    return status
 
 
 def _stage_twelve_artifact_hashes(

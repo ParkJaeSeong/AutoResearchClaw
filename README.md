@@ -112,6 +112,21 @@ researchclaw-codex execution recheck ./demo-research --json
 # Stop. Do not run the deferred experiment command.
 ```
 
+To validate a small synthetic fixture while developing the Stage-12 flow,
+select it explicitly without changing the approved research input or execution
+gate:
+
+```bash
+researchclaw-codex execution recheck ./demo-research \
+  --input-manifest experiment/input_manifest.dev.json \
+  --development --json
+```
+
+This development-only check verifies the manifest, referenced CSV row counts
+and hashes, group isolation, and feature cutoffs. It returns
+`ready_for_development` with `approval_eligible: false`; it never executes the
+experiment or makes synthetic data eligible as research evidence.
+
 Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to its producing stage; changing the
 approved shortlist also requires a new user decision. After an unchanged

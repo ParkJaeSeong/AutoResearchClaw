@@ -20,6 +20,44 @@ def _recheck(project):
     return module.recheck_execution_readiness(project)
 
 
+def _write_development_fixture(project):
+    data_path = project.root / "experiment/dev_data/cells.dev.csv"
+    data_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = b"dataset_id,condition_id,cell_id,cycle_index,cycle_life_cycles\nSYNTH_A,G01,C01,1,500\n"
+    data_path.write_bytes(payload)
+    manifest_path = project.root / "experiment/input_manifest.dev.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "manifest_type": "synthetic_development_input",
+                "evidence_eligible": False,
+                "datasets": [{"dataset_id": "SYNTH_A"}],
+                "cell_records": {
+                    "path": "experiment/dev_data/cells.dev.csv",
+                    "row_count": 1,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                },
+                "features": {
+                    "path": "experiment/dev_data/cells.dev.csv",
+                    "row_count": 1,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                },
+                "labels": {"path": "experiment/dev_data/cells.dev.csv"},
+                "groups": {"independent_group_key": "condition_id"},
+                "provenance": {
+                    "license_status": "not_required_synthetic",
+                    "research_evidence_use": False,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
 @pytest.fixture
 def stage_12_missing_project(tmp_path):
     return build_stage_twelve_project(
@@ -89,6 +127,87 @@ def test_stage_twelve_hashes_reopen_state_after_recheck(stage_12_missing_project
     hashes = module.stage_twelve_artifact_hashes(project)
 
     assert hashes["experiment/resources.json"] == status.resource_plan_sha256
+
+
+def test_development_recheck_validates_fixture_without_mutating_execution_gate(
+    stage_12_missing_project,
+):
+    project, _declared_input = stage_12_missing_project
+    manifest_path = _write_development_fixture(project)
+    resources = project.root / "experiment/resources.json"
+    resources_before = resources.read_bytes()
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    module = importlib.import_module("researchclaw.core.execution_gate")
+
+    status = module.recheck_development_input(
+        project,
+        "experiment/input_manifest.dev.json",
+    )
+
+    assert status.readiness == "ready_for_development"
+    assert status.approval_eligible is False
+    assert status.unmet_prerequisites == ()
+    assert status.input_manifest_path == "experiment/input_manifest.dev.json"
+    assert status.input_manifest_sha256 == hashlib.sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    assert resources.read_bytes() == resources_before
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    events = [
+        json.loads(line)
+        for line in (project.root / "evaluation/events.jsonl").read_text().splitlines()
+    ]
+    assert events[-1]["type"] == "development_input_rechecked"
+
+
+def test_development_recheck_rejects_project_escape(stage_12_missing_project):
+    project, _declared_input = stage_12_missing_project
+    module = importlib.import_module("researchclaw.core.execution_gate")
+
+    with pytest.raises(ValueError, match="project-relative"):
+        module.recheck_development_input(project, "../outside.json")
+
+
+def test_development_recheck_rejects_feature_cutoff_violation(
+    stage_12_missing_project,
+):
+    project, _declared_input = stage_12_missing_project
+    manifest_path = _write_development_fixture(project)
+    manifest = _load_json(manifest_path)
+    cells = project.root / "experiment/dev_data/cells.dev.csv"
+    cells.write_text(
+        "dataset_id,condition_id,cell_id,split_role,feature_cutoff_cycle,cycle_life_cycles\n"
+        "SYNTH_A,G01,C01,train,10,500\n",
+        encoding="utf-8",
+    )
+    features = project.root / "experiment/dev_data/features.dev.csv"
+    features.write_text(
+        "dataset_id,condition_id,cell_id,cycle_index,capacity_ah\n"
+        "SYNTH_A,G01,C01,11,2.0\n",
+        encoding="utf-8",
+    )
+    manifest["cell_records"] = {
+        "path": "experiment/dev_data/cells.dev.csv",
+        "row_count": 1,
+        "sha256": hashlib.sha256(cells.read_bytes()).hexdigest(),
+    }
+    manifest["features"] = {
+        "path": "experiment/dev_data/features.dev.csv",
+        "row_count": 1,
+        "sha256": hashlib.sha256(features.read_bytes()).hexdigest(),
+    }
+    manifest["feature_cutoff"] = {
+        "cutoff_field": "feature_cutoff_cycle",
+        "measurement_cycle_field": "cycle_index",
+    }
+    manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    module = importlib.import_module("researchclaw.core.execution_gate")
+
+    with pytest.raises(ValueError, match="feature cutoff"):
+        module.recheck_development_input(
+            project,
+            "experiment/input_manifest.dev.json",
+        )
 
 
 @pytest.mark.parametrize(

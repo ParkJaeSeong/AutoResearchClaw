@@ -10,7 +10,10 @@ from collections.abc import Sequence
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import build_foundation_report
-from researchclaw.core.execution_gate import recheck_execution_readiness
+from researchclaw.core.execution_gate import (
+    recheck_development_input,
+    recheck_execution_readiness,
+)
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -64,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     execution_commands = execution.add_subparsers(dest="execution_command", required=True)
     recheck = execution_commands.add_parser("recheck", help="refresh declared readiness facts")
     recheck.add_argument("root", metavar="ROOT")
+    recheck.add_argument("--input-manifest", metavar="PROJECT_RELATIVE_PATH")
+    recheck.add_argument(
+        "--development",
+        action="store_true",
+        help="validate an explicit synthetic development input without changing the execution gate",
+    )
     recheck.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
@@ -90,7 +99,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = build_foundation_report(project)
         elif args.command == "execution" and args.execution_command == "recheck":
             project = ResearchProject.open(args.root)
-            payload = recheck_execution_readiness(project).to_dict()
+            if args.development:
+                if args.input_manifest is None:
+                    raise ValueError("--development requires --input-manifest")
+                payload = recheck_development_input(
+                    project,
+                    args.input_manifest,
+                ).to_dict()
+            elif args.input_manifest is not None:
+                raise ValueError("--input-manifest requires --development")
+            else:
+                payload = recheck_execution_readiness(project).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(

@@ -16,6 +16,21 @@ researchclaw-codex execution recheck ROOT --json
 # Stop. Never run the deferred command in Stage 11.
 ```
 
+For a synthetic fixture used only to develop the execution flow, use an
+explicit project-relative manifest path:
+
+```text
+researchclaw-codex execution recheck ROOT \
+  --input-manifest experiment/input_manifest.dev.json \
+  --development --json
+```
+
+The development check is isolated from the approved execution gate. It does
+not edit `experiment/resources.json` or durable project state, never makes the
+fixture approval-eligible, and never executes the deferred command. A valid
+fixture returns `ready_for_development` and records its path and SHA-256 in an
+evaluation event.
+
 Before authoring, confirm the packet is Stage 11, its `project_root` is the
 intended root, and read every path in `required_inputs`. The Stage-11 packet
 declares exactly these inputs:
