@@ -87,6 +87,13 @@ fields:
   object; `groups` contains each of `train`, `validation`, `calibration`, and
   `test` exactly once; `isolation_key` exactly equals the approved
   split-strategy `isolation_key`; and `overlap_policy` is `disjoint`.
+  For an already-approved legacy design whose traced split strategy is a
+  string, preserve that string exactly as `design_binding`. Select one atomic
+  `isolation_key` from `cell_id`, `batch_id`, `condition_id`, `source_id`, or
+  `dataset_id` that appears as an identifier token in the approved string.
+  The approved string may mention multiple candidates, but the selected config
+  value must be one key, not an invented key such as `row_id` or a composite.
+  Do not rewrite the approved design to perform this legacy translation.
 - `seeds`: exactly `design_binding` and `values`; the binding equals the
   approved reproducibility source selected by traceability and `values` is a
   non-empty list of JSON integers.

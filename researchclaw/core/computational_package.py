@@ -332,6 +332,9 @@ _PROHIBITION_FIELDS = {
 }
 _REPRODUCIBILITY_FIELDS = {"design_sha256", "seeds", "dependencies"}
 _SPLIT_GROUPS = {"train", "validation", "calibration", "test"}
+_LEGACY_SPLIT_ISOLATION_KEYS = frozenset(
+    {"cell_id", "batch_id", "condition_id", "source_id", "dataset_id"}
+)
 _LATER_RESULT_PATH = "experiment/results.json"
 
 
@@ -1619,6 +1622,19 @@ def _closed_contract(value: object, fields: set[str]) -> dict[str, Any] | None:
     return value if isinstance(value, dict) and set(value) == fields else None
 
 
+def _legacy_split_allows_isolation_key(
+    split_source: str, isolation_key: object
+) -> bool:
+    return (
+        isinstance(isolation_key, str)
+        and isolation_key in _LEGACY_SPLIT_ISOLATION_KEYS
+        and re.search(
+            rf"(?<!\w){re.escape(isolation_key)}(?!\w)", split_source
+        )
+        is not None
+    )
+
+
 def _validate_config_contract(
     root: Path,
     design: object,
@@ -1648,14 +1664,26 @@ def _validate_config_contract(
     invalid = invalid or split is None
     if split is not None:
         groups = split.get("groups")
+        if isinstance(split_source, dict):
+            source_binding_valid = (
+                set(split_source) == {"description", "isolation_key"}
+                and split.get("design_binding") == split_source
+                and split.get("isolation_key") == split_source.get("isolation_key")
+            )
+        elif isinstance(split_source, str):
+            source_binding_valid = (
+                split.get("design_binding") == split_source
+                and _legacy_split_allows_isolation_key(
+                    split_source, split.get("isolation_key")
+                )
+            )
+        else:
+            source_binding_valid = False
         invalid = invalid or (
-            not isinstance(split_source, dict)
-            or set(split_source) != {"description", "isolation_key"}
-            or split.get("design_binding") != split_source
+            not source_binding_valid
             or not isinstance(groups, list)
             or len(groups) != len(_SPLIT_GROUPS)
             or set(groups) != _SPLIT_GROUPS
-            or split.get("isolation_key") != split_source.get("isolation_key")
             or split.get("overlap_policy") != "disjoint"
         )
 

@@ -42,6 +42,33 @@ def _replace_manifest(project, mutate):
     manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
 
 
+def _build_legacy_approved_split_project(root, split_source):
+    project = build_completed_validation_design_project(root)
+    design_path = project.root / "experiment" / "design.json"
+    design = json.loads(design_path.read_text(encoding="utf-8"))
+    design["method"]["split_strategy"] = split_source
+    design_bytes = (json.dumps(design, ensure_ascii=False) + "\n").encode("utf-8")
+    design_path.write_bytes(design_bytes)
+    design_sha256 = hashlib.sha256(design_bytes).hexdigest()
+
+    state_path = project.root / ".researchclaw" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["artifacts"]["experiment/design.json"].update(
+        {"sha256": design_sha256, "size": len(design_bytes)}
+    )
+    state.pop("stage_10_snapshot", None)
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    approval_path = project.root / "approvals" / "stage-09.json"
+    approval = json.loads(approval_path.read_text(encoding="utf-8"))
+    approval["artifact_hashes"]["experiment/design.json"] = design_sha256
+    approval_path.write_text(json.dumps(approval), encoding="utf-8")
+
+    legacy = ResearchProject.open(project.root)
+    prepare_task_packet(legacy, establish_legacy_baseline=True)
+    return ResearchProject.open(project.root)
+
+
 def test_stage_ten_packet_declares_fixed_computational_package(tmp_path):
     project = build_completed_validation_design_project(tmp_path / "project")
 
@@ -1204,6 +1231,86 @@ def test_package_binds_isolation_key_to_approved_split_semantics(tmp_path):
     _replace_config(
         project,
         lambda config: config["split_strategy"].update({"isolation_key": "row_id"}),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_config_contract" for issue in report.issues)
+
+
+_KOREAN_LEGACY_SPLIT = (
+    "배터리 데이터의 cell_id, batch_id, condition_id, source_id를 추적하고 "
+    "batch_id 기준으로 학습, 검증, 보정, 테스트 집합을 분리한다."
+)
+
+
+def test_package_accepts_atomic_safe_key_from_legacy_korean_split_string(tmp_path):
+    project = _build_legacy_approved_split_project(
+        tmp_path / "project", _KOREAN_LEGACY_SPLIT
+    )
+    design_path = project.root / "experiment" / "design.json"
+    approved_bytes = design_path.read_bytes()
+    approved_sha256 = hashlib.sha256(approved_bytes).hexdigest()
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["split_strategy"].update(
+            {"isolation_key": "batch_id"}
+        ),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+    assert design_path.read_bytes() == approved_bytes
+    approval = json.loads(
+        (project.root / "approvals" / "stage-09.json").read_text(encoding="utf-8")
+    )
+    assert approval["artifact_hashes"]["experiment/design.json"] == approved_sha256
+
+
+@pytest.mark.parametrize(
+    ("split_source", "isolation_key"),
+    [
+        (_KOREAN_LEGACY_SPLIT, "row_id"),
+        (_KOREAN_LEGACY_SPLIT, "batch_id|condition_id"),
+        ("배터리 데이터는 batch_id_extra 기준으로 분리한다.", "batch_id"),
+    ],
+)
+def test_package_rejects_unsafe_or_nonatomic_legacy_split_key(
+    tmp_path, split_source, isolation_key
+):
+    project = _build_legacy_approved_split_project(
+        tmp_path / "project", split_source
+    )
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["split_strategy"].update(
+            {"isolation_key": isolation_key}
+        ),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is False
+    assert any(issue.code == "invalid_config_contract" for issue in report.issues)
+
+
+def test_package_rejects_legacy_split_binding_drift(tmp_path):
+    project = _build_legacy_approved_split_project(
+        tmp_path / "project", _KOREAN_LEGACY_SPLIT
+    )
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["split_strategy"].update(
+            {
+                "design_binding": _KOREAN_LEGACY_SPLIT + " 변경됨",
+                "isolation_key": "batch_id",
+            }
+        ),
     )
 
     report = validate_current_stage(project)
