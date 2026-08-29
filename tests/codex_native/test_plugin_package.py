@@ -6,6 +6,8 @@ import tomllib
 import pytest
 import yaml
 
+from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
+
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
 SKILL_ROOT = ROOT / "skills" / "researchclaw"
@@ -64,12 +66,12 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
 
 
 @pytest.mark.parametrize("document", ("README.md", "RESEARCHCLAW_AGENTS.md"))
-def test_public_document_retains_stage_ten_boundary_until_its_owned_update(document):
+def test_public_document_matches_the_supported_stage_boundary(document):
     text = (ROOT / document).read_text(encoding="utf-8")
     match = SUPPORTED_BOUNDARY.search(text)
 
     assert match is not None, f"{document} must declare the Codex-native supported boundary"
-    assert int(match.group(1)) == 10
+    assert int(match.group(1)) == SUPPORTED_STAGE_MAX == 11
 
 
 def test_distribution_and_plugin_share_codex_native_identity_and_version():
@@ -86,9 +88,10 @@ def test_distribution_and_plugin_share_codex_native_identity_and_version():
     assert project["urls"]["Upstream"] == "https://github.com/aiming-lab/AutoResearchClaw"
 
 
-def test_skill_reference_links_resolve_including_stage_six_guidance():
-    expected_stage_six_references = (
+def test_skill_reference_links_resolve_including_stage_six_and_eleven_guidance():
+    expected_skill_references = (
         SKILL_ROOT / "references" / "knowledge-extraction.md",
+        SKILL_ROOT / "references" / "resource-planning.md",
     )
     markdown_files = tuple(SKILL_ROOT.rglob("*.md"))
     linked_files = {
@@ -97,6 +100,6 @@ def test_skill_reference_links_resolve_including_stage_six_guidance():
         for linked_file in _local_markdown_links(markdown_file)
     }
 
-    assert set(reference.resolve() for reference in expected_stage_six_references) <= linked_files
-    assert all(reference.exists() for reference in expected_stage_six_references)
+    assert set(reference.resolve() for reference in expected_skill_references) <= linked_files
+    assert all(reference.exists() for reference in expected_skill_references)
     assert all(linked_file.exists() for linked_file in linked_files)

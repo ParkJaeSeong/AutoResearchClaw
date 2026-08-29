@@ -10,17 +10,23 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-Codex-native supported execution boundary: stages 1–10. This release continues
+Codex-native supported execution boundary: stages 1–11. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
 extraction, evidence synthesis, and provenance-linked hypothesis generation
 without an external LLM API key, then creates a reproducible validation design
 for policy evidence, computational, or laboratory work. Stage 9 is an approval
 gate. After an approved computational design, Stage 10 authors and statically
 validates a fixed six-file computational package but does not execute it.
-Policy-evidence and laboratory Stage 10 packages are unsupported. The workflow
-stops before unsupported Stage 11. Stages 11–23, experiment execution, and
-full-paper production remain roadmap work; later declared contracts are not
-claims of implemented capability.
+Policy-evidence and laboratory Stage 10 packages are unsupported. Stage 11
+authors and validates only `experiment/resources.json` from declared inputs
+and passive local hardware facts. Stage 12 is an approval-only unsupported
+execution boundary: an explicit user approval records a hash-bound decision,
+but does not execute the experiment. Experiment execution and full-paper
+production remain roadmap work; later declared contracts are not claims of
+implemented capability.
+
+Stages 1–11 are implemented planning and validation work; Stage 12 remains the
+explicit approval boundary and not an execution capability.
 
 ## Install the CLI
 
@@ -98,7 +104,12 @@ researchclaw-codex resume ./demo-research --json
 researchclaw-codex stage prepare ./demo-research --json
 researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex resume ./demo-research --json
-researchclaw-codex evaluate ./demo-research --json
+# Prepare Stage 11, author only experiment/resources.json, then validate it.
+researchclaw-codex stage prepare ./demo-research --json
+researchclaw-codex stage validate ./demo-research --json
+# If validation reports needs_input, have the user satisfy prerequisites first.
+researchclaw-codex execution recheck ./demo-research --json
+# Stop. Do not run the deferred experiment command.
 ```
 
 Approval is tied to exact validated artifact hashes. Changing an approved
@@ -110,9 +121,13 @@ generation, and after valid stage 8 it reports the hypothesis milestone and
 points to stage-9 validation design. A valid stage-9 design requires the user's
 explicit approval or rejection. After approval of a computational design,
 `resume` points to Stage 10. Codex authors and statically validates only the
-declared computational package, without execution. A valid Stage 10 reaches
-the Stage 11 reporting boundary, so `resume` and `evaluate` report the
-computational-package milestone and stop before unsupported Stage 11.
+declared computational package, without execution. A valid Stage 10 advances
+to Stage 11, where Codex reads only packet-declared inputs and the passive
+hardware observation, and authors only `experiment/resources.json`. A valid
+ready plan reaches Stage 12 for the user's explicit approval or rejection;
+approval does not execute the deferred command. A valid `needs_input` plan
+lists prerequisites, which the user must satisfy before the constrained
+`execution recheck`; then stop before any Stage-12 experiment execution.
 
 ## Durable project data
 
