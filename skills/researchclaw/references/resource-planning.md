@@ -31,6 +31,22 @@ fixture approval-eligible, and never executes the deferred command. A valid
 fixture returns `ready_for_development` and records its path and SHA-256 in an
 evaluation event.
 
+If the user explicitly requests a development evaluation after that check,
+require a fresh confirmation for that individual run:
+
+```text
+researchclaw-codex execution run ROOT \
+  --input-manifest PROJECT_RELATIVE_PATH \
+  --development --confirm-development-run --max-seconds 120 --json
+```
+
+This is the only executable development branch: it runs a fixed local
+NumPy-only Ridge model, writes `experiment/dev_results.json`, and reports
+`development_run_complete` with `approval_eligible: false`. The research
+approval gate remains unchanged, and the resulting synthetic metrics are not
+research evidence. Report the development result and stop; do not describe it
+as research execution.
+
 Before authoring, confirm the packet is Stage 11, its `project_root` is the
 intended root, and read every path in `required_inputs`. The Stage-11 packet
 declares exactly these inputs:

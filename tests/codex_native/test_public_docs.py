@@ -105,3 +105,21 @@ def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():
     assert "default remains fail-closed" in reference.lower()
     for path in canonical_computational_scaffold():
         assert path in reference
+
+
+def test_public_docs_describe_the_explicit_development_run_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    reference = RESOURCE_REFERENCE.read_text(encoding="utf-8")
+
+    for text in (readme, skill, reference):
+        assert "execution run" in text
+        assert "--input-manifest" in text
+        assert "--development" in text
+        assert "--confirm-development-run" in text
+        assert "dev_results.json" in text
+        assert "NumPy-only Ridge" in text
+
+    assert "research approval gate unchanged" in readme
+    assert "After reporting the development result, stop." in skill
+    assert "Do not describe it as research execution." in skill

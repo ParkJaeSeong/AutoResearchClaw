@@ -14,6 +14,7 @@ from researchclaw.core.execution_gate import (
     recheck_development_input,
     recheck_execution_readiness,
 )
+from researchclaw.core.development_execution import run_development_experiment
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -74,6 +75,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="validate an explicit synthetic development input without changing the execution gate",
     )
     recheck.add_argument("--json", action="store_true", help="emit JSON")
+    run = execution_commands.add_parser(
+        "run", help="run an explicitly confirmed synthetic development fixture"
+    )
+    run.add_argument("root", metavar="ROOT")
+    run.add_argument(
+        "--input-manifest",
+        required=True,
+        metavar="PROJECT_RELATIVE_PATH",
+    )
+    run.add_argument(
+        "--development",
+        action="store_true",
+        required=True,
+        help="confirm that this is a synthetic development-only run",
+    )
+    run.add_argument(
+        "--confirm-development-run",
+        action="store_true",
+        required=True,
+        help="explicitly confirm the bounded local development run",
+    )
+    run.add_argument(
+        "--max-seconds",
+        type=int,
+        default=120,
+        metavar="N",
+        help="positive local execution deadline in seconds (default: 120)",
+    )
+    run.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -82,6 +112,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     exit_code = 0
     try:
         args = parser.parse_args(argv)
+    except SystemExit as error:
+        return int(error.code)
+    try:
         if args.command == "init":
             project = ResearchProject.create(args.root, topic=args.topic, profile=args.profile)
             payload = project.status_dict()
@@ -110,6 +143,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ValueError("--input-manifest requires --development")
             else:
                 payload = recheck_execution_readiness(project).to_dict()
+        elif args.command == "execution" and args.execution_command == "run":
+            if args.max_seconds <= 0:
+                raise ValueError("--max-seconds must be a positive integer")
+            project = ResearchProject.open(args.root)
+            payload = run_development_experiment(
+                project,
+                args.input_manifest,
+                max_seconds=args.max_seconds,
+            ).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(

@@ -127,6 +127,21 @@ and hashes, group isolation, and feature cutoffs. It returns
 `ready_for_development` with `approval_eligible: false`; it never executes the
 experiment or makes synthetic data eligible as research evidence.
 
+To run the bounded development evaluation itself, make the same synthetic
+intent explicit for every run:
+
+```bash
+researchclaw-codex execution run ./demo-research \
+  --input-manifest experiment/input_manifest.dev.json \
+  --development --confirm-development-run --max-seconds 120 --json
+```
+
+This runs only the fixed local NumPy-only Ridge model and writes
+`experiment/dev_results.json`. It reports `development_run_complete` with
+`approval_eligible: false` and leaves the research approval gate unchanged. It neither
+creates `experiment/results.json` nor makes synthetic results research
+evidence.
+
 Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to its producing stage; changing the
 approved shortlist also requires a new user decision. After an unchanged

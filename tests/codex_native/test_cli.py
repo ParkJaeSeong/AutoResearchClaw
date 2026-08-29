@@ -9,6 +9,7 @@ from researchclaw.core.project import ResearchProject
 from tests.codex_native.helpers import (
     build_completed_validation_design_project,
     build_stage_twelve_project,
+    write_runnable_development_fixture,
 )
 
 
@@ -168,6 +169,69 @@ def test_execution_recheck_cli_accepts_explicit_development_manifest(
     assert payload["readiness"] == "ready_for_development"
     assert payload["approval_eligible"] is False
     assert payload["input_manifest_path"] == "experiment/input_manifest.dev.json"
+
+
+def test_execution_run_cli_completes_explicit_development_fixture(tmp_path, capsys):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+
+    assert main(
+        [
+            "execution",
+            "run",
+            str(project.root),
+            "--input-manifest",
+            "experiment/input_manifest.dev.json",
+            "--development",
+            "--confirm-development-run",
+            "--json",
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["readiness"] == "development_run_complete"
+    assert payload["approval_eligible"] is False
+    assert captured.err == ""
+    assert (project.root / "experiment/dev_results.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("omitted_flag", "expected_flag"),
+    [
+        ("--input-manifest", "--input-manifest"),
+        ("--development", "--development"),
+        ("--confirm-development-run", "--confirm-development-run"),
+    ],
+)
+def test_execution_run_cli_requires_explicit_development_intent(
+    tmp_path, capsys, omitted_flag, expected_flag
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+    arguments = [
+        "execution",
+        "run",
+        str(project.root),
+        "--input-manifest",
+        "experiment/input_manifest.dev.json",
+        "--development",
+        "--confirm-development-run",
+        "--json",
+    ]
+    index = arguments.index(omitted_flag)
+    del arguments[index : index + (2 if omitted_flag == "--input-manifest" else 1)]
+
+    assert main(arguments) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert expected_flag in captured.err
+    assert not (project.root / "experiment/dev_results.json").exists()
 
 
 @pytest.mark.parametrize("command", ["approve", "recheck"])
