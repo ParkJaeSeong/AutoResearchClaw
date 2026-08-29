@@ -160,7 +160,15 @@ class ResearchProject:
         return cls(root=root, state=state)
 
     def status_dict(self) -> dict[str, object]:
-        return self.state.to_dict()
+        from .resource_planning import validated_execution_readiness
+
+        readiness, prerequisites, approval_eligible = validated_execution_readiness(self)
+        return {
+            **self.state.to_dict(),
+            "execution_readiness": readiness,
+            "unmet_prerequisites": list(prerequisites),
+            "approval_eligible": approval_eligible,
+        }
 
     def persist_state(self, state: ProjectState) -> "ResearchProject":
         """Persist a replacement state and return the refreshed project value."""

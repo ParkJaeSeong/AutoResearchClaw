@@ -5,17 +5,28 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import hashlib
+import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
+import stat
 from types import MappingProxyType
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
+
+from .paths import resolve_project_artifact
+
+if TYPE_CHECKING:
+    from .project import ResearchProject
+    from .validation import ValidationIssue
 
 
 RESOURCE_PLAN_SCHEMA_VERSION = 1
 DEFERRED_EXPERIMENT_COMMAND = "python experiment/code/main.py --config experiment/code/config.json"
 EXPERIMENT_RESULT_PATH = "experiment/results.json"
+RESOURCE_PLAN_PATH = "experiment/resources.json"
 RESOURCE_PLAN_PROHIBITIONS = MappingProxyType(
     {
         "network_access": False,
@@ -85,6 +96,18 @@ _BUDGET_FIELDS = {
 }
 _PREPARATION_KINDS = frozenset({"preparation", "readiness"})
 _READINESS_VALUES = frozenset({"ready_for_execution", "needs_input"})
+_LICENSE_VALUES = frozenset({"confirmed", "not_required", "unconfirmed"})
+_HASH_CHUNK_SIZE = 1024 * 1024
+_FREE_DISK_SNAPSHOT_TOLERANCE = 16 * 1024 * 1024
+_REQUIRED_BINDINGS = MappingProxyType(
+    {
+        "design": "experiment/design.json",
+        "package_manifest": "experiment/package_manifest.json",
+        "config": "experiment/code/config.json",
+        "hardware_profile": "scope/hardware_profile.json",
+    }
+)
+_ACTIONABLE_PREREQUISITE = re.compile(r"^[^\s].*\s+.*[.!?]$")
 
 
 @dataclass(frozen=True)
@@ -631,4 +654,362 @@ def validate_resource_plan_structure(raw: object) -> ResourcePlanOutcome:
             readiness=readiness,
         ),
         issues=tuple(),
+    )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(_HASH_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validation_issue(code: str, path: str, message: str) -> "ValidationIssue":
+    from .validation import ValidationIssue
+
+    return ValidationIssue(code=code, path=path, message=message)
+
+
+def _as_validation_issue(issue: ResourcePlanIssue) -> "ValidationIssue":
+    return _validation_issue(issue.code, issue.path, issue.message)
+
+
+def _hardware_drift_warnings(plan: ResourcePlan) -> tuple[str, ...]:
+    comparable = {
+        "logical_cpu_count": plan.hardware_observation.logical_cpu_count,
+        "total_memory_bytes": plan.hardware_observation.total_memory_bytes,
+        "free_disk_bytes": plan.hardware_observation.free_disk_bytes,
+        "platform": plan.hardware_observation.platform,
+        "architecture": plan.hardware_observation.architecture,
+        "gpu_available": plan.hardware_observation.gpu_available,
+    }
+    warnings = {
+        (
+            f"Saved hardware profile field {field!r} differs from the passive "
+            f"observation: {json.dumps(saved, sort_keys=True)} != "
+            f"{json.dumps(observed, sort_keys=True)}."
+        )
+        for field, observed in comparable.items()
+        if (saved := plan.saved_hardware_profile.get(field)) is not None
+        and saved != observed
+    }
+    return tuple(sorted(warnings))
+
+
+def _hardware_prerequisites(plan: ResourcePlan) -> tuple[str, ...]:
+    observation = plan.hardware_observation
+    budget = plan.budget
+    prerequisites: list[str] = []
+    if observation.logical_cpu_count < budget.peak_cpu_count:
+        prerequisites.append(
+            f"Provide at least {budget.peak_cpu_count} logical CPU cores."
+        )
+    if observation.total_memory_bytes < budget.peak_memory_bytes:
+        prerequisites.append(
+            f"Provide at least {budget.peak_memory_bytes} bytes of memory."
+        )
+    if observation.free_disk_bytes < budget.peak_temporary_disk_bytes:
+        prerequisites.append(
+            f"Free at least {budget.peak_temporary_disk_bytes} bytes of project disk space."
+        )
+    if budget.peak_gpu_count and observation.gpu_available is not True:
+        prerequisites.append(
+            f"Provide at least {budget.peak_gpu_count} available GPU."
+        )
+    return tuple(prerequisites)
+
+
+def validate_stage_eleven(
+    project: "ResearchProject", raw: object
+) -> tuple[ResourcePlan | None, tuple["ValidationIssue", ...]]:
+    """Validate a closed resource plan against current project and filesystem truth."""
+    outcome = validate_resource_plan_structure(raw)
+    if not outcome.valid:
+        return None, tuple(_as_validation_issue(issue) for issue in outcome.issues)
+    plan = outcome.plan
+    assert plan is not None
+    issues: list[ValidationIssue] = []
+
+    if plan.project_id != project.state.project_id:
+        issues.append(
+            _validation_issue(
+                "project_id_mismatch",
+                "project_id",
+                "project_id must match the current project",
+            )
+        )
+
+    bindings = {binding.name: binding for binding in plan.bindings}
+    if set(bindings) != set(_REQUIRED_BINDINGS):
+        issues.append(
+            _validation_issue(
+                "binding_set_mismatch",
+                "bindings",
+                "bindings must contain exactly design, package_manifest, config, and hardware_profile",
+            )
+        )
+    for name, expected_path in _REQUIRED_BINDINGS.items():
+        binding = bindings.get(name)
+        if binding is None:
+            continue
+        binding_path = f"bindings.{name}"
+        if binding.path != expected_path:
+            issues.append(
+                _validation_issue(
+                    "binding_path_mismatch",
+                    f"{binding_path}.path",
+                    f"binding path must be {expected_path}",
+                )
+            )
+            continue
+        try:
+            artifact_path = resolve_project_artifact(project.root, expected_path)
+            actual_hash = _sha256(artifact_path) if artifact_path.is_file() else None
+        except (OSError, ValueError) as error:
+            issues.append(
+                _validation_issue(
+                    "unsafe_binding_path", f"{binding_path}.path", str(error)
+                )
+            )
+            continue
+        if actual_hash != binding.sha256:
+            issues.append(
+                _validation_issue(
+                    "binding_hash_mismatch",
+                    f"{binding_path}.sha256",
+                    "binding hash does not match the current regular file",
+                )
+            )
+        persisted = project.state.artifacts.get(expected_path)
+        if (
+            persisted is None
+            or persisted.path != expected_path
+            or persisted.sha256 != binding.sha256
+        ):
+            issues.append(
+                _validation_issue(
+                    "binding_state_mismatch",
+                    f"{binding_path}.sha256",
+                    "binding hash does not match the validated durable artifact",
+                )
+            )
+
+    try:
+        hardware_profile_path = resolve_project_artifact(
+            project.root, _REQUIRED_BINDINGS["hardware_profile"]
+        )
+        saved_profile = json.loads(hardware_profile_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+        issues.append(
+            _validation_issue(
+                "saved_profile_unreadable", "saved_hardware_profile", str(error)
+            )
+        )
+    else:
+        if saved_profile != dict(plan.saved_hardware_profile):
+            issues.append(
+                _validation_issue(
+                    "saved_profile_mismatch",
+                    "saved_hardware_profile",
+                    "saved_hardware_profile must equal scope/hardware_profile.json",
+                )
+            )
+
+    observation = plan.hardware_observation
+    current = observe_local_hardware(project.root)
+    observation_facts = (
+        "logical_cpu_count",
+        "total_memory_bytes",
+        "platform",
+        "architecture",
+    )
+    for field in observation_facts:
+        if getattr(observation, field) != getattr(current, field):
+            issues.append(
+                _validation_issue(
+                    "hardware_observation_mismatch",
+                    f"hardware_observation.{field}",
+                    "passive hardware fact does not match the current host",
+                )
+            )
+    if (
+        observation.free_disk_bytes
+        > current.free_disk_bytes + _FREE_DISK_SNAPSHOT_TOLERANCE
+    ):
+        issues.append(
+            _validation_issue(
+                "hardware_observation_mismatch",
+                "hardware_observation.free_disk_bytes",
+                "declared free disk exceeds the current passive observation",
+            )
+        )
+    if current.gpu_available is not None and observation.gpu_available != current.gpu_available:
+        issues.append(
+            _validation_issue(
+                "hardware_observation_mismatch",
+                "hardware_observation.gpu_available",
+                "GPU availability does not match the current passive observation",
+            )
+        )
+    if observation.method != "python_stdlib_passive":
+        issues.append(
+            _validation_issue(
+                "invalid_observation_method",
+                "hardware_observation.method",
+                "hardware observation must use python_stdlib_passive",
+            )
+        )
+    try:
+        observed_at = datetime.fromisoformat(observation.observed_at)
+    except ValueError:
+        observed_at = None
+    if observed_at is None or observed_at.tzinfo is None:
+        issues.append(
+            _validation_issue(
+                "invalid_observation_time",
+                "hardware_observation.observed_at",
+                "observed_at must be an ISO-8601 timestamp with a timezone",
+            )
+        )
+
+    prerequisites = list(_hardware_prerequisites(plan))
+    for index, input_fact in enumerate(plan.inputs):
+        base_path = f"inputs[{index}]"
+        if input_fact.license_status not in _LICENSE_VALUES:
+            issues.append(
+                _validation_issue(
+                    "invalid_license_status",
+                    f"{base_path}.license_status",
+                    "license_status must be confirmed, not_required, or unconfirmed",
+                )
+            )
+        try:
+            input_path = resolve_project_artifact(project.root, input_fact.path)
+        except (OSError, ValueError) as error:
+            issues.append(
+                _validation_issue("unsafe_input_path", f"{base_path}.path", str(error))
+            )
+            continue
+        try:
+            exists = input_path.exists()
+            is_regular = exists and stat.S_ISREG(input_path.stat().st_mode)
+            size_bytes = input_path.stat().st_size if is_regular else 0
+            digest = _sha256(input_path) if is_regular else None
+        except OSError as error:
+            issues.append(
+                _validation_issue(
+                    "input_fact_unreadable", f"{base_path}.path", str(error)
+                )
+            )
+            continue
+        actual_facts = {
+            "exists": exists,
+            "is_regular_file": is_regular,
+            "size_bytes": size_bytes,
+            "sha256": digest,
+        }
+        for field, actual in actual_facts.items():
+            if getattr(input_fact, field) != actual:
+                issues.append(
+                    _validation_issue(
+                        "input_fact_mismatch",
+                        f"{base_path}.{field}",
+                        "declared input fact does not match the current filesystem",
+                    )
+                )
+        if input_fact.required and (
+            not exists
+            or not is_regular
+            or input_fact.license_status == "unconfirmed"
+        ):
+            prerequisites.append(input_fact.preparation_note)
+
+    expected_prerequisites = tuple(sorted(set(prerequisites)))
+    prerequisite_entries_are_closed = (
+        plan.unmet_prerequisites == tuple(sorted(set(plan.unmet_prerequisites)))
+        and all(
+            value == value.strip()
+            and _ACTIONABLE_PREREQUISITE.fullmatch(value) is not None
+            for value in plan.unmet_prerequisites
+        )
+    )
+    if (
+        not prerequisite_entries_are_closed
+        or plan.unmet_prerequisites != expected_prerequisites
+    ):
+        issues.append(
+            _validation_issue(
+                "unmet_prerequisites_mismatch",
+                "unmet_prerequisites",
+                "unmet_prerequisites must exactly equal the sorted actionable requirements",
+            )
+        )
+    expected_readiness = (
+        "needs_input" if expected_prerequisites else "ready_for_execution"
+    )
+    if plan.readiness != expected_readiness:
+        issues.append(
+            _validation_issue(
+                "readiness_mismatch",
+                "readiness",
+                f"readiness must be {expected_readiness}",
+            )
+        )
+
+    expected_warnings = _hardware_drift_warnings(plan)
+    if plan.warnings != expected_warnings:
+        issues.append(
+            _validation_issue(
+                "warnings_mismatch",
+                "warnings",
+                "warnings must exactly equal the sorted saved-profile drift warnings",
+            )
+        )
+
+    try:
+        result_path = resolve_project_artifact(project.root, EXPERIMENT_RESULT_PATH)
+        result_exists = result_path.exists()
+    except (OSError, ValueError):
+        result_exists = True
+    if result_exists:
+        issues.append(
+            _validation_issue(
+                "preexisting_result",
+                EXPERIMENT_RESULT_PATH,
+                "experiment results must not exist before execution approval",
+            )
+        )
+
+    return plan, tuple(issues)
+
+
+def validated_execution_readiness(
+    project: "ResearchProject",
+) -> tuple[str | None, tuple[str, ...], bool]:
+    """Read readiness only from the intact resource plan persisted by validation."""
+    artifact = project.state.artifacts.get(RESOURCE_PLAN_PATH)
+    if artifact is None:
+        return None, (), False
+    try:
+        path = resolve_project_artifact(project.root, artifact.path)
+        stat_result = path.stat()
+        if (
+            artifact.path != RESOURCE_PLAN_PATH
+            or not path.is_file()
+            or stat_result.st_size != artifact.size
+            or _sha256(path) != artifact.sha256
+        ):
+            return None, (), False
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        return None, (), False
+    outcome = validate_resource_plan_structure(raw)
+    if not outcome.valid or outcome.plan is None:
+        return None, (), False
+    plan = outcome.plan
+    return (
+        plan.readiness,
+        plan.unmet_prerequisites,
+        plan.readiness == "ready_for_execution" and not plan.unmet_prerequisites,
     )

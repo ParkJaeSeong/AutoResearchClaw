@@ -10,12 +10,15 @@ import pytest
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.resource_planning import observe_local_hardware
 from researchclaw.core.state import StateStore
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 from tests.codex_native.helpers import (
+    build_completed_validation_design_project,
     build_completed_knowledge_milestone_project,
     complete_first_four_stages,
+    valid_resource_plan,
     write_valid_fixture_artifacts,
 )
 
@@ -83,6 +86,114 @@ def test_resume_uses_only_project_files(tmp_path):
         "--json",
     ]
     assert "conversation" not in json.dumps(payload).lower()
+
+
+@pytest.mark.parametrize(
+    ("readiness", "unmet", "next_action", "approval_eligible"),
+    [
+        ("ready_for_execution", [], "approve_experiment_execution", True),
+        (
+            "needs_input",
+            ["Provide the licensed input at data/input.csv."],
+            "report_missing_execution_inputs",
+            False,
+        ),
+    ],
+)
+def test_stage_twelve_status_and_handoff_report_validated_execution_readiness(
+    tmp_path, readiness, unmet, next_action, approval_eligible
+):
+    project = build_completed_validation_design_project(tmp_path / readiness)
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    project = ResearchProject.open(project.root)
+    plan = valid_resource_plan(project, observe_local_hardware(project.root), readiness=readiness)
+    binding_paths = {
+        "design": "experiment/design.json",
+        "package_manifest": "experiment/package_manifest.json",
+        "config": "experiment/code/config.json",
+        "hardware_profile": "scope/hardware_profile.json",
+    }
+    plan["bindings"] = {
+        name: {
+            "path": path,
+            "sha256": sha256((project.root / path).read_bytes()).hexdigest(),
+        }
+        for name, path in binding_paths.items()
+    }
+    plan["saved_hardware_profile"] = json.loads(
+        (project.root / "scope/hardware_profile.json").read_text(encoding="utf-8")
+    )
+    if unmet:
+        plan["inputs"] = [
+            {
+                "path": "data/input.csv",
+                "required": True,
+                "exists": False,
+                "is_regular_file": False,
+                "size_bytes": 0,
+                "sha256": None,
+                "license_status": "unconfirmed",
+                "preparation_note": unmet[0],
+            }
+        ]
+        plan["tasks"].insert(
+            0,
+            {
+                "task_id": "prepare_inputs",
+                "kind": "preparation",
+                "depends_on": [],
+                "priority": 0,
+                "cpu_count": 1,
+                "memory_bytes": 1,
+                "gpu_count": 0,
+                "temporary_disk_bytes": 1,
+                "estimated_duration_seconds": 1,
+            },
+        )
+        plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
+        plan["budget"]["total_estimated_duration_seconds"] = 2
+        plan["unmet_prerequisites"] = unmet
+    (project.root / "experiment/resources.json").write_text(
+        json.dumps(plan) + "\n", encoding="utf-8"
+    )
+    assert validate_current_stage(project).valid is True
+
+    reopened = ResearchProject.open(project.root)
+    status = reopened.status_dict()
+    handoff = reopened.build_handoff().to_dict()
+
+    for payload in (status, handoff):
+        assert payload["execution_readiness"] == readiness
+        assert payload["unmet_prerequisites"] == unmet
+        assert payload["approval_eligible"] is approval_eligible
+    assert handoff["next_action"] == next_action
+
+
+def test_stage_twelve_reporting_falls_back_for_malformed_resources(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    state = ResearchProject.open(project.root).state
+    malformed = project.root / "experiment/resources.json"
+    malformed.write_text("{", encoding="utf-8")
+    ResearchProject.open(project.root).persist_state(
+        replace(
+            state,
+            current_stage=12,
+            completed_stages=(*state.completed_stages, 11),
+            next_action="report_missing_execution_inputs",
+        )
+    )
+
+    reopened = ResearchProject.open(project.root)
+    status = reopened.status_dict()
+    handoff = reopened.build_handoff().to_dict()
+
+    for payload in (status, handoff):
+        assert payload["execution_readiness"] is None
+        assert payload["unmet_prerequisites"] == []
+        assert payload["approval_eligible"] is False
 
 
 def test_resume_rehashes_persisted_artifacts_before_preparing(tmp_path):

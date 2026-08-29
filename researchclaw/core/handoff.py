@@ -18,6 +18,7 @@ from .contracts import (
 from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .project import ResearchProject
+from .resource_planning import validated_execution_readiness
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -37,6 +38,9 @@ class HandoffSummary:
     milestone_complete: bool
     next_action: str
     next_command: str
+    execution_readiness: str | None
+    unmet_prerequisites: tuple[str, ...]
+    approval_eligible: bool
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -53,6 +57,9 @@ class HandoffSummary:
             "milestone_complete": self.milestone_complete,
             "next_action": self.next_action,
             "next_command": self.next_command,
+            "execution_readiness": self.execution_readiness,
+            "unmet_prerequisites": list(self.unmet_prerequisites),
+            "approval_eligible": self.approval_eligible,
         }
 
 
@@ -192,7 +199,15 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         state.current_stage > SUPPORTED_STAGE_MAX
         and all(stage_id in state.completed_stages for stage_id in SUPPORTED_STAGE_IDS)
     )
-    if state.current_stage > 23:
+    execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
+    execution_readiness, unmet_prerequisites, approval_eligible = (
+        validated_execution_readiness(current_project)
+    )
+    if execution_boundary:
+        milestone_complete = False
+        stage_name = "experiment_run"
+        approval_required = True
+    elif state.current_stage > 23:
         stage_name = "project_complete"
         approval_required = False
     else:
@@ -201,7 +216,22 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         approval_required = contract.requires_approval
 
     status = state.status
-    if milestone_complete:
+    if execution_boundary:
+        next_action = state.next_action
+        if approval_eligible:
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "approve",
+                    str(current_project.root.resolve()),
+                    "--decision",
+                    "<approve|reject>",
+                    "--json",
+                )
+            )
+        else:
+            next_command = _command(current_project.root, "status")
+    elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
         next_command = _command(current_project.root, "evaluate")
         approval_required = False
@@ -241,4 +271,7 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
         milestone_complete=milestone_complete,
         next_action=next_action,
         next_command=next_command,
+        execution_readiness=execution_readiness,
+        unmet_prerequisites=unmet_prerequisites,
+        approval_eligible=approval_eligible,
     )

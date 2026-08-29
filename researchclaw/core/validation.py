@@ -25,6 +25,10 @@ from .models import ArtifactRef, StageStatus, StageTenSnapshot
 from .synthesis import validate_synthesis
 from .paths import resolve_project_artifact
 from .project import ResearchProject
+from .resource_planning import (
+    validate_resource_plan_structure,
+    validate_stage_eleven,
+)
 from .task_packets import TaskPacket, build_task_packet
 
 _HASH_CHUNK_SIZE = 1024 * 1024
@@ -323,6 +327,22 @@ def _validate_stage_ten(
     )
 
 
+def _validate_stage_eleven(
+    project: ResearchProject,
+    contract: StageContract,
+    contents: dict[str, str],
+    issues: list[ValidationIssue],
+) -> None:
+    (resources_path,) = contract.required_outputs
+    try:
+        raw = json.loads(contents[resources_path])
+    except json.JSONDecodeError:
+        _invalid(issues, resources_path, "resources.json must be valid JSON")
+        return
+    _plan, semantic_issues = validate_stage_eleven(project, raw)
+    issues.extend(semantic_issues)
+
+
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
@@ -334,8 +354,6 @@ def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, 
 def validate_current_stage(project: ResearchProject) -> ValidationReport:
     """Validate the current task packet's outputs and persist its resulting state."""
     current_project = ResearchProject.open(project.root)
-    if current_project.state.current_stage == 11:
-        raise ValueError("stage 11 resource-plan validation is not available")
     packet, contract = _current_packet_and_contract(current_project)
     attempt_number = current_project.state.retry_counts.get(str(packet.stage_id), 0) + 1
     issues: list[ValidationIssue] = []
@@ -380,6 +398,8 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             _validate_stage_nine(current_project, contract, contents, issues)
         elif not issues and contract.id == 10:
             _validate_stage_ten(current_project, contract, contents, issues)
+        elif not issues and contract.id == 11:
+            _validate_stage_eleven(current_project, contract, contents, issues)
 
     if issues:
         if attempt_number > contract.max_retries:
@@ -392,7 +412,17 @@ def validate_current_stage(project: ResearchProject) -> ValidationReport:
             error_state = StageStatus.NEEDS_REVISION.value
     else:
         retry_state = "succeeded_after_retry" if attempt_number > 1 else "succeeded"
-        if contract.requires_approval:
+        if contract.id == 11:
+            plan = validate_resource_plan_structure(
+                json.loads(contents[contract.required_outputs[0]])
+            ).plan
+            assert plan is not None
+            recommended_action = (
+                "approve_experiment_execution"
+                if plan.readiness == "ready_for_execution"
+                else "report_missing_execution_inputs"
+            )
+        elif contract.requires_approval:
             recommended_action = "request_approval"
         elif contract.id == SUPPORTED_STAGE_MAX:
             recommended_action = "report_computational_package_milestone_only"
@@ -465,6 +495,34 @@ def advance_validated_stage(project: ResearchProject, report: ValidationReport) 
                 next_action=report.recommended_action,
                 retry_counts=retry_counts,
                 last_error=last_error,
+            )
+        )
+
+    if report.stage_id == 11:
+        resources_path = resolve_project_artifact(project.root, "experiment/resources.json")
+        try:
+            raw = json.loads(resources_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError("validated Stage 11 resource plan cannot be reopened") from error
+        outcome = validate_resource_plan_structure(raw)
+        if not outcome.valid or outcome.plan is None:
+            raise ValueError("validated Stage 11 resource plan is malformed")
+        completed_stages = state.completed_stages
+        if 11 not in completed_stages:
+            completed_stages = (*completed_stages, 11)
+        return project.persist_state(
+            replace(
+                state,
+                current_stage=12,
+                completed_stages=completed_stages,
+                status=StageStatus.AWAITING_APPROVAL,
+                next_action=(
+                    "approve_experiment_execution"
+                    if outcome.plan.readiness == "ready_for_execution"
+                    else "report_missing_execution_inputs"
+                ),
+                artifacts={**state.artifacts, **report.artifact_refs},
+                last_error=None,
             )
         )
 
