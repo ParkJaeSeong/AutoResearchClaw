@@ -5,8 +5,10 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from fractions import Fraction
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -98,6 +100,7 @@ _READINESS_VALUES = frozenset({"ready_for_execution", "needs_input"})
 _LICENSE_VALUES = frozenset({"confirmed", "not_required", "unconfirmed"})
 _HASH_CHUNK_SIZE = 1024 * 1024
 _FREE_DISK_SNAPSHOT_TOLERANCE = 16 * 1024 * 1024
+_BYTES_PER_GIB = 1_073_741_824
 _REQUIRED_BINDINGS = MappingProxyType(
     {
         "design": "experiment/design.json",
@@ -680,26 +683,84 @@ def _as_validation_issue(issue: ResourcePlanIssue) -> "ValidationIssue":
     return _validation_issue(issue.code, issue.path, issue.message)
 
 
-def _hardware_drift_warnings(plan: ResourcePlan) -> tuple[str, ...]:
-    comparable = {
-        "logical_cpu_count": plan.hardware_observation.logical_cpu_count,
-        "total_memory_bytes": plan.hardware_observation.total_memory_bytes,
-        "free_disk_bytes": plan.hardware_observation.free_disk_bytes,
-        "platform": plan.hardware_observation.platform,
-        "architecture": plan.hardware_observation.architecture,
-        "gpu_available": plan.hardware_observation.gpu_available,
-    }
-    warnings = {
-        (
-            f"Saved hardware profile field {field!r} differs from the passive "
-            f"observation: {json.dumps(saved, sort_keys=True)} != "
-            f"{json.dumps(observed, sort_keys=True)}."
+def hardware_drift_warnings(
+    saved_profile: Mapping[str, object],
+    observation: HardwareObservation | Mapping[str, object],
+) -> tuple[str, ...]:
+    """Derive drift warnings without rewriting canonical or legacy evidence."""
+    observed = (
+        observation.to_dict()
+        if isinstance(observation, HardwareObservation)
+        else observation
+    )
+    comparisons: list[tuple[str, str, object, object, str | None]] = []
+    for field in (
+        "logical_cpu_count",
+        "total_memory_bytes",
+        "free_disk_bytes",
+        "platform",
+        "architecture",
+        "gpu_available",
+    ):
+        saved = saved_profile.get(field)
+        if saved is not None:
+            comparisons.append((field, field, saved, observed[field], None))
+
+    if saved_profile.get("logical_cpu_count") is None:
+        saved_cpu = saved_profile.get("cpu")
+        if isinstance(saved_cpu, int) and not isinstance(saved_cpu, bool):
+            comparisons.append(
+                ("cpu", "logical_cpu_count", saved_cpu, observed["logical_cpu_count"], None)
+            )
+    if saved_profile.get("total_memory_bytes") is None:
+        saved_memory_gb = saved_profile.get("memory_gb")
+        if (
+            isinstance(saved_memory_gb, (int, float))
+            and not isinstance(saved_memory_gb, bool)
+            and (
+                isinstance(saved_memory_gb, int)
+                or math.isfinite(saved_memory_gb)
+            )
+            and saved_memory_gb >= 0
+        ):
+            mapped_fraction = Fraction(str(saved_memory_gb)) * _BYTES_PER_GIB
+            mapped_memory: int | float = (
+                mapped_fraction.numerator
+                if mapped_fraction.denominator == 1
+                else float(mapped_fraction)
+            )
+            comparisons.append(
+                (
+                    "memory_gb",
+                    "total_memory_bytes",
+                    mapped_memory,
+                    observed["total_memory_bytes"],
+                    f"total_memory_bytes via {_BYTES_PER_GIB} bytes/GiB",
+                )
+            )
+
+    warnings: set[str] = set()
+    for saved_field, observed_field, saved, current, alias_label in comparisons:
+        if saved == current:
+            continue
+        field_label = (
+            f"{saved_field!r} ({alias_label or observed_field})"
+            if saved_field != observed_field
+            else repr(saved_field)
         )
-        for field, observed in comparable.items()
-        if (saved := plan.saved_hardware_profile.get(field)) is not None
-        and saved != observed
-    }
+        warnings.add(
+            f"Saved hardware profile field {field_label} differs from the passive "
+            f"observation: {json.dumps(saved, sort_keys=True)} != "
+            f"{json.dumps(current, sort_keys=True)}."
+        )
     return tuple(sorted(warnings))
+
+
+def _hardware_drift_warnings(plan: ResourcePlan) -> tuple[str, ...]:
+    return hardware_drift_warnings(
+        plan.saved_hardware_profile,
+        plan.hardware_observation,
+    )
 
 
 def _hardware_prerequisites(
@@ -725,6 +786,66 @@ def _hardware_prerequisites(
             f"Provide at least {budget.peak_gpu_count} available GPU."
         )
     return tuple(prerequisites)
+
+
+def _validated_config_required_paths(
+    project: "ResearchProject",
+    bindings: Mapping[str, ResourceBinding],
+    issues: list["ValidationIssue"],
+) -> tuple[str, ...] | None:
+    """Read required paths only from the current validated, hash-bound config."""
+    expected_path = _REQUIRED_BINDINGS["config"]
+    binding = bindings.get("config")
+    artifact = project.state.artifacts.get(expected_path)
+    if binding is None or artifact is None:
+        return None
+    try:
+        config_path = resolve_project_artifact(project.root, expected_path)
+        payload = config_path.read_bytes()
+    except (OSError, ValueError) as error:
+        issues.append(
+            _validation_issue(
+                "config_input_contract_unreadable",
+                "bindings.config.path",
+                str(error),
+            )
+        )
+        return None
+    digest = hashlib.sha256(payload).hexdigest()
+    if (
+        binding.path != expected_path
+        or binding.sha256 != digest
+        or artifact.path != expected_path
+        or artifact.sha256 != digest
+        or artifact.size != len(payload)
+    ):
+        return None
+    try:
+        config = json.loads(payload)
+        input_contract = config["input_contract"]
+        required_paths = input_contract["required_paths"]
+    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError) as error:
+        issues.append(
+            _validation_issue(
+                "config_input_contract_unreadable",
+                "bindings.config.path",
+                f"validated config input contract cannot be read: {error}",
+            )
+        )
+        return None
+    if (
+        not isinstance(required_paths, list)
+        or not all(isinstance(path, str) and path for path in required_paths)
+    ):
+        issues.append(
+            _validation_issue(
+                "config_input_contract_unreadable",
+                "bindings.config.path",
+                "validated config input_contract.required_paths must be a string array",
+            )
+        )
+        return None
+    return tuple(required_paths)
 
 
 def validate_stage_eleven(
@@ -799,6 +920,34 @@ def validate_stage_eleven(
                     "binding_state_mismatch",
                     f"{binding_path}.sha256",
                     "binding hash does not match the validated durable artifact",
+                )
+            )
+
+    config_required_paths = _validated_config_required_paths(
+        project,
+        bindings,
+        issues,
+    )
+    if config_required_paths is not None:
+        config_required_set = set(config_required_paths)
+        plan_required_set = {
+            input_fact.path for input_fact in plan.inputs if input_fact.required
+        }
+        for index, input_fact in enumerate(plan.inputs):
+            if input_fact.path in config_required_set and not input_fact.required:
+                issues.append(
+                    _validation_issue(
+                        "required_input_flag_mismatch",
+                        f"inputs[{index}].required",
+                        "config-required input paths must be marked required",
+                    )
+                )
+        if plan_required_set != config_required_set:
+            issues.append(
+                _validation_issue(
+                    "required_input_set_mismatch",
+                    "inputs",
+                    "required input paths must exactly equal config input_contract.required_paths",
                 )
             )
 

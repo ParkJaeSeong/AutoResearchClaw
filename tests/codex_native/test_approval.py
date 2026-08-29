@@ -211,6 +211,42 @@ def test_stage_twelve_approval_rechecks_readiness_against_current_inputs(tmp_pat
 
 
 @pytest.mark.parametrize(
+    ("lineage_damage", "expected_stage"),
+    [
+        ("tampered-package-file", 10),
+        ("missing-stage-nine-approval", 9),
+        ("rejected-stage-nine-approval", 9),
+    ],
+)
+def test_stage_twelve_approval_normalizes_all_durable_lineage_before_deciding(
+    tmp_path,
+    lineage_damage,
+    expected_stage,
+):
+    project, _declared_input = build_stage_twelve_project(tmp_path / lineage_damage)
+    if lineage_damage == "tampered-package-file":
+        main = project.root / "experiment/code/main.py"
+        main.write_bytes(main.read_bytes() + b"\n# tampered after validation\n")
+    else:
+        approval_path = project.root / "approvals/stage-09.json"
+        if lineage_damage == "missing-stage-nine-approval":
+            approval_path.unlink()
+        else:
+            approval = json.loads(approval_path.read_text(encoding="utf-8"))
+            approval["decision"] = "reject"
+            approval_path.write_text(json.dumps(approval) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        approve_current_gate(project, "approve", "Run it")
+
+    state = ResearchProject.open(project.root).state
+    assert state.current_stage == expected_stage
+    assert state.status.value == "needs_revision"
+    assert state.next_action == "validate_stage"
+    assert not (project.root / "approvals/stage-12.json").exists()
+
+
+@pytest.mark.parametrize(
     "relative_path",
     [
         "experiment/design.json",

@@ -60,6 +60,24 @@ def test_resource_planning_reference_contains_safety_literals():
     )
     assert "A passive `execution recheck` cannot erase a current human rejection." in normalized
     assert "later explicit re-decision (`approve`)" in normalized
+    assert (
+        "Entries marked `required: true` must have exactly the same path set as "
+        "the current hash-bound config's `input_contract.required_paths`."
+        in normalized
+    )
+    assert (
+        "Additional unique project-relative paths are optional extras and must be "
+        "marked `required: false`; they still receive full path, filesystem-fact, "
+        "SHA-256, and license validation."
+        in normalized
+    )
+    assert (
+        "A legacy `cpu` JSON integer aliases `logical_cpu_count`; a finite, non-negative "
+        "`memory_gb` JSON number aliases `total_memory_bytes` using exactly 1073741824 "
+        "bytes per GiB."
+        in normalized
+    )
+    assert "Alias comparison never rewrites `scope/hardware_profile.json`." in normalized
 
 
 def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():

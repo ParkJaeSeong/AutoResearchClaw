@@ -10,7 +10,10 @@ import pytest
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
-from researchclaw.core.resource_planning import observe_local_hardware
+from researchclaw.core.resource_planning import (
+    hardware_drift_warnings,
+    observe_local_hardware,
+)
 from researchclaw.core.state import StateStore
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
@@ -18,6 +21,7 @@ from tests.codex_native.helpers import (
     build_completed_validation_design_project,
     build_completed_knowledge_milestone_project,
     complete_first_four_stages,
+    set_stage_ten_required_paths,
     valid_resource_plan,
     write_valid_fixture_artifacts,
 )
@@ -108,6 +112,10 @@ def test_stage_twelve_status_and_handoff_report_validated_execution_readiness(
 ):
     project = build_completed_validation_design_project(tmp_path / readiness)
     write_valid_fixture_artifacts(project.root, 10)
+    required_path = "experiment/design.json"
+    if unmet:
+        required_path = "data/input.csv"
+        set_stage_ten_required_paths(project.root, [required_path])
     assert validate_current_stage(ResearchProject.open(project.root)).valid is True
     project = ResearchProject.open(project.root)
     plan = valid_resource_plan(project, observe_local_hardware(project.root), readiness=readiness)
@@ -127,35 +135,44 @@ def test_stage_twelve_status_and_handoff_report_validated_execution_readiness(
     plan["saved_hardware_profile"] = json.loads(
         (project.root / "scope/hardware_profile.json").read_text(encoding="utf-8")
     )
-    if unmet:
-        plan["inputs"] = [
-            {
-                "path": "data/input.csv",
-                "required": True,
-                "exists": False,
-                "is_regular_file": False,
-                "size_bytes": 0,
-                "sha256": None,
-                "license_status": "unconfirmed",
-                "preparation_note": "Document how to prepare data/input.csv.",
-            }
-        ]
-        plan["tasks"].insert(
-            0,
-            {
-                "task_id": "prepare_inputs",
-                "kind": "preparation",
-                "depends_on": [],
-                "priority": 0,
-                "cpu_count": 1,
-                "memory_bytes": 1,
-                "gpu_count": 0,
-                "temporary_disk_bytes": 1,
-                "estimated_duration_seconds": 1,
-            },
+    plan["warnings"] = list(
+        hardware_drift_warnings(
+            plan["saved_hardware_profile"],
+            plan["hardware_observation"],
         )
-        plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
-        plan["budget"]["total_estimated_duration_seconds"] = 2
+    )
+    required_input = project.root / required_path
+    exists = required_input.is_file()
+    payload = required_input.read_bytes() if exists else b""
+    plan["inputs"] = [
+        {
+            "path": required_path,
+            "required": True,
+            "exists": exists,
+            "is_regular_file": exists,
+            "size_bytes": len(payload),
+            "sha256": sha256(payload).hexdigest() if exists else None,
+            "license_status": "unconfirmed" if unmet else "confirmed",
+            "preparation_note": f"Document how to prepare {required_path}.",
+        }
+    ]
+    plan["tasks"].insert(
+        0,
+        {
+            "task_id": "prepare_inputs",
+            "kind": "preparation",
+            "depends_on": [],
+            "priority": 0,
+            "cpu_count": 1,
+            "memory_bytes": 1,
+            "gpu_count": 0,
+            "temporary_disk_bytes": 1,
+            "estimated_duration_seconds": 1,
+        },
+    )
+    plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
+    plan["budget"]["total_estimated_duration_seconds"] = 2
+    if unmet:
         plan["unmet_prerequisites"] = unmet
     (project.root / "experiment/resources.json").write_text(
         json.dumps(plan) + "\n", encoding="utf-8"

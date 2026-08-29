@@ -99,6 +99,13 @@ and GPU availability to a fresh passive local observation; declared free disk
 must not exceed that observation by more than 16 MiB. Do not probe hardware or
 turn an unknown GPU into an available GPU.
 
+Saved-profile drift also recognizes conservative legacy aliases. A legacy
+`cpu` JSON integer aliases `logical_cpu_count`; a finite, non-negative
+`memory_gb` JSON number aliases `total_memory_bytes` using exactly 1073741824
+bytes per GiB. Canonical fields take precedence when both forms are present;
+invalid alias values and unknown fields remain untouched evidence. Alias
+comparison never rewrites `scope/hardware_profile.json`.
+
 ### Input-readiness entries
 
 Each `inputs` entry has exactly:
@@ -115,6 +122,12 @@ unique project-relative paths. They must resolve inside the project through no
 symlink component, traversal, or absolute path. Facts must match the current
 filesystem: a regular file has its actual byte size and SHA-256, while a
 missing or non-regular input has size `0` and hash `null`.
+
+Entries marked `required: true` must have exactly the same path set as the
+current hash-bound config's `input_contract.required_paths`. A config-required
+path marked `required: false` is invalid. Additional unique project-relative
+paths are optional extras and must be marked `required: false`; they still
+receive full path, filesystem-fact, SHA-256, and license validation.
 
 ### Tasks and budget
 

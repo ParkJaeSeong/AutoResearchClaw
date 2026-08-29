@@ -10,6 +10,7 @@ from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.resource_planning import (
     HardwareObservation,
+    hardware_drift_warnings,
     observe_local_hardware,
     validate_stage_eleven,
     validate_resource_plan_structure,
@@ -17,6 +18,7 @@ from researchclaw.core.resource_planning import (
 from researchclaw.core.validation import validate_current_stage
 from tests.codex_native.helpers import (
     build_completed_validation_design_project,
+    set_stage_ten_required_paths,
     valid_resource_plan,
     write_valid_fixture_artifacts,
 )
@@ -48,6 +50,21 @@ def _semantic_plan(project, *, readiness="ready_for_execution"):
     plan["saved_hardware_profile"] = json.loads(
         (project.root / "scope/hardware_profile.json").read_text(encoding="utf-8")
     )
+    plan["warnings"] = list(
+        hardware_drift_warnings(
+            plan["saved_hardware_profile"],
+            plan["hardware_observation"],
+        )
+    )
+    config = json.loads(
+        (project.root / "experiment/code/config.json").read_text(encoding="utf-8")
+    )
+    plan["inputs"] = [
+        _input_fact(project, path, required=True)
+        for path in config["input_contract"]["required_paths"]
+    ]
+    if plan["inputs"]:
+        _add_preparation_task(plan)
     return plan
 
 
@@ -55,34 +72,22 @@ def _write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
 
 
-@pytest.fixture
-def stage_11_project(tmp_path):
-    project = build_completed_validation_design_project(tmp_path / "project")
-    write_valid_fixture_artifacts(project.root, 10)
-    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
-    return ResearchProject.open(project.root)
+def _input_fact(project, relative_path, *, required):
+    path = project.root / relative_path
+    payload = path.read_bytes()
+    return {
+        "path": relative_path,
+        "required": required,
+        "exists": True,
+        "is_regular_file": True,
+        "size_bytes": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "license_status": "confirmed",
+        "preparation_note": f"Verify {relative_path} before execution.",
+    }
 
 
-@pytest.fixture
-def ready_plan(stage_11_project):
-    return _semantic_plan(stage_11_project)
-
-
-@pytest.fixture
-def missing_plan(stage_11_project):
-    plan = _semantic_plan(stage_11_project, readiness="needs_input")
-    plan["inputs"] = [
-        {
-            "path": "data/input.csv",
-            "required": True,
-            "exists": False,
-            "is_regular_file": False,
-            "size_bytes": 0,
-            "sha256": None,
-            "license_status": "unconfirmed",
-            "preparation_note": "Provide the licensed input at data/input.csv.",
-        }
-    ]
+def _add_preparation_task(plan):
     plan["tasks"].insert(
         0,
         {
@@ -99,6 +104,41 @@ def missing_plan(stage_11_project):
     )
     plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
     plan["budget"]["total_estimated_duration_seconds"] = 2
+
+
+@pytest.fixture
+def stage_11_project(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+    set_stage_ten_required_paths(project.root, ["data/input.csv"])
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    data_path = project.root / "data/input.csv"
+    data_path.parent.mkdir(parents=True)
+    data_path.write_text("value\n1\n", encoding="utf-8")
+    return ResearchProject.open(project.root)
+
+
+@pytest.fixture
+def ready_plan(stage_11_project):
+    return _semantic_plan(stage_11_project)
+
+
+@pytest.fixture
+def missing_plan(stage_11_project):
+    plan = _semantic_plan(stage_11_project, readiness="needs_input")
+    input_path = stage_11_project.root / "data/input.csv"
+    input_path.unlink()
+    input_path.parent.rmdir()
+    plan["inputs"][0].update(
+        {
+            "exists": False,
+            "is_regular_file": False,
+            "size_bytes": 0,
+            "sha256": None,
+            "license_status": "unconfirmed",
+            "preparation_note": "Provide the licensed input at data/input.csv.",
+        }
+    )
     plan["unmet_prerequisites"] = list(_MISSING_INPUT_PREREQUISITES)
     return plan
 
@@ -307,6 +347,66 @@ def test_truthful_missing_input_completes_planning_but_locks_approval(
     assert state.next_action == "report_missing_execution_inputs"
 
 
+def test_stage_eleven_rejects_omitted_config_required_path(
+    stage_11_project,
+    ready_plan,
+):
+    ready_plan["inputs"] = []
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert any(
+        issue.code == "required_input_set_mismatch" and issue.path == "inputs"
+        for issue in issues
+    )
+
+
+def test_stage_eleven_rejects_config_required_path_marked_optional(
+    stage_11_project,
+    ready_plan,
+):
+    ready_plan["inputs"] = [
+        _input_fact(stage_11_project, "data/input.csv", required=False)
+    ]
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert any(
+        issue.code == "required_input_flag_mismatch"
+        and issue.path == "inputs[0].required"
+        for issue in issues
+    )
+
+
+def test_stage_eleven_rejects_required_input_set_mismatch(
+    stage_11_project,
+    ready_plan,
+):
+    ready_plan["inputs"] = [
+        _input_fact(stage_11_project, "scope/goal.md", required=True)
+    ]
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert any(
+        issue.code == "required_input_set_mismatch" and issue.path == "inputs"
+        for issue in issues
+    )
+
+
+def test_stage_eleven_accepts_validated_optional_input_extras(
+    stage_11_project,
+    ready_plan,
+):
+    ready_plan["inputs"].append(
+        _input_fact(stage_11_project, "scope/goal.md", required=False)
+    )
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert issues == ()
+
+
 @pytest.mark.parametrize(
     ("binding", "code"),
     [
@@ -360,37 +460,6 @@ def test_stage_eleven_rejects_input_symlink_components(
 def test_stage_eleven_rejects_false_input_filesystem_facts(
     stage_11_project, ready_plan, field, value, code
 ):
-    input_path = stage_11_project.root / "data/input.csv"
-    input_path.parent.mkdir()
-    input_path.write_text("value\n1\n", encoding="utf-8")
-    ready_plan["inputs"] = [
-        {
-            "path": "data/input.csv",
-            "required": True,
-            "exists": True,
-            "is_regular_file": True,
-            "size_bytes": input_path.stat().st_size,
-            "sha256": _sha256(input_path),
-            "license_status": "confirmed",
-            "preparation_note": "Verify data/input.csv before execution.",
-        }
-    ]
-    ready_plan["tasks"].insert(
-        0,
-        {
-            "task_id": "prepare_inputs",
-            "kind": "preparation",
-            "depends_on": [],
-            "priority": 0,
-            "cpu_count": 1,
-            "memory_bytes": 1,
-            "gpu_count": 0,
-            "temporary_disk_bytes": 1,
-            "estimated_duration_seconds": 1,
-        },
-    )
-    ready_plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
-    ready_plan["budget"]["total_estimated_duration_seconds"] = 2
     ready_plan["inputs"][0][field] = value
 
     _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
@@ -589,3 +658,78 @@ def test_stage_eleven_compares_saved_profile_arrays_by_json_value(
     _plan, issues = validate_stage_eleven(updated, ready_plan)
 
     assert "saved_profile_mismatch" not in {issue.code for issue in issues}
+
+
+def test_stage_eleven_generates_real_drift_warnings_for_legacy_hardware_aliases(
+    stage_11_project,
+    ready_plan,
+):
+    observed = HardwareObservation(**ready_plan["hardware_observation"])
+    saved_cpu = observed.logical_cpu_count + 1
+    saved_memory_gb = 0 if observed.total_memory_bytes else 1
+    mapped_memory_bytes = saved_memory_gb * 1_073_741_824
+    profile = {
+        "cpu": saved_cpu,
+        "memory_gb": saved_memory_gb,
+        "machine_label": "preserved evidence",
+    }
+    profile_path = stage_11_project.root / "scope/hardware_profile.json"
+    payload = (json.dumps(profile, sort_keys=True) + "\n").encode("utf-8")
+    profile_path.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    state = stage_11_project.state
+    updated = stage_11_project.persist_state(
+        replace(
+            state,
+            artifacts={
+                **state.artifacts,
+                "scope/hardware_profile.json": ArtifactRef(
+                    path="scope/hardware_profile.json",
+                    sha256=digest,
+                    size=len(payload),
+                ),
+            },
+        )
+    )
+    ready_plan["bindings"]["hardware_profile"]["sha256"] = digest
+    ready_plan["saved_hardware_profile"] = profile
+    ready_plan["warnings"] = sorted(
+        [
+            (
+                "Saved hardware profile field 'cpu' (logical_cpu_count) differs "
+                f"from the passive observation: {saved_cpu} != "
+                f"{observed.logical_cpu_count}."
+            ),
+            (
+                "Saved hardware profile field 'memory_gb' (total_memory_bytes via "
+                "1073741824 bytes/GiB) differs from the passive observation: "
+                f"{mapped_memory_bytes} != {observed.total_memory_bytes}."
+            ),
+        ]
+    )
+    before = profile_path.read_bytes()
+
+    _plan, issues = validate_stage_eleven(updated, ready_plan)
+
+    assert issues == ()
+    assert profile_path.read_bytes() == before
+
+
+def test_legacy_memory_alias_maps_arbitrary_non_negative_json_integers():
+    saved_profile = {"memory_gb": 10**400, "machine_label": "preserved evidence"}
+    observation = HardwareObservation(
+        logical_cpu_count=1,
+        total_memory_bytes=1,
+        free_disk_bytes=1,
+        platform="test",
+        architecture="test",
+        gpu_available=None,
+        method="python_stdlib_passive",
+        observed_at="2026-08-29T00:00:00+00:00",
+    )
+
+    warnings = hardware_drift_warnings(saved_profile, observation)
+
+    assert len(warnings) == 1
+    assert "'memory_gb' (total_memory_bytes via 1073741824 bytes/GiB)" in warnings[0]
+    assert saved_profile["machine_label"] == "preserved evidence"

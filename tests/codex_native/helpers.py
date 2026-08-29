@@ -6,7 +6,10 @@ from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.project import ResearchProject
-from researchclaw.core.resource_planning import observe_local_hardware
+from researchclaw.core.resource_planning import (
+    hardware_drift_warnings,
+    observe_local_hardware,
+)
 from researchclaw.core.validation import validate_current_stage
 
 
@@ -365,6 +368,29 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
     }
 
 
+def set_stage_ten_required_paths(root: Path, required_paths: list[str]) -> None:
+    """Keep the Stage-10 config and manifest fixture hashes aligned."""
+    config_path = root / "experiment/code/config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["input_contract"]["required_paths"] = required_paths
+    config_payload = json.dumps(config, separators=(",", ":")) + "\n"
+    config_path.write_text(config_payload, encoding="utf-8")
+
+    manifest_path = root / "experiment/package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["input_contract"]["required_paths"] = required_paths
+    for file_entry in manifest["files"]:
+        if file_entry["path"] == "experiment/code/config.json":
+            file_entry["sha256"] = hashlib.sha256(
+                config_payload.encode("utf-8")
+            ).hexdigest()
+            break
+    manifest_path.write_text(
+        json.dumps(manifest, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+
+
 def complete_first_four_stages(project: ResearchProject) -> ResearchProject:
     current = project
     for stage_id in range(1, 5):
@@ -452,8 +478,13 @@ def build_stage_twelve_project(
     """Build a real Stage-12 boundary with an optional missing declared input."""
     project = build_completed_validation_design_project(root)
     write_valid_fixture_artifacts(project.root, 10)
+    set_stage_ten_required_paths(project.root, ["data/input.csv"])
+    declared_input = project.root / "data/input.csv"
     assert validate_current_stage(ResearchProject.open(project.root)).valid is True
     project = ResearchProject.open(project.root)
+    if readiness == "ready_for_execution":
+        declared_input.parent.mkdir(parents=True)
+        declared_input.write_bytes(b"ready")
 
     plan = valid_resource_plan(
         project,
@@ -476,37 +507,46 @@ def build_stage_twelve_project(
     plan["saved_hardware_profile"] = json.loads(
         (project.root / "scope/hardware_profile.json").read_text(encoding="utf-8")
     )
-
-    declared_input = project.root / "data/input.csv"
-    if readiness == "needs_input":
-        plan["inputs"] = [
-            {
-                "path": "data/input.csv",
-                "required": True,
-                "exists": False,
-                "is_regular_file": False,
-                "size_bytes": 0,
-                "sha256": None,
-                "license_status": "confirmed",
-                "preparation_note": "Provide data/input.csv before execution.",
-            }
-        ]
-        plan["tasks"].insert(
-            0,
-            {
-                "task_id": "prepare_inputs",
-                "kind": "preparation",
-                "depends_on": [],
-                "priority": 0,
-                "cpu_count": 1,
-                "memory_bytes": 1,
-                "gpu_count": 0,
-                "temporary_disk_bytes": 1,
-                "estimated_duration_seconds": 1,
-            },
+    plan["warnings"] = list(
+        hardware_drift_warnings(
+            plan["saved_hardware_profile"],
+            plan["hardware_observation"],
         )
-        plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
-        plan["budget"]["total_estimated_duration_seconds"] = 2
+    )
+
+    input_exists = declared_input.is_file()
+    input_payload = declared_input.read_bytes() if input_exists else b""
+    plan["inputs"] = [
+        {
+            "path": "data/input.csv",
+            "required": True,
+            "exists": input_exists,
+            "is_regular_file": input_exists,
+            "size_bytes": len(input_payload),
+            "sha256": hashlib.sha256(input_payload).hexdigest()
+            if input_exists
+            else None,
+            "license_status": "confirmed",
+            "preparation_note": "Provide data/input.csv before execution.",
+        }
+    ]
+    plan["tasks"].insert(
+        0,
+        {
+            "task_id": "prepare_inputs",
+            "kind": "preparation",
+            "depends_on": [],
+            "priority": 0,
+            "cpu_count": 1,
+            "memory_bytes": 1,
+            "gpu_count": 0,
+            "temporary_disk_bytes": 1,
+            "estimated_duration_seconds": 1,
+        },
+    )
+    plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
+    plan["budget"]["total_estimated_duration_seconds"] = 2
+    if readiness == "needs_input":
         plan["unmet_prerequisites"] = [
             "Provide required input file at data/input.csv."
         ]

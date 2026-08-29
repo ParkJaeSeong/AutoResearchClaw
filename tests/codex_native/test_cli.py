@@ -2,6 +2,8 @@ import json
 import subprocess
 import sys
 
+import pytest
+
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
 from tests.codex_native.helpers import (
@@ -118,3 +120,51 @@ def test_execution_recheck_cli_refreshes_declared_readiness(tmp_path, capsys):
     assert len(payload["resource_plan_sha256"]) == 64
     assert captured.err == ""
     assert not (project.root / "experiment/results.json").exists()
+
+
+@pytest.mark.parametrize("command", ["approve", "recheck"])
+@pytest.mark.parametrize(
+    ("lineage_damage", "expected_stage"),
+    [
+        ("tampered-package-file", 10),
+        ("missing-stage-nine-approval", 9),
+        ("rejected-stage-nine-approval", 9),
+    ],
+)
+def test_stage_twelve_cli_commands_normalize_durable_lineage_before_mutating(
+    tmp_path,
+    capsys,
+    command,
+    lineage_damage,
+    expected_stage,
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / f"{command}-{lineage_damage}"
+    )
+    if lineage_damage == "tampered-package-file":
+        main_path = project.root / "experiment/code/main.py"
+        main_path.write_bytes(main_path.read_bytes() + b"\n# tampered after validation\n")
+    else:
+        approval_path = project.root / "approvals/stage-09.json"
+        if lineage_damage == "missing-stage-nine-approval":
+            approval_path.unlink()
+        else:
+            approval = json.loads(approval_path.read_text(encoding="utf-8"))
+            approval["decision"] = "reject"
+            approval_path.write_text(json.dumps(approval) + "\n", encoding="utf-8")
+
+    argv = (
+        ["approve", str(project.root), "--decision", "approve", "--json"]
+        if command == "approve"
+        else ["execution", "recheck", str(project.root), "--json"]
+    )
+    assert main(argv) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error:" in captured.err
+    state = ResearchProject.open(project.root).state
+    assert state.current_stage == expected_stage
+    assert state.status.value == "needs_revision"
+    assert state.next_action == "validate_stage"
+    assert not (project.root / "approvals/stage-12.json").exists()

@@ -120,6 +120,10 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
         raise ValueError("decision must be either 'approve' or 'reject'")
 
     current_project = ResearchProject.open(project.root)
+    if current_project.state.current_stage == 12:
+        from .handoff import normalize_durable_project
+
+        current_project = normalize_durable_project(current_project)
     state = current_project.state
     if state.status is not StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is not awaiting approval")

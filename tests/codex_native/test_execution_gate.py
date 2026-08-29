@@ -120,12 +120,13 @@ def test_recheck_refuses_resource_plan_changes_since_stage_eleven(
     changed = _load_json(resources)
     mutation(changed)
     resources.write_text(json.dumps(changed), encoding="utf-8")
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-
-    with pytest.raises(ValueError, match="changed since Stage 11 validation"):
+    with pytest.raises(ValueError, match="Stage 12"):
         _recheck(project)
 
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    state = ResearchProject.open(project.root).state
+    assert state.current_stage == 11
+    assert state.status is StageStatus.NEEDS_REVISION
+    assert state.next_action == "validate_stage"
 
 
 def test_recheck_refuses_non_stage_twelve_projects(tmp_path):
@@ -133,6 +134,41 @@ def test_recheck_refuses_non_stage_twelve_projects(tmp_path):
 
     with pytest.raises(ValueError, match="Stage 12"):
         _recheck(project)
+
+
+@pytest.mark.parametrize(
+    ("lineage_damage", "expected_stage"),
+    [
+        ("tampered-package-file", 10),
+        ("missing-stage-nine-approval", 9),
+        ("rejected-stage-nine-approval", 9),
+    ],
+)
+def test_public_recheck_normalizes_all_durable_lineage_before_refreshing(
+    tmp_path,
+    lineage_damage,
+    expected_stage,
+):
+    project, _declared_input = build_stage_twelve_project(tmp_path / lineage_damage)
+    if lineage_damage == "tampered-package-file":
+        main = project.root / "experiment/code/main.py"
+        main.write_bytes(main.read_bytes() + b"\n# tampered after validation\n")
+    else:
+        approval_path = project.root / "approvals/stage-09.json"
+        if lineage_damage == "missing-stage-nine-approval":
+            approval_path.unlink()
+        else:
+            approval = _load_json(approval_path)
+            approval["decision"] = "reject"
+            approval_path.write_text(json.dumps(approval) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Stage 12"):
+        _recheck(project)
+
+    state = ResearchProject.open(project.root).state
+    assert state.current_stage == expected_stage
+    assert state.status is StageStatus.NEEDS_REVISION
+    assert state.next_action == "validate_stage"
 
 
 def test_recheck_rejects_a_human_rejected_ready_plan(stage_12_ready_project):
@@ -187,5 +223,10 @@ def test_recheck_refuses_a_forged_resource_artifact_reference(stage_12_missing_p
         )
     )
 
-    with pytest.raises(ValueError, match="changed since Stage 11 validation"):
+    with pytest.raises(ValueError, match="Stage 12"):
         _recheck(ResearchProject.open(project.root))
+
+    normalized = ResearchProject.open(project.root).state
+    assert normalized.current_stage == 11
+    assert normalized.status is StageStatus.NEEDS_REVISION
+    assert normalized.next_action == "validate_stage"

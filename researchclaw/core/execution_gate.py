@@ -16,6 +16,7 @@ from .persistence import atomic_write_json
 from .project import ResearchProject
 from .resource_planning import (
     RESOURCE_PLAN_PATH,
+    hardware_drift_warnings,
     observe_local_hardware,
     validate_resource_plan_structure,
     validate_stage_eleven,
@@ -148,25 +149,7 @@ def _derived_warnings(
 ) -> list[str]:
     if not isinstance(saved_profile, dict):
         raise ValueError("persisted Stage 11 saved hardware profile is malformed")
-    comparable_fields = (
-        "logical_cpu_count",
-        "total_memory_bytes",
-        "free_disk_bytes",
-        "platform",
-        "architecture",
-        "gpu_available",
-    )
-    warnings = {
-        (
-            f"Saved hardware profile field {field!r} differs from the passive "
-            f"observation: {json.dumps(saved, sort_keys=True)} != "
-            f"{json.dumps(observation[field], sort_keys=True)}."
-        )
-        for field in comparable_fields
-        if (saved := saved_profile.get(field)) is not None
-        and saved != observation[field]
-    }
-    return sorted(warnings)
+    return list(hardware_drift_warnings(saved_profile, observation))
 
 
 def _derived_prerequisites(
@@ -323,8 +306,11 @@ def _recheck_execution_readiness(
 
 def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus:
     """Refresh passive facts unless a current human rejection locks the gate."""
+    from .handoff import normalize_durable_project
+
+    current_project = normalize_durable_project(project)
     return _recheck_execution_readiness(
-        project,
+        current_project,
         allow_rejected_decision=False,
     )
 
