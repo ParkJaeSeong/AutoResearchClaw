@@ -4,7 +4,10 @@ import json
 import pytest
 
 from researchclaw.core import development_execution
-from researchclaw.core.development_execution import run_development_experiment
+from researchclaw.core.development_execution import (
+    run_development_experiment,
+    validate_development_result,
+)
 from researchclaw.core.persistence import atomic_write_json
 from tests.codex_native.helpers import (
     build_stage_twelve_project,
@@ -186,6 +189,51 @@ def _execution_event(project):
         for line in (project.root / "evaluation/events.jsonl").read_text().splitlines()
     ]
     return events[-1]
+
+
+def test_validate_result_binds_current_manifest_and_split_counts_without_mutating_gate(
+    tmp_path,
+):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+    run_development_experiment(project, "experiment/input_manifest.dev.json")
+    resources_before = (project.root / "experiment/resources.json").read_bytes()
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    status = validate_development_result(
+        project, "experiment/dev_results.json"
+    )
+
+    assert status.readiness == "development_result_valid"
+    assert status.approval_eligible is False
+    assert status.result_path == "experiment/dev_results.json"
+    assert len(status.result_sha256) == 64
+    assert (project.root / "experiment/resources.json").read_bytes() == resources_before
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    event = _execution_event(project)
+    assert event["type"] == "development_result_validated"
+    assert event["payload"] == {
+        "input_manifest_path": "experiment/input_manifest.dev.json",
+        "input_manifest_sha256": hashlib.sha256(
+            (project.root / "experiment/input_manifest.dev.json").read_bytes()
+        ).hexdigest(),
+        "result_path": "experiment/dev_results.json",
+        "result_sha256": status.result_sha256,
+    }
+
+
+def test_validate_result_rejects_manifest_changed_after_execution(tmp_path):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    manifest_path = write_runnable_development_fixture(project)
+    run_development_experiment(project, "experiment/input_manifest.dev.json")
+    manifest_path.write_bytes(manifest_path.read_bytes() + b"\n")
+
+    with pytest.raises(ValueError, match="development_result_manifest_mismatch"):
+        validate_development_result(project, "experiment/dev_results.json")
 
 
 def _write_hand_computable_split_fixture(

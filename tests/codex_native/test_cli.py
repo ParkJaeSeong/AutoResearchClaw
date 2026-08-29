@@ -201,6 +201,39 @@ def test_execution_run_cli_completes_explicit_development_fixture(tmp_path, caps
     assert (project.root / "experiment/dev_results.json").exists()
 
 
+def test_execution_validate_result_cli_checks_existing_development_result(
+    tmp_path, capsys
+):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", readiness="needs_input"
+    )
+    write_runnable_development_fixture(project)
+    assert main(
+        [
+            "execution", "run", str(project.root),
+            "--input-manifest", "experiment/input_manifest.dev.json",
+            "--development", "--confirm-development-run", "--json",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(
+        [
+            "execution", "validate-result", str(project.root),
+            "--result", "experiment/dev_results.json",
+            "--development", "--json",
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["readiness"] == "development_result_valid"
+    assert payload["approval_eligible"] is False
+    assert payload["result_path"] == "experiment/dev_results.json"
+    assert len(payload["result_sha256"]) == 64
+    assert captured.err == ""
+
+
 def test_development_run_wrong_stage_does_not_normalize_legacy_state(tmp_path, capsys):
     project = ResearchProject.create(tmp_path / "project", "Formation energy", "materials_ai")
     _remove_stage_ten_snapshot(project)

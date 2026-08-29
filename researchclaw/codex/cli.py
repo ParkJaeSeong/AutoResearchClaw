@@ -14,7 +14,10 @@ from researchclaw.core.execution_gate import (
     recheck_development_input,
     recheck_execution_readiness,
 )
-from researchclaw.core.development_execution import run_development_experiment
+from researchclaw.core.development_execution import (
+    run_development_experiment,
+    validate_development_result,
+)
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -104,6 +107,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="positive local execution deadline in seconds (default: 120)",
     )
     run.add_argument("--json", action="store_true", help="emit JSON")
+    validate_result = execution_commands.add_parser(
+        "validate-result", help="validate a saved synthetic development result"
+    )
+    validate_result.add_argument("root", metavar="ROOT")
+    validate_result.add_argument(
+        "--result", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    validate_result.add_argument(
+        "--development",
+        action="store_true",
+        required=True,
+        help="confirm that the saved result is development-only",
+    )
+    validate_result.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -153,6 +170,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.input_manifest,
                 max_seconds=args.max_seconds,
             ).to_dict()
+        elif args.command == "execution" and args.execution_command == "validate-result":
+            project = ResearchProject.open_readonly(args.root)
+            payload = validate_development_result(project, args.result).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(

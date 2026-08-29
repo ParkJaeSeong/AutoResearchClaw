@@ -19,8 +19,10 @@ from .events import EvaluationEvent, event_log_for
 from .execution_gate import (
     DevelopmentInputValidationError,
     ValidatedDevelopmentInput,
+    _read_project_file_snapshot,
     validate_development_input,
 )
+from .paths import validate_relative_path
 from .persistence import _fsync_directory
 from .project import ResearchProject
 
@@ -68,6 +70,24 @@ class DevelopmentRunStatus:
             "approval_eligible": self.approval_eligible,
             "input_manifest_path": self.input_manifest_path,
             "input_manifest_sha256": self.input_manifest_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class DevelopmentResultValidationStatus:
+    """Identity and readiness of one independently validated development result."""
+
+    readiness: str
+    approval_eligible: bool
+    result_path: str
+    result_sha256: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "readiness": self.readiness,
+            "approval_eligible": self.approval_eligible,
+            "result_path": self.result_path,
+            "result_sha256": self.result_sha256,
         }
 
 
@@ -359,14 +379,21 @@ def _validate_result_payload(payload: dict[str, object]) -> None:
                 for count in counts.values()
             ):
                 raise _DevelopmentExecutionError("invalid_result_payload")
-        if not _is_finite_number(result["mae_cycles"]) or not _is_finite_number(
-            result["rmse_cycles"]
+        if (
+            not _is_finite_number(result["mae_cycles"])
+            or not _is_finite_number(result["rmse_cycles"])
+            or result["mae_cycles"] < 0
+            or result["rmse_cycles"] < result["mae_cycles"]
         ):
             raise _DevelopmentExecutionError("invalid_result_payload")
     aggregate = _closed_mapping(
         payload["aggregate_metrics"], {"mae_cycles", "rmse_cycles"}
     )
-    if not all(_is_finite_number(metric) for metric in aggregate.values()):
+    if (
+        not all(_is_finite_number(metric) for metric in aggregate.values())
+        or aggregate["mae_cycles"] < 0
+        or aggregate["rmse_cycles"] < aggregate["mae_cycles"]
+    ):
         raise _DevelopmentExecutionError("invalid_result_payload")
     leakage = _closed_mapping(
         payload["leakage_audit"],
@@ -388,9 +415,132 @@ def _validate_result_payload(payload: dict[str, object]) -> None:
         or not isinstance(runtime["max_seconds"], int)
         or isinstance(runtime["max_seconds"], bool)
         or runtime["max_seconds"] <= 0
+        or runtime["elapsed_seconds"] > runtime["max_seconds"]
     ):
         raise _DevelopmentExecutionError("invalid_result_payload")
     _validate_finite_json(payload)
+
+
+def _strict_result_json(snapshot: bytes) -> dict[str, object]:
+    def reject_constant(_value: str) -> object:
+        raise _DevelopmentExecutionError("invalid_result_payload")
+
+    try:
+        payload = json.loads(snapshot.decode("utf-8"), parse_constant=reject_constant)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise _DevelopmentExecutionError("invalid_result_payload") from error
+    if not isinstance(payload, dict):
+        raise _DevelopmentExecutionError("invalid_result_payload")
+    _validate_result_payload(payload)
+    return payload
+
+
+def _declared_dataset_ids(manifest: Mapping[str, object]) -> set[str]:
+    datasets = manifest.get("datasets")
+    if not isinstance(datasets, tuple):
+        raise _DevelopmentExecutionError("invalid_development_manifest")
+    identifiers: set[str] = set()
+    for dataset in datasets:
+        if not isinstance(dataset, Mapping):
+            raise _DevelopmentExecutionError("invalid_development_manifest")
+        dataset_id = dataset.get("dataset_id")
+        if not isinstance(dataset_id, str) or not dataset_id or dataset_id in identifiers:
+            raise _DevelopmentExecutionError("invalid_development_manifest")
+        identifiers.add(dataset_id)
+    return identifiers
+
+
+def _expected_dataset_counts(
+    validated: ValidatedDevelopmentInput,
+) -> dict[str, dict[str, dict[str, int]]]:
+    expected: dict[str, dict[str, dict[str, int]]] = {}
+    groups: dict[str, dict[str, set[str]]] = {}
+    for row in validated.cell_rows:
+        dataset_id = row.get("dataset_id")
+        role = row.get("split_role")
+        group_id = row.get("condition_id")
+        if (
+            not isinstance(dataset_id, str)
+            or role not in _ALLOWED_SPLIT_ROLES
+            or not isinstance(group_id, str)
+        ):
+            raise _DevelopmentExecutionError("invalid_development_manifest")
+        counts = expected.setdefault(
+            dataset_id,
+            {
+                "role_counts": {name: 0 for name in _ALLOWED_SPLIT_ROLES},
+                "group_counts": {name: 0 for name in _ALLOWED_SPLIT_ROLES},
+            },
+        )
+        counts["role_counts"][role] += 1
+        groups.setdefault(dataset_id, {}).setdefault(role, set()).add(group_id)
+    for dataset_id, by_role in groups.items():
+        for role in _ALLOWED_SPLIT_ROLES:
+            expected[dataset_id]["group_counts"][role] = len(by_role.get(role, set()))
+    return expected
+
+
+def validate_development_result(
+    project: ResearchProject,
+    result_path: str,
+) -> DevelopmentResultValidationStatus:
+    """Validate a saved development result without rerunning or promoting it."""
+    normalized_result_path = validate_relative_path(result_path, kind="artifact")
+    try:
+        snapshot = _read_project_file_snapshot(project.root, normalized_result_path)
+    except (OSError, ValueError) as error:
+        raise _DevelopmentExecutionError("invalid_development_result_file") from error
+    result_sha256 = hashlib.sha256(snapshot).hexdigest()
+    payload = _strict_result_json(snapshot)
+    if payload["project_id"] != project.state.project_id:
+        raise _DevelopmentExecutionError("development_result_project_mismatch")
+
+    result_manifest = payload["input_manifest"]
+    assert isinstance(result_manifest, dict)
+    manifest_path = result_manifest["path"]
+    assert isinstance(manifest_path, str)
+    _status, validated = validate_development_input(
+        project, manifest_path, record_event=False
+    )
+    if result_manifest["sha256"] != validated.manifest_sha256:
+        raise _DevelopmentExecutionError("development_result_manifest_mismatch")
+
+    expected = _expected_dataset_counts(validated)
+    if set(expected) != _declared_dataset_ids(validated.manifest):
+        raise _DevelopmentExecutionError("development_result_dataset_mismatch")
+    dataset_results = payload["dataset_results"]
+    assert isinstance(dataset_results, list)
+    actual = {result["dataset_id"]: result for result in dataset_results}
+    if set(actual) != set(expected):
+        raise _DevelopmentExecutionError("development_result_dataset_mismatch")
+    for dataset_id, counts in expected.items():
+        result = actual[dataset_id]
+        if (
+            result["role_counts"] != counts["role_counts"]
+            or result["group_counts"] != counts["group_counts"]
+        ):
+            raise _DevelopmentExecutionError("development_result_count_mismatch")
+    if any(payload["leakage_audit"].values()):
+        raise _DevelopmentExecutionError("development_result_leakage_detected")
+
+    event_log_for(project.root).append(
+        EvaluationEvent.create(
+            "development_result_validated",
+            project.state.project_id,
+            {
+                "input_manifest_path": validated.manifest_path,
+                "input_manifest_sha256": validated.manifest_sha256,
+                "result_path": normalized_result_path,
+                "result_sha256": result_sha256,
+            },
+        )
+    )
+    return DevelopmentResultValidationStatus(
+        readiness="development_result_valid",
+        approval_eligible=False,
+        result_path=normalized_result_path,
+        result_sha256=result_sha256,
+    )
 
 
 def _stage_result_json(
