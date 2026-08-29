@@ -4,7 +4,10 @@ import sys
 
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
-from tests.codex_native.helpers import build_completed_validation_design_project
+from tests.codex_native.helpers import (
+    build_completed_validation_design_project,
+    build_stage_twelve_project,
+)
 
 
 def _remove_stage_ten_snapshot(project):
@@ -95,3 +98,23 @@ def test_stage_prepare_cli_explicitly_establishes_safe_legacy_baseline(
     payload = json.loads(capsys.readouterr().out)
     assert payload["stage_id"] == 10
     assert ResearchProject.open(project.root).state.stage_10_snapshot.status == "captured"
+
+
+def test_execution_recheck_cli_refreshes_declared_readiness(tmp_path, capsys):
+    project, declared_input = build_stage_twelve_project(
+        tmp_path / "project",
+        readiness="needs_input",
+    )
+    declared_input.parent.mkdir(parents=True)
+    declared_input.write_bytes(b"ready")
+
+    assert main(["execution", "recheck", str(project.root), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["readiness"] == "ready_for_execution"
+    assert payload["approval_eligible"] is True
+    assert payload["unmet_prerequisites"] == []
+    assert len(payload["resource_plan_sha256"]) == 64
+    assert captured.err == ""
+    assert not (project.root / "experiment/results.json").exists()

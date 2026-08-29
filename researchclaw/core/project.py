@@ -163,6 +163,12 @@ class ResearchProject:
         from .resource_planning import validated_execution_readiness
 
         readiness, prerequisites, approval_eligible = validated_execution_readiness(self)
+        approval_eligible = (
+            approval_eligible
+            and self.state.current_stage == 12
+            and self.state.status is StageStatus.AWAITING_APPROVAL
+            and self.state.next_action == "approve_experiment_execution"
+        )
         return {
             **self.state.to_dict(),
             "execution_readiness": readiness,

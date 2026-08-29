@@ -124,6 +124,9 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
     if state.status is not StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is not awaiting approval")
 
+    if state.current_stage == 12:
+        return _approve_stage_twelve(current_project, decision, note)
+
     contract = get_contract(state.current_stage)
     if not contract.requires_approval:
         raise ValueError(f"stage {state.current_stage} does not require approval")
@@ -192,6 +195,81 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
     return record
 
 
+def _approve_stage_twelve(
+    project: ResearchProject,
+    decision: str,
+    note: str,
+) -> ApprovalRecord:
+    """Record the execution decision without running or importing the package."""
+    from .execution_gate import (
+        recheck_execution_readiness,
+        stage_twelve_artifact_hashes,
+    )
+
+    state = project.state
+    if state.next_action != "approve_experiment_execution":
+        raise ValueError("execution prerequisites are not ready for approval")
+    status = recheck_execution_readiness(project)
+    if not status.approval_eligible or status.readiness != "ready_for_execution":
+        raise ValueError("execution prerequisites are not ready for approval")
+
+    refreshed_project = ResearchProject.open(project.root)
+    artifact_hashes = stage_twelve_artifact_hashes(refreshed_project)
+    record = ApprovalRecord(
+        schema_version=_SCHEMA_VERSION,
+        project_id=refreshed_project.state.project_id,
+        stage_id=12,
+        decision=decision,
+        artifact_hashes=artifact_hashes,
+        decided_at=datetime.now(timezone.utc).isoformat(),
+        note=note,
+    )
+    _save_record(_approval_path(refreshed_project.root, 12), record)
+    if decision == "approve":
+        updated_state = ProjectState(
+            schema_version=refreshed_project.state.schema_version,
+            project_id=refreshed_project.state.project_id,
+            topic=refreshed_project.state.topic,
+            profile=refreshed_project.state.profile,
+            current_stage=12,
+            status=StageStatus.READY,
+            completed_stages=refreshed_project.state.completed_stages,
+            next_action="report_resource_plan_milestone_only",
+            execution_policy=refreshed_project.state.execution_policy,
+            artifacts=refreshed_project.state.artifacts,
+            retry_counts=refreshed_project.state.retry_counts,
+            last_error=refreshed_project.state.last_error,
+            stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
+        )
+    else:
+        updated_state = ProjectState(
+            schema_version=refreshed_project.state.schema_version,
+            project_id=refreshed_project.state.project_id,
+            topic=refreshed_project.state.topic,
+            profile=refreshed_project.state.profile,
+            current_stage=12,
+            status=StageStatus.NEEDS_REVISION,
+            completed_stages=refreshed_project.state.completed_stages,
+            next_action="report_missing_execution_inputs",
+            execution_policy=refreshed_project.state.execution_policy,
+            artifacts=refreshed_project.state.artifacts,
+            retry_counts=refreshed_project.state.retry_counts,
+            last_error=refreshed_project.state.last_error,
+            stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
+        )
+    refreshed_project.persist_state(updated_state)
+    from .events import EvaluationEvent, event_log_for
+
+    event_log_for(refreshed_project.root).append(
+        EvaluationEvent.create(
+            "approval_decision",
+            refreshed_project.state.project_id,
+            {"stage_id": 12, "decision": decision},
+        )
+    )
+    return record
+
+
 def approval_matches_state(root: Path, state: ProjectState, record: ApprovalRecord) -> bool:
     """Return whether a record still matches an already-loaded persisted state."""
     try:
@@ -202,6 +280,11 @@ def approval_matches_state(root: Path, state: ProjectState, record: ApprovalReco
             or record.project_id != state.project_id
         ):
             return False
+        if record.stage_id == 12:
+            from .execution_gate import _stage_twelve_artifact_hashes
+
+            expected_hashes = _stage_twelve_artifact_hashes(root, state)
+            return record.artifact_hashes == expected_hashes
         contract = get_contract(record.stage_id)
         if not contract.requires_approval or set(record.artifact_hashes) != set(contract.required_outputs):
             return False

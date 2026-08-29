@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import build_foundation_report
+from researchclaw.core.execution_gate import recheck_execution_readiness
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate = stage_commands.add_parser("validate", help="validate and advance the current stage")
     validate.add_argument("root", metavar="ROOT")
     validate.add_argument("--json", action="store_true", help="emit JSON")
+
+    execution = subcommands.add_parser("execution", help="inspect the Stage 12 execution gate")
+    execution_commands = execution.add_subparsers(dest="execution_command", required=True)
+    recheck = execution_commands.add_parser("recheck", help="refresh declared readiness facts")
+    recheck.add_argument("root", metavar="ROOT")
+    recheck.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -81,6 +88,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evaluate":
             project = ResearchProject.open(args.root)
             payload = build_foundation_report(project)
+        elif args.command == "execution" and args.execution_command == "recheck":
+            project = ResearchProject.open(args.root)
+            payload = recheck_execution_readiness(project).to_dict()
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(
@@ -107,6 +117,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"stage {payload['stage_id']}: {'valid' if payload['valid'] else 'invalid'}")
         elif args.command == "evaluate":
             print(f"{payload['project_id']}: {payload['stage_completion_rate']:.0%} complete")
+        elif args.command == "execution":
+            print(f"stage 12: {payload['readiness']}")
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
     return exit_code

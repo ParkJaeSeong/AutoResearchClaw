@@ -203,10 +203,28 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
     execution_readiness, unmet_prerequisites, approval_eligible = (
         validated_execution_readiness(current_project)
     )
+    execution_approved = False
     if execution_boundary:
         milestone_complete = False
         stage_name = "experiment_run"
-        approval_required = True
+        execution_record = load_approval_record(current_project.root, 12)
+        execution_approved = (
+            state.status is StageStatus.READY
+            and state.next_action == "report_resource_plan_milestone_only"
+            and execution_record is not None
+            and execution_record.decision == "approve"
+            and approval_matches_state(
+                current_project.root,
+                state,
+                execution_record,
+            )
+        )
+        approval_required = not execution_approved
+        approval_eligible = (
+            approval_eligible
+            and state.status is StageStatus.AWAITING_APPROVAL
+            and state.next_action == "approve_experiment_execution"
+        )
     elif state.current_stage > 23:
         stage_name = "project_complete"
         approval_required = False
@@ -217,7 +235,12 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if execution_boundary:
-        next_action = state.next_action
+        next_action = (
+            state.next_action
+            if execution_approved
+            or state.status is not StageStatus.READY
+            else "report_missing_execution_inputs"
+        )
         if approval_eligible:
             next_command = shlex.join(
                 (
@@ -229,6 +252,12 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
                     "--json",
                 )
             )
+        elif (
+            status is StageStatus.AWAITING_APPROVAL
+            and execution_readiness == "needs_input"
+            and state.next_action == "report_missing_execution_inputs"
+        ):
+            next_command = _command(current_project.root, "execution", "recheck")
         else:
             next_command = _command(current_project.root, "status")
     elif milestone_complete:

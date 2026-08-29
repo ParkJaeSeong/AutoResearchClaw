@@ -1,0 +1,180 @@
+import hashlib
+import importlib
+import json
+import shlex
+from dataclasses import replace
+
+import pytest
+
+from researchclaw.core.models import ArtifactRef, StageStatus
+from researchclaw.core.project import ResearchProject
+from tests.codex_native.helpers import build_stage_twelve_project
+
+
+def _load_json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _recheck(project):
+    module = importlib.import_module("researchclaw.core.execution_gate")
+    return module.recheck_execution_readiness(project)
+
+
+@pytest.fixture
+def stage_12_missing_project(tmp_path):
+    return build_stage_twelve_project(
+        tmp_path / "missing",
+        readiness="needs_input",
+    )
+
+
+@pytest.fixture
+def stage_12_ready_project(tmp_path):
+    return build_stage_twelve_project(tmp_path / "ready")[0]
+
+
+def test_recheck_only_refreshes_declared_observation_facts(stage_12_missing_project):
+    project, declared_input = stage_12_missing_project
+    declared_input.parent.mkdir(parents=True)
+    declared_input.write_bytes(b"ready")
+    resources = project.root / "experiment/resources.json"
+    before = _load_json(resources)
+
+    status = _recheck(project)
+
+    after = _load_json(resources)
+    assert status.readiness == "ready_for_execution"
+    assert status.approval_eligible is True
+    assert status.unmet_prerequisites == ()
+    assert status.resource_plan_sha256 == hashlib.sha256(resources.read_bytes()).hexdigest()
+    assert after["inputs"][0] == {
+        "path": "data/input.csv",
+        "required": True,
+        "exists": True,
+        "is_regular_file": True,
+        "size_bytes": 5,
+        "sha256": hashlib.sha256(b"ready").hexdigest(),
+        "license_status": "confirmed",
+        "preparation_note": "Provide data/input.csv before execution.",
+    }
+    for immutable_field in (
+        "project_id",
+        "bindings",
+        "saved_hardware_profile",
+        "tasks",
+        "budget",
+        "deferred_command",
+        "result_path",
+        "prohibitions",
+    ):
+        assert after[immutable_field] == before[immutable_field]
+
+    reopened = ResearchProject.open(project.root)
+    artifact = reopened.state.artifacts["experiment/resources.json"]
+    assert artifact.sha256 == status.resource_plan_sha256
+    assert artifact.size == resources.stat().st_size
+    assert reopened.state.status is StageStatus.AWAITING_APPROVAL
+    assert reopened.state.next_action == "approve_experiment_execution"
+    events = [json.loads(line) for line in (project.root / "evaluation/events.jsonl").read_text().splitlines()]
+    assert events[-1]["type"] == "execution_readiness_rechecked"
+
+
+def test_stage_twelve_hashes_reopen_state_after_recheck(stage_12_missing_project):
+    project, declared_input = stage_12_missing_project
+    declared_input.parent.mkdir(parents=True)
+    declared_input.write_bytes(b"ready")
+    status = _recheck(project)
+    module = importlib.import_module("researchclaw.core.execution_gate")
+
+    hashes = module.stage_twelve_artifact_hashes(project)
+
+    assert hashes["experiment/resources.json"] == status.resource_plan_sha256
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda plan: plan["inputs"].append(
+            {
+                "path": "data/undeclared.csv",
+                "required": False,
+                "exists": False,
+                "is_regular_file": False,
+                "size_bytes": 0,
+                "sha256": None,
+                "license_status": "not_required",
+                "preparation_note": "Unexpected path.",
+            }
+        ),
+        lambda plan: plan["tasks"][0].update({"priority": 99}),
+        lambda plan: plan.update({"deferred_command": "python changed.py"}),
+    ],
+    ids=("undeclared-input", "task-change", "command-change"),
+)
+def test_recheck_refuses_resource_plan_changes_since_stage_eleven(
+    stage_12_missing_project,
+    mutation,
+):
+    project, _declared_input = stage_12_missing_project
+    resources = project.root / "experiment/resources.json"
+    changed = _load_json(resources)
+    mutation(changed)
+    resources.write_text(json.dumps(changed), encoding="utf-8")
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="changed since Stage 11 validation"):
+        _recheck(project)
+
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+
+
+def test_recheck_refuses_non_stage_twelve_projects(tmp_path):
+    project = ResearchProject.create(tmp_path / "project", "Formation energy", "materials_ai")
+
+    with pytest.raises(ValueError, match="Stage 12"):
+        _recheck(project)
+
+
+def test_recheck_rejects_a_human_rejected_ready_plan(stage_12_ready_project):
+    from researchclaw.core.approval import approve_current_gate
+
+    approve_current_gate(stage_12_ready_project, "reject", "Do not run")
+
+    with pytest.raises(ValueError, match="human rejection"):
+        _recheck(ResearchProject.open(stage_12_ready_project.root))
+
+
+def test_missing_input_handoff_points_to_the_constrained_recheck(stage_12_missing_project):
+    project, _declared_input = stage_12_missing_project
+
+    handoff = project.build_handoff()
+
+    assert shlex.split(handoff.next_command) == [
+        "researchclaw-codex",
+        "execution",
+        "recheck",
+        str(project.root.resolve()),
+        "--json",
+    ]
+
+
+def test_recheck_refuses_a_forged_resource_artifact_reference(stage_12_missing_project):
+    project, _declared_input = stage_12_missing_project
+    state = ResearchProject.open(project.root).state
+    artifact = state.artifacts["experiment/resources.json"]
+    ResearchProject.open(project.root).persist_state(
+        replace(
+            state,
+            artifacts={
+                **state.artifacts,
+                "experiment/resources.json": ArtifactRef(
+                    path=artifact.path,
+                    sha256="0" * 64,
+                    size=artifact.size,
+                ),
+            },
+        )
+    )
+
+    with pytest.raises(ValueError, match="changed since Stage 11 validation"):
+        _recheck(ResearchProject.open(project.root))

@@ -6,6 +6,7 @@ from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.resource_planning import observe_local_hardware
 from researchclaw.core.validation import validate_current_stage
 
 
@@ -441,3 +442,78 @@ def build_completed_validation_design_project(
     approved = ResearchProject.open(project.root)
     approve_current_gate(approved, "approve", "Validation plan accepted")
     return ResearchProject.open(project.root)
+
+
+def build_stage_twelve_project(
+    root: Path,
+    *,
+    readiness: str = "ready_for_execution",
+) -> tuple[ResearchProject, Path]:
+    """Build a real Stage-12 boundary with an optional missing declared input."""
+    project = build_completed_validation_design_project(root)
+    write_valid_fixture_artifacts(project.root, 10)
+    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    project = ResearchProject.open(project.root)
+
+    plan = valid_resource_plan(
+        project,
+        observe_local_hardware(project.root),
+        readiness=readiness,
+    )
+    binding_paths = {
+        "design": "experiment/design.json",
+        "package_manifest": "experiment/package_manifest.json",
+        "config": "experiment/code/config.json",
+        "hardware_profile": "scope/hardware_profile.json",
+    }
+    plan["bindings"] = {
+        name: {
+            "path": path,
+            "sha256": hashlib.sha256((project.root / path).read_bytes()).hexdigest(),
+        }
+        for name, path in binding_paths.items()
+    }
+    plan["saved_hardware_profile"] = json.loads(
+        (project.root / "scope/hardware_profile.json").read_text(encoding="utf-8")
+    )
+
+    declared_input = project.root / "data/input.csv"
+    if readiness == "needs_input":
+        plan["inputs"] = [
+            {
+                "path": "data/input.csv",
+                "required": True,
+                "exists": False,
+                "is_regular_file": False,
+                "size_bytes": 0,
+                "sha256": None,
+                "license_status": "confirmed",
+                "preparation_note": "Provide data/input.csv before execution.",
+            }
+        ]
+        plan["tasks"].insert(
+            0,
+            {
+                "task_id": "prepare_inputs",
+                "kind": "preparation",
+                "depends_on": [],
+                "priority": 0,
+                "cpu_count": 1,
+                "memory_bytes": 1,
+                "gpu_count": 0,
+                "temporary_disk_bytes": 1,
+                "estimated_duration_seconds": 1,
+            },
+        )
+        plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
+        plan["budget"]["total_estimated_duration_seconds"] = 2
+        plan["unmet_prerequisites"] = [
+            "Provide required input file at data/input.csv."
+        ]
+    elif readiness != "ready_for_execution":
+        raise ValueError(f"unsupported test readiness: {readiness}")
+
+    resources = project.root / "experiment/resources.json"
+    resources.write_text(json.dumps(plan, sort_keys=True) + "\n", encoding="utf-8")
+    assert validate_current_stage(project).valid is True
+    return ResearchProject.open(project.root), declared_input

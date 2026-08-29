@@ -7,7 +7,7 @@ from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate, verify_current_approval
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import complete_first_four_stages
+from tests.codex_native.helpers import build_stage_twelve_project, complete_first_four_stages
 
 
 def _project_at_stage_five_gate(root):
@@ -151,3 +151,99 @@ def test_approval_rejects_gate_symlink_even_when_content_matches(tmp_path):
 
     with pytest.raises(ValueError, match="unsafe artifact path"):
         approve_current_gate(project, "approve", "Use this corpus")
+
+
+@pytest.mark.parametrize("decision", ["approve", "reject"])
+def test_stage_twelve_approval_refuses_needs_input(tmp_path, decision):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / decision,
+        readiness="needs_input",
+    )
+
+    with pytest.raises(ValueError, match="execution prerequisites are not ready"):
+        approve_current_gate(project, decision, "Run it")
+
+
+def test_execution_approval_binds_four_artifacts_without_executing(tmp_path):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    completed_before = project.state.completed_stages
+
+    record = approve_current_gate(project, "approve", "Run it")
+
+    assert set(record.artifact_hashes) == {
+        "experiment/design.json",
+        "experiment/package_manifest.json",
+        "experiment/code/config.json",
+        "experiment/resources.json",
+    }
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 12
+    assert reopened.state.completed_stages == completed_before
+    assert reopened.state.status.value == "ready"
+    assert reopened.state.next_action == "report_resource_plan_milestone_only"
+    assert reopened.status_dict()["approval_eligible"] is False
+    assert not (project.root / "experiment/results.json").exists()
+    assert json.loads(
+        (project.root / "approvals/stage-12.json").read_text(encoding="utf-8")
+    )["note"] == "Run it"
+    handoff = reopened.build_handoff()
+    assert handoff.next_action == "report_resource_plan_milestone_only"
+    assert " approve " not in f" {handoff.next_command} "
+    assert "stage prepare" not in handoff.next_command
+
+
+def test_stage_twelve_approval_rechecks_readiness_against_current_inputs(tmp_path):
+    project, declared_input = build_stage_twelve_project(
+        tmp_path / "project",
+        readiness="needs_input",
+    )
+    declared_input.parent.mkdir(parents=True)
+    declared_input.write_bytes(b"ready")
+    execution_gate = __import__(
+        "researchclaw.core.execution_gate",
+        fromlist=["recheck_execution_readiness"],
+    )
+    execution_gate.recheck_execution_readiness(project)
+    declared_input.unlink()
+
+    with pytest.raises(ValueError, match="execution prerequisites are not ready"):
+        approve_current_gate(ResearchProject.open(project.root), "approve", "Run it")
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "experiment/design.json",
+        "experiment/package_manifest.json",
+        "experiment/code/config.json",
+        "experiment/resources.json",
+    ],
+)
+def test_modifying_any_execution_gate_artifact_invalidates_approval(
+    tmp_path,
+    relative_path,
+):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    record = approve_current_gate(project, "approve", "Run it")
+
+    path = project.root / relative_path
+    path.write_bytes(path.read_bytes() + b"\n")
+
+    assert verify_current_approval(project.root, record) is False
+
+
+def test_reject_keeps_stage_twelve_safely_locked(tmp_path):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+
+    record = approve_current_gate(project, "reject", "Do not run")
+
+    reopened = ResearchProject.open(project.root)
+    assert record.note == "Do not run"
+    assert reopened.state.current_stage == 12
+    assert reopened.state.completed_stages[-1] == 11
+    assert reopened.state.status.value == "needs_revision"
+    assert reopened.state.next_action == "report_missing_execution_inputs"
+    assert reopened.status_dict()["approval_eligible"] is False
+    assert not (project.root / "experiment/results.json").exists()
+    handoff = reopened.build_handoff()
+    assert " approve " not in f" {handoff.next_command} "
