@@ -6,6 +6,7 @@ import ast
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any, Mapping
@@ -335,6 +336,7 @@ _SPLIT_GROUPS = {"train", "validation", "calibration", "test"}
 _LEGACY_SPLIT_ISOLATION_KEYS = frozenset(
     {"cell_id", "batch_id", "condition_id", "source_id", "dataset_id"}
 )
+_UNSAFE_LEGACY_SPLIT_UNICODE_CATEGORIES = frozenset({"Cf", "Mn", "Mc", "Me"})
 _LATER_RESULT_PATH = "experiment/results.json"
 
 
@@ -1625,11 +1627,20 @@ def _closed_contract(value: object, fields: set[str]) -> dict[str, Any] | None:
 def _legacy_split_allows_isolation_key(
     split_source: str, isolation_key: object
 ) -> bool:
+    normalized_source = unicodedata.normalize("NFKC", split_source)
+    if any(
+        unicodedata.category(character)
+        in _UNSAFE_LEGACY_SPLIT_UNICODE_CATEGORIES
+        for source in (split_source, normalized_source)
+        for character in source
+    ):
+        return False
     return (
         isinstance(isolation_key, str)
         and isolation_key in _LEGACY_SPLIT_ISOLATION_KEYS
         and re.search(
-            rf"(?<!\w){re.escape(isolation_key)}(?!\w)", split_source
+            rf"(?<![A-Za-z0-9_]){re.escape(isolation_key)}(?![A-Za-z0-9_])",
+            normalized_source,
         )
         is not None
     )

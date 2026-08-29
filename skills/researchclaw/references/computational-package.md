@@ -93,7 +93,12 @@ fields:
   `dataset_id` that appears as an identifier token in the approved string.
   The approved string may mention multiple candidates, but the selected config
   value must be one key, not an invented key such as `row_id` or a composite.
-  Do not rewrite the approved design to perform this legacy translation.
+  Token recognition uses an NFKC-normalized inspection copy and ASCII
+  identifier boundaries, so compatibility-width text and attached Korean
+  particles are accepted. A format character or combining mark anywhere in
+  the approved string disables this compatibility path. The `design_binding`
+  still preserves the original string exactly; do not rewrite the approved
+  design to perform this legacy translation.
 - `seeds`: exactly `design_binding` and `values`; the binding equals the
   approved reproducibility source selected by traceability and `values` is a
   non-empty list of JSON integers.

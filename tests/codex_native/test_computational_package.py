@@ -1271,11 +1271,46 @@ def test_package_accepts_atomic_safe_key_from_legacy_korean_split_string(tmp_pat
 
 
 @pytest.mark.parametrize(
+    "split_source",
+    [
+        "배터리 데이터는 batch_id를 기준으로 분리한다.",
+        "이 분할의 격리 식별자는 batch_id이다.",
+        "배터리 데이터는 ｂａｔｃｈ＿ｉｄ를 기준으로 분리한다.",
+    ],
+)
+def test_package_accepts_korean_suffixes_and_nfkc_legacy_split_key(
+    tmp_path, split_source
+):
+    project = _build_legacy_approved_split_project(
+        tmp_path / "project", split_source
+    )
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["split_strategy"].update(
+            {"isolation_key": "batch_id"}
+        ),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+
+
+@pytest.mark.parametrize(
     ("split_source", "isolation_key"),
     [
         (_KOREAN_LEGACY_SPLIT, "row_id"),
         (_KOREAN_LEGACY_SPLIT, "batch_id|condition_id"),
         ("배터리 데이터는 batch_id_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batch_id\u200b_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batch_id\u200d_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batch_id\u0301_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batch_id 기준이다.\u200e", "batch_id"),
+        ("배터리 데이터는 batch_id 기준이다.\u0903", "batch_id"),
+        ("배터리 데이터는 batch_id 기준이다.\u0488", "batch_id"),
+        ("배터리 데이터는 batch_id\u00a8_extra 기준이다.", "batch_id"),
+        ("배터리 데이터는 ｂａｔｃｈ＿ｉｄ＿ｅｘｔｒａ 기준이다.", "batch_id"),
     ],
 )
 def test_package_rejects_unsafe_or_nonatomic_legacy_split_key(
