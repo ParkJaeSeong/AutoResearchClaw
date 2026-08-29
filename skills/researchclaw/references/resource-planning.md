@@ -27,19 +27,20 @@ declares exactly these inputs:
 | `config` | `experiment/code/config.json` |
 | `hardware_profile` | `scope/hardware_profile.json` |
 
-Copy the packet's passive `profile_context.hardware_observation` into the plan
-without fabricating a GPU fact. The packet also declares the fixed deferred
-command `python experiment/code/main.py --config experiment/code/config.json`
-and fixed result path `experiment/results.json`; they are descriptions of a
-future execution, not commands to run here.
+Parse the packet's `profile_context.hardware_observation` JSON string and place
+the resulting object unchanged in `hardware_observation`. Do not fabricate a
+GPU fact. The packet also declares the fixed deferred command
+`python experiment/code/main.py --config experiment/code/config.json` and fixed
+result path `experiment/results.json`; they are descriptions of a future
+execution, not commands to run here.
 
 After a valid plan, Stage 11 advances the durable project to the Stage 12
 approval boundary. Show the plan, readiness, warnings, and prerequisites to
-the user. Stage 12 is approval-only: an explicit `approve` or `reject`
-decision is required, and approval records a hash-bound decision but does not
-execute the deferred command or create results. A rejection remains locked;
-the user must make an explicit later re-decision (`approve`) after
-reconsideration. Never decide or re-decide on the user's behalf.
+the user. Stage 12 is approval-only and non-executing. An explicit `approve`
+or `reject` decision is required. Approval records a hash-bound decision only;
+it never executes the experiment, deferred command, or generated code. A
+rejection remains locked; it requires a later explicit re-decision (`approve`)
+after reconsideration. Never decide or re-decide on the user's behalf.
 
 ## Closed `experiment/resources.json` schema
 
@@ -179,7 +180,8 @@ Only after a valid-missing plan has advanced to Stage 12 and the user has
 satisfied the listed prerequisites, run `execution recheck ROOT --json`. It
 refreshes only passive hardware, input facts, drift warnings,
 `unmet_prerequisites`, and `readiness`; it rejects changed immutable planning
-fields. If a current human rejection is still active, ordinary recheck refuses
-to unlock it. Report its JSON readiness and then stop. Do not execute
+fields. Recheck must not add, remove, or change an input path, task, budget, or
+deferred command. A passive `execution recheck` cannot erase a current human
+rejection. Report its JSON readiness and then stop. Do not execute
 `python experiment/code/main.py --config experiment/code/config.json`; do not
 write `experiment/results.json`; do not prepare or run a Stage-12 experiment.
