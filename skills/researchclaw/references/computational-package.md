@@ -90,7 +90,10 @@ fields:
   For an already-approved legacy design whose traced split strategy is a
   string, preserve that string exactly as `design_binding`. Select one atomic
   `isolation_key` from `cell_id`, `batch_id`, `condition_id`, `source_id`, or
-  `dataset_id` that appears as an identifier token in the approved string.
+  `dataset_id`. The approved string must contain the exact `cell_id` token for
+  `cell_id`; it may contain either the selected key or its closed legacy alias
+  (`batch`, `condition`, `source`, or `dataset`) for each corresponding `_id`
+  key.
   The approved string may mention multiple candidates, but the selected config
   value must be one key, not an invented key such as `row_id` or a composite.
   Token recognition uses an NFKC-normalized inspection copy and ASCII

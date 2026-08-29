@@ -1243,6 +1243,10 @@ _KOREAN_LEGACY_SPLIT = (
     "배터리 데이터의 cell_id, batch_id, condition_id, source_id를 추적하고 "
     "batch_id 기준으로 학습, 검증, 보정, 테스트 집합을 분리한다."
 )
+_KOREAN_LEGACY_ALIAS_SPLIT = (
+    "배터리 데이터는 cell_id, batch, condition, source, dataset을 추적하며 "
+    "batch를 기준으로 학습, 검증, 보정, 테스트 집합을 분리한다."
+)
 
 
 def test_package_accepts_atomic_safe_key_from_legacy_korean_split_string(tmp_path):
@@ -1300,9 +1304,46 @@ def test_package_accepts_korean_suffixes_and_nfkc_legacy_split_key(
 @pytest.mark.parametrize(
     ("split_source", "isolation_key"),
     [
-        (_KOREAN_LEGACY_SPLIT, "row_id"),
-        (_KOREAN_LEGACY_SPLIT, "batch_id|condition_id"),
+        (_KOREAN_LEGACY_ALIAS_SPLIT, "batch_id"),
+        ("배터리 데이터는 condition을 기준으로 분리한다.", "condition_id"),
+        ("배터리 데이터는 source를 기준으로 분리한다.", "source_id"),
+        ("배터리 데이터는 dataset을 기준으로 분리한다.", "dataset_id"),
+        ("배터리 데이터는 ｂａｔｃｈ를 기준으로 분리한다.", "batch_id"),
+    ],
+)
+def test_package_accepts_closed_natural_language_legacy_split_aliases(
+    tmp_path, split_source, isolation_key
+):
+    project = _build_legacy_approved_split_project(
+        tmp_path / "project", split_source
+    )
+    design_path = project.root / "experiment" / "design.json"
+    approved_bytes = design_path.read_bytes()
+    write_valid_fixture_artifacts(project.root, 10)
+    _replace_config(
+        project,
+        lambda config: config["split_strategy"].update(
+            {"isolation_key": isolation_key}
+        ),
+    )
+
+    report = validate_current_stage(project)
+
+    assert report.valid is True
+    assert design_path.read_bytes() == approved_bytes
+
+
+@pytest.mark.parametrize(
+    ("split_source", "isolation_key"),
+    [
+        (_KOREAN_LEGACY_ALIAS_SPLIT, "row_id"),
+        (_KOREAN_LEGACY_ALIAS_SPLIT, "batch_id|condition_id"),
         ("배터리 데이터는 batch_id_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 rebatch 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batch_extra 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 bat\u200bch 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 batc\u0301h 기준으로 분리한다.", "batch_id"),
+        ("배터리 데이터는 cell 기준으로 분리한다.", "cell_id"),
         ("배터리 데이터는 batch_id\u200b_extra 기준으로 분리한다.", "batch_id"),
         ("배터리 데이터는 batch_id\u200d_extra 기준으로 분리한다.", "batch_id"),
         ("배터리 데이터는 batch_id\u0301_extra 기준으로 분리한다.", "batch_id"),

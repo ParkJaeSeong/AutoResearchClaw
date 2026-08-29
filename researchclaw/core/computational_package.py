@@ -333,9 +333,13 @@ _PROHIBITION_FIELDS = {
 }
 _REPRODUCIBILITY_FIELDS = {"design_sha256", "seeds", "dependencies"}
 _SPLIT_GROUPS = {"train", "validation", "calibration", "test"}
-_LEGACY_SPLIT_ISOLATION_KEYS = frozenset(
-    {"cell_id", "batch_id", "condition_id", "source_id", "dataset_id"}
-)
+_LEGACY_SPLIT_ISOLATION_ALIASES = {
+    "cell_id": ("cell_id",),
+    "batch_id": ("batch_id", "batch"),
+    "condition_id": ("condition_id", "condition"),
+    "source_id": ("source_id", "source"),
+    "dataset_id": ("dataset_id", "dataset"),
+}
 _UNSAFE_LEGACY_SPLIT_UNICODE_CATEGORIES = frozenset({"Cf", "Mn", "Mc", "Me"})
 _LATER_RESULT_PATH = "experiment/results.json"
 
@@ -1635,14 +1639,21 @@ def _legacy_split_allows_isolation_key(
         for character in source
     ):
         return False
+    aliases = (
+        _LEGACY_SPLIT_ISOLATION_ALIASES.get(isolation_key)
+        if isinstance(isolation_key, str)
+        else None
+    )
     return (
-        isinstance(isolation_key, str)
-        and isolation_key in _LEGACY_SPLIT_ISOLATION_KEYS
-        and re.search(
-            rf"(?<![A-Za-z0-9_]){re.escape(isolation_key)}(?![A-Za-z0-9_])",
-            normalized_source,
+        aliases is not None
+        and any(
+            re.search(
+                rf"(?<![A-Za-z0-9_]){re.escape(alias)}(?![A-Za-z0-9_])",
+                normalized_source,
+            )
+            is not None
+            for alias in aliases
         )
-        is not None
     )
 
 
