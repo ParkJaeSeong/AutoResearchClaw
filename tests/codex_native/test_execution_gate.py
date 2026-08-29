@@ -136,12 +136,23 @@ def test_recheck_refuses_non_stage_twelve_projects(tmp_path):
 
 
 def test_recheck_rejects_a_human_rejected_ready_plan(stage_12_ready_project):
-    from researchclaw.core.approval import approve_current_gate
+    from researchclaw.core.approval import (
+        approve_current_gate,
+        load_approval_record,
+    )
 
     approve_current_gate(stage_12_ready_project, "reject", "Do not run")
+    rejected = ResearchProject.open(stage_12_ready_project.root)
+    resources_before = (
+        rejected.root / "experiment/resources.json"
+    ).read_bytes()
+    assert rejected.state.status is StageStatus.AWAITING_APPROVAL
 
     with pytest.raises(ValueError, match="human rejection"):
-        _recheck(ResearchProject.open(stage_12_ready_project.root))
+        _recheck(rejected)
+
+    assert (rejected.root / "experiment/resources.json").read_bytes() == resources_before
+    assert load_approval_record(rejected.root, 12).decision == "reject"
 
 
 def test_missing_input_handoff_points_to_the_constrained_recheck(stage_12_missing_project):

@@ -175,8 +175,8 @@ def _command(root: Path, *arguments: str) -> str:
     return shlex.join(("researchclaw-codex", *arguments, str(root.resolve()), "--json"))
 
 
-def build_handoff(project: ResearchProject) -> HandoffSummary:
-    """Build a handoff using only durable state, artifacts, and approval records."""
+def normalize_durable_project(project: ResearchProject) -> ResearchProject:
+    """Fail closed on stale artifacts or an unsubstantiated Stage-12 approval."""
     current_project = ResearchProject.open(project.root)
     state = current_project.state
     invalid_artifact_stage = _first_invalid_artifact_stage(current_project.root, state)
@@ -194,6 +194,54 @@ def build_handoff(project: ResearchProject) -> HandoffSummary:
             approval_invalidated=invalid_approval_stage == rewind_stage,
         )
         state = current_project.state
+
+    execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
+    if execution_boundary:
+        execution_record = load_approval_record(current_project.root, 12)
+        current_decision = (
+            execution_record.decision
+            if execution_record is not None
+            and approval_matches_state(
+                current_project.root,
+                state,
+                execution_record,
+            )
+            else None
+        )
+        readiness, _unmet, plan_eligible = validated_execution_readiness(
+            current_project
+        )
+        if current_decision == "approve":
+            desired_status = StageStatus.READY
+            desired_next_action = "report_resource_plan_milestone_only"
+        elif current_decision == "reject":
+            desired_status = StageStatus.AWAITING_APPROVAL
+            desired_next_action = "report_missing_execution_inputs"
+        else:
+            desired_status = StageStatus.AWAITING_APPROVAL
+            desired_next_action = (
+                "approve_experiment_execution"
+                if readiness == "ready_for_execution" and plan_eligible
+                else "report_missing_execution_inputs"
+            )
+        if (
+            state.status is not desired_status
+            or state.next_action != desired_next_action
+        ):
+            current_project = current_project.persist_state(
+                replace(
+                    state,
+                    status=desired_status,
+                    next_action=desired_next_action,
+                )
+            )
+    return current_project
+
+
+def build_handoff(project: ResearchProject) -> HandoffSummary:
+    """Build a handoff using only durable state, artifacts, and approval records."""
+    current_project = normalize_durable_project(project)
+    state = current_project.state
 
     milestone_complete = (
         state.current_stage > SUPPORTED_STAGE_MAX

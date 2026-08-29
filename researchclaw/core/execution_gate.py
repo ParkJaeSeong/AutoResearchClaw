@@ -211,13 +211,28 @@ def _derived_prerequisites(
     return sorted(set(prerequisites))
 
 
-def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus:
-    """Refresh only passive facts in an intact Stage-11 resource plan."""
+def _current_rejection(project: ResearchProject) -> bool:
+    from .approval import approval_matches_state, load_approval_record
+
+    record = load_approval_record(project.root, 12)
+    return (
+        record is not None
+        and record.decision == "reject"
+        and approval_matches_state(project.root, project.state, record)
+    )
+
+
+def _recheck_execution_readiness(
+    project: ResearchProject,
+    *,
+    allow_rejected_decision: bool,
+) -> ExecutionGateStatus:
     current_project = ResearchProject.open(project.root)
     state = current_project.state
     if state.current_stage != 12 or 11 not in state.completed_stages:
         raise ValueError("execution readiness can only be rechecked at Stage 12")
-    if state.status is StageStatus.NEEDS_REVISION:
+    current_rejection = _current_rejection(current_project)
+    if current_rejection and not allow_rejected_decision:
         raise ValueError("execution gate is locked after a human rejection")
     if (
         state.status is not StageStatus.AWAITING_APPROVAL
@@ -259,6 +274,15 @@ def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus
         )
         raise ValueError(f"refreshed resource plan is invalid: {details}")
 
+    if current_rejection and refreshed["readiness"] != "ready_for_execution":
+        artifact = state.artifacts[RESOURCE_PLAN_PATH]
+        return ExecutionGateStatus(
+            readiness=str(refreshed["readiness"]),
+            approval_eligible=False,
+            unmet_prerequisites=tuple(prerequisites),
+            resource_plan_sha256=artifact.sha256,
+        )
+
     atomic_write_json(path, refreshed, prefix="resources-")
     file_stat = path.stat()
     digest = _sha256(path)
@@ -295,6 +319,14 @@ def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus
         )
     )
     return status
+
+
+def recheck_execution_readiness(project: ResearchProject) -> ExecutionGateStatus:
+    """Refresh passive facts unless a current human rejection locks the gate."""
+    return _recheck_execution_readiness(
+        project,
+        allow_rejected_decision=False,
+    )
 
 
 def _stage_twelve_artifact_hashes(

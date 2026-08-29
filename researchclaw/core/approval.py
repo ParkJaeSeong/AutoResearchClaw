@@ -202,14 +202,26 @@ def _approve_stage_twelve(
 ) -> ApprovalRecord:
     """Record the execution decision without running or importing the package."""
     from .execution_gate import (
-        recheck_execution_readiness,
+        _recheck_execution_readiness,
         stage_twelve_artifact_hashes,
     )
 
     state = project.state
-    if state.next_action != "approve_experiment_execution":
+    prior_record = load_approval_record(project.root, 12)
+    current_rejection = (
+        prior_record is not None
+        and prior_record.decision == "reject"
+        and approval_matches_state(project.root, state, prior_record)
+    )
+    if state.next_action != "approve_experiment_execution" and not (
+        state.next_action == "report_missing_execution_inputs"
+        and current_rejection
+    ):
         raise ValueError("execution prerequisites are not ready for approval")
-    status = recheck_execution_readiness(project)
+    status = _recheck_execution_readiness(
+        project,
+        allow_rejected_decision=current_rejection,
+    )
     if not status.approval_eligible or status.readiness != "ready_for_execution":
         raise ValueError("execution prerequisites are not ready for approval")
 
@@ -248,7 +260,7 @@ def _approve_stage_twelve(
             topic=refreshed_project.state.topic,
             profile=refreshed_project.state.profile,
             current_stage=12,
-            status=StageStatus.NEEDS_REVISION,
+            status=StageStatus.AWAITING_APPROVAL,
             completed_stages=refreshed_project.state.completed_stages,
             next_action="report_missing_execution_inputs",
             execution_policy=refreshed_project.state.execution_policy,

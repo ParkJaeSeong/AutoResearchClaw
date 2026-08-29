@@ -160,17 +160,21 @@ class ResearchProject:
         return cls(root=root, state=state)
 
     def status_dict(self) -> dict[str, object]:
+        from .handoff import normalize_durable_project
         from .resource_planning import validated_execution_readiness
 
-        readiness, prerequisites, approval_eligible = validated_execution_readiness(self)
+        current_project = normalize_durable_project(self)
+        readiness, prerequisites, approval_eligible = validated_execution_readiness(
+            current_project
+        )
         approval_eligible = (
             approval_eligible
-            and self.state.current_stage == 12
-            and self.state.status is StageStatus.AWAITING_APPROVAL
-            and self.state.next_action == "approve_experiment_execution"
+            and current_project.state.current_stage == 12
+            and current_project.state.status is StageStatus.AWAITING_APPROVAL
+            and current_project.state.next_action == "approve_experiment_execution"
         )
         return {
-            **self.state.to_dict(),
+            **current_project.state.to_dict(),
             "execution_readiness": readiness,
             "unmet_prerequisites": list(prerequisites),
             "approval_eligible": approval_eligible,

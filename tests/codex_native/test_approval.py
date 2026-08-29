@@ -232,6 +232,35 @@ def test_modifying_any_execution_gate_artifact_invalidates_approval(
     assert verify_current_approval(project.root, record) is False
 
 
+def test_status_rewinds_when_a_bound_execution_artifact_changes(tmp_path):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    approve_current_gate(project, "approve", "Run it")
+    design = project.root / "experiment/design.json"
+    design.write_bytes(design.read_bytes() + b"\n")
+
+    status = ResearchProject.open(project.root).status_dict()
+
+    assert status["current_stage"] == 9
+    assert status["status"] == "needs_revision"
+    assert status["next_action"] == "validate_stage"
+    assert status["approval_eligible"] is False
+
+
+def test_status_reopens_stage_twelve_gate_when_approval_record_is_missing(tmp_path):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    approve_current_gate(project, "approve", "Run it")
+    (project.root / "approvals/stage-12.json").unlink()
+
+    status = ResearchProject.open(project.root).status_dict()
+    handoff = ResearchProject.open(project.root).build_handoff().to_dict()
+
+    for payload in (status, handoff):
+        assert payload["current_stage"] == 12
+        assert payload["status"] == "awaiting_approval"
+        assert payload["next_action"] == "approve_experiment_execution"
+        assert payload["approval_eligible"] is True
+
+
 def test_reject_keeps_stage_twelve_safely_locked(tmp_path):
     project, _declared_input = build_stage_twelve_project(tmp_path / "project")
 
@@ -241,9 +270,35 @@ def test_reject_keeps_stage_twelve_safely_locked(tmp_path):
     assert record.note == "Do not run"
     assert reopened.state.current_stage == 12
     assert reopened.state.completed_stages[-1] == 11
-    assert reopened.state.status.value == "needs_revision"
+    assert reopened.state.status.value == "awaiting_approval"
     assert reopened.state.next_action == "report_missing_execution_inputs"
     assert reopened.status_dict()["approval_eligible"] is False
     assert not (project.root / "experiment/results.json").exists()
-    handoff = reopened.build_handoff()
-    assert " approve " not in f" {handoff.next_command} "
+    status = reopened.status_dict()
+    handoff = reopened.build_handoff().to_dict()
+    for payload in (status, handoff):
+        assert payload["status"] == "awaiting_approval"
+        assert payload["next_action"] == "report_missing_execution_inputs"
+        assert payload["execution_readiness"] == "ready_for_execution"
+        assert payload["approval_eligible"] is False
+    assert " approve " not in f" {handoff['next_command']} "
+
+
+def test_explicit_approve_supersedes_a_current_stage_twelve_rejection(tmp_path):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    rejected = approve_current_gate(project, "reject", "Do not run")
+
+    approved = approve_current_gate(
+        ResearchProject.open(project.root),
+        "approve",
+        "Run after reconsideration",
+    )
+
+    assert rejected.decision == "reject"
+    assert approved.decision == "approve"
+    assert approved.note == "Run after reconsideration"
+    assert verify_current_approval(project.root, approved) is True
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.status.value == "ready"
+    assert reopened.state.next_action == "report_resource_plan_milestone_only"
+    assert not (project.root / "experiment/results.json").exists()
