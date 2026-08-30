@@ -13,7 +13,7 @@ from researchclaw.core.evidence_registration import (
     load_evidence_manifest,
     recover_pending_evidence_registration,
 )
-from researchclaw.core.events import EventLog, event_log_for
+from researchclaw.core.events import EvaluationEvent, EventLog, event_log_for
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.research_execution import (
@@ -272,6 +272,129 @@ def test_integrity_abort_recovers_each_durable_boundary_exactly_once(
     ) == 1
 
 
+@pytest.mark.parametrize("prefix_length", (1, 8, "complete"))
+def test_torn_rollback_event_recovers_at_its_owned_boundary(
+    tmp_path, monkeypatch, prefix_length
+):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_event():
+        raise OSError("leave committed registration")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_event_written", stop_after_event
+    )
+    with pytest.raises(OSError, match="leave committed registration"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending = json.loads(
+        (project.root / EVIDENCE_PENDING_PATH).read_text(encoding="utf-8")
+    )
+    object_path = (
+        project.root
+        / ".researchclaw/evidence/objects"
+        / pending["manifest"]["result"]["sha256"]
+    )
+    object_path.chmod(0o600)
+    object_path.write_bytes(b"corrupt")
+    original = EventLog._write_record
+
+    def tear_rollback(self, descriptor, event):
+        if event.type == "research_result_registration_rolled_back":
+            record = EventLog._bounded_record(event)
+            length = len(record) if prefix_length == "complete" else prefix_length
+            os.write(descriptor, record[:length])
+            os.fsync(descriptor)
+            raise OSError("torn rollback")
+        return original(descriptor, event)
+
+    monkeypatch.setattr(EventLog, "_write_record", tear_rollback)
+    with pytest.raises(OSError, match="torn rollback"):
+        recover_pending_evidence_registration(project)
+    monkeypatch.undo()
+
+    assert recover_pending_evidence_registration(project) is None
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert (
+        research_execution.effective_research_result_registration_events(project)
+        == ()
+    )
+    assert sum(
+        event.type == "research_result_registration_rolled_back"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
+def test_rollback_repair_accepts_every_exact_owned_prefix(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_event():
+        raise OSError("leave committed registration")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_event_written", stop_after_event
+    )
+    with pytest.raises(OSError, match="leave committed registration"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending = json.loads(
+        (project.root / EVIDENCE_PENDING_PATH).read_text(encoding="utf-8")
+    )
+    event_path = project.root / "evaluation/events.jsonl"
+    base = event_path.read_bytes()
+    pending["rollback_offset"] = len(base)
+    rollback = EvaluationEvent.from_dict(pending["rollback_event"])
+    record = EventLog._bounded_record(rollback)
+
+    for prefix_length in range(1, len(record)):
+        event_path.write_bytes(base + record[:prefix_length])
+        evidence_registration._repair_owned_partial_rollback(project, pending)
+        assert event_path.read_bytes() == base
+
+
+def test_torn_rollback_recovery_never_truncates_foreign_bytes(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_event():
+        raise OSError("leave committed registration")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_event_written", stop_after_event
+    )
+    with pytest.raises(OSError, match="leave committed registration"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+    pending = json.loads(
+        (project.root / EVIDENCE_PENDING_PATH).read_text(encoding="utf-8")
+    )
+    object_path = (
+        project.root
+        / ".researchclaw/evidence/objects"
+        / pending["manifest"]["result"]["sha256"]
+    )
+    object_path.chmod(0o600)
+    object_path.write_bytes(b"corrupt")
+
+    def foreign_then_fail(self, descriptor, event):
+        assert event.type == "research_result_registration_rolled_back"
+        os.write(descriptor, b"foreign-tail")
+        os.fsync(descriptor)
+        raise OSError("foreign rollback boundary")
+
+    monkeypatch.setattr(EventLog, "_write_record", foreign_then_fail)
+    with pytest.raises(OSError, match="foreign rollback boundary"):
+        recover_pending_evidence_registration(project)
+    monkeypatch.undo()
+    event_path = project.root / "evaluation/events.jsonl"
+    before = event_path.read_bytes()
+
+    with pytest.raises(ValueError, match="evidence_registration_interrupted"):
+        recover_pending_evidence_registration(project)
+    assert event_path.read_bytes() == before
+
+
 def test_missing_manifest_after_success_event_is_neutralized(tmp_path, monkeypatch):
     project, _result = _valid_result(tmp_path / "project")
 
@@ -358,6 +481,39 @@ def test_manifest_path_replacement_during_recovery_fails_closed(
     assert ResearchProject.open(project.root).state.current_stage == 12
 
 
+def test_registered_status_rejects_symlinked_manifest_ancestor(tmp_path):
+    project, _result = _valid_result(tmp_path / "project")
+    register_research_result(project, "experiment/results.json")
+    manifests = project.root / ".researchclaw/evidence/manifests"
+    external = tmp_path / "external-manifests"
+    manifests.rename(external)
+    manifests.symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        register_research_result(project, "experiment/results.json")
+
+
+def test_manifest_ancestor_symlink_race_after_snapshot_fails_closed(
+    tmp_path, monkeypatch
+):
+    project, _result = _valid_result(tmp_path / "project")
+    register_research_result(project, "experiment/results.json")
+    manifests = project.root / ".researchclaw/evidence/manifests"
+    external = tmp_path / "external-manifests"
+
+    def replace_ancestor_after_snapshot(_snapshot):
+        manifests.rename(external)
+        manifests.symlink_to(external, target_is_directory=True)
+
+    monkeypatch.setattr(
+        evidence_registration,
+        "_after_manifest_snapshot",
+        replace_ancestor_after_snapshot,
+    )
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        register_research_result(project, "experiment/results.json")
+
+
 def test_registered_status_rejects_valid_json_manifest_rewrite(tmp_path):
     project, _result = _valid_result(tmp_path / "project")
     status = register_research_result(project, "experiment/results.json")
@@ -379,6 +535,7 @@ def test_registered_status_rejects_valid_json_manifest_rewrite(tmp_path):
         "registration_id",
         "project_id",
         "prior_state",
+        "prior_state_extra",
         "event_metric_count",
         "source_identity",
         "published_object_path",
@@ -408,6 +565,11 @@ def test_pending_semantic_tampering_fails_closed(tmp_path, monkeypatch, tamper):
         changed["prior_state_sha256"] = evidence_registration._hash(
             changed["prior_state"]
         )
+    elif tamper == "prior_state_extra":
+        changed["prior_state"]["extra"] = "must not be dropped"
+        changed["prior_state_sha256"] = evidence_registration._hash(
+            changed["prior_state"]
+        )
     elif tamper == "event_metric_count":
         changed["event"]["payload"]["metric_count"] = 99
         changed["event_sha256"] = evidence_registration._hash(changed["event"])
@@ -419,6 +581,48 @@ def test_pending_semantic_tampering_fails_closed(tmp_path, monkeypatch, tamper):
         changed["event"]["payload"]["extra"] = True
         changed["event_sha256"] = evidence_registration._hash(changed["event"])
     path.write_text(json.dumps(changed, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence_registration_interrupted"):
+        recover_pending_evidence_registration(project)
+
+
+@pytest.mark.parametrize(
+    ("event_name", "mutation"),
+    (
+        ("event", "top_extra"),
+        ("rollback_event", "top_extra"),
+        ("event", "nested_extra"),
+        ("rollback_event", "nested_extra"),
+        ("event", "missing_timestamp"),
+        ("rollback_event", "wrong_payload_type"),
+    ),
+)
+def test_pending_events_have_closed_exact_schemas(
+    tmp_path, monkeypatch, event_name, mutation
+):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def interrupt(_manifest):
+        raise OSError("leave pending")
+
+    monkeypatch.setattr(evidence_registration, "_after_manifest_published", interrupt)
+    with pytest.raises(OSError, match="leave pending"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(path.read_text(encoding="utf-8"))
+    event = pending[event_name]
+    if mutation == "top_extra":
+        event["extra"] = "must not be dropped"
+    elif mutation == "nested_extra":
+        event["payload"]["extra"] = "must not be dropped"
+    elif mutation == "missing_timestamp":
+        del event["timestamp"]
+    else:
+        event["payload"] = []
+    pending[f"{event_name}_sha256"] = evidence_registration._hash(event)
+    path.write_text(json.dumps(pending, sort_keys=True), encoding="utf-8")
 
     with pytest.raises(ValueError, match="evidence_registration_interrupted"):
         recover_pending_evidence_registration(project)

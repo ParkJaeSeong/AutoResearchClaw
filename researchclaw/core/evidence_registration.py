@@ -78,6 +78,7 @@ class _ManifestSnapshot:
     mode: int
     mtime_ns: int
     ctime_ns: int
+    directory_identities: tuple[tuple[int, int, int], ...]
 
 
 def _canonical_json(value: object, *, maximum: int = _PENDING_MAX_BYTES) -> bytes:
@@ -192,6 +193,31 @@ def _decode_pending_json(payload: bytes) -> object:
     )
 
 
+def _validate_pending_event_schema(
+    value: object, *, event_type: str, payload_fields: frozenset[str]
+) -> None:
+    event_fields = {"schema_version", "timestamp", "type", "project_id", "payload"}
+    if (
+        not isinstance(value, dict)
+        or set(value) != event_fields
+        or value.get("schema_version") != 1
+        or value.get("type") != event_type
+        or not isinstance(value.get("timestamp"), str)
+        or not isinstance(value.get("project_id"), str)
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    payload = value.get("payload")
+    if not isinstance(payload, dict) or set(payload) != payload_fields:
+        raise ValueError("evidence_registration_interrupted")
+    string_fields = payload_fields - {"metric_count", "input_count"}
+    if any(not isinstance(payload.get(field), str) for field in string_fields):
+        raise ValueError("evidence_registration_interrupted")
+    for field in payload_fields & {"metric_count", "input_count"}:
+        count = payload.get(field)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("evidence_registration_interrupted")
+
+
 def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     path = _pending_path(project)
     if not os.path.lexists(path):
@@ -222,6 +248,7 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         "event_sha256",
         "rollback_event",
         "rollback_event_sha256",
+        "rollback_offset",
         "event_offset",
         "phase",
         "abort_intent",
@@ -242,6 +269,33 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         raise ValueError("evidence_registration_interrupted")
     if raw.get("project_id") != project.state.project_id:
         raise ValueError("evidence_registration_interrupted")
+    _validate_pending_event_schema(
+        raw.get("event"),
+        event_type="research_result_registered",
+        payload_fields=frozenset(
+            {
+                "contract_path",
+                "contract_sha256",
+                "result_path",
+                "result_sha256",
+                "metric_count",
+                "input_count",
+            }
+        ),
+    )
+    _validate_pending_event_schema(
+        raw.get("rollback_event"),
+        event_type="research_result_registration_rolled_back",
+        payload_fields=frozenset(
+            {
+                "contract_path",
+                "contract_sha256",
+                "result_path",
+                "result_sha256",
+                "registration_event_sha256",
+            }
+        ),
+    )
     for field in (
         "prior_state_sha256",
         "target_state_sha256",
@@ -304,6 +358,16 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         or not isinstance(raw.get("event_offset"), int)
         or isinstance(raw.get("event_offset"), bool)
         or raw["event_offset"] < 0
+        or (
+            raw.get("rollback_offset") is not None
+            and (
+                not isinstance(raw["rollback_offset"], int)
+                or isinstance(raw["rollback_offset"], bool)
+                or raw["rollback_offset"] < raw["event_offset"]
+                or raw["phase"] != "aborting"
+                or raw["abort_intent"] is not True
+            )
+        )
         or rollback_event.type != "research_result_registration_rolled_back"
         or rollback_event.project_id != raw["project_id"]
         or rollback_event.payload
@@ -520,6 +584,40 @@ def _after_manifest_snapshot(_snapshot) -> None:
     """Race-test seam after one descriptor-backed manifest snapshot."""
 
 
+def _open_manifest_descriptor(
+    project_root: Path, manifest_path: str
+) -> tuple[int, tuple[tuple[int, int, int], ...]]:
+    parts = Path(manifest_path).parts
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(Path(project_root), directory_flags)
+    identities: list[tuple[int, int, int]] = []
+    try:
+        root_stat = os.fstat(descriptor)
+        identities.append((root_stat.st_dev, root_stat.st_ino, root_stat.st_mode))
+        for part in parts[:-1]:
+            child = os.open(part, directory_flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            child_stat = os.fstat(descriptor)
+            identities.append(
+                (child_stat.st_dev, child_stat.st_ino, child_stat.st_mode)
+            )
+        file_descriptor = os.open(
+            parts[-1],
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=descriptor,
+        )
+        return file_descriptor, tuple(identities)
+    finally:
+        os.close(descriptor)
+
+
 def _read_manifest_snapshot(
     project_root: Path, manifest_path: str
 ) -> _ManifestSnapshot:
@@ -527,11 +625,8 @@ def _read_manifest_snapshot(
     if not manifest_path.startswith(".researchclaw/evidence/manifests/"):
         raise ValueError("evidence_object_integrity_failure")
     try:
-        descriptor = os.open(
-            Path(project_root) / manifest_path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
+        descriptor, directory_identities = _open_manifest_descriptor(
+            project_root, manifest_path
         )
         try:
             initial = os.fstat(descriptor)
@@ -608,6 +703,7 @@ def _read_manifest_snapshot(
         final.st_mode,
         final.st_mtime_ns,
         final.st_ctime_ns,
+        directory_identities,
     )
     _after_manifest_snapshot(snapshot)
     return snapshot
@@ -615,13 +711,24 @@ def _read_manifest_snapshot(
 
 def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -> None:
     try:
-        current = os.stat(
-            Path(project_root) / snapshot.artifact.path, follow_symlinks=False
+        descriptor, directory_identities = _open_manifest_descriptor(
+            project_root, snapshot.artifact.path
         )
+        try:
+            current = os.fstat(descriptor)
+            digest = hashlib.sha256()
+            size = 0
+            while chunk := os.read(descriptor, 64 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+            final = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
     except OSError as error:
         raise ValueError("evidence_object_integrity_failure") from error
     if (
-        (
+        directory_identities != snapshot.directory_identities
+        or (
             current.st_dev,
             current.st_ino,
             current.st_mode,
@@ -636,13 +743,33 @@ def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -
             snapshot.ctime_ns,
         )
         or current.st_size != snapshot.artifact.size
+        or size != snapshot.artifact.size
+        or digest.hexdigest() != snapshot.artifact.sha256
         or not stat.S_ISREG(current.st_mode)
+        or (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        )
+        != (
+            current.st_dev,
+            current.st_ino,
+            current.st_mode,
+            current.st_size,
+            current.st_mtime_ns,
+            current.st_ctime_ns,
+        )
     ):
         raise ValueError("evidence_object_integrity_failure")
 
 
 def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, object]:
-    return dict(_read_manifest_snapshot(project_root, manifest_path).payload)
+    snapshot = _read_manifest_snapshot(project_root, manifest_path)
+    _revalidate_manifest_path(project_root, snapshot)
+    return dict(snapshot.payload)
 
 
 def _validate_manifest_bindings(
@@ -760,8 +887,30 @@ def _event_present(project: ResearchProject, pending: Mapping[str, object]) -> b
 def _repair_owned_partial_event(
     project: ResearchProject, pending: Mapping[str, object]
 ) -> None:
+    event = EvaluationEvent.from_dict(pending["event"])
+    _repair_owned_partial_record(
+        project,
+        offset=int(pending["event_offset"]),
+        record=EventLog._bounded_record(event),
+    )
+
+
+def _repair_owned_partial_rollback(
+    project: ResearchProject, pending: Mapping[str, object]
+) -> None:
+    offset = pending.get("rollback_offset")
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ValueError("evidence_registration_interrupted")
+    rollback = EvaluationEvent.from_dict(pending["rollback_event"])
+    _repair_owned_partial_record(
+        project, offset=offset, record=EventLog._bounded_record(rollback)
+    )
+
+
+def _repair_owned_partial_record(
+    project: ResearchProject, *, offset: int, record: bytes
+) -> None:
     path = project.root / "evaluation/events.jsonl"
-    offset = int(pending["event_offset"])
     descriptor = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
     try:
         total = os.fstat(descriptor).st_size
@@ -769,8 +918,6 @@ def _repair_owned_partial_event(
             raise ValueError("evidence_registration_interrupted")
         os.lseek(descriptor, offset, os.SEEK_SET)
         fragment = os.read(descriptor, total - offset)
-        event = EvaluationEvent.from_dict(pending["event"])
-        record = EventLog._bounded_record(event)
         if not fragment or not record.startswith(fragment):
             raise ValueError("evidence_registration_interrupted")
         os.ftruncate(descriptor, offset)
@@ -810,6 +957,7 @@ def registered_evidence_status(
     snapshot = _read_manifest_snapshot(project.root, manifest_path)
     if snapshot.artifact != manifest_reference:
         raise ValueError("evidence_object_integrity_failure")
+    _revalidate_manifest_path(project.root, snapshot)
     manifest = snapshot.payload
     _validate_manifest_bindings(project, manifest_path, manifest)
     _verify_manifest_objects(project, manifest)
@@ -854,7 +1002,7 @@ def _prior_state(pending: Mapping[str, object]) -> ProjectState:
 
 
 def _ensure_owned_success_neutralized(
-    project: ResearchProject, pending: Mapping[str, object]
+    project: ResearchProject, pending: dict[str, object]
 ) -> None:
     success = pending["event"]
     rollback = pending["rollback_event"]
@@ -866,12 +1014,25 @@ def _ensure_owned_success_neutralized(
             success_present = success_present or event_dict == success
             rollback_present = rollback_present or event_dict == rollback
     except ValueError:
-        _repair_owned_partial_event(project, pending)
+        if pending.get("rollback_offset") is None:
+            _repair_owned_partial_event(project, pending)
+        else:
+            _repair_owned_partial_rollback(project, pending)
         success_present = False
         rollback_present = False
+        for event in event_log_for(project.root).iter_events():
+            event_dict = event.to_dict()
+            success_present = success_present or event_dict == success
+            rollback_present = rollback_present or event_dict == rollback
     if rollback_present or not success_present:
         return
-    offset = _validated_event_log_offset(project)
+    offset = pending.get("rollback_offset")
+    if offset is None:
+        offset = _validated_event_log_offset(project)
+        pending["rollback_offset"] = offset
+        _persist_pending(project, pending)
+    if not isinstance(offset, int) or isinstance(offset, bool):
+        raise ValueError("evidence_registration_interrupted")
     event_log_for(project.root).append_locked(
         EvaluationEvent.from_dict(rollback), expected_offset=offset
     )
@@ -951,6 +1112,7 @@ def _recover_locked(
             _canonical_json(pending["manifest"], maximum=_MANIFEST_MAX_BYTES)
         ):
             raise ValueError("evidence_object_integrity_failure")
+        _revalidate_manifest_path(current.root, snapshot)
         _verify_manifest_objects(current, manifest)
         _revalidate_manifest_path(current.root, snapshot)
     except ValueError as error:
@@ -1073,6 +1235,7 @@ def register_immutable_research_evidence(
             "event_sha256": _hash(event.to_dict()),
             "rollback_event": rollback_event.to_dict(),
             "rollback_event_sha256": _hash(rollback_event.to_dict()),
+            "rollback_offset": None,
             "event_offset": event_offset,
             "phase": "publishing",
             "abort_intent": False,
