@@ -191,6 +191,56 @@ with open(status_path, "w", encoding="ascii") as status_file:
     [ "$command_status" = 0 ]
 }
 
+validate_pytest_logs() {
+    collection_log=$1
+    result_log=$2
+    expected_marker=$3
+    collection_size=$(wc -c <"$collection_log")
+    collection_summary=$(awk 'NF { line=$0 } END { print line }' "$collection_log")
+    collection_exact_count=$(grep -Ec '^[1-9][0-9]* tests? collected in [0-9]+([.][0-9]+)?s$' "$collection_log" || true)
+    collection_summary_like_count=$(grep -Ec '^[0-9].*collected' "$collection_log" || true)
+    if [ "$collection_size" -gt 4194304 ] \
+        || ! grep -F "$expected_marker" "$collection_log" >/dev/null \
+        || [ "$collection_exact_count" -ne 1 ] \
+        || [ "$collection_summary_like_count" -ne 1 ] \
+        || ! printf '%s\n' "$collection_summary" \
+            | grep -E '^[1-9][0-9]* tests? collected in [0-9]+([.][0-9]+)?s$' >/dev/null; then
+        echo "mandatory Stage-12 pytest summary was missing, malformed, or ambiguous: $expected_marker" >&2
+        return 1
+    fi
+    result_size=$(wc -c <"$result_log")
+    final_summary=$(awk 'NF { line=$0 } END { print line }' "$result_log")
+    result_exact_count=$(grep -Ec '^[1-9][0-9]* passed in [0-9]+([.][0-9]+)?s( [(][0-9]+:[0-9][0-9]:[0-9][0-9][)])?$' "$result_log" || true)
+    result_summary_like_count=$(grep -Ec '^[0-9].*passed' "$result_log" || true)
+    if [ "$result_size" -gt 4194304 ] \
+        || [ "$result_exact_count" -ne 1 ] \
+        || [ "$result_summary_like_count" -ne 1 ] \
+        || ! printf '%s\n' "$final_summary" \
+            | grep -E '^[1-9][0-9]* passed in [0-9]+([.][0-9]+)?s( [(][0-9]+:[0-9][0-9]:[0-9][0-9][)])?$' >/dev/null; then
+        echo "mandatory Stage-12 pytest summary was missing, malformed, or ambiguous: $expected_marker" >&2
+        return 1
+    fi
+
+    collected_count=${collection_summary%% *}
+    passed_count=${final_summary%% *}
+    if [ "$collected_count" -ne "$passed_count" ]; then
+        echo "mandatory Stage-12 pytest collected/passed count mismatch: collected=$collected_count passed=$passed_count marker=$expected_marker" >&2
+        return 1
+    fi
+
+    grep -F "evidence benchmark:" "$result_log" || true
+    printf '%s\n' "$final_summary"
+}
+
+if [ "${1:-}" = "--validate-pytest-logs" ]; then
+    if [ "$#" -ne 4 ]; then
+        echo "usage: $0 --validate-pytest-logs COLLECTION EXECUTION EXPECTED_MARKER" >&2
+        exit 2
+    fi
+    validate_pytest_logs "$2" "$3" "$4"
+    exit $?
+fi
+
 run_mandatory_pytest() {
     expected_marker=$1
     shift
@@ -202,39 +252,20 @@ run_mandatory_pytest() {
         rm -f "$collection_log"
         return 1
     fi
-    collection_size=$(wc -c <"$collection_log")
-    collection_summary=$(awk 'NF { line=$0 } END { print line }' "$collection_log")
-    if [ "$collection_size" -gt 4194304 ] \
-        || ! grep -F "$expected_marker" "$collection_log" >/dev/null \
-        || ! printf '%s\n' "$collection_summary" \
-            | grep -E '^[1-9][0-9]* tests? collected in [0-9.]+s' >/dev/null; then
-        echo "mandatory Stage-12 pytest collection was missing or malformed: $expected_marker" >&2
-        rm -f "$collection_log"
-        return 1
-    fi
-    rm -f "$collection_log"
 
     result_log=$(mktemp "${TMPDIR:-/tmp}/stage12-pytest.XXXXXX")
     if ! run_bounded_output \
         "$result_log" "$PYTHON_BIN" -m pytest -q -ra "$@"; then
         cat "$result_log"
         echo "mandatory Stage-12 pytest execution failed or produced invalid bounded output: $expected_marker" >&2
-        rm -f "$result_log"
+        rm -f "$collection_log" "$result_log"
         return 1
     fi
-    result_size=$(wc -c <"$result_log")
-    final_summary=$(awk 'NF { line=$0 } END { print line }' "$result_log")
-    if [ "$result_size" -gt 4194304 ] \
-        || ! printf '%s\n' "$final_summary" \
-            | grep -E '^[1-9][0-9]* passed in [0-9.]+s' >/dev/null \
-        || printf '%s\n' "$final_summary" \
-            | grep -E '(skipped|xfailed|xpassed|deselected|errors?)' >/dev/null; then
-        echo "mandatory Stage-12 pytest gate did not report executed passing tests only: $expected_marker" >&2
-        rm -f "$result_log"
+    if ! validate_pytest_logs "$collection_log" "$result_log" "$expected_marker"; then
+        rm -f "$collection_log" "$result_log"
         return 1
     fi
-    grep -F "evidence benchmark:" "$result_log" || true
-    printf '%s\n' "$final_summary"
+    rm -f "$collection_log"
     rm -f "$result_log"
 }
 

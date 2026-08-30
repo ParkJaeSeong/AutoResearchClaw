@@ -48,6 +48,28 @@ def _run(
     )
 
 
+def _validate_pytest_logs(
+    tmp_path: Path,
+    *,
+    collection: str,
+    execution: str,
+):
+    collection_log = tmp_path / "collection.log"
+    execution_log = tmp_path / "execution.log"
+    collection_log.write_text(collection, encoding="utf-8")
+    execution_log.write_text(execution, encoding="utf-8")
+    return _run(
+        tmp_path,
+        python_bin=REAL_PYTHON,
+        arguments=(
+            "--validate-pytest-logs",
+            str(collection_log),
+            str(execution_log),
+            "tests/example.py::",
+        ),
+    )
+
+
 def test_release_selector_accepts_explicit_python_path_with_spaces(tmp_path):
     candidate = _fake_python(tmp_path / "runtime with spaces/python", valid=True)
     completed = _run(tmp_path, python_bin=str(candidate))
@@ -163,3 +185,97 @@ def test_release_contract_documents_trusted_executable_boundary():
     assert "cannot authenticate a responsive same-user executable" in readme
     assert "validates Python/pytest" in script
     assert "cannot authenticate" in script
+
+
+def test_release_parser_accepts_equal_exact_collection_and_pass_counts(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection=(
+            "tests/example.py::test_one\n"
+            "tests/example.py::test_two\n"
+            "2 tests collected in 0.01s\n"
+        ),
+        execution=".. [100%]\n2 passed in 0.02s\n",
+    )
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == "2 passed in 0.02s"
+
+
+def test_release_parser_accepts_singular_collection_and_long_timing(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n1 test collected in 0.01s\n",
+        execution=". [100%]\n1 passed in 61.00s (0:01:01)\n",
+    )
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == "1 passed in 61.00s (0:01:01)"
+
+
+def test_release_parser_rejects_collection_execution_count_mismatch(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s\n",
+        execution=". [100%]\n1 passed in 0.02s\n",
+    )
+    assert completed.returncode != 0
+    assert "collected/passed count mismatch" in completed.stderr
+
+
+def test_release_parser_rejects_collection_summary_suffix(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s trailing\n",
+        execution="2 passed in 0.02s\n",
+    )
+    assert completed.returncode != 0
+    assert "missing, malformed, or ambiguous" in completed.stderr
+
+
+def test_release_parser_rejects_execution_summary_suffix(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s\n",
+        execution="2 passed in 0.02s trailing\n",
+    )
+    assert completed.returncode != 0
+    assert "missing, malformed, or ambiguous" in completed.stderr
+
+
+def test_release_parser_rejects_execution_summary_prefix(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s\n",
+        execution="prefix 2 passed in 0.02s\n",
+    )
+    assert completed.returncode != 0
+    assert "missing, malformed, or ambiguous" in completed.stderr
+
+
+def test_release_parser_rejects_combined_outcome_summary(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s\n",
+        execution="2 passed, 1 skipped in 0.02s\n",
+    )
+    assert completed.returncode != 0
+    assert "missing, malformed, or ambiguous" in completed.stderr
+
+
+def test_release_parser_rejects_duplicate_summary_lines(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n2 tests collected in 0.01s\n",
+        execution="2 passed in 0.01s\n2 passed in 0.02s\n",
+    )
+    assert completed.returncode != 0
+    assert "missing, malformed, or ambiguous" in completed.stderr
+
+
+def test_release_parser_rejects_early_successful_subset_execution(tmp_path):
+    completed = _validate_pytest_logs(
+        tmp_path,
+        collection="tests/example.py::test_one\n4 tests collected in 0.01s\n",
+        execution="1 passed in 0.01s\n",
+    )
+    assert completed.returncode != 0
+    assert "collected/passed count mismatch" in completed.stderr
