@@ -9,12 +9,17 @@ import math
 import os
 import re
 import stat
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .computational_package import validate_python_capability_safety
+from .execution_environment import (
+    inspect_execution_environment,
+    normalize_required_distributions,
+)
 from .models import ArtifactRef, ProjectState
 from .paths import resolve_project_artifact
 from .persistence import _fsync_directory, atomic_write_json
@@ -52,9 +57,11 @@ _REPORT_METRIC_KEYS = {"name", "actual", "expected", "tolerance"}
 @dataclass(frozen=True)
 class ValidatedExperimentPackage:
     contract_sha256: str
+    entry_point: str
     metric_entrypoints: Mapping[str, str]
     self_test_argv: tuple[str, ...]
     execution_argv: tuple[str, ...]
+    required_distributions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1088,10 +1095,16 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     )
     if not fixture_value:
         raise ValueError("self_test fixture must be non-empty")
-    if not isinstance(contract["dependencies"], list) or any(
-        not isinstance(item, str) or not item for item in contract["dependencies"]
-    ):
+    if not isinstance(contract["dependencies"], list):
         raise ValueError("dependencies must be a string list")
+    try:
+        required_distributions = normalize_required_distributions(
+            tuple(contract["dependencies"])
+        )
+    except ValueError as error:
+        raise ValueError("dependencies must be a closed string list") from error
+    if list(required_distributions) != contract["dependencies"]:
+        raise ValueError("dependencies must be normalized, sorted, and unique")
     if not isinstance(contract["prohibitions"], dict) or any(
         not isinstance(key, str) or value is not False
         for key, value in contract["prohibitions"].items()
@@ -1105,9 +1118,11 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
         raise ValueError("entry_point has a prohibited static capability")
     return ValidatedExperimentPackage(
         contract_sha256=hashlib.sha256(contract_bytes).hexdigest(),
+        entry_point=entry_point,
         metric_entrypoints=MappingProxyType(metrics),
         self_test_argv=self_test_argv,
         execution_argv=execution_argv,
+        required_distributions=required_distributions,
     )
 
 
@@ -1206,6 +1221,11 @@ def validate_registered_self_test(
     fingerprint = report["environment_fingerprint"]
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
         raise ValueError("environment fingerprint must be an opaque lowercase SHA-256")
+    environment = inspect_execution_environment(
+        Path(sys.executable).resolve(strict=True), package.required_distributions
+    )
+    if fingerprint != environment.fingerprint:
+        raise ValueError("self_test environment fingerprint does not match")
     _metrics, expected = _validate_metrics(
         contract["metrics"], self_test["expected_metrics"], contract["entry_point"], _package_main_source(project.root, contract["entry_point"])[1]
     )

@@ -1,9 +1,6 @@
 import hashlib
 import json
-import os
-import shlex
 import subprocess
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
@@ -90,17 +87,9 @@ def test_exact_prepared_command_produces_only_bound_result_then_registers(tmp_pa
         if path.is_file()
     }
 
-    command_bin = tmp_path / "command-bin"
-    command_bin.mkdir()
-    (command_bin / "python").symlink_to(sys.executable)
-    environment = dict(os.environ)
-    environment["PATH"] = os.pathsep.join(
-        (str(command_bin), environment.get("PATH", ""))
-    )
     completed = subprocess.run(
-        shlex.split(status.command),
+        status.argv,
         cwd=project.root,
-        env=environment,
         check=False,
         capture_output=True,
         text=True,
@@ -131,18 +120,9 @@ def test_exact_prepared_command_rejects_bound_input_drift_without_output(tmp_pat
         for path in project.root.rglob("*")
         if path.is_file()
     }
-    command_bin = tmp_path / "command-bin"
-    command_bin.mkdir()
-    (command_bin / "python").symlink_to(sys.executable)
-    environment = dict(os.environ)
-    environment["PATH"] = os.pathsep.join(
-        (str(command_bin), environment.get("PATH", ""))
-    )
-
     completed = subprocess.run(
-        shlex.split(status.command),
+        status.argv,
         cwd=project.root,
-        env=environment,
         check=False,
         capture_output=True,
         text=True,
@@ -563,7 +543,7 @@ def test_stage_thirteen_stale_contract_rewind_can_prepare_fresh_contract(tmp_pat
     assert handoff.next_action == "prepare_run"
     assert prepared.readiness == "ready_for_explicit_execution"
     assert prepared.contract_sha256 == hashlib.sha256(contract_path.read_bytes()).hexdigest()
-    assert load_execution_contract(project.root)["command"] == prepared.command
+    assert tuple(load_execution_contract(project.root)["argv"]) == prepared.argv
 
 
 def test_stage_thirteen_missing_result_reference_rewind_can_register(tmp_path):

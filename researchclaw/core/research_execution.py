@@ -11,6 +11,7 @@ import math
 import os
 from pathlib import Path
 import stat
+import sys
 from types import MappingProxyType
 
 from .approval import ApprovalRecord
@@ -21,7 +22,12 @@ from .execution_gate import (
     _read_project_file_snapshot,
 )
 from .events import EventLog, EvaluationEvent, MAX_EVENT_RECORD_BYTES, event_log_for
-from .experiment_package_contract import SELF_TEST_REPORT_PATH
+from .execution_environment import inspect_execution_environment
+from .experiment_package_contract import (
+    SELF_TEST_REPORT_PATH,
+    _current_registered_self_test,
+    validate_experiment_package_contract,
+)
 from .models import ArtifactRef, ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import _fsync_directory, atomic_write_json
@@ -72,7 +78,8 @@ _CONTRACT_FIELDS = frozenset(
         "contract_id",
         "project_id",
         "created_at",
-        "command",
+        "argv",
+        "environment_fingerprint",
         "result_path",
         "bindings",
         "inputs",
@@ -123,7 +130,8 @@ _REGISTRATION_ERROR_CATEGORIES = frozenset(
 class ExecutionPreparationStatus:
     readiness: str
     approval_eligible: bool
-    command: str
+    argv: tuple[str, ...]
+    environment_fingerprint: str
     result_path: str
     contract_path: str
     contract_sha256: str
@@ -135,7 +143,8 @@ class ExecutionPreparationStatus:
         return {
             "readiness": self.readiness,
             "approval_eligible": self.approval_eligible,
-            "command": self.command,
+            "argv": list(self.argv),
+            "environment_fingerprint": self.environment_fingerprint,
             "result_path": self.result_path,
             "contract_path": self.contract_path,
             "contract_sha256": self.contract_sha256,
@@ -478,7 +487,8 @@ def _contract_id_payload(contract: Mapping[str, object]) -> dict[str, object]:
         key: contract[key]
         for key in (
             "project_id",
-            "command",
+            "argv",
+            "environment_fingerprint",
             "result_path",
             "bindings",
             "inputs",
@@ -504,6 +514,19 @@ def _build_execution_contract(
         )
     ):
         raise ValueError("execution_approval_invalid")
+    try:
+        package = validate_experiment_package_contract(project)
+    except (OSError, ValueError) as error:
+        raise ValueError("execution_approval_invalid") from error
+    try:
+        _current_registered_self_test(project)
+        environment = inspect_execution_environment(
+            Path(sys.executable).resolve(strict=True),
+            package.required_distributions,
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError("execution_environment_changed") from error
+    argv = [environment.interpreter, package.entry_point, *package.execution_argv]
 
     required_bindings = {
         "design": "experiment/design.json",
@@ -531,7 +554,8 @@ def _build_execution_contract(
         "contract_id": "",
         "project_id": project.state.project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "command": command,
+        "argv": argv,
+        "environment_fingerprint": environment.fingerprint,
         "result_path": RESEARCH_RESULT_PATH,
         "bindings": bindings,
         "inputs": _snapshot_required_inputs(project, plan),
@@ -946,7 +970,8 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
     return ExecutionPreparationStatus(
         readiness="ready_for_explicit_execution",
         approval_eligible=False,
-        command=str(contract["command"]),
+        argv=tuple(contract["argv"]),
+        environment_fingerprint=str(contract["environment_fingerprint"]),
         result_path=RESEARCH_RESULT_PATH,
         contract_path=EXECUTION_CONTRACT_PATH,
         contract_sha256=_sha256(existing),

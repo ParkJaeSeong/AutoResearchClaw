@@ -474,8 +474,11 @@ def build_known_answer_experiment_package(root: Path) -> ResearchProject:
     main_path.parent.mkdir(parents=True, exist_ok=True)
     main_source = '''import argparse
 import hashlib
+from importlib.metadata import version
 import json
 from pathlib import Path
+from platform import machine, python_version
+import sys
 
 
 def mean_absolute_error(targets: list[float], predictions: list[float]) -> float:
@@ -486,6 +489,40 @@ def run_experiment(config: dict[str, object]) -> dict[str, object]:
     targets = [1.0, 2.0, 3.0, 4.0]
     predictions = [1.5, 1.5, 2.5, 4.5]
     return {"mae": mean_absolute_error(targets, predictions)}
+
+
+def execution_environment_fingerprint(required_distributions: list[str]) -> str:
+    interpreter = Path(sys.executable).resolve(strict=True)
+    identity = interpreter.stat()
+    dependencies = {name: version(name) for name in required_distributions}
+    interpreter_bytes = interpreter.read_bytes()
+    interpreter_digest = hashlib.sha256(interpreter_bytes)
+    interpreter_sha256 = interpreter_digest.hexdigest()
+    payload = {
+        "schema_version": 1,
+        "interpreter": str(interpreter),
+        "interpreter_identity": {
+            "device": identity.st_dev,
+            "inode": identity.st_ino,
+            "size": identity.st_size,
+            "mtime_ns": identity.st_mtime_ns,
+            "sha256": interpreter_sha256,
+        },
+        "python_implementation": sys.implementation.name,
+        "python_version": python_version(),
+        "platform": sys.platform,
+        "machine": machine(),
+        "dependencies": dict(sorted(dependencies.items())),
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    fingerprint_digest = hashlib.sha256(canonical.encode("utf-8"))
+    return fingerprint_digest.hexdigest()
 
 
 def main(argv: list[str] | None = None) -> dict[str, object]:
@@ -502,6 +539,9 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         manifest_digest = hashlib.sha256(Path("experiment/package_manifest.json").read_bytes())
         entry_point_digest = hashlib.sha256(Path("experiment/code/main.py").read_bytes())
         fixture_digest = hashlib.sha256(fixture_path.read_bytes())
+        package_contract = json.loads(
+            Path("experiment/package_contract.json").read_text(encoding="utf-8")
+        )
         package_files = [
             {"path": entry["path"], "sha256": entry["sha256"]}
             for entry in json.loads(
@@ -527,7 +567,9 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
                 "path": str(fixture_path),
                 "sha256": fixture_digest.hexdigest(),
             },
-            "environment_fingerprint": config["environment_fingerprint"],
+            "environment_fingerprint": execution_environment_fingerprint(
+                package_contract["dependencies"]
+            ),
             "metrics": [{"name": "mae", "actual": result["mae"], "expected": 0.5, "tolerance": 0.0}],
             "passed": True,
             "development_only": True,
@@ -546,9 +588,7 @@ if __name__ == "__main__":
     config_path = project.root / "experiment/code/config.json"
     config_path.write_text("{}\n", encoding="utf-8")
     self_test_config_path = project.root / "experiment/code/self_test_config.json"
-    self_test_config_path.write_text(
-        '{"environment_fingerprint":"' + "a" * 64 + '"}\n', encoding="utf-8"
-    )
+    self_test_config_path.write_text("{}\n", encoding="utf-8")
     manifest_path = project.root / "experiment/package_manifest.json"
     manifest_path.write_text(
         json.dumps(
@@ -565,7 +605,7 @@ if __name__ == "__main__":
                     {
                         "path": "experiment/code/self_test_config.json",
                         "sha256": hashlib.sha256(
-                            ('{"environment_fingerprint":"' + "a" * 64 + '"}\n').encode("utf-8")
+                            b"{}\n"
                         ).hexdigest(),
                     },
                 ]

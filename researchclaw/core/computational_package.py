@@ -199,10 +199,13 @@ _ALLOWED_IMPORT_EXPORTS = {
     "__future__": frozenset({"annotations"}),
     "argparse": frozenset({"ArgumentParser"}),
     "hashlib": frozenset({"sha256"}),
+    "importlib.metadata": frozenset({"version"}),
     "json": frozenset({"dump", "dumps", "load", "loads"}),
     "pathlib": frozenset(
         {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
     ),
+    "platform": frozenset({"machine", "python_version"}),
+    "sys": frozenset(),
     "typing": frozenset({"Any"}),
     "time": frozenset({"monotonic"}),
     "experiment.code.main": frozenset(
@@ -213,6 +216,7 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
     {
         "argparse.ArgumentParser",
         "hashlib.sha256",
+        "importlib.metadata.version",
         "experiment.code.main.build_plan",
         "experiment.code.main.load_config",
         "experiment.code.main.main",
@@ -225,6 +229,8 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "pathlib.PurePath",
         "pathlib.PurePosixPath",
         "pathlib.PureWindowsPath",
+        "platform.machine",
+        "platform.python_version",
         "time.monotonic",
     }
 )
@@ -296,6 +302,7 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "resolve",
         "sort",
         "stat",
+        "strip",
         "update",
         "values",
         "write",

@@ -2,9 +2,12 @@ import hashlib
 import json
 import os
 import runpy
+import subprocess
+import sys
 import threading
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -1508,12 +1511,24 @@ def test_prepare_run_writes_bound_contract_without_executing_project_code(tmp_pa
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
     assert status.readiness == "ready_for_explicit_execution"
     assert status.approval_eligible is False
-    assert status.command == contract["command"]
+    assert list(status.argv) == contract["argv"]
+    assert status.environment_fingerprint == contract["environment_fingerprint"]
     assert status.result_path == "experiment/results.json"
     assert status.contract_sha256 == hashlib.sha256(contract_path.read_bytes()).hexdigest()
     assert contract["project_id"] == project.state.project_id
     assert contract["prohibitions"]["researchclaw_managed_execution"] is False
     assert not marker.exists()
+
+
+def test_preparation_returns_verified_absolute_interpreter_without_path_shim(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+
+    status = prepare_research_execution(project)
+
+    assert Path(status.argv[0]).is_absolute()
+    assert Path(status.argv[0]).samefile(Path(sys.executable))
+    completed = subprocess.run(status.argv, cwd=project.root, check=False)
+    assert completed.returncode == 0
 
 
 def test_registered_package_does_not_retain_stage_ten_marker_fixture(
@@ -1551,7 +1566,8 @@ def test_prepare_run_writes_the_exact_closed_contract_shape(tmp_path):
         "contract_id",
         "project_id",
         "created_at",
-        "command",
+        "argv",
+        "environment_fingerprint",
         "result_path",
         "bindings",
         "inputs",
@@ -1562,7 +1578,8 @@ def test_prepare_run_writes_the_exact_closed_contract_shape(tmp_path):
         key: contract[key]
         for key in (
             "project_id",
-            "command",
+            "argv",
+            "environment_fingerprint",
             "result_path",
             "bindings",
             "inputs",

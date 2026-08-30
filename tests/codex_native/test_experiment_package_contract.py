@@ -1,6 +1,7 @@
 import hashlib
 import json
 import math
+from pathlib import Path
 import subprocess
 import sys
 
@@ -13,6 +14,7 @@ from researchclaw.core.experiment_package_contract import (
     validate_experiment_package_contract,
     validate_registered_self_test,
 )
+from researchclaw.core.execution_environment import inspect_execution_environment
 from tests.codex_native.helpers import build_known_answer_experiment_package
 
 
@@ -69,7 +71,9 @@ def _write_self_test_report(project, package, **overrides):
             "path": "experiment/self_test_fixture.json",
             "sha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
         },
-        "environment_fingerprint": "a" * 64,
+        "environment_fingerprint": inspect_execution_environment(
+            Path(sys.executable).resolve(strict=True), package.required_distributions
+        ).fingerprint,
         "metrics": [
             {"name": "mae", "actual": 0.5, "expected": 0.5, "tolerance": 0.0}
         ],
@@ -389,9 +393,11 @@ def test_known_answer_entrypoint_writes_only_its_mode_specific_output(tmp_path):
 def test_validated_experiment_package_keeps_the_exact_public_field_contract():
     assert tuple(ValidatedExperimentPackage.__dataclass_fields__) == (
         "contract_sha256",
+        "entry_point",
         "metric_entrypoints",
         "self_test_argv",
         "execution_argv",
+        "required_distributions",
     )
 
 
@@ -923,9 +929,11 @@ def test_registered_self_test_accepts_reconstructed_fresh_package(tmp_path):
     original = validate_experiment_package_contract(project)
     reconstructed = ValidatedExperimentPackage(
         contract_sha256=original.contract_sha256,
+        entry_point=original.entry_point,
         metric_entrypoints=original.metric_entrypoints,
         self_test_argv=original.self_test_argv,
         execution_argv=original.execution_argv,
+        required_distributions=original.required_distributions,
     )
     _write_self_test_report(project, reconstructed)
 
@@ -943,9 +951,11 @@ def test_registered_self_test_rejects_a_forged_public_package(tmp_path):
     package = validate_experiment_package_contract(project)
     forged = ValidatedExperimentPackage(
         contract_sha256="0" * 64,
+        entry_point=package.entry_point,
         metric_entrypoints=package.metric_entrypoints,
         self_test_argv=package.self_test_argv,
         execution_argv=package.execution_argv,
+        required_distributions=package.required_distributions,
     )
     _write_self_test_report(project, package)
 
@@ -967,9 +977,11 @@ def test_registered_self_test_rejects_package_drift_after_reconstruction(tmp_pat
     package = validate_experiment_package_contract(project)
     reconstructed = ValidatedExperimentPackage(
         package.contract_sha256,
+        package.entry_point,
         package.metric_entrypoints,
         package.self_test_argv,
         package.execution_argv,
+        package.required_distributions,
     )
     _write_self_test_report(project, reconstructed)
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
