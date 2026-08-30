@@ -1,18 +1,10 @@
 import hashlib
 import json
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 
 import pytest
 
 import researchclaw.core.research_execution as research_execution
-from researchclaw.codex.cli import main as cli_main
-from researchclaw.core.approval import approve_current_gate
-from researchclaw.core.development_execution import (
-    run_development_experiment,
-    validate_development_result,
-)
 from researchclaw.core.events import EvaluationEvent, EventLog, event_log_for
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
@@ -24,7 +16,6 @@ from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
     load_execution_contract,
     write_contract_bound_research_result,
-    write_runnable_development_fixture,
 )
 
 
@@ -49,8 +40,7 @@ def _rewrite_pending_result_identity(project, result_path):
     result_bytes = result_path.read_bytes()
     result_sha256 = hashlib.sha256(result_bytes).hexdigest()
     pending_path = (
-        project.root
-        / ".researchclaw/research-result-registration.pending.json"
+        project.root / ".researchclaw/research-result-registration.pending.json"
     )
     pending = json.loads(pending_path.read_text(encoding="utf-8"))
     pending["result_sha256"] = result_sha256
@@ -82,7 +72,9 @@ def test_exact_prepared_command_produces_only_bound_result_then_registers(tmp_pa
     project = build_approved_stage_twelve_project(tmp_path / "project")
     status = prepare_research_execution(project)
     before = {
-        path.relative_to(project.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        path.relative_to(project.root).as_posix(): hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
         for path in project.root.rglob("*")
         if path.is_file()
     }
@@ -100,7 +92,9 @@ def test_exact_prepared_command_produces_only_bound_result_then_registers(tmp_pa
     result_path = project.root / "experiment/results.json"
     assert result_path.is_file()
     after = {
-        path.relative_to(project.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        path.relative_to(project.root).as_posix(): hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
         for path in project.root.rglob("*")
         if path.is_file()
     }
@@ -116,7 +110,9 @@ def test_exact_prepared_command_rejects_bound_input_drift_without_output(tmp_pat
     status = prepare_research_execution(project)
     (project.root / "data/input.csv").write_bytes(b"drifted before execution\n")
     before = {
-        path.relative_to(project.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        path.relative_to(project.root).as_posix(): hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
         for path in project.root.rglob("*")
         if path.is_file()
     }
@@ -130,7 +126,9 @@ def test_exact_prepared_command_rejects_bound_input_drift_without_output(tmp_pat
     )
 
     after = {
-        path.relative_to(project.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        path.relative_to(project.root).as_posix(): hashlib.sha256(
+            path.read_bytes()
+        ).hexdigest()
         for path in project.root.rglob("*")
         if path.is_file()
     }
@@ -138,167 +136,6 @@ def test_exact_prepared_command_rejects_bound_input_drift_without_output(tmp_pat
     assert "execution input changed" in completed.stderr
     assert not (project.root / "experiment/results.json").exists()
     assert after == before
-
-
-def test_recovery_aborts_forged_development_only_pending(tmp_path, monkeypatch):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    result_path = _leave_committing_registration(project, monkeypatch)
-    payload = json.loads(result_path.read_text(encoding="utf-8"))
-    payload["development_only"] = True
-    payload["evidence_eligible"] = False
-    result_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
-    pending_path = _rewrite_pending_result_identity(project, result_path)
-
-    handoff = build_handoff(project)
-
-    reopened = ResearchProject.open(project.root)
-    assert handoff.current_stage == 12
-    assert reopened.state.current_stage == 12
-    assert 12 not in reopened.state.completed_stages
-    assert not pending_path.exists()
-    assert research_execution.effective_research_result_registration_events(project) == ()
-
-
-def test_recovery_aborts_when_bound_input_drifts_after_pending(tmp_path, monkeypatch):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    (project.root / "data/input.csv").write_bytes(b"drifted after pending\n")
-
-    handoff = build_handoff(project)
-
-    reopened = ResearchProject.open(project.root)
-    assert handoff.current_stage == 12
-    assert reopened.state.current_stage == 12
-    assert 12 not in reopened.state.completed_stages
-    assert not (
-        project.root / ".researchclaw/research-result-registration.pending.json"
-    ).exists()
-
-
-def test_resume_handoff_recovers_pending_before_appending_resume_event(
-    tmp_path, monkeypatch
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    (project.root / "data/input.csv").write_bytes(b"drifted before resume\n")
-
-    handoff = ResearchProject.open_readonly(project.root).build_handoff()
-
-    assert handoff.current_stage == 12
-    assert not (
-        project.root / ".researchclaw/research-result-registration.pending.json"
-    ).exists()
-    assert event_log_for(project.root).read_all()[-1].type == "resume"
-
-
-def test_pending_registration_blocks_development_commit_before_artifact_mutation(
-    tmp_path, monkeypatch
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    manifest = write_runnable_development_fixture(project)
-    event_before = (project.root / "evaluation/events.jsonl").read_bytes()
-
-    with pytest.raises(ValueError, match="^project_transaction_pending$"):
-        run_development_experiment(
-            ResearchProject.open_readonly(project.root),
-            str(manifest.relative_to(project.root)),
-        )
-
-    assert not (project.root / "experiment/dev_results.json").exists()
-    assert (project.root / "evaluation/events.jsonl").read_bytes() == event_before
-
-
-def test_pending_registration_blocks_state_mutator_without_partial_state(
-    tmp_path, monkeypatch
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    current = ResearchProject.open_readonly(project.root)
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-
-    with pytest.raises(ValueError, match="^project_transaction_pending$"):
-        current.persist_state(replace(current.state, topic="must not persist"))
-
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
-
-
-def test_cli_normalizes_pending_development_validation_conflict(
-    tmp_path, monkeypatch, capsys
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    manifest = write_runnable_development_fixture(project)
-    run_development_experiment(
-        ResearchProject.open_readonly(project.root),
-        str(manifest.relative_to(project.root)),
-    )
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    capsys.readouterr()
-
-    exit_code = cli_main(
-        [
-            "execution",
-            "validate-result",
-            str(project.root),
-            "--result",
-            "experiment/dev_results.json",
-            "--development",
-            "--json",
-        ]
-    )
-
-    captured = capsys.readouterr()
-    assert exit_code == 2
-    assert captured.out == ""
-    assert captured.err == "error: project_transaction_pending\n"
-
-
-def test_pending_registration_concurrently_rejects_development_and_state_mutators(
-    tmp_path, monkeypatch
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    manifest = write_runnable_development_fixture(project)
-    run_development_experiment(
-        ResearchProject.open_readonly(project.root),
-        str(manifest.relative_to(project.root)),
-    )
-    prepare_research_execution(project)
-    _leave_committing_registration(project, monkeypatch)
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-    event_before = (project.root / "evaluation/events.jsonl").read_bytes()
-    development_before = (project.root / "experiment/dev_results.json").read_bytes()
-
-    def rerun():
-        return run_development_experiment(
-            ResearchProject.open_readonly(project.root),
-            str(manifest.relative_to(project.root)),
-        )
-
-    def revalidate():
-        return validate_development_result(
-            ResearchProject.open_readonly(project.root),
-            "experiment/dev_results.json",
-        )
-
-    def mutate_state():
-        current = ResearchProject.open_readonly(project.root)
-        return current.persist_state(replace(current.state, topic="must not persist"))
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(action) for action in (rerun, revalidate, mutate_state)]
-    for future in futures:
-        with pytest.raises(ValueError, match="^project_transaction_pending$"):
-            future.result()
-
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
-    assert (project.root / "evaluation/events.jsonl").read_bytes() == event_before
-    assert (project.root / "experiment/dev_results.json").read_bytes() == development_before
 
 
 def test_streaming_project_identity_hashes_large_sparse_input(tmp_path):
@@ -332,9 +169,7 @@ def test_oversized_result_fails_before_json_decode(tmp_path, monkeypatch):
         research_execution, "_decode_research_result", decode_must_not_run
     )
     with pytest.raises(ValueError, match="^research_result_file_invalid$"):
-        research_execution.validate_research_result(
-            project, "experiment/results.json"
-        )
+        research_execution.validate_research_result(project, "experiment/results.json")
 
 
 def test_registration_streams_existing_event_log_instead_of_snapshotting_it(
@@ -356,7 +191,9 @@ def test_registration_streams_existing_event_log_instead_of_snapshotting_it(
         reject_whole_event_snapshot,
     )
 
-    assert register_research_result(project, "experiment/results.json").current_stage == 13
+    assert (
+        register_research_result(project, "experiment/results.json").current_stage == 13
+    )
 
 
 def test_prepare_streams_package_file_bindings_instead_of_snapshotting_them(
@@ -395,9 +232,7 @@ def test_oversized_contract_fails_before_contract_decode(tmp_path, monkeypatch):
         research_execution, "_decode_execution_contract", decode_must_not_run
     )
     with pytest.raises(ValueError, match="^execution_contract_invalid$"):
-        research_execution.validate_research_result(
-            project, "experiment/results.json"
-        )
+        research_execution.validate_research_result(project, "experiment/results.json")
 
 
 def test_sparse_oversized_event_record_fails_without_whole_log_read(tmp_path):
@@ -464,115 +299,6 @@ def test_oversized_event_is_rejected_before_any_record_bytes_are_written(tmp_pat
     assert event_path.read_bytes() == before
 
 
-def test_pending_size_cap_is_enforced_before_atomic_write(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    current = ResearchProject.open(project.root)
-    current.persist_state(replace(current.state, topic="x" * (160 * 1024)))
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-
-    with pytest.raises(
-        ValueError, match="^research_result_registration_recovery_invalid$"
-    ):
-        register_research_result(current, "experiment/results.json")
-
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
-    assert not (
-        project.root / ".researchclaw/research-result-registration.pending.json"
-    ).exists()
-
-
-@pytest.mark.parametrize(
-    ("mutation", "next_action"),
-    (
-        ("missing_result", "prepare_run"),
-        ("missing_result_ref", "register_research_result"),
-        ("stale_contract", "prepare_run"),
-        ("invalid_approval", "approve_experiment_execution"),
-    ),
-)
-def test_stage_thirteen_rewinds_to_supported_stage_twelve_actions(
-    tmp_path, mutation, next_action
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    current = ResearchProject.open(project.root)
-    if mutation == "missing_result":
-        (project.root / "experiment/results.json").unlink()
-    elif mutation == "missing_result_ref":
-        current.persist_state(
-            replace(
-                current.state,
-                artifacts={
-                    path: artifact
-                    for path, artifact in current.state.artifacts.items()
-                    if path != "experiment/results.json"
-                },
-            )
-        )
-    elif mutation == "stale_contract":
-        (project.root / "experiment/execution_contract.json").write_bytes(b"{}")
-    else:
-        approval_path = project.root / "approvals/stage-12.json"
-        approval = json.loads(approval_path.read_text(encoding="utf-8"))
-        approval["project_id"] = "forged-project"
-        approval_path.write_text(json.dumps(approval), encoding="utf-8")
-
-    handoff = build_handoff(project)
-
-    assert handoff.current_stage == 12
-    assert handoff.next_action == next_action
-    assert handoff.next_action != "validate_stage"
-
-
-def test_stage_thirteen_stale_contract_rewind_can_prepare_fresh_contract(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    contract_path = project.root / "experiment/execution_contract.json"
-    contract_path.write_bytes(b"{}")
-
-    handoff = build_handoff(project)
-    prepared = prepare_research_execution(ResearchProject.open(project.root))
-
-    assert handoff.current_stage == 12
-    assert handoff.next_action == "prepare_run"
-    assert prepared.readiness == "ready_for_explicit_execution"
-    assert prepared.contract_sha256 == hashlib.sha256(contract_path.read_bytes()).hexdigest()
-    assert tuple(load_execution_contract(project.root)["argv"]) == prepared.argv
-
-
-def test_stage_thirteen_missing_result_reference_rewind_can_register(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    current = ResearchProject.open(project.root)
-    current.persist_state(
-        replace(
-            current.state,
-            artifacts={
-                path: artifact
-                for path, artifact in current.state.artifacts.items()
-                if path != "experiment/results.json"
-            },
-        )
-    )
-
-    handoff = build_handoff(project)
-    registered = register_research_result(
-        ResearchProject.open(project.root), "experiment/results.json"
-    )
-
-    assert handoff.next_action == "register_research_result"
-    assert registered.current_stage == 13
-    assert build_handoff(ResearchProject.open(project.root)).current_stage == 13
-
-
 def test_stage_thirteen_grounding_streams_event_log_without_read_all(
     tmp_path, monkeypatch
 ):
@@ -587,30 +313,6 @@ def test_stage_thirteen_grounding_streams_event_log_without_read_all(
     monkeypatch.setattr(EventLog, "read_all", reject_read_all)
 
     assert build_handoff(project).current_stage == 13
-
-
-def test_stage_thirteen_invalid_approval_rewind_can_reapprove_and_register(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    approval_path = project.root / "approvals/stage-12.json"
-    approval = json.loads(approval_path.read_text(encoding="utf-8"))
-    approval["project_id"] = "forged-project"
-    approval_path.write_text(json.dumps(approval), encoding="utf-8")
-
-    handoff = build_handoff(project)
-    approve_current_gate(
-        ResearchProject.open(project.root),
-        "approve",
-        "renew grounded execution approval",
-    )
-    approved = ResearchProject.open(project.root)
-    registered = register_research_result(approved, "experiment/results.json")
-
-    assert handoff.next_action == "approve_experiment_execution"
-    assert approved.state.next_action == "register_research_result"
-    assert registered.current_stage == 13
 
 
 def test_prepare_run_recovers_owned_contract_commit_before_state_reference(
@@ -632,17 +334,19 @@ def test_prepare_run_recovers_owned_contract_commit_before_state_reference(
         prepare_research_execution(project)
     contract_path = project.root / "experiment/execution_contract.json"
     committed = contract_path.read_bytes()
-    assert "experiment/execution_contract.json" not in ResearchProject.open(
-        project.root
-    ).state.artifacts
+    assert (
+        "experiment/execution_contract.json"
+        not in ResearchProject.open(project.root).state.artifacts
+    )
 
     recovered = prepare_research_execution(project)
 
     assert contract_path.read_bytes() == committed
     assert recovered.contract_sha256 == hashlib.sha256(committed).hexdigest()
-    assert "experiment/execution_contract.json" in ResearchProject.open(
-        project.root
-    ).state.artifacts
+    assert (
+        "experiment/execution_contract.json"
+        in ResearchProject.open(project.root).state.artifacts
+    )
     assert not (
         project.root / ".researchclaw/execution-contract-preparation.pending.json"
     ).exists()

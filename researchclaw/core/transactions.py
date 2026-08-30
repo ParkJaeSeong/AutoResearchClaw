@@ -11,7 +11,18 @@ import threading
 
 
 _LOCK_NAME = "project-transaction.lock"
-_REGISTRATION_PENDING_NAME = "research-result-registration.pending.json"
+_REGISTRATION_PENDING_NAMES = (
+    "research-result-registration.pending.json",
+    "evidence/pending-registration.json",
+)
+
+
+def _registration_pending(metadata_root: Path) -> bool:
+    return any(
+        os.path.lexists(metadata_root / name) for name in _REGISTRATION_PENDING_NAMES
+    )
+
+
 _locks_guard = threading.Lock()
 _process_locks: dict[str, threading.RLock] = {}
 _thread_state = threading.local()
@@ -45,11 +56,8 @@ def project_transaction(root: Path, *, allow_pending: bool = False):
             prior_allow = bool(existing["allow_pending"])
             existing["allow_pending"] = prior_allow or allow_pending
             try:
-                if (
-                    not bool(existing["allow_pending"])
-                    and os.path.lexists(
-                        metadata_root / _REGISTRATION_PENDING_NAME
-                    )
+                if not bool(existing["allow_pending"]) and _registration_pending(
+                    metadata_root
                 ):
                     raise ValueError("project_transaction_pending")
                 yield
@@ -60,9 +68,7 @@ def project_transaction(root: Path, *, allow_pending: bool = False):
 
         descriptor = os.open(
             metadata_root / _LOCK_NAME,
-            os.O_RDWR
-            | os.O_CREAT
-            | getattr(os, "O_NOFOLLOW", 0),
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
             0o600,
         )
         try:
@@ -72,10 +78,7 @@ def project_transaction(root: Path, *, allow_pending: bool = False):
                 "allow_pending": allow_pending,
                 "descriptor": descriptor,
             }
-            if (
-                not allow_pending
-                and os.path.lexists(metadata_root / _REGISTRATION_PENDING_NAME)
-            ):
+            if not allow_pending and _registration_pending(metadata_root):
                 raise ValueError("project_transaction_pending")
             yield
         finally:
@@ -88,6 +91,7 @@ def project_transaction(root: Path, *, allow_pending: bool = False):
 
 def project_mutation(function):
     """Decorate a project-first operation so all of its writes share one lock."""
+
     @wraps(function)
     def locked(project, *args, **kwargs):
         with project_transaction(project.root):

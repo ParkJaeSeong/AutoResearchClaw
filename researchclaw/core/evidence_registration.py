@@ -1,0 +1,749 @@
+"""Recoverable registration of Stage-12 results as immutable evidence."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+from collections.abc import Mapping
+
+from .evidence_store import EvidenceObject, EvidenceSource, EvidenceStore
+from .events import EvaluationEvent, EventLog, event_log_for
+from .models import ArtifactRef, ProjectState, StageStatus
+from .paths import resolve_project_artifact, validate_relative_path
+from .persistence import _fsync_directory, atomic_write_json
+from .project import ResearchProject
+from .state import StateStore
+from .transactions import project_transaction
+
+
+EVIDENCE_PENDING_PATH = ".researchclaw/evidence/pending-registration.json"
+_PENDING_MAX_BYTES = 256 * 1024
+_MANIFEST_MAX_BYTES = 1024 * 1024
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_PHASES = frozenset(
+    {"publishing", "manifest_published", "state_saved", "event_written", "aborting"}
+)
+
+
+@dataclass(frozen=True)
+class EvidenceRegistrationStatus:
+    registration_id: str
+    manifest_path: str
+    result_object_sha256: str
+    current_stage: int
+    next_action: str
+
+    # Compatibility for the pre-immutable public result status.  Stage 13 is
+    # grounded by manifest_path/result_object_sha256, not these aliases.
+    @property
+    def readiness(self) -> str:
+        return "research_result_registered"
+
+    @property
+    def approval_eligible(self) -> bool:
+        return False
+
+    @property
+    def result_path(self) -> str:
+        return "experiment/results.json"
+
+    @property
+    def result_sha256(self) -> str:
+        return self.result_object_sha256
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "readiness": self.readiness,
+            "approval_eligible": self.approval_eligible,
+            "result_path": self.result_path,
+            "result_sha256": self.result_sha256,
+            "current_stage": self.current_stage,
+            "next_action": self.next_action,
+        }
+
+
+def _canonical_json(value: object, *, maximum: int = _PENDING_MAX_BYTES) -> bytes:
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+    if len(payload) > maximum:
+        raise ValueError("evidence_registration_interrupted")
+    return payload
+
+
+def _hash(value: object) -> str:
+    return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _pending_path(project: ResearchProject) -> Path:
+    return resolve_project_artifact(project.root, EVIDENCE_PENDING_PATH)
+
+
+def _persist_pending(project: ResearchProject, pending: Mapping[str, object]) -> None:
+    encoded = _canonical_json(pending)
+    atomic_write_json(
+        _pending_path(project),
+        json.loads(encoded.decode("utf-8")),
+        prefix="evidence-registration-",
+        compact=True,
+    )
+
+
+def _clear_pending(project: ResearchProject) -> None:
+    path = _pending_path(project)
+    path.unlink(missing_ok=True)
+    _fsync_directory(path.parent)
+
+
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if not isinstance(key, str) or key in result:
+            raise ValueError("evidence_registration_interrupted")
+        result[key] = value
+    return result
+
+
+def _reject_constant(_value: str):
+    raise ValueError("evidence_registration_interrupted")
+
+
+def _read_regular_bounded(path: Path, maximum: int) -> bytes:
+    descriptor = os.open(
+        path,
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+    )
+    try:
+        initial = os.fstat(descriptor)
+        if not stat.S_ISREG(initial.st_mode) or initial.st_size > maximum:
+            raise ValueError("evidence_registration_interrupted")
+        chunks = []
+        remaining = maximum + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        final = os.fstat(descriptor)
+        if (
+            len(payload) > maximum
+            or len(payload) != initial.st_size
+            or (
+                initial.st_dev,
+                initial.st_ino,
+                initial.st_size,
+                initial.st_mtime_ns,
+                initial.st_ctime_ns,
+            )
+            != (
+                final.st_dev,
+                final.st_ino,
+                final.st_size,
+                final.st_mtime_ns,
+                final.st_ctime_ns,
+            )
+        ):
+            raise ValueError("evidence_registration_interrupted")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def _load_pending(project: ResearchProject) -> dict[str, object] | None:
+    path = _pending_path(project)
+    if not os.path.lexists(path):
+        return None
+    try:
+        raw = json.loads(
+            _read_regular_bounded(path, _PENDING_MAX_BYTES).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+    required = {
+        "schema_version",
+        "registration_id",
+        "project_id",
+        "prior_state_sha256",
+        "target_state_sha256",
+        "sources",
+        "objects",
+        "manifest_path",
+        "manifest_sha256",
+        "manifest",
+        "event",
+        "event_sha256",
+        "event_offset",
+        "phase",
+        "abort_intent",
+    }
+    if (
+        not isinstance(raw, dict)
+        or set(raw) != required
+        or raw.get("schema_version") != 1
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    if raw.get("phase") not in _PHASES or not isinstance(raw.get("abort_intent"), bool):
+        raise ValueError("evidence_registration_interrupted")
+    if raw.get("project_id") != project.state.project_id:
+        raise ValueError("evidence_registration_interrupted")
+    for field in (
+        "prior_state_sha256",
+        "target_state_sha256",
+        "manifest_sha256",
+        "event_sha256",
+    ):
+        if not isinstance(raw.get(field), str) or _SHA256.fullmatch(raw[field]) is None:
+            raise ValueError("evidence_registration_interrupted")
+    if (
+        _hash(raw["manifest"]) != raw["manifest_sha256"]
+        or _hash(raw["event"]) != raw["event_sha256"]
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    return raw
+
+
+def _source_size(root: Path, path: str) -> int:
+    descriptor = os.open(root / path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        value = os.fstat(descriptor)
+        if not stat.S_ISREG(value.st_mode):
+            raise ValueError("research_result_provenance_mismatch")
+        return value.st_size
+    finally:
+        os.close(descriptor)
+
+
+def _collect_sources(project: ResearchProject, validated) -> tuple[EvidenceSource, ...]:
+    payload = validated.payload
+    provenance = payload.get("provenance")
+    contract_ref = payload.get("execution_contract")
+    if not isinstance(provenance, Mapping) or not isinstance(contract_ref, Mapping):
+        raise ValueError("research_result_provenance_mismatch")
+    candidates: list[EvidenceSource] = [
+        EvidenceSource(
+            "result",
+            validated.result_path,
+            validated.result_sha256,
+            validated.result_size,
+        ),
+        EvidenceSource(
+            "execution_contract",
+            str(contract_ref["path"]),
+            str(contract_ref["sha256"]),
+            _source_size(project.root, str(contract_ref["path"])),
+        ),
+    ]
+    bindings = provenance.get("bindings")
+    if not isinstance(bindings, Mapping):
+        raise ValueError("research_result_provenance_mismatch")
+    for name, item in bindings.items():
+        values = item if isinstance(item, (list, tuple)) else (item,)
+        for entry in values:
+            if not isinstance(entry, Mapping):
+                raise ValueError("research_result_provenance_mismatch")
+            path = entry.get("path")
+            digest = entry.get("sha256")
+            if not isinstance(path, str):
+                raise ValueError("research_result_provenance_mismatch")
+            role = (
+                "package_file"
+                if name in {"package_files", "package_manifest", "config"}
+                else f"binding:{name}"
+            )
+            candidates.append(
+                EvidenceSource(
+                    role, path, str(digest), _source_size(project.root, path)
+                )
+            )
+    inputs = provenance.get("inputs")
+    if not isinstance(inputs, (list, tuple)):
+        raise ValueError("research_result_provenance_mismatch")
+    for entry in inputs:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("path"), str):
+            raise ValueError("research_result_provenance_mismatch")
+        candidates.append(
+            EvidenceSource(
+                "input",
+                entry["path"],
+                str(entry.get("sha256")),
+                entry.get("size_bytes"),
+            )
+        )
+    unique: dict[tuple[str, str], EvidenceSource] = {}
+    for candidate in candidates:
+        prior = unique.get((candidate.role, candidate.path))
+        if prior is not None and prior != candidate:
+            raise ValueError("research_result_provenance_mismatch")
+        unique[(candidate.role, candidate.path)] = candidate
+    return tuple(unique.values())
+
+
+def _manifest_payload(
+    project: ResearchProject,
+    validated,
+    registration_id: str,
+    sources: tuple[EvidenceSource, ...],
+) -> dict[str, object]:
+    contract_ref = validated.payload["execution_contract"]
+    assert isinstance(contract_ref, Mapping)
+    approval = project.state.artifacts.get("approvals/stage-12.json")
+    approval_payload = (
+        asdict(approval)
+        if approval is not None
+        else {
+            "path": "approvals/stage-12.json",
+            "sha256": hashlib.sha256(
+                (project.root / "approvals/stage-12.json").read_bytes()
+            ).hexdigest(),
+            "size": (project.root / "approvals/stage-12.json").stat().st_size,
+        }
+    )
+    execution_payload = json.loads(
+        (project.root / str(contract_ref["path"])).read_text(encoding="utf-8")
+    )
+    return {
+        "schema_version": 1,
+        "registration_id": registration_id,
+        "project_id": project.state.project_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "approval": approval_payload,
+        "execution_contract": dict(contract_ref),
+        "environment_fingerprint": execution_payload["environment_fingerprint"],
+        "objects": [
+            {
+                "role": source.role,
+                "source_path": source.path,
+                "sha256": source.expected_sha256,
+                "size": source.expected_size,
+                "object_path": f".researchclaw/evidence/objects/{source.expected_sha256}",
+            }
+            for source in sources
+        ],
+        "result": {
+            "sha256": validated.result_sha256,
+            "size": validated.result_size,
+            "object_path": f".researchclaw/evidence/objects/{validated.result_sha256}",
+        },
+        "metrics": _thaw(validated.payload["metrics"]),
+        "split_summary": _thaw(validated.payload["split_summary"]),
+        "runtime": _thaw(validated.payload["runtime"]),
+    }
+
+
+def _after_strict_validation(_validated) -> None:
+    """Test seam after strict validation and before descriptor-backed publication."""
+
+
+def _after_pending_persisted(_pending) -> None:
+    """Durability test seam."""
+
+
+def _after_object_published(_published: EvidenceObject, _index: int) -> None:
+    """Durability test seam."""
+
+
+def _after_manifest_published(_manifest: ArtifactRef) -> None:
+    """Durability test seam."""
+
+
+def _after_state_saved() -> None:
+    """Durability test seam."""
+
+
+def _after_event_written() -> None:
+    """Durability test seam."""
+
+
+def _after_pending_cleared() -> None:
+    """Durability test seam."""
+
+
+def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, object]:
+    validate_relative_path(manifest_path, kind="evidence manifest")
+    if not manifest_path.startswith(".researchclaw/evidence/manifests/"):
+        raise ValueError("evidence_object_integrity_failure")
+    try:
+        payload = _read_regular_bounded(
+            Path(project_root) / manifest_path, _MANIFEST_MAX_BYTES
+        )
+        raw = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as error:
+        raise ValueError("evidence_object_integrity_failure") from error
+    if not isinstance(raw, dict) or set(raw) != {
+        "schema_version",
+        "registration_id",
+        "project_id",
+        "created_at",
+        "approval",
+        "execution_contract",
+        "environment_fingerprint",
+        "objects",
+        "result",
+        "metrics",
+        "split_summary",
+        "runtime",
+    }:
+        raise ValueError("evidence_object_integrity_failure")
+    return raw
+
+
+def _verify_manifest_objects(
+    project: ResearchProject, manifest: Mapping[str, object]
+) -> None:
+    entries = manifest.get("objects")
+    if not isinstance(entries, list):
+        raise ValueError("evidence_object_integrity_failure")
+    store = EvidenceStore(project.root)
+    directory = store._open_directory(store.objects_root)
+    try:
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                raise ValueError("evidence_object_integrity_failure")
+            digest, size = entry.get("sha256"), entry.get("size")
+            if not isinstance(digest, str) or not isinstance(size, int):
+                raise ValueError("evidence_object_integrity_failure")
+            store._verify_object(directory, digest, size)
+    finally:
+        os.close(directory)
+
+
+def _target_state(prior: ProjectState, pending: Mapping[str, object]) -> ProjectState:
+    manifest_path = str(pending["manifest_path"])
+    manifest = pending["manifest"]
+    assert isinstance(manifest, Mapping)
+    result = manifest["result"]
+    assert isinstance(result, Mapping)
+    manifest_bytes = _canonical_json(manifest, maximum=_MANIFEST_MAX_BYTES)
+    manifest_ref = ArtifactRef(
+        manifest_path, hashlib.sha256(manifest_bytes).hexdigest(), len(manifest_bytes)
+    )
+    result_object_path = str(result["object_path"])
+    result_ref = ArtifactRef(
+        result_object_path, str(result["sha256"]), int(result["size"])
+    )
+    compatibility_ref = ArtifactRef(
+        "experiment/results.json", str(result["sha256"]), int(result["size"])
+    )
+    return replace(
+        prior,
+        current_stage=13,
+        status=StageStatus.READY,
+        completed_stages=(
+            *tuple(stage for stage in prior.completed_stages if stage != 12),
+            12,
+        ),
+        next_action="prepare_stage",
+        artifacts={
+            **prior.artifacts,
+            manifest_path: manifest_ref,
+            result_object_path: result_ref,
+            "experiment/results.json": compatibility_ref,
+        },
+        last_error=None,
+    )
+
+
+def _event_present(project: ResearchProject, pending: Mapping[str, object]) -> bool:
+    target = pending["event"]
+    return any(
+        event.to_dict() == target for event in event_log_for(project.root).iter_events()
+    )
+
+
+def _repair_owned_partial_event(
+    project: ResearchProject, pending: Mapping[str, object]
+) -> None:
+    path = project.root / "evaluation/events.jsonl"
+    offset = int(pending["event_offset"])
+    descriptor = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        total = os.fstat(descriptor).st_size
+        if total <= offset or total - offset > 64 * 1024:
+            raise ValueError("evidence_registration_interrupted")
+        os.lseek(descriptor, offset, os.SEEK_SET)
+        fragment = os.read(descriptor, total - offset)
+        event = EvaluationEvent.from_dict(pending["event"])
+        record = EventLog._bounded_record(event)
+        result_sha = str(event.payload.get("result_sha256", "")).encode("ascii")
+        contract_sha = str(event.payload.get("contract_sha256", "")).encode("ascii")
+        if (
+            not fragment
+            or not record.startswith(fragment)
+            or not any(
+                marker and marker in fragment for marker in (result_sha, contract_sha)
+            )
+        ):
+            raise ValueError("evidence_registration_interrupted")
+        os.ftruncate(descriptor, offset)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _fsync_directory(path.parent)
+
+
+def _status(pending: Mapping[str, object]) -> EvidenceRegistrationStatus:
+    manifest = pending["manifest"]
+    assert isinstance(manifest, Mapping) and isinstance(manifest["result"], Mapping)
+    return EvidenceRegistrationStatus(
+        str(pending["registration_id"]),
+        str(pending["manifest_path"]),
+        str(manifest["result"]["sha256"]),
+        13,
+        "prepare_stage",
+    )
+
+
+def registered_evidence_status(
+    project: ResearchProject
+) -> EvidenceRegistrationStatus | None:
+    """Return the single verified immutable registration already grounding Stage 13."""
+    if project.state.current_stage != 13 or 12 not in project.state.completed_stages:
+        return None
+    paths = [
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    ]
+    if len(paths) != 1:
+        return None
+    manifest_path = paths[0]
+    manifest = load_evidence_manifest(project.root, manifest_path)
+    _verify_manifest_objects(project, manifest)
+    result = manifest.get("result")
+    registration_id = manifest.get("registration_id")
+    if (
+        not isinstance(result, Mapping)
+        or not isinstance(result.get("sha256"), str)
+        or not isinstance(registration_id, str)
+    ):
+        raise ValueError("evidence_object_integrity_failure")
+    return EvidenceRegistrationStatus(
+        registration_id,
+        manifest_path,
+        result["sha256"],
+        13,
+        project.state.next_action,
+    )
+
+
+def _validated_event_log_offset(project: ResearchProject) -> int:
+    try:
+        for _event in event_log_for(project.root).iter_events():
+            pass
+        return (project.root / "evaluation/events.jsonl").stat().st_size
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as error:
+        raise ValueError("research_result_registration_recovery_invalid") from error
+
+
+def _recover_locked(
+    project: ResearchProject, pending: dict[str, object]
+) -> EvidenceRegistrationStatus | None:
+    current = ResearchProject.open_readonly(project.root)
+    manifest_path = str(pending["manifest_path"])
+    manifest_exists = os.path.lexists(current.root / manifest_path)
+    if pending["phase"] == "aborting" or pending["abort_intent"]:
+        if current.state.current_stage != 12:
+            raise ValueError("evidence_registration_interrupted")
+        _clear_pending(current)
+        return None
+    if not manifest_exists:
+        pending["phase"] = "aborting"
+        pending["abort_intent"] = True
+        _persist_pending(current, pending)
+        _clear_pending(current)
+        return None
+    manifest = load_evidence_manifest(current.root, manifest_path)
+    if _hash(manifest) != pending["manifest_sha256"]:
+        pending["phase"] = "aborting"
+        pending["abort_intent"] = True
+        _persist_pending(current, pending)
+        raise ValueError("evidence_object_integrity_failure")
+    _verify_manifest_objects(current, manifest)
+    if current.state.current_stage == 12:
+        if _hash(current.state.to_dict()) != pending["prior_state_sha256"]:
+            raise ValueError("evidence_registration_interrupted")
+        target = _target_state(current.state, pending)
+        if _hash(target.to_dict()) != pending["target_state_sha256"]:
+            raise ValueError("evidence_registration_interrupted")
+        StateStore(current.root / ".researchclaw").save(target)
+        current = ResearchProject.open_readonly(current.root)
+    elif _hash(current.state.to_dict()) != pending["target_state_sha256"]:
+        raise ValueError("evidence_registration_interrupted")
+    try:
+        event_exists = _event_present(current, pending)
+    except ValueError:
+        _repair_owned_partial_event(current, pending)
+        event_exists = False
+    if not event_exists:
+        event = EvaluationEvent.from_dict(pending["event"])
+        path = current.root / "evaluation/events.jsonl"
+        if path.stat().st_size != pending["event_offset"]:
+            raise ValueError("evidence_registration_interrupted")
+        event_log_for(current.root).append_locked(
+            event, expected_offset=int(pending["event_offset"])
+        )
+    _verify_manifest_objects(current, manifest)
+    if _hash(ResearchProject.open_readonly(current.root).state.to_dict()) != pending[
+        "target_state_sha256"
+    ] or not _event_present(current, pending):
+        raise ValueError("evidence_registration_interrupted")
+    _clear_pending(current)
+    return _status(pending)
+
+
+def recover_pending_evidence_registration(
+    project: ResearchProject
+) -> EvidenceRegistrationStatus | None:
+    with project_transaction(project.root, allow_pending=True):
+        current = ResearchProject.open_readonly(project.root)
+        pending = _load_pending(current)
+        return None if pending is None else _recover_locked(current, pending)
+
+
+def register_immutable_research_evidence(
+    project: ResearchProject, validated_result
+) -> EvidenceRegistrationStatus:
+    """Publish validated Stage-12 sources and commit manifest/state/event atomically."""
+    with project_transaction(project.root, allow_pending=True):
+        current = ResearchProject.open_readonly(project.root)
+        existing = _load_pending(current)
+        if existing is not None:
+            recovered = _recover_locked(current, existing)
+            if recovered is None:
+                raise ValueError("evidence_registration_interrupted")
+            return recovered
+        if current.state.current_stage != 12:
+            raise ValueError("research_result_registration_conflict")
+        _after_strict_validation(validated_result)
+        sources = _collect_sources(current, validated_result)
+        registration_id = secrets.token_hex(16)
+        manifest = _manifest_payload(
+            current, validated_result, registration_id, sources
+        )
+        manifest_path = f".researchclaw/evidence/manifests/{registration_id}.json"
+        event = EvaluationEvent.create(
+            "research_result_registered",
+            current.state.project_id,
+            {
+                "contract_path": validated_result.payload["execution_contract"]["path"],
+                "contract_sha256": validated_result.payload["execution_contract"][
+                    "sha256"
+                ],
+                "result_path": validated_result.result_path,
+                "result_sha256": validated_result.result_sha256,
+                "metric_count": validated_result.metric_count,
+                "input_count": validated_result.input_count,
+            },
+        )
+        event_offset = _validated_event_log_offset(current)
+        target_stub = {
+            "manifest_path": manifest_path,
+            "manifest": manifest,
+        }
+        target = _target_state(current.state, target_stub)
+        pending: dict[str, object] = {
+            "schema_version": 1,
+            "registration_id": registration_id,
+            "project_id": current.state.project_id,
+            "prior_state_sha256": _hash(current.state.to_dict()),
+            "target_state_sha256": _hash(target.to_dict()),
+            "sources": [asdict(source) for source in sources],
+            "objects": [],
+            "manifest_path": manifest_path,
+            "manifest_sha256": _hash(manifest),
+            "manifest": manifest,
+            "event": event.to_dict(),
+            "event_sha256": _hash(event.to_dict()),
+            "event_offset": event_offset,
+            "phase": "publishing",
+            "abort_intent": False,
+        }
+        _persist_pending(current, pending)
+        _after_pending_persisted(pending)
+        store = EvidenceStore(current.root)
+        try:
+            store.preflight(sources)
+            published = []
+            for index, source in enumerate(sources):
+                evidence_object = store.publish(source)
+                published.append(asdict(evidence_object))
+                pending["objects"] = published
+                _persist_pending(current, pending)
+                _after_object_published(evidence_object, index)
+            manifest_ref = store.write_manifest(registration_id, manifest)
+            pending["phase"] = "manifest_published"
+            _persist_pending(current, pending)
+            _after_manifest_published(manifest_ref)
+        except Exception:
+            if not os.path.lexists(current.root / manifest_path):
+                pending["phase"] = "aborting"
+                pending["abort_intent"] = True
+                _persist_pending(current, pending)
+            raise
+        _verify_manifest_objects(current, manifest)
+        StateStore(current.root / ".researchclaw").save(target)
+        pending["phase"] = "state_saved"
+        _persist_pending(current, pending)
+        _after_state_saved()
+        event_log_for(current.root).append_locked(
+            event, expected_offset=int(pending["event_offset"])
+        )
+        pending["phase"] = "event_written"
+        _persist_pending(current, pending)
+        _after_event_written()
+        _verify_manifest_objects(current, manifest)
+        if _hash(
+            ResearchProject.open_readonly(current.root).state.to_dict()
+        ) != pending["target_state_sha256"] or not _event_present(current, pending):
+            raise ValueError("evidence_registration_interrupted")
+        _clear_pending(current)
+        _after_pending_cleared()
+        return _status(pending)

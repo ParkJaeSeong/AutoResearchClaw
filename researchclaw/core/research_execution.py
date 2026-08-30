@@ -48,9 +48,7 @@ _STAGE_TWELVE_ARTIFACT_PATHS = (
     SELF_TEST_REPORT_PATH,
 )
 _REGISTRATION_LOCK_PATH = "evaluation/events.jsonl"
-_REGISTRATION_PENDING_PATH = (
-    ".researchclaw/research-result-registration.pending.json"
-)
+_REGISTRATION_PENDING_PATH = ".researchclaw/research-result-registration.pending.json"
 _MAX_PENDING_REGISTRATION_BYTES = 256 * 1024
 MAX_RESEARCH_RESULT_BYTES = 1024 * 1024
 MAX_EXECUTION_CONTRACT_BYTES = 256 * 1024
@@ -215,9 +213,7 @@ class _PendingResearchResultRegistration:
             "success_event": self.success_event.to_dict(),
             "rollback_event": self.rollback_event.to_dict(),
             "failure_event": (
-                self.failure_event.to_dict()
-                if self.failure_event is not None
-                else None
+                self.failure_event.to_dict() if self.failure_event is not None else None
             ),
         }
 
@@ -506,7 +502,11 @@ def _build_execution_contract(
     plan = _load_current_resource_plan(project, allow_result=allow_result)
     command = plan.get("deferred_command")
     raw_prohibitions = plan.get("prohibitions")
-    if not isinstance(command, str) or not command or not isinstance(raw_prohibitions, Mapping):
+    if (
+        not isinstance(command, str)
+        or not command
+        or not isinstance(raw_prohibitions, Mapping)
+    ):
         raise ValueError("execution_prerequisites_changed")
     if hashes.get(RESOURCE_PLAN_PATH) != _sha256(
         _read_project_file_snapshot(
@@ -556,7 +556,9 @@ def _build_execution_contract(
     bindings["package_files"] = _package_file_bindings(project)
 
     prohibitions = dict(raw_prohibitions)
-    if not all(isinstance(value, bool) and value is False for value in prohibitions.values()):
+    if not all(
+        isinstance(value, bool) and value is False for value in prohibitions.values()
+    ):
         raise ValueError("execution_prerequisites_changed")
     prohibitions["researchclaw_managed_execution"] = False
     contract: dict[str, object] = {
@@ -604,7 +606,9 @@ def _existing_current_contract(
         raise ValueError("execution_contract_invalid")
     if existing.get("contract_id") != candidate.get("contract_id"):
         raise ValueError(
-            "execution_contract_stale" if stale_category else "execution_contract_invalid"
+            "execution_contract_stale"
+            if stale_category
+            else "execution_contract_invalid"
         )
     if existing.get("contract_id") != _sha256(
         _canonical_json(_contract_id_payload(existing))
@@ -755,7 +759,9 @@ def _decode_execution_contract(payload: bytes) -> object:
 
 def _freeze_json(value: object) -> object:
     if isinstance(value, dict):
-        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+        return MappingProxyType(
+            {key: _freeze_json(item) for key, item in value.items()}
+        )
     if isinstance(value, list):
         return tuple(_freeze_json(item) for item in value)
     return value
@@ -801,7 +807,13 @@ def _expected_isolation_key(
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_json_constant,
         )
-    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError) as error:
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as error:
         raise ValueError("execution_contract_stale") from error
     if _sha256(config_bytes) != config_digest or not isinstance(config, Mapping):
         raise ValueError("execution_contract_stale")
@@ -849,7 +861,10 @@ def _validate_result_splits(split_summary: object, isolation_key: str) -> None:
         "group_overlap_count",
         "leakage_count",
     }
-    if not isinstance(split_summary, dict) or set(split_summary) != expected_split_fields:
+    if (
+        not isinstance(split_summary, dict)
+        or set(split_summary) != expected_split_fields
+    ):
         raise ValueError("research_result_split_invalid")
     roles = split_summary["roles"]
     if (
@@ -1013,7 +1028,9 @@ def _validate_research_result_against_stage_twelve_state(
         raise ValueError("development_result_not_registerable")
     if result_path != RESEARCH_RESULT_PATH:
         raise ValueError("research_result_file_invalid")
-    current = ResearchProject(root=Path(root).resolve(strict=True), state=stage_twelve_state)
+    current = ResearchProject(
+        root=Path(root).resolve(strict=True), state=stage_twelve_state
+    )
     _load_current_stage_twelve_approval(current)
     resource_plan = _load_current_resource_plan(current, allow_result=True)
     contract_bytes = _existing_current_contract(
@@ -1057,7 +1074,10 @@ def _validate_research_result_against_stage_twelve_state(
         or isinstance(payload["schema_version"], bool)
     ):
         raise ValueError("research_result_schema_invalid")
-    if payload["development_only"] is not False or payload["evidence_eligible"] is not True:
+    if (
+        payload["development_only"] is not False
+        or payload["evidence_eligible"] is not True
+    ):
         raise ValueError("development_result_not_registerable")
     if payload["project_id"] != current.state.project_id:
         raise ValueError("research_result_project_mismatch")
@@ -1164,8 +1184,8 @@ def _append_registration_failure(
         result_sha256=result_sha256,
     )
     try:
-        event_log_size, _event_log_sha256 = (
-            _read_complete_registration_event_log(project)
+        event_log_size, _event_log_sha256 = _read_complete_registration_event_log(
+            project
         )
     except (
         OSError,
@@ -1175,9 +1195,7 @@ def _append_registration_failure(
         json.JSONDecodeError,
         RecursionError,
     ) as log_error:
-        raise ValueError(
-            "research_result_registration_recovery_invalid"
-        ) from log_error
+        raise ValueError("research_result_registration_recovery_invalid") from log_error
     event_log_for(project.root).append_locked(
         event,
         expected_offset=event_log_size,
@@ -1199,9 +1217,7 @@ def _read_bounded_pending_registration(project: ResearchProject) -> bytes:
     path = _pending_path(project)
     descriptor = os.open(
         path,
-        os.O_RDONLY
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0),
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
     )
     try:
         file_stat = os.fstat(descriptor)
@@ -1253,8 +1269,7 @@ def _require_closed_pending_state(raw: object) -> None:
         raise ValueError("pending state must be a closed object")
     artifacts = raw.get("artifacts")
     if not isinstance(artifacts, dict) or any(
-        not isinstance(reference, dict)
-        or set(reference) != {"path", "sha256", "size"}
+        not isinstance(reference, dict) or set(reference) != {"path", "sha256", "size"}
         for reference in artifacts.values()
     ):
         raise ValueError("pending artifacts must contain closed references")
@@ -1264,8 +1279,7 @@ def _require_closed_pending_state(raw: object) -> None:
         or set(snapshot) != {"status", "entries"}
         or not isinstance(snapshot.get("entries"), list)
         or any(
-            not isinstance(entry, dict)
-            or set(entry) != {"path", "kind", "sha256"}
+            not isinstance(entry, dict) or set(entry) != {"path", "kind", "sha256"}
             for entry in snapshot["entries"]
         )
     ):
@@ -1285,8 +1299,7 @@ def _require_closed_pending_state(raw: object) -> None:
         raise ValueError("pending last_error must be closed")
     issues = last_error.get("issues")
     if not isinstance(issues, list) or any(
-        not isinstance(issue, dict)
-        or set(issue) != {"code", "path", "message"}
+        not isinstance(issue, dict) or set(issue) != {"code", "path", "message"}
         for issue in issues
     ):
         raise ValueError("pending last_error issues must be closed")
@@ -1405,9 +1418,7 @@ def _load_pending_registration(
             current_stage=13,
             status=StageStatus.READY,
             completed_stages=(
-                *tuple(
-                    stage for stage in prior_state.completed_stages if stage != 12
-                ),
+                *tuple(stage for stage in prior_state.completed_stages if stage != 12),
                 12,
             ),
             next_action="prepare_stage",
@@ -1428,13 +1439,17 @@ def _load_pending_registration(
             if contract_ref is not None
             else None
         )
-        expected_rollback_payload = {
-            "contract_path": expected_success_payload["contract_path"],
-            "contract_sha256": expected_success_payload["contract_sha256"],
-            "result_path": result_path,
-            "result_sha256": result_sha256,
-            "registration_event_sha256": _event_identity(success_event),
-        } if expected_success_payload is not None else None
+        expected_rollback_payload = (
+            {
+                "contract_path": expected_success_payload["contract_path"],
+                "contract_sha256": expected_success_payload["contract_sha256"],
+                "result_path": result_path,
+                "result_sha256": result_sha256,
+                "registration_event_sha256": _event_identity(success_event),
+            }
+            if expected_success_payload is not None
+            else None
+        )
         expected_failure_binding = (
             {
                 "contract_path": contract_ref.path,
@@ -1465,24 +1480,19 @@ def _load_pending_registration(
             or success_event.payload != expected_success_payload
             or rollback_event.payload != expected_rollback_payload
             or (phase == "committing" and success_written)
-            or (
-                phase == "committing"
-                and event_start_offset != event_log_size
-            )
+            or (phase == "committing" and event_start_offset != event_log_size)
             or (phase == "committing" and failure_event is not None)
             or (
                 phase == "aborting"
                 and event_start_offset
-                != event_log_size
-                + (success_record_size if success_written else 0)
+                != event_log_size + (success_record_size if success_written else 0)
             )
             or (phase == "aborting" and failure_event is None)
             or (
                 failure_event is not None
                 and (
                     failure_event.project_id != project_id
-                    or failure_event.type
-                    != "research_result_registration_failed"
+                    or failure_event.type != "research_result_registration_failed"
                     or failure_event.payload.get("error_category")
                     not in _REGISTRATION_ERROR_CATEGORIES
                     or {
@@ -1642,9 +1652,7 @@ def _event_prefix_tail(
                     or len(line) > MAX_EVENT_RECORD_BYTES
                     or len(line) > remaining
                 ):
-                    raise ValueError(
-                        "research_result_registration_recovery_invalid"
-                    )
+                    raise ValueError("research_result_registration_recovery_invalid")
                 _parse_event_record(line)
                 digest.update(line)
                 remaining -= len(line)
@@ -1844,16 +1852,17 @@ def _ensure_aborting_events(
     if pending.success_written:
         success_record = _canonical_event_record(pending.success_event)
         success_offset = expected_prefix - pending.event_log_size
-        if tail[success_offset : success_offset + len(success_record)] != success_record:
+        if (
+            tail[success_offset : success_offset + len(success_record)]
+            != success_record
+        ):
             raise ValueError("research_result_registration_recovery_invalid")
         expected_prefix += len(success_record)
     if expected_prefix != pending.event_start_offset:
         raise ValueError("research_result_registration_recovery_invalid")
 
     if not pending.success_written:
-        event_tail = tail[
-            pending.event_start_offset - pending.event_log_size :
-        ]
+        event_tail = tail[pending.event_start_offset - pending.event_log_size :]
         success_record = _canonical_event_record(pending.success_event)
         if (
             event_tail
@@ -1910,9 +1919,7 @@ def effective_research_result_registration_events(
         identity
         for event in events
         if event.type == "research_result_registration_rolled_back"
-        and isinstance(
-            identity := event.payload.get("registration_event_sha256"), str
-        )
+        and isinstance(identity := event.payload.get("registration_event_sha256"), str)
     }
     return tuple(
         event
@@ -2068,8 +2075,13 @@ def _complete_pending_registration(
 
 def recover_pending_research_result_registration(
     project: ResearchProject,
-) -> ResearchResultRegistrationStatus | None:
+) -> object | None:
     """Finish one durable pending registration without duplicating its event."""
+    from .evidence_registration import recover_pending_evidence_registration
+
+    recovered = recover_pending_evidence_registration(project)
+    if recovered is not None:
+        return recovered
     with _registration_lock(project):
         return _recover_pending_registration_locked(project)
 
@@ -2078,8 +2090,17 @@ def _recover_pending_registration_locked(
     project: ResearchProject,
     *,
     suppress_validation_failure: bool = False,
-) -> ResearchResultRegistrationStatus | None:
+) -> object | None:
     """Recover a pending registration while the caller owns the project lock."""
+    from .evidence_registration import (
+        _load_pending as _load_evidence_pending,
+        _recover_locked as _recover_evidence_locked,
+    )
+
+    current = ResearchProject.open_readonly(project.root)
+    evidence_pending = _load_evidence_pending(current)
+    if evidence_pending is not None:
+        return _recover_evidence_locked(current, evidence_pending)
     pending = _load_pending_registration(project)
     if pending is None:
         return None
@@ -2093,10 +2114,59 @@ def _recover_pending_registration_locked(
     )
 
 
-def register_research_result(
+def register_research_result(project: ResearchProject, result_path: str) -> object:
+    """Register one validated research result and complete Stage 12."""
+    from .evidence_registration import (
+        _validated_event_log_offset,
+        recover_pending_evidence_registration,
+        registered_evidence_status,
+        register_immutable_research_evidence,
+    )
+
+    # Finish or reject journals created by releases before immutable evidence.
+    # They are never silently migrated into the new manifest format.
+    if os.path.lexists(_pending_path(project)):
+        with _registration_lock(project):
+            pending = _load_pending_registration(project)
+            if pending is None:
+                raise ValueError("research_result_registration_recovery_invalid")
+            if pending.phase == "aborting":
+                category = (
+                    pending.failure_event.payload["error_category"]
+                    if pending.failure_event is not None
+                    else "research_result_registration_recovery_invalid"
+                )
+                _finish_aborting_registration(project, pending)
+                raise ValueError(str(category))
+            return _complete_pending_registration(project, pending)
+    try:
+        with project_transaction(project.root, allow_pending=True):
+            current = _current_project(project)
+            recovered = recover_pending_evidence_registration(current)
+            if recovered is not None:
+                return recovered
+            current = _current_project(project)
+            registered = registered_evidence_status(current)
+            if registered is not None:
+                return registered
+            _validated_event_log_offset(current)
+            validated = validate_research_result(current, result_path)
+            return register_immutable_research_evidence(current, validated)
+    except ValueError as error:
+        from .evidence_registration import EVIDENCE_PENDING_PATH
+
+        if not os.path.lexists(project.root / EVIDENCE_PENDING_PATH):
+            try:
+                _append_registration_failure(project, result_path, error)
+            except ValueError:
+                pass
+        raise
+
+
+def _register_mutable_research_result_legacy(
     project: ResearchProject, result_path: str
 ) -> ResearchResultRegistrationStatus:
-    """Register one validated research result and complete Stage 12."""
+    """Retained parser/recovery implementation for legacy pending journals only."""
     with _registration_lock(project):
         pending = _load_pending_registration(project)
         if pending is not None:
@@ -2174,9 +2244,10 @@ def register_research_result(
             },
         )
         try:
-            event_log_size, event_log_prefix_sha256 = _read_complete_registration_event_log(
-                latest
-            )
+            (
+                event_log_size,
+                event_log_prefix_sha256,
+            ) = _read_complete_registration_event_log(latest)
         except (
             OSError,
             UnicodeError,
@@ -2185,9 +2256,7 @@ def register_research_result(
             json.JSONDecodeError,
             RecursionError,
         ) as error:
-            invalid = ValueError(
-                "research_result_registration_recovery_invalid"
-            )
+            invalid = ValueError("research_result_registration_recovery_invalid")
             _append_registration_failure(project, result_path, invalid)
             raise invalid from error
         pending = _PendingResearchResultRegistration(

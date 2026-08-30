@@ -72,11 +72,14 @@ def _sha256(path: Path) -> str:
 
 
 def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None:
+    immutable_grounded = _immutable_evidence_grounded(root, state)
     ordered_artifacts = sorted(
         state.artifacts.items(),
         key=lambda item: stage_for_output(item[0]) or FOUNDATION_STAGE_MAX,
     )
     for relative_path, artifact in ordered_artifacts:
+        if immutable_grounded and relative_path == "experiment/results.json":
+            continue
         producing_stage = stage_for_output(relative_path) or min(
             state.current_stage,
             FOUNDATION_STAGE_MAX,
@@ -88,18 +91,51 @@ def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None
             if not artifact_path.is_file():
                 return producing_stage
             stat = artifact_path.stat()
-            if stat.st_size != artifact.size or _sha256(artifact_path) != artifact.sha256:
+            if (
+                stat.st_size != artifact.size
+                or _sha256(artifact_path) != artifact.sha256
+            ):
                 return producing_stage
         except (OSError, ValueError):
             return producing_stage
     return None
 
 
-def _stage_thirteen_recovery_action(
-    root: Path, state: ProjectState
-) -> str | None:
+def _immutable_evidence_grounded(root: Path, state: ProjectState) -> bool:
+    manifest_entries = [
+        (path, reference)
+        for path, reference in state.artifacts.items()
+        if path.startswith(".researchclaw/evidence/manifests/")
+    ]
+    if len(manifest_entries) != 1:
+        return False
+    manifest_path, reference = manifest_entries[0]
+    try:
+        from .evidence_registration import (
+            _verify_manifest_objects,
+            load_evidence_manifest,
+        )
+
+        payload_path = resolve_project_artifact(root, manifest_path)
+        payload = payload_path.read_bytes()
+        if (
+            len(payload) != reference.size
+            or hashlib.sha256(payload).hexdigest() != reference.sha256
+        ):
+            return False
+        project = ResearchProject(root=root, state=state)
+        manifest = load_evidence_manifest(root, manifest_path)
+        _verify_manifest_objects(project, manifest)
+    except (OSError, TypeError, ValueError):
+        return False
+    return True
+
+
+def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | None:
     """Return the supported Stage-12 action for an ungrounded Stage 13."""
     if state.current_stage != 13 or 12 not in state.completed_stages:
+        return None
+    if _immutable_evidence_grounded(root, state):
         return None
     from .research_execution import (
         EXECUTION_CONTRACT_PATH,
@@ -212,14 +248,17 @@ def _rewind_for_revalidation(
     retained_artifacts = {
         path: artifact
         for path, artifact in state.artifacts.items()
-        if (producing_stage := stage_for_output(path)) is None or producing_stage < stage_id
+        if (producing_stage := stage_for_output(path)) is None
+        or producing_stage < stage_id
     }
     return project.persist_state(
         replace(
             state,
             current_stage=stage_id,
             status=StageStatus.NEEDS_REVISION,
-            completed_stages=tuple(stage for stage in state.completed_stages if stage < stage_id),
+            completed_stages=tuple(
+                stage for stage in state.completed_stages if stage < stage_id
+            ),
             next_action="validate_stage",
             artifacts=retained_artifacts,
             last_error=last_error,
@@ -420,23 +459,22 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     current_project = _normalize_durable_project_locked(project)
     state = current_project.state
 
-    milestone_complete = (
-        state.current_stage > SUPPORTED_STAGE_MAX
-        and all(stage_id in state.completed_stages for stage_id in SUPPORTED_STAGE_IDS)
+    milestone_complete = state.current_stage > SUPPORTED_STAGE_MAX and all(
+        stage_id in state.completed_stages for stage_id in SUPPORTED_STAGE_IDS
     )
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
-    stage_thirteen_boundary = (
-        state.current_stage == 13 and 12 in state.completed_stages
-    )
+    stage_thirteen_boundary = state.current_stage == 13 and 12 in state.completed_stages
     if stage_thirteen_boundary:
         milestone_complete = False
         execution_readiness = None
         unmet_prerequisites = ()
         approval_eligible = False
     else:
-        execution_readiness, unmet_prerequisites, approval_eligible = (
-            validated_execution_readiness(current_project)
-        )
+        (
+            execution_readiness,
+            unmet_prerequisites,
+            approval_eligible,
+        ) = validated_execution_readiness(current_project)
     execution_approved = False
     if execution_boundary:
         milestone_complete = False
@@ -541,8 +579,7 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         else:
             next_action = (
                 state.next_action
-                if execution_approved
-                or state.status is not StageStatus.READY
+                if execution_approved or state.status is not StageStatus.READY
                 else "report_missing_execution_inputs"
             )
             next_command = _command(current_project.root, "status")
