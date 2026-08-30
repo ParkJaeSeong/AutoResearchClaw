@@ -166,6 +166,15 @@ never research evidence. Only that contract-bound result can be registered:
 researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
 ```
 
+If recovery identifies an invalid unregistered result, the confirmed
+`execution quarantine-result` command copies the exact descriptor-validated
+bytes into the private evidence quarantine and removes the result only from
+durable project state. It deliberately does **not** move, overwrite, or delete
+the mutable `experiment/results.json` pathname. Before rerunning the exclusive
+external command, the operator must inspect and clean up that untrusted path.
+This sacrifices automatic cleanup so a pathname replacement or late hardlink
+can never make quarantine mutate unrelated bytes.
+
 Successful registration records the validated result and advances the project
 to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
 not refine or execute research on the user's behalf.

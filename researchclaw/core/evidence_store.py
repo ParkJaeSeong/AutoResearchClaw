@@ -1504,7 +1504,7 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
             raw.get("project_id") != project.state.project_id
             or prior.project_id != project.state.project_id
             or target != _result_quarantine_target(prior)
-            or raw.get("phase") not in {"prepared", "moved", "event_written", "state_saved"}
+            or raw.get("phase") not in {"prepared", "copied", "event_written", "state_saved"}
             or raw.get("original_path") != "experiment/results.json"
             or not isinstance(destination_name, str)
             or re.fullmatch(r"\d{8}T\d{12}Z-[0-9a-f]{64}\.json", destination_name) is None
@@ -1586,32 +1586,31 @@ def _result_referenced_by_valid_manifest(project: ResearchProject, store: Eviden
     return False
 
 
-def _restore_unrelated_quarantine_move(
-    source_directory: int, quarantine_directory: int, destination_name: str
-) -> None:
-    try:
-        _native_rename_noreplace(
-            quarantine_directory, destination_name, source_directory, "results.json"
-        )
-    except FileExistsError as error:
-        raise ValueError("result quarantine preserved an unrelated moved file") from error
-    os.fsync(source_directory)
-    os.fsync(quarantine_directory)
-
-
-def _repair_result_quarantine_event(
+def _result_quarantine_event_at_offset(
     project: ResearchProject, event: EvaluationEvent, offset: int
-) -> None:
+) -> bool:
     path = project.root / "evaluation/events.jsonl"
     descriptor = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
     try:
         total = os.fstat(descriptor).st_size
         record = EventLog._bounded_record(event)
-        if total <= offset or total - offset >= len(record):
+        if total < offset or total > offset + len(record):
             raise ValueError("result_quarantine_interrupted")
+        if total == offset:
+            return False
         os.lseek(descriptor, offset, os.SEEK_SET)
-        fragment = os.read(descriptor, total - offset)
-        if not fragment or not record.startswith(fragment):
+        remaining = total - offset
+        chunks: list[bytes] = []
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                raise ValueError("result_quarantine_interrupted")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        fragment = b"".join(chunks)
+        if fragment == record:
+            return True
+        if not fragment or len(fragment) >= len(record) or not record.startswith(fragment):
             raise ValueError("result_quarantine_interrupted")
         os.ftruncate(descriptor, offset)
         os.fsync(descriptor)
@@ -1622,6 +1621,7 @@ def _repair_result_quarantine_event(
         os.fsync(parent)
     finally:
         os.close(parent)
+    return False
 
 
 def _recover_result_quarantine_locked(
@@ -1630,46 +1630,71 @@ def _recover_result_quarantine_locked(
     prior = ProjectState.from_dict(pending["prior_state"])
     target = ProjectState.from_dict(pending["target_state"])
     store = EvidenceStore(project.root)
-    source_directory = store._open_directory(project.root / "experiment")
     quarantine_directory = store._open_directory(store.results_quarantine_root)
     destination_name = str(pending["destination_name"])
     try:
-        source_exists = True
         destination_exists = True
-        try:
-            source_stat = os.stat("results.json", dir_fd=source_directory, follow_symlinks=False)
-        except FileNotFoundError:
-            source_exists = False
-            source_stat = None
         try:
             os.stat(destination_name, dir_fd=quarantine_directory, follow_symlinks=False)
         except FileNotFoundError:
             destination_exists = False
-        if source_exists and destination_exists:
-            raise ValueError("result_quarantine_interrupted")
         if not destination_exists:
-            if not source_exists or pending["phase"] != "prepared":
+            if pending["phase"] != "prepared":
                 raise ValueError("result_quarantine_interrupted")
             expected_identity = (
                 pending["device"], pending["inode"], pending["mode"], pending["size"],
                 pending["mtime_ns"], pending["ctime_ns"],
             )
-            assert source_stat is not None
-            _before_result_quarantine_move()
-            source_stat = os.stat(
-                "results.json", dir_fd=source_directory, follow_symlinks=False
+            source_descriptor, _ = open_project_file_descriptor(
+                project.root, "experiment/results.json"
             )
-            if (
-                source_stat.st_dev, source_stat.st_ino, source_stat.st_mode,
-                source_stat.st_size, source_stat.st_mtime_ns, source_stat.st_ctime_ns,
-            ) != expected_identity or source_stat.st_nlink != 1:
-                raise ValueError("result quarantine source changed")
-            _native_rename_noreplace(
-                source_directory, "results.json", quarantine_directory, destination_name
-            )
+            destination: int | None = None
+            try:
+                source_stat = os.fstat(source_descriptor)
+                if (
+                    source_stat.st_dev, source_stat.st_ino, source_stat.st_mode,
+                    source_stat.st_size, source_stat.st_mtime_ns, source_stat.st_ctime_ns,
+                ) != expected_identity or source_stat.st_nlink != 1:
+                    raise ValueError("result quarantine source changed")
+                _before_result_quarantine_move()
+                destination = os.open(
+                    destination_name,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                    0o400,
+                    dir_fd=quarantine_directory,
+                )
+                digest = hashlib.sha256()
+                observed = 0
+                while chunk := os.read(source_descriptor, _CHUNK_SIZE):
+                    digest.update(chunk)
+                    observed += len(chunk)
+                    _write_all(destination, chunk)
+                os.fsync(destination)
+                final_source = os.fstat(source_descriptor)
+                if (
+                    observed != pending["size"]
+                    or digest.hexdigest() != pending["sha256"]
+                    or (
+                        source_stat.st_dev,
+                        source_stat.st_ino,
+                        source_stat.st_mode,
+                        source_stat.st_size,
+                        source_stat.st_mtime_ns,
+                    )
+                    != (
+                        final_source.st_dev,
+                        final_source.st_ino,
+                        final_source.st_mode,
+                        final_source.st_size,
+                        final_source.st_mtime_ns,
+                    )
+                ):
+                    raise ValueError("result quarantine source changed")
+            finally:
+                if destination is not None:
+                    os.close(destination)
+                os.close(source_descriptor)
             os.fsync(quarantine_directory)
-            os.fsync(source_directory)
-            source_exists = False
             _after_result_quarantine_move()
         destination = os.open(
             destination_name,
@@ -1683,31 +1708,19 @@ def _recover_result_quarantine_locked(
         if (
             digest != pending["sha256"]
             or size != pending["size"]
-            or moved_stat.st_dev != pending["device"]
-            or moved_stat.st_ino != pending["inode"]
             or moved_stat.st_nlink != 1
         ):
-            if not source_exists:
-                _restore_unrelated_quarantine_move(
-                    source_directory, quarantine_directory, destination_name
-                )
             raise ValueError("result quarantine identity changed")
         if pending["phase"] == "prepared":
-            pending["phase"] = "moved"
+            pending["phase"] = "copied"
             _persist_result_quarantine(project, pending)
     finally:
         os.close(quarantine_directory)
-        os.close(source_directory)
 
     event = EvaluationEvent.from_dict(pending["event"])
-    try:
-        events = event_log_for(project.root).read_all()
-    except ValueError:
-        _repair_result_quarantine_event(
-            project, event, int(pending["event_offset"])
-        )
-        events = event_log_for(project.root).read_all()
-    event_present = any(item.to_dict() == event.to_dict() for item in events)
+    event_present = _result_quarantine_event_at_offset(
+        project, event, int(pending["event_offset"])
+    )
     if not event_present:
         event_path = project.root / "evaluation/events.jsonl"
         actual_offset = event_path.stat().st_size if event_path.exists() else 0
@@ -1754,12 +1767,15 @@ def recover_pending_result_quarantine(
 def quarantine_unregistered_result(
     project: ResearchProject, reason: str, confirm: bool
 ) -> QuarantinedResult:
-    """Move one mutable, unregistered result into a recoverable quarantine."""
+    """Copy one mutable result into owned quarantine without moving its pathname."""
     if confirm is not True:
         raise ValueError("result quarantine requires --confirm")
     if not isinstance(reason, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) is None:
         raise ValueError("result quarantine reason is invalid")
     with project_transaction(project.root, allow_pending=True):
+        from .evidence_registration import recover_pending_evidence_registration
+
+        recover_pending_evidence_registration(project)
         current = ResearchProject.open_readonly(project.root)
         pending = _load_result_quarantine(current)
         if pending is not None:

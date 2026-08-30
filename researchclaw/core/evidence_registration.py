@@ -651,6 +651,10 @@ def _after_pending_persisted(_pending) -> None:
     """Durability test seam."""
 
 
+def _after_anchor_persisted() -> None:
+    """Durability test seam after anchor and before mutable pending state."""
+
+
 def _after_object_published(_published: EvidenceObject, _index: int) -> None:
     """Durability test seam."""
 
@@ -1438,6 +1442,7 @@ def register_immutable_research_evidence(
             prior=current.state,
             target=target,
         )
+        _after_anchor_persisted()
         _persist_pending(current, pending)
         _after_pending_persisted(pending)
         store = EvidenceStore(current.root)

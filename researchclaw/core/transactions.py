@@ -14,6 +14,7 @@ _LOCK_NAME = "project-transaction.lock"
 _REGISTRATION_PENDING_NAMES = (
     "research-result-registration.pending.json",
     "evidence/pending-registration.json",
+    "evidence/pending-registration-anchor.json",
     "evidence/quarantine/pending-result.json",
 )
 

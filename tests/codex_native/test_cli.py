@@ -15,6 +15,7 @@ from researchclaw.core.experiment_package_contract import validate_experiment_pa
 from researchclaw.core.research_execution import prepare_research_execution
 from researchclaw.core.research_execution import register_research_result
 from researchclaw.core import evidence_store
+from researchclaw.core import evidence_registration
 from researchclaw.core.evidence_store import quarantine_unregistered_result
 from researchclaw.core.events import EventLog, event_log_for
 from researchclaw.core.state import StateStore
@@ -95,9 +96,12 @@ def test_quarantine_result_cli_requires_confirmation_and_moves_regular_result(
     payload = json.loads(capsys.readouterr().out)
     assert payload["original_path"] == "experiment/results.json"
     assert payload["reason"] == "invalid_result"
-    assert not (project.root / "experiment/results.json").exists()
+    assert (project.root / "experiment/results.json").is_file()
     assert (project.root / payload["quarantine_path"]).is_file()
     assert ResearchProject.open(project.root).build_handoff().next_action == "prepare_run"
+    # Quarantine intentionally never mutates the untrusted pathname. The
+    # operator removes it before the exclusive external runner is invoked.
+    (project.root / "experiment/results.json").unlink()
     prepared = prepare_research_execution(ResearchProject.open(project.root))
     completed = subprocess.run(
         prepared.argv,
@@ -145,7 +149,7 @@ def test_quarantine_result_recovers_each_durable_seam(
     ) == 1
 
 
-def test_quarantine_does_not_move_a_replacement_after_descriptor_capture(
+def test_quarantine_copies_captured_descriptor_without_moving_replacement(
     tmp_path, monkeypatch
 ):
     project = build_approved_stage_twelve_project(tmp_path / "project")
@@ -153,17 +157,40 @@ def test_quarantine_does_not_move_a_replacement_after_descriptor_capture(
     write_contract_bound_research_result(project, load_execution_contract(project.root))
     source = project.root / "experiment/results.json"
     original = project.root / "experiment/original-results.json"
+    original_bytes = source.read_bytes()
 
     def replace_source():
         source.rename(original)
         source.write_bytes(b"unrelated replacement")
 
     monkeypatch.setattr(evidence_store, "_before_result_quarantine_move", replace_source)
-    with pytest.raises(ValueError, match="source changed"):
-        quarantine_unregistered_result(project, "invalid_result", True)
+    result = quarantine_unregistered_result(project, "invalid_result", True)
 
     assert source.read_bytes() == b"unrelated replacement"
     assert original.is_file()
+    assert (project.root / result.quarantine_path).read_bytes() == original_bytes
+
+
+def test_quarantine_late_hardlink_only_copies_validated_descriptor_bytes(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    source = project.root / "experiment/results.json"
+    payload = source.read_bytes()
+    external_link = project.root / "experiment/late-link.json"
+
+    monkeypatch.setattr(
+        evidence_store,
+        "_before_result_quarantine_move",
+        lambda: os.link(source, external_link),
+    )
+    result = quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert source.read_bytes() == payload
+    assert external_link.read_bytes() == payload
+    assert (project.root / result.quarantine_path).read_bytes() == payload
 
 
 def test_quarantine_rejects_result_referenced_by_noncurrent_valid_manifest(tmp_path):
@@ -216,6 +243,100 @@ def test_quarantine_repairs_owned_partial_event_before_retry(tmp_path, monkeypat
         event.type == "research_result_quarantined"
         for event in event_log_for(project.root).read_all()
     ) == 1
+
+
+def test_quarantine_event_recovery_never_scans_huge_prior_log(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    log = event_log_for(project.root)
+    for index in range(64):
+        log.append(
+            evidence_store.EvaluationEvent.create(
+                "large_prior_event",
+                project.state.project_id,
+                {"index": index, "padding": "x" * 4096},
+            )
+        )
+    monkeypatch.setattr(
+        EventLog,
+        "read_all",
+        lambda _self: (_ for _ in ()).throw(AssertionError("unbounded scan")),
+    )
+
+    result = quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert (project.root / result.quarantine_path).is_file()
+
+
+def test_quarantine_event_recovery_preserves_foreign_tail(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    def foreign_append(self, _event, *, expected_offset):
+        with self.path.open("ab") as handle:
+            handle.write(b"foreign-tail")
+            handle.flush()
+            os.fsync(handle.fileno())
+        raise OSError("foreign event")
+
+    monkeypatch.setattr(EventLog, "append_locked", foreign_append)
+    with pytest.raises(OSError, match="foreign event"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    with pytest.raises(ValueError, match="result_quarantine_interrupted"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    assert (project.root / "evaluation/events.jsonl").read_bytes().endswith(
+        b"foreign-tail"
+    )
+
+
+def test_quarantine_event_identity_is_bound_to_reserved_offset(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    event = evidence_store.EvaluationEvent.create(
+        "research_result_quarantined",
+        project.state.project_id,
+        {
+            "original_path": "experiment/results.json",
+            "sha256": "0" * 64,
+            "size": 0,
+            "reason": "invalid_result",
+            "quarantine_path": ".researchclaw/evidence/quarantine/results/prior.json",
+        },
+    )
+    event_log_for(project.root).append(event)
+    path = project.root / "evaluation/events.jsonl"
+    reserved_offset = path.stat().st_size
+
+    assert evidence_store._result_quarantine_event_at_offset(
+        project, event, reserved_offset
+    ) is False
+
+
+def test_quarantine_cleans_orphan_registration_anchor_before_copy(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    monkeypatch.setattr(
+        evidence_registration,
+        "_after_anchor_persisted",
+        lambda: (_ for _ in ()).throw(OSError("anchor-only crash")),
+    )
+    with pytest.raises(OSError, match="anchor-only crash"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+    anchor = project.root / evidence_registration.EVIDENCE_REGISTRATION_ANCHOR_PATH
+    assert anchor.is_file()
+    assert not (project.root / evidence_registration.EVIDENCE_PENDING_PATH).exists()
+    with pytest.raises(ValueError, match="project_transaction_pending"):
+        StateStore(project.root / ".researchclaw").save(project.state)
+
+    result = quarantine_unregistered_result(project, "invalid_result", True)
+    assert (project.root / result.quarantine_path).is_file()
+    assert not anchor.exists()
 
 
 def test_experiment_register_self_test_cli_records_external_report(tmp_path, capsys):

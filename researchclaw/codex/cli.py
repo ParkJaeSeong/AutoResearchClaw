@@ -174,7 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     register_result.add_argument("--json", action="store_true", help="emit JSON")
     quarantine_result = execution_commands.add_parser(
-        "quarantine-result", help="quarantine one unregistered mutable result"
+        "quarantine-result",
+        help="copy one unregistered result to quarantine without removing the source",
     )
     quarantine_result.add_argument("root", metavar="PROJECT")
     quarantine_result.add_argument("--reason", required=True, metavar="CATEGORY")
