@@ -456,6 +456,121 @@ def test_self_test_registration_recovers_after_pending_record_write(
     assert not _self_test_pending_path(project).exists()
 
 
+def test_self_test_pending_recovers_after_public_status_and_handoff_normalize_prior(
+    tmp_path, monkeypatch
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+    _run_external_self_test(project)
+    original_persist = experiment_contract._persist_self_test_registration_pending
+    failed = False
+
+    def persist_then_fail(persist_project, pending):
+        nonlocal failed
+        original_persist(persist_project, pending)
+        if not failed:
+            failed = True
+            raise OSError("injected failure after pending write")
+
+    monkeypatch.setattr(
+        experiment_contract,
+        "_persist_self_test_registration_pending",
+        persist_then_fail,
+    )
+    with pytest.raises(OSError, match="injected failure after pending write"):
+        register_experiment_self_test(project, SELF_TEST_REPORT_PATH)
+    monkeypatch.setattr(
+        experiment_contract,
+        "_persist_self_test_registration_pending",
+        original_persist,
+    )
+    event_path = project.root / "evaluation/events.jsonl"
+    event_prefix = event_path.read_bytes()
+
+    status = ResearchProject.open(project.root).status_dict()
+    handoff = ResearchProject.open(project.root).build_handoff()
+
+    assert status["next_action"] == "register_experiment_self_test"
+    assert handoff.next_action == "register_experiment_self_test"
+    assert event_path.read_bytes() == event_prefix
+    normalized = ResearchProject.open(project.root)
+    assert normalized.state.next_action == "register_experiment_self_test"
+    assert SELF_TEST_REPORT_PATH not in normalized.state.artifacts
+
+    artifact = register_experiment_self_test(normalized, SELF_TEST_REPORT_PATH)
+
+    reopened = ResearchProject.open(project.root)
+    assert _current_registered_self_test(reopened) == artifact
+    assert reopened.state.artifacts[SELF_TEST_REPORT_PATH] == artifact
+    assert not _self_test_pending_path(project).exists()
+    assert sum(
+        event.type == "experiment_self_test_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
+@pytest.mark.parametrize("drift", ["unrelated_artifact", "retry_count"])
+def test_self_test_pending_rejects_normalized_prior_with_other_state_drift(
+    tmp_path, monkeypatch, drift
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / drift, register_self_test=False
+    )
+    _run_external_self_test(project)
+    original_persist = experiment_contract._persist_self_test_registration_pending
+
+    def persist_then_fail(persist_project, pending):
+        original_persist(persist_project, pending)
+        raise OSError("injected failure after pending write")
+
+    monkeypatch.setattr(
+        experiment_contract,
+        "_persist_self_test_registration_pending",
+        persist_then_fail,
+    )
+    with pytest.raises(OSError, match="injected failure after pending write"):
+        register_experiment_self_test(project, SELF_TEST_REPORT_PATH)
+    monkeypatch.setattr(
+        experiment_contract,
+        "_persist_self_test_registration_pending",
+        original_persist,
+    )
+    normalized = ResearchProject.open(project.root)
+    normalized.status_dict()
+    normalized = ResearchProject.open(project.root)
+    if drift == "unrelated_artifact":
+        drifted_state = replace(
+            normalized.state,
+            artifacts={
+                **normalized.state.artifacts,
+                "attacker/unrelated.bin": ArtifactRef(
+                    path="attacker/unrelated.bin",
+                    sha256="0" * 64,
+                    size=0,
+                ),
+            },
+        )
+    else:
+        drifted_state = replace(
+            normalized.state,
+            retry_counts={**normalized.state.retry_counts, "12": 99},
+        )
+    normalized.persist_state(drifted_state)
+    event_before = (project.root / "evaluation/events.jsonl").read_bytes()
+
+    with pytest.raises(
+        ValueError, match="experiment_self_test_registration_recovery_invalid"
+    ):
+        register_experiment_self_test(
+            ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+        )
+
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == event_before
+    assert _self_test_pending_path(project).is_file()
+    assert SELF_TEST_REPORT_PATH not in ResearchProject.open(project.root).state.artifacts
+
+
 def test_self_test_registration_recovers_state_before_pending_clear(
     tmp_path, monkeypatch
 ):

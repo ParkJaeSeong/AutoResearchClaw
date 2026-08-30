@@ -1413,6 +1413,19 @@ def _load_self_test_registration_pending(
             ):
                 raise ValueError("pending self-test registration state is invalid")
         elif (
+            raw["target_next_action"] == "approve_experiment_execution"
+            and project.state.next_action == "register_experiment_self_test"
+            and SELF_TEST_REPORT_PATH not in project.state.artifacts
+            and _state_sha256(
+                replace(
+                    project.state,
+                    next_action="approve_experiment_execution",
+                )
+            )
+            == raw["prior_state_sha256"]
+        ):
+            pass
+        elif (
             project.state.next_action == "register_experiment_self_test"
             and project.state.artifacts.get(SELF_TEST_REPORT_PATH) == artifact
             and _state_sha256(
@@ -1590,6 +1603,31 @@ def _complete_pending_self_test_registration(
     current = ResearchProject.open_readonly(project.root)
     current_identity = _state_sha256(current.state)
     if current_identity == pending.prior_state_sha256:
+        target_state = replace(
+            current.state,
+            next_action=pending.target_next_action,
+            artifacts={
+                **current.state.artifacts,
+                SELF_TEST_REPORT_PATH: pending.artifact,
+            },
+        )
+        if _state_sha256(target_state) != pending.target_state_sha256:
+            raise ValueError(
+                "experiment_self_test_registration_recovery_invalid"
+            )
+        current = current.persist_state(target_state)
+    elif (
+        pending.target_next_action == "approve_experiment_execution"
+        and current.state.next_action == "register_experiment_self_test"
+        and SELF_TEST_REPORT_PATH not in current.state.artifacts
+        and _state_sha256(
+            replace(
+                current.state,
+                next_action="approve_experiment_execution",
+            )
+        )
+        == pending.prior_state_sha256
+    ):
         target_state = replace(
             current.state,
             next_action=pending.target_next_action,

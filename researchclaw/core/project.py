@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -221,15 +222,20 @@ class ResearchProject:
 
         with project_transaction(self.root, allow_pending=True):
             handoff = build_handoff(self)
-            event_log_for(self.root).append(
-                EvaluationEvent.create(
-                    "resume",
-                    handoff.project_id,
-                    {
-                        "current_stage": handoff.current_stage,
-                        "status": handoff.status,
-                        "next_action": handoff.next_action,
-                    },
-                )
+            from .experiment_package_contract import (
+                _self_test_registration_pending_path,
             )
+
+            if not os.path.lexists(_self_test_registration_pending_path(self)):
+                event_log_for(self.root).append(
+                    EvaluationEvent.create(
+                        "resume",
+                        handoff.project_id,
+                        {
+                            "current_stage": handoff.current_stage,
+                            "status": handoff.status,
+                            "next_action": handoff.next_action,
+                        },
+                    )
+                )
         return handoff
