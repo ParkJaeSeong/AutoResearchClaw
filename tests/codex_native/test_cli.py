@@ -3,8 +3,10 @@ import json
 import os
 from pathlib import Path
 import shlex
+import secrets
 import subprocess
 import sys
+from types import SimpleNamespace
 from dataclasses import replace
 
 import pytest
@@ -419,6 +421,223 @@ def test_quarantine_recovers_native_publish_error_after_reopen(tmp_path, monkeyp
     assert (project.root / result.quarantine_path).is_file()
 
 
+def test_quarantine_rotates_unknown_temp_after_create_identity_gap(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_result_quarantine_temp_open",
+        lambda: (_ for _ in ()).throw(OSError("create identity gap")),
+    )
+    with pytest.raises(OSError, match="create identity gap"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    pending = json.loads(
+        (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).read_text()
+    )
+    abandoned = (
+        project.root / ".researchclaw/evidence/quarantine/copies"
+        / pending["temporary_name"]
+    )
+    source_prefix = (project.root / "experiment/results.json").read_bytes()[:17]
+    abandoned.write_bytes(source_prefix)
+    monkeypatch.undo()
+
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+    assert (project.root / result.quarantine_path).is_file()
+    assert abandoned.read_bytes() == source_prefix
+    inventory = evidence_store.result_quarantine_inventory(project)
+    assert abandoned.relative_to(project.root).as_posix() in inventory.abandoned_paths
+
+
+def test_quarantine_unknown_temp_rotation_is_bounded(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    evidence_store.EvidenceStore(project.root)
+    copies = project.root / ".researchclaw/evidence/quarantine/copies"
+    collision = ".copy-" + "a" * 32 + ".tmp"
+    (copies / collision).write_bytes(b"foreign")
+    pending_path = project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH
+
+    def collide_before_create():
+        pending = json.loads(pending_path.read_text())
+        if pending["temporary_device"] == 0:
+            candidate = copies / pending["temporary_name"]
+            if not candidate.exists():
+                candidate.write_bytes(b"foreign")
+
+    monkeypatch.setattr(secrets, "token_hex", lambda _size: "a" * 32)
+    monkeypatch.setattr(
+        evidence_store, "_before_result_quarantine_move", collide_before_create
+    )
+    with pytest.raises(ValueError, match="operator cleanup required"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert (copies / collision).read_bytes() == b"foreign"
+
+
+def test_quarantine_repeated_identity_gap_crashes_preserve_inventory(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    remaining = 3
+
+    def fail_three_creates():
+        nonlocal remaining
+        if remaining:
+            remaining -= 1
+            raise OSError("repeated create gap")
+
+    monkeypatch.setattr(
+        evidence_store, "_after_result_quarantine_temp_open", fail_three_creates
+    )
+    for _ in range(3):
+        with pytest.raises(OSError, match="repeated create gap"):
+            quarantine_unregistered_result(
+                ResearchProject.open(project.root), "invalid_result", True
+            )
+
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+    inventory = evidence_store.result_quarantine_inventory(project)
+    assert (project.root / result.quarantine_path).is_file()
+    assert len(inventory.abandoned_paths) == 3
+    assert all((project.root / path).is_file() for path in inventory.abandoned_paths)
+
+
+def test_quarantine_capacity_entry_boundary_fails_before_pending_mutation(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    store = evidence_store.EvidenceStore(project.root)
+    (store.copy_quarantine_root / "foreign.bin").write_bytes(b"foreign")
+    monkeypatch.setattr(evidence_store, "_RESULT_QUARANTINE_ENTRY_LIMIT", 1)
+
+    with pytest.raises(ValueError, match="operator cleanup required"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert not (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).exists()
+    assert (store.copy_quarantine_root / "foreign.bin").read_bytes() == b"foreign"
+
+
+def test_quarantine_inventory_reports_bounded_truncation(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    store = evidence_store.EvidenceStore(project.root)
+    for index in range(4):
+        (store.results_quarantine_root / f"foreign-{index}.bin").write_bytes(b"x")
+    monkeypatch.setattr(evidence_store, "_RESULT_QUARANTINE_ENTRY_LIMIT", 2)
+
+    inventory = evidence_store.result_quarantine_inventory(project)
+
+    assert inventory.truncated is True
+    assert inventory.entry_count == 3
+    assert len(inventory.result_paths) == 2
+    assert inventory.operator_cleanup_required is True
+
+
+def test_quarantine_enospc_preflight_fails_before_pending_mutation(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    monkeypatch.setattr(
+        os,
+        "fstatvfs",
+        lambda _descriptor: SimpleNamespace(f_bavail=0, f_frsize=4096),
+    )
+
+    with pytest.raises(ValueError, match="operator cleanup required"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert not (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).exists()
+
+
+def test_quarantine_capacity_cli_error_is_structured_and_actionable(
+    tmp_path, monkeypatch, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    monkeypatch.setattr(
+        os,
+        "fstatvfs",
+        lambda _descriptor: SimpleNamespace(f_bavail=0, f_frsize=4096),
+    )
+
+    assert main(
+        [
+            "execution", "quarantine-result", str(project.root),
+            "--reason", "invalid_result", "--confirm", "--json",
+        ]
+    ) == 2
+    error = json.loads(capsys.readouterr().err)
+    assert error["error"] == "result_quarantine_capacity"
+    assert error["operator_cleanup_required"] is True
+    assert error["inventory"]["available_bytes"] == 0
+
+
+def test_quarantine_inventory_and_operator_route_preserve_unsafe_entries(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    store = evidence_store.EvidenceStore(project.root)
+    foreign = store.copy_quarantine_root / "foreign.bin"
+    foreign.write_bytes(b"foreign")
+    hardlink = store.copy_quarantine_root / "foreign-link.bin"
+    os.link(foreign, hardlink)
+    symlink = store.results_quarantine_root / "foreign-link"
+    symlink.symlink_to(foreign)
+
+    assert main(
+        ["evidence", "quarantine-inventory", str(project.root), "--json"]
+    ) == 0
+    inventory = json.loads(capsys.readouterr().out)
+    assert inventory["operator_cleanup_required"] is True
+    assert len(inventory["unsafe_paths"]) == 3
+    assert main(
+        ["evidence", "quarantine-operator-cleanup", str(project.root), "--json"]
+    ) == 2
+    capsys.readouterr()
+    assert main(
+        [
+            "evidence", "quarantine-operator-cleanup", str(project.root),
+            "--confirm", "--json",
+        ]
+    ) == 2
+    status = json.loads(capsys.readouterr().out)
+    assert status["reclaimed_bytes"] == 0
+    assert status["manual_filesystem_action_required"] is True
+    assert foreign.read_bytes() == b"foreign"
+    assert hardlink.read_bytes() == b"foreign"
+    assert symlink.is_symlink()
+
+
+def test_cleanup_capacity_byte_cap_fails_before_source_move(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    quarantined = quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.setattr(
+        evidence_store, "_RESULT_QUARANTINE_BYTE_LIMIT", quarantined.size
+    )
+
+    with pytest.raises(ValueError, match="operator cleanup required"):
+        evidence_store.cleanup_quarantined_result(project, True)
+
+    assert (project.root / "experiment/results.json").is_file()
+    assert ResearchProject.open(project.root).state.next_action == (
+        "cleanup_quarantined_result"
+    )
+
+
 def test_quarantine_preserves_foreign_transaction_temp_collision(tmp_path, monkeypatch):
     project = build_approved_stage_twelve_project(tmp_path / "project")
     prepare_research_execution(project)
@@ -439,9 +658,12 @@ def test_quarantine_preserves_foreign_transaction_temp_collision(tmp_path, monke
         created.write_bytes(b"foreign temporary bytes")
 
     monkeypatch.setattr(evidence_store, "_before_result_quarantine_move", collide)
-    with pytest.raises(ValueError, match="temporary collision"):
-        quarantine_unregistered_result(project, "invalid_result", True)
+    result = quarantine_unregistered_result(project, "invalid_result", True)
     assert created is not None and created.read_bytes() == b"foreign temporary bytes"
+    assert (project.root / result.quarantine_path).is_file()
+    assert created.relative_to(project.root).as_posix() in (
+        evidence_store.result_quarantine_inventory(project).abandoned_paths
+    )
 
 
 def test_cleanup_refuses_replacement_and_hardlink_ambiguity(tmp_path):

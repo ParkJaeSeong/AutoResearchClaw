@@ -27,8 +27,11 @@ from researchclaw.core.research_execution import (
 )
 from researchclaw.core.evidence_store import (
     EvidenceStore,
+    ResultQuarantineCapacityError,
     cleanup_quarantined_result,
     quarantine_unregistered_result,
+    request_result_quarantine_operator_cleanup,
+    result_quarantine_inventory,
 )
 from researchclaw.core.evidence_registration import registered_evidence_status
 from researchclaw.core.task_packets import prepare_task_packet
@@ -201,6 +204,18 @@ def build_parser() -> argparse.ArgumentParser:
     audit = evidence_commands.add_parser("audit", help="audit immutable evidence grounding")
     audit.add_argument("root", metavar="PROJECT")
     audit.add_argument("--json", action="store_true", help="emit JSON")
+    quarantine_inventory = evidence_commands.add_parser(
+        "quarantine-inventory", help="inspect retained result quarantine capacity"
+    )
+    quarantine_inventory.add_argument("root", metavar="PROJECT")
+    quarantine_inventory.add_argument("--json", action="store_true", help="emit JSON")
+    quarantine_cleanup = evidence_commands.add_parser(
+        "quarantine-operator-cleanup",
+        help="confirm the fail-closed manual quarantine cleanup route",
+    )
+    quarantine_cleanup.add_argument("root", metavar="PROJECT")
+    quarantine_cleanup.add_argument("--confirm", action="store_true")
+    quarantine_cleanup.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -293,6 +308,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "registration": None if status is None else status.to_dict(),
             }
+        elif args.command == "evidence" and args.evidence_command == "quarantine-inventory":
+            project = ResearchProject.open_readonly(args.root)
+            payload = result_quarantine_inventory(project).to_dict()
+        elif (
+            args.command == "evidence"
+            and args.evidence_command == "quarantine-operator-cleanup"
+        ):
+            project = ResearchProject.open_readonly(args.root)
+            payload = request_result_quarantine_operator_cleanup(
+                project, args.confirm
+            ).to_dict()
+            if payload["manual_filesystem_action_required"]:
+                exit_code = 2
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(
@@ -304,6 +332,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             report = validate_current_stage(project)
             payload = report.to_dict()
             exit_code = 0 if report.valid else 2
+    except ResultQuarantineCapacityError as error:
+        if getattr(args, "json", False):
+            print(
+                json.dumps(error.to_dict(), ensure_ascii=False, sort_keys=True),
+                file=sys.stderr,
+            )
+        else:
+            print(f"error: {error}", file=sys.stderr)
+        return 2
     except (OSError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -330,7 +367,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise ValueError("execution_contract_invalid")
                 print(shlex.join(argv))
             else:
-                print(f"stage 12: {payload['readiness']}")
+                readiness = payload.get("readiness")
+                if isinstance(readiness, str):
+                    print(f"stage 12: {readiness}")
+                else:
+                    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         elif args.command == "evidence":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:

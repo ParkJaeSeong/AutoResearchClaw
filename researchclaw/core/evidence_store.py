@@ -50,6 +50,10 @@ _QUARANTINE_DIRECTORY_RESERVE_PER_RECORD = 8192
 RESULT_QUARANTINE_PENDING_PATH = ".researchclaw/evidence/quarantine/pending-result.json"
 RESULT_QUARANTINE_CLEANUP_PATH = ".researchclaw/evidence/quarantine/pending-cleanup.json"
 _RESULT_QUARANTINE_MAX_BYTES = 256 * 1024
+_RESULT_QUARANTINE_ROTATION_LIMIT = 8
+_RESULT_QUARANTINE_ENTRY_LIMIT = 256
+_RESULT_QUARANTINE_BYTE_LIMIT = 1024 * 1024 * 1024
+_RESULT_QUARANTINE_CAPACITY_RESERVE = 16 * 1024 * 1024
 _MANIFEST_SCAN_LIMIT = 4096
 _MANIFEST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\.json\Z")
 
@@ -202,6 +206,55 @@ class QuarantineCleanupStatus:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class ResultQuarantineInventory:
+    result_paths: tuple[str, ...]
+    copy_paths: tuple[str, ...]
+    abandoned_paths: tuple[str, ...]
+    unsafe_paths: tuple[str, ...]
+    entry_count: int
+    total_bytes: int
+    available_bytes: int
+    entry_limit: int
+    byte_limit: int
+    operator_cleanup_required: bool
+    operator_action: str
+    truncated: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ResultQuarantineOperatorStatus:
+    reclaimed_bytes: int
+    preserved_paths: tuple[str, ...]
+    manual_filesystem_action_required: bool
+    operator_action: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+class ResultQuarantineCapacityError(ValueError):
+    def __init__(self, reason: str, inventory: ResultQuarantineInventory) -> None:
+        super().__init__(
+            f"result quarantine operator cleanup required: {reason}; "
+            "run evidence quarantine-inventory"
+        )
+        self.reason = reason
+        self.inventory = inventory
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "error": "result_quarantine_capacity",
+            "reason": self.reason,
+            "operator_cleanup_required": True,
+            "operator_action": self.inventory.operator_action,
+            "inventory": self.inventory.to_dict(),
+        }
+
+
 def _after_result_quarantine_move() -> None:
     """Test seam after the durable move and before journal phase persistence."""
 
@@ -220,6 +273,10 @@ def _after_result_quarantine_state() -> None:
 
 def _after_result_quarantine_temp_created() -> None:
     """Test seam after exclusive temp creation."""
+
+
+def _after_result_quarantine_temp_open() -> None:
+    """Test seam after O_EXCL creation but before identity persistence."""
 
 
 def _after_result_quarantine_temp_write() -> None:
@@ -1553,6 +1610,7 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
             "schema_version", "project_id", "reason", "original_path",
             "quarantine_path", "destination_name", "sha256", "size",
             "temporary_name", "temporary_device", "temporary_inode",
+            "temporary_rotations",
             "device", "inode", "mode", "mtime_ns", "ctime_ns",
             "prior_state", "target_state", "event", "event_offset", "phase",
         }
@@ -1567,12 +1625,15 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
         integer_fields = (
             "size", "device", "inode", "mode", "mtime_ns", "ctime_ns",
             "temporary_device", "temporary_inode",
+            "temporary_rotations",
         )
         if (
             raw.get("project_id") != project.state.project_id
             or prior.project_id != project.state.project_id
             or target != _result_quarantine_target(prior)
-            or raw.get("phase") not in {"prepared", "copied", "event_written", "state_saved"}
+            or raw.get("phase") not in {
+                "temp_named", "temp_owned", "copied", "event_written", "state_saved"
+            }
             or raw.get("original_path") != "experiment/results.json"
             or not isinstance(destination_name, str)
             or re.fullmatch(r"\d{8}T\d{12}Z-[0-9a-f]{64}\.json", destination_name) is None
@@ -1589,6 +1650,7 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
                 or raw[field] < 0
                 for field in integer_fields
             )
+            or raw["temporary_rotations"] > _RESULT_QUARANTINE_ROTATION_LIMIT
             or not stat.S_ISREG(raw["mode"])
             or raw.get("quarantine_path")
             != f".researchclaw/evidence/quarantine/results/{raw['destination_name']}"
@@ -1722,7 +1784,7 @@ def _recover_result_quarantine_locked(
             else:
                 raise ValueError("result quarantine temporary collision")
         if not destination_exists:
-            if pending["phase"] != "prepared":
+            if pending["phase"] not in {"temp_named", "temp_owned"}:
                 raise ValueError("result_quarantine_interrupted")
             expected_identity = (
                 pending["device"], pending["inode"], pending["mode"], pending["size"],
@@ -1740,29 +1802,45 @@ def _recover_result_quarantine_locked(
                 ) != expected_identity or source_stat.st_nlink != 1:
                     raise ValueError("result quarantine source changed")
                 _before_result_quarantine_move()
-                try:
-                    temporary = os.open(
-                        temporary_name,
-                        os.O_RDWR | os.O_CREAT | os.O_EXCL
-                        | getattr(os, "O_NOFOLLOW", 0),
-                        # Keep an owned in-progress object writable so recovery can
-                        # validate its prefix and resume it.  It becomes read-only
-                        # only after the no-replace publish and full verification.
-                        0o600,
-                        dir_fd=copies_directory,
-                    )
-                    created_stat = os.fstat(temporary)
-                    pending["temporary_device"] = created_stat.st_dev
-                    pending["temporary_inode"] = created_stat.st_ino
-                    _persist_result_quarantine(project, pending)
-                    _after_result_quarantine_temp_created()
-                except FileExistsError:
-                    temporary = os.open(
-                        temporary_name,
-                        os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-                        | getattr(os, "O_NONBLOCK", 0),
-                        dir_fd=copies_directory,
-                    )
+                while temporary is None:
+                    try:
+                        temporary = os.open(
+                            temporary_name,
+                            os.O_RDWR | os.O_CREAT | os.O_EXCL
+                            | getattr(os, "O_NOFOLLOW", 0),
+                            # Only this newly O_EXCL-created descriptor is writable.
+                            # Reopen recovery preserves any existing candidate and
+                            # rotates to another name instead of resuming in place.
+                            0o600,
+                            dir_fd=copies_directory,
+                        )
+                        _after_result_quarantine_temp_open()
+                        created_stat = os.fstat(temporary)
+                        pending["temporary_device"] = created_stat.st_dev
+                        pending["temporary_inode"] = created_stat.st_ino
+                        pending["phase"] = "temp_owned"
+                        _persist_result_quarantine(project, pending)
+                        _after_result_quarantine_temp_created()
+                    except FileExistsError:
+                        rotations = int(pending["temporary_rotations"])
+                        if rotations >= _RESULT_QUARANTINE_ROTATION_LIMIT:
+                            raise ResultQuarantineCapacityError(
+                                "temporary rotation limit exceeded",
+                                result_quarantine_inventory(project),
+                            )
+                        _require_result_quarantine_capacity(
+                            result_quarantine_inventory(project),
+                            additional_entries=1,
+                            additional_retained_bytes=0,
+                            required_free_bytes=int(pending["size"]),
+                        )
+                        temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
+                        pending["temporary_name"] = temporary_name
+                        pending["temporary_rotations"] = rotations + 1
+                        pending["temporary_device"] = 0
+                        pending["temporary_inode"] = 0
+                        pending["phase"] = "temp_named"
+                        _persist_result_quarantine(project, pending)
                 temporary_stat = os.fstat(temporary)
                 if (
                     not stat.S_ISREG(temporary_stat.st_mode)
@@ -1846,7 +1924,7 @@ def _recover_result_quarantine_locked(
             os.fsync(destination)
         finally:
             os.close(destination)
-        if pending["phase"] == "prepared":
+        if pending["phase"] in {"temp_named", "temp_owned"}:
             pending["phase"] = "copied"
             _persist_result_quarantine(project, pending)
     finally:
@@ -1925,6 +2003,115 @@ def recover_pending_result_quarantine(
         return None if pending is None else _recover_result_quarantine_locked(current, pending)
 
 
+def result_quarantine_inventory(project: ResearchProject) -> ResultQuarantineInventory:
+    """Return a bounded, no-follow inventory without claiming byte reclamation."""
+    store = EvidenceStore(project.root)
+    owned_name: str | None = None
+    owned_identity: tuple[int, int] | None = None
+    try:
+        pending = _load_result_quarantine(project)
+    except ValueError:
+        pending = None
+    if pending is not None and pending["temporary_device"] and pending["temporary_inode"]:
+        owned_name = str(pending["temporary_name"])
+        owned_identity = (int(pending["temporary_device"]), int(pending["temporary_inode"]))
+
+    results: list[str] = []
+    copies: list[str] = []
+    abandoned: list[str] = []
+    unsafe: list[str] = []
+    total_bytes = 0
+    entry_count = 0
+    available_bytes = 0
+    truncated = False
+    for directory, prefix, paths in (
+        (store.results_quarantine_root, ".researchclaw/evidence/quarantine/results", results),
+        (store.copy_quarantine_root, ".researchclaw/evidence/quarantine/copies", copies),
+    ):
+        descriptor = store._open_directory(directory)
+        try:
+            if not available_bytes:
+                file_system = os.fstatvfs(descriptor)
+                available_bytes = file_system.f_bavail * file_system.f_frsize
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    entry_count += 1
+                    if entry_count > _RESULT_QUARANTINE_ENTRY_LIMIT:
+                        truncated = True
+                        break
+                    path = f"{prefix}/{entry.name}"
+                    paths.append(path)
+                    try:
+                        file_stat = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        unsafe.append(path)
+                        continue
+                    if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
+                        unsafe.append(path)
+                    else:
+                        total_bytes += file_stat.st_size
+                    if prefix.endswith("/copies") and not (
+                        entry.name == owned_name
+                        and owned_identity == (file_stat.st_dev, file_stat.st_ino)
+                    ):
+                        abandoned.append(path)
+        finally:
+            os.close(descriptor)
+        if truncated:
+            break
+    cleanup_required = bool(
+        truncated
+        or unsafe
+        or abandoned
+        or entry_count >= _RESULT_QUARANTINE_ENTRY_LIMIT
+        or total_bytes >= _RESULT_QUARANTINE_BYTE_LIMIT
+    )
+    return ResultQuarantineInventory(
+        tuple(sorted(results)), tuple(sorted(copies)), tuple(sorted(abandoned)),
+        tuple(sorted(unsafe)), entry_count, total_bytes, available_bytes,
+        _RESULT_QUARANTINE_ENTRY_LIMIT, _RESULT_QUARANTINE_BYTE_LIMIT,
+        cleanup_required,
+        "manual filesystem/operator action required; inspect inventory paths",
+        truncated,
+    )
+
+
+def _require_result_quarantine_capacity(
+    inventory: ResultQuarantineInventory,
+    *,
+    additional_entries: int,
+    additional_retained_bytes: int,
+    required_free_bytes: int,
+) -> None:
+    if (
+        inventory.unsafe_paths
+        or inventory.entry_count + additional_entries > inventory.entry_limit
+        or inventory.total_bytes + additional_retained_bytes > inventory.byte_limit
+        or inventory.available_bytes
+        < required_free_bytes + _RESULT_QUARANTINE_CAPACITY_RESERVE
+    ):
+        raise ResultQuarantineCapacityError(
+            "capacity or unsafe entry",
+            inventory,
+        )
+
+
+def request_result_quarantine_operator_cleanup(
+    project: ResearchProject, confirm: bool
+) -> ResultQuarantineOperatorStatus:
+    """Report the manual route; same-user quarantine bytes are never auto-deleted."""
+    if confirm is not True:
+        raise ValueError("result quarantine operator cleanup requires --confirm")
+    inventory = result_quarantine_inventory(project)
+    paths = tuple(sorted((*inventory.result_paths, *inventory.copy_paths)))
+    return ResultQuarantineOperatorStatus(
+        0,
+        paths,
+        bool(paths),
+        "manual filesystem/operator action required; no bytes were deleted",
+    )
+
+
 def _load_result_cleanup(project: ResearchProject) -> dict[str, object]:
     try:
         descriptor, _ = open_project_file_descriptor(
@@ -1991,6 +2178,12 @@ def cleanup_quarantined_result(
             "cleanup_quarantined_result", "prepare_run"
         }:
             raise ValueError("result cleanup is not the current action")
+        _require_result_quarantine_capacity(
+            result_quarantine_inventory(current),
+            additional_entries=1,
+            additional_retained_bytes=int(cleanup["size"]),
+            required_free_bytes=0,
+        )
         store = EvidenceStore(current.root)
         source_directory = store._open_directory(current.root / "experiment")
         destination_directory = store._open_directory(store.results_quarantine_root)
@@ -2139,6 +2332,12 @@ def quarantine_unregistered_result(
             os.close(source_descriptor)
         if source_stat.st_nlink != 1:
             raise ValueError("result quarantine requires an unlinked regular file")
+        _require_result_quarantine_capacity(
+            result_quarantine_inventory(current),
+            additional_entries=1,
+            additional_retained_bytes=size,
+            required_free_bytes=size,
+        )
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         destination_name = f"{timestamp}-{digest}.json"
         temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
@@ -2158,12 +2357,13 @@ def quarantine_unregistered_result(
             "reason": reason, "original_path": "experiment/results.json",
             "quarantine_path": quarantine_path, "destination_name": destination_name,
             "temporary_name": temporary_name, "temporary_device": 0,
-            "temporary_inode": 0,
+            "temporary_inode": 0, "temporary_rotations": 0,
             "sha256": digest, "size": size, "device": source_stat.st_dev,
             "inode": source_stat.st_ino, "mode": source_stat.st_mode,
             "mtime_ns": source_stat.st_mtime_ns, "ctime_ns": source_stat.st_ctime_ns,
             "prior_state": current.state.to_dict(), "target_state": target.to_dict(),
-            "event": event.to_dict(), "event_offset": event_offset, "phase": "prepared",
+            "event": event.to_dict(), "event_offset": event_offset,
+            "phase": "temp_named",
         }
         _persist_result_quarantine(current, pending)
         return _recover_result_quarantine_locked(current, pending)

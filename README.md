@@ -178,6 +178,25 @@ quarantine before clearing the pathname; a replacement, symlink, or ambiguous
 hardlink is refused. This explicit second confirmation keeps quarantine itself
 non-mutating while making cleanup honest and actionable.
 
+Result quarantine is intentionally retained evidence, not garbage-collected
+capacity. Before either copy or confirmed pathname cleanup, ResearchClaw uses
+descriptor-based filesystem capacity plus bounded no-follow scans of both
+`quarantine/copies` and `quarantine/results`. Entry-count, retained-byte, unsafe
+entry, and free-space limits fail before the requested mutation and direct the
+operator to the structured inventory:
+
+```bash
+researchclaw-codex evidence quarantine-inventory ROOT --json
+researchclaw-codex evidence quarantine-operator-cleanup ROOT --confirm --json
+```
+
+The confirmed operator route does not unlink, truncate, or claim to reclaim
+same-user quarantine files: it returns `reclaimed_bytes: 0`, preserves every
+listed path, and reports when manual filesystem/operator action is required.
+Unknown or crash-abandoned copy candidates are likewise inventoried and left
+untouched. This policy prefers unrelated-byte safety over automatic capacity
+recovery.
+
 Successful registration records the validated result and advances the project
 to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
 not refine or execute research on the user's behalf.
