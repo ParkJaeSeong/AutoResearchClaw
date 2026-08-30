@@ -238,6 +238,117 @@ def test_inspection_rejects_held_descriptor_identity_drift(monkeypatch):
         inspect_execution_environment(_resolved_interpreter(), ())
 
 
+@pytest.mark.parametrize("replacement_kind", ["regular", "symlink", "missing"])
+def test_copied_venv_launcher_replacement_after_capture_is_rejected(
+    tmp_path, replacement_kind
+):
+    environment_root = tmp_path / "environment"
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(environment_root)
+    interpreter = environment_root / "bin/python"
+    replacement = environment_root / "bin/replacement"
+    replacement.write_text("#!/bin/sh\nexit 91\n", encoding="utf-8")
+    replacement.chmod(0o755)
+    source = """
+import os
+from pathlib import Path
+import sys
+import researchclaw.core.execution_environment as execution_environment
+
+original_python_version = execution_environment.runtime_platform.python_version
+replacement = Path(sys.argv[1])
+replacement_kind = sys.argv[2]
+
+def replace_launcher():
+    interpreter = Path(sys.executable)
+    if replacement_kind == "regular":
+        os.replace(replacement, interpreter)
+    else:
+        saved_interpreter = interpreter.with_name("python.saved")
+        os.replace(interpreter, saved_interpreter)
+        if replacement_kind == "symlink":
+            interpreter.symlink_to(saved_interpreter)
+    return original_python_version()
+
+execution_environment.runtime_platform.python_version = replace_launcher
+execution_environment.inspect_execution_environment(
+    Path(sys.executable).resolve(strict=True), ()
+)
+"""
+
+    completed = subprocess.run(
+        [str(interpreter), "-c", source, str(replacement), replacement_kind],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "execution_environment_unavailable" in completed.stderr
+
+
+@pytest.mark.parametrize("replacement_kind", ["regular", "symlink", "missing"])
+def test_framework_process_image_final_path_revalidation_rejects_replacement(
+    tmp_path, replacement_kind
+):
+    launcher = tmp_path / "python-launcher"
+    process_image = tmp_path / "Python"
+    saved_process_image = tmp_path / "Python.saved"
+    shutil.copy2(_resolved_interpreter(), launcher)
+    shutil.copy2(_resolved_interpreter(), process_image)
+    launcher.chmod(0o755)
+    process_image.chmod(0o755)
+    paths = execution_environment._CurrentRuntimePaths(
+        interpreter=launcher,
+        process_image=process_image,
+        base_interpreter=launcher,
+        venv_prefix=None,
+    )
+    verified = execution_environment._open_runtime_executables(paths)
+    try:
+        process_image.rename(saved_process_image)
+        if replacement_kind == "regular":
+            process_image.write_text("#!/bin/sh\nexit 92\n", encoding="utf-8")
+            process_image.chmod(0o755)
+        elif replacement_kind == "symlink":
+            process_image.symlink_to(saved_process_image)
+
+        with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+            execution_environment._revalidate_authoritative_paths(paths, verified)
+    finally:
+        for item in verified.values():
+            execution_environment.os.close(item.descriptor)
+
+
+def test_authoritative_path_aba_restoring_the_held_inode_is_accepted(tmp_path):
+    launcher = tmp_path / "python-launcher"
+    process_image = tmp_path / "Python"
+    saved_process_image = tmp_path / "Python.saved"
+    attacker = tmp_path / "Python.attacker"
+    shutil.copy2(_resolved_interpreter(), launcher)
+    shutil.copy2(_resolved_interpreter(), process_image)
+    launcher.chmod(0o755)
+    process_image.chmod(0o755)
+    attacker.write_text("#!/bin/sh\nexit 93\n", encoding="utf-8")
+    attacker.chmod(0o755)
+    paths = execution_environment._CurrentRuntimePaths(
+        interpreter=launcher,
+        process_image=process_image,
+        base_interpreter=launcher,
+        venv_prefix=None,
+    )
+    verified = execution_environment._open_runtime_executables(paths)
+    try:
+        process_image.rename(saved_process_image)
+        attacker.rename(process_image)
+        process_image.unlink()
+        saved_process_image.rename(process_image)
+
+        execution_environment._revalidate_authoritative_paths(paths, verified)
+    finally:
+        for item in verified.values():
+            execution_environment.os.close(item.descriptor)
+
+
 def test_current_copied_venv_interpreter_preserves_private_distribution(tmp_path):
     environment_root = tmp_path / "environment"
     venv.EnvBuilder(with_pip=False, symlinks=False).create(environment_root)
@@ -312,6 +423,7 @@ def test_prepare_preserves_environment_probe_unavailability(tmp_path, monkeypatc
 
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
         prepare_research_execution(project)
+    assert not (project.root / "experiment/execution_contract.json").exists()
 
 
 def test_external_runner_rejects_environment_drift_before_writing_result(tmp_path):
@@ -351,3 +463,133 @@ def test_external_runner_rejects_a_replaced_contract_interpreter_path(tmp_path):
     assert completed.returncode != 0
     assert "execution environment changed" in completed.stderr
     assert not (project.root / "experiment/results.json").exists()
+
+
+def test_generated_runner_revalidates_its_copied_venv_launcher_path(tmp_path):
+    environment_root = tmp_path / "environment"
+    venv.EnvBuilder(
+        with_pip=False, symlinks=False, system_site_packages=True
+    ).create(environment_root)
+    interpreter = environment_root / "bin/python"
+    project_root = tmp_path / "project"
+    distribution_root = tmp_path / "distributions"
+    hook_root = tmp_path / "hook"
+    replacement = environment_root / "bin/replacement"
+    metadata = distribution_root / "path_reopen_probe-1.2.3.dist-info/METADATA"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text(
+        "Metadata-Version: 2.1\nName: path-reopen-probe\nVersion: 1.2.3\n",
+        encoding="utf-8",
+    )
+    source = r'''
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+project_root = Path(sys.argv[1])
+distribution_root = Path(sys.argv[2])
+hook_root = Path(sys.argv[3])
+replacement = Path(sys.argv[4])
+sys.path.insert(0, str(distribution_root))
+inherited_pythonpath = os.environ.get("PYTHONPATH", "")
+os.environ["PYTHONPATH"] = os.pathsep.join(
+    item for item in (str(distribution_root), inherited_pythonpath) if item
+)
+
+from researchclaw.core.approval import approve_current_gate
+from researchclaw.core.execution_gate import recheck_execution_readiness
+from researchclaw.core.project import ResearchProject
+from researchclaw.core.research_execution import prepare_research_execution
+from tests.codex_native.helpers import (
+    build_stage_twelve_project,
+    register_stage_twelve_known_answer_self_test,
+)
+
+project, declared_input = build_stage_twelve_project(
+    project_root, readiness="ready_for_execution", register_self_test=False
+)
+package_contract_path = project.root / "experiment/package_contract.json"
+package_contract = json.loads(package_contract_path.read_text(encoding="utf-8"))
+package_contract["dependencies"] = ["path-reopen-probe"]
+package_contract_path.write_text(
+    json.dumps(package_contract, sort_keys=True) + "\n", encoding="utf-8"
+)
+register_stage_twelve_known_answer_self_test(project)
+project = ResearchProject.open(project.root)
+declared_input.parent.mkdir(parents=True, exist_ok=True)
+declared_input.write_bytes(b"approved research input\n")
+recheck_execution_readiness(project)
+project = ResearchProject.open(project.root)
+approve_current_gate(project, "approve", "Explicit execution approved")
+project = ResearchProject.open(project.root)
+status = prepare_research_execution(project)
+
+hook_root.mkdir(parents=True)
+(hook_root / "sitecustomize.py").write_text(
+    "import importlib.metadata as metadata\n"
+    "import os\n"
+    "from pathlib import Path\n"
+    "original_version = metadata.version\n"
+    "replaced = False\n"
+    "def replacing_version(name):\n"
+    "    global replaced\n"
+    "    if not replaced:\n"
+    "        replaced = True\n"
+    "        os.replace(Path(os.environ['PATH_REOPEN_REPLACEMENT']), "
+    "Path(os.environ['PATH_REOPEN_INTERPRETER']))\n"
+    "    return original_version(name)\n"
+    "metadata.version = replacing_version\n",
+    encoding="utf-8",
+)
+replacement.write_text("#!/bin/sh\nexit 94\n", encoding="utf-8")
+replacement.chmod(0o755)
+runner_environment = dict(os.environ)
+runner_environment["PYTHONPATH"] = os.pathsep.join(
+    item
+    for item in (str(hook_root), str(distribution_root), inherited_pythonpath)
+    if item
+)
+runner_environment["PATH_REOPEN_REPLACEMENT"] = str(replacement)
+runner_environment["PATH_REOPEN_INTERPRETER"] = status.argv[0]
+completed = subprocess.run(
+    status.argv,
+    cwd=project.root,
+    env=runner_environment,
+    check=False,
+    capture_output=True,
+    text=True,
+)
+print(
+    json.dumps(
+        {
+            "returncode": completed.returncode,
+            "stderr": completed.stderr,
+            "result_exists": (project.root / "experiment/results.json").exists(),
+        }
+    )
+)
+'''
+
+    completed = subprocess.run(
+        [
+            str(interpreter),
+            "-c",
+            source,
+            str(project_root),
+            str(distribution_root),
+            str(hook_root),
+            str(replacement),
+        ],
+        cwd=Path(__file__).parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    outcome = json.loads(completed.stdout)
+    assert outcome["returncode"] != 0
+    assert "execution environment changed" in outcome["stderr"]
+    assert outcome["result_exists"] is False

@@ -314,6 +314,24 @@ def _open_runtime_executables(
         raise ValueError("execution_environment_unavailable") from error
 
 
+def _revalidate_authoritative_paths(
+    paths: _CurrentRuntimePaths,
+    verified: Mapping[Path, _VerifiedExecutable],
+) -> None:
+    """Require every returned or loaded-image path to still name its held inode."""
+    try:
+        for path in dict.fromkeys((paths.interpreter, paths.process_image)):
+            held = verified[path]
+            reopened = _open_verified_executable(path)
+            try:
+                if reopened.identity != held.identity:
+                    raise ValueError("execution_environment_unavailable")
+            finally:
+                os.close(reopened.descriptor)
+    except (KeyError, OSError, ValueError) as error:
+        raise ValueError("execution_environment_unavailable") from error
+
+
 def inspect_execution_environment(
     interpreter: Path, required_distributions: tuple[str, ...]
 ) -> ExecutionEnvironment:
@@ -353,6 +371,8 @@ def inspect_execution_environment(
             )
         ):
             raise ValueError("execution_environment_unavailable")
+
+        _revalidate_authoritative_paths(paths, verified)
 
         interpreter_identity = verified[paths.interpreter].identity
         process_image_identity = verified[paths.process_image].identity

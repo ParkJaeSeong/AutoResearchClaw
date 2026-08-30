@@ -638,6 +638,55 @@ def execution_environment_fingerprint(
             or execution_environment_descriptor_identity(base_descriptor) != base_identity
         ):
             raise ValueError("execution environment changed")
+        final_interpreter_descriptor = None
+        final_process_descriptor = None
+        try:
+            if (
+                interpreter.resolve(strict=True) != interpreter
+                or process_image.resolve(strict=True) != process_image
+            ):
+                raise ValueError("execution environment changed")
+            interpreter_path_identity = interpreter.stat()
+            process_path_identity = process_image.stat()
+            if (
+                interpreter_path_identity.st_mode & 0o170000 != 0o100000
+                or not interpreter_path_identity.st_mode & 0o111
+                or process_path_identity.st_mode & 0o170000 != 0o100000
+                or not process_path_identity.st_mode & 0o111
+            ):
+                raise ValueError("execution environment changed")
+            final_interpreter_descriptor = os.open(
+                interpreter,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            final_process_descriptor = os.open(
+                process_image,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            final_interpreter_identity = execution_environment_descriptor_identity(
+                final_interpreter_descriptor
+            )
+            final_process_identity = execution_environment_descriptor_identity(
+                final_process_descriptor
+            )
+            if (
+                interpreter_path_identity.st_dev
+                != final_interpreter_identity["device"]
+                or interpreter_path_identity.st_ino
+                != final_interpreter_identity["inode"]
+                or process_path_identity.st_dev != final_process_identity["device"]
+                or process_path_identity.st_ino != final_process_identity["inode"]
+                or final_interpreter_identity != interpreter_identity
+                or final_process_identity != process_identity
+            ):
+                raise ValueError("execution environment changed")
+        except (OSError, ValueError) as error:
+            raise ValueError("execution environment changed") from error
+        finally:
+            if final_interpreter_descriptor is not None:
+                os.close(final_interpreter_descriptor)
+            if final_process_descriptor is not None:
+                os.close(final_process_descriptor)
     finally:
         os.close(interpreter_descriptor)
         os.close(process_descriptor)
