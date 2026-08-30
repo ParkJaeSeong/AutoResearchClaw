@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tracemalloc
@@ -8,6 +9,8 @@ import pytest
 
 import researchclaw.core.evidence_registration as registration
 import researchclaw.core.evidence_store as evidence_store
+import researchclaw.core.research_execution as research_execution
+from researchclaw.codex.cli import main as cli_main
 from researchclaw.core.evidence_store import EvidenceSource, EvidenceStore
 from researchclaw.core.events import EventLog
 from researchclaw.core.handoff import build_handoff
@@ -16,7 +19,10 @@ from researchclaw.core.research_execution import (
     prepare_research_execution,
     register_research_result,
 )
-from tests.codex_native.helpers import build_approved_stage_twelve_project
+from tests.codex_native.helpers import (
+    build_approved_stage_twelve_project,
+    build_stage_twelve_project,
+)
 
 
 def _hash_tree(root: Path) -> dict[str, str]:
@@ -112,6 +118,40 @@ def test_post_validation_source_mutation_never_reaches_stage_thirteen(
 
 
 @pytest.mark.parametrize(
+    "relative_path",
+    (
+        "data/input.csv",
+        "experiment/code/main.py",
+        "experiment/code/config.json",
+        "experiment/package_contract.json",
+        "experiment/execution_contract.json",
+        "experiment/results.json",
+    ),
+)
+def test_source_mutation_during_validation_never_reaches_stage_thirteen(
+    tmp_path, monkeypatch, relative_path
+):
+    project = build_approved_stage_twelve_project(
+        tmp_path / ("validation-" + relative_path.replace("/", "-"))
+    )
+    _run_exact_known_answer(project)
+    source = project.root / relative_path
+
+    def mutate_during_validation():
+        source.write_bytes(source.read_bytes() + b"\nforeign-during-validation\n")
+
+    monkeypatch.setattr(
+        research_execution,
+        "_after_research_result_snapshot",
+        mutate_during_validation,
+    )
+    with pytest.raises(ValueError):
+        register_research_result(project, "experiment/results.json")
+    assert ResearchProject.open_readonly(project.root).state.current_stage == 12
+    assert not list((project.root / ".researchclaw/evidence/manifests").glob("*.json"))
+
+
+@pytest.mark.parametrize(
     "hook_name",
     ("_after_manifest_published", "_after_state_saved"),
 )
@@ -125,6 +165,10 @@ def test_mutable_drift_after_immutable_boundary_recovers_only_bound_bytes(
     def mutate_and_interrupt(*_args):
         result_path.write_bytes(b'{"foreign":"mutable"}\n')
         (project.root / "data/input.csv").write_bytes(b"foreign mutable input\n")
+        (project.root / "experiment/code/main.py").write_bytes(b"foreign code\n")
+        (project.root / "experiment/code/config.json").write_bytes(b"{}\n")
+        (project.root / "experiment/package_contract.json").write_bytes(b"{}\n")
+        (project.root / "experiment/execution_contract.json").write_bytes(b"{}\n")
         raise OSError("durability seam")
 
     monkeypatch.setattr(registration, hook_name, mutate_and_interrupt)
@@ -158,30 +202,60 @@ def test_registration_event_path_is_streaming_and_does_not_call_read_all(
     assert register_research_result(project, "experiment/results.json").current_stage == 13
 
 
-def test_result_mutation_before_validation_fails_closed_at_stage_twelve(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "before-validation")
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "data/input.csv",
+        "experiment/code/main.py",
+        "experiment/code/config.json",
+        "experiment/package_contract.json",
+        "experiment/execution_contract.json",
+        "experiment/results.json",
+    ),
+)
+def test_source_mutation_before_validation_fails_closed_at_stage_twelve(
+    tmp_path, relative_path
+):
+    project = build_approved_stage_twelve_project(
+        tmp_path / ("before-" + relative_path.replace("/", "-"))
+    )
     _run_exact_known_answer(project)
-    result = project.root / "experiment/results.json"
-    result.write_bytes(result.read_bytes() + b"\nforeign-before-validation\n")
+    source = project.root / relative_path
+    source.write_bytes(source.read_bytes() + b"\nforeign-before-validation\n")
     with pytest.raises(ValueError):
         register_research_result(project, "experiment/results.json")
     assert ResearchProject.open_readonly(project.root).state.current_stage == 12
 
 
-def test_result_mutation_during_object_copy_never_publishes_mismatched_bytes(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "data/input.csv",
+        "experiment/code/main.py",
+        "experiment/code/config.json",
+        "experiment/package_contract.json",
+        "experiment/execution_contract.json",
+        "experiment/results.json",
+    ),
+)
+def test_source_mutation_during_object_copy_never_publishes_mismatched_bytes(
+    tmp_path, monkeypatch, relative_path
 ):
-    project = build_approved_stage_twelve_project(tmp_path / "during-copy")
+    project = build_approved_stage_twelve_project(
+        tmp_path / ("during-" + relative_path.replace("/", "-"))
+    )
     _run_exact_known_answer(project)
-    result = project.root / "experiment/results.json"
-    original = result.read_bytes()
+    source = project.root / relative_path
+    identity = (source.stat().st_dev, source.stat().st_ino)
+    original = source.read_bytes()
     mutated = False
 
-    def mutate_during_copy(_descriptor):
+    def mutate_during_copy(descriptor):
         nonlocal mutated
-        if not mutated:
+        current = os.fstat(descriptor)
+        if not mutated and (current.st_dev, current.st_ino) == identity:
             mutated = True
-            result.write_bytes(original + b"\nforeign-during-copy\n")
+            source.write_bytes(original + b"\nforeign-during-copy\n")
 
     monkeypatch.setattr(evidence_store, "_before_source_recheck", mutate_during_copy)
     with pytest.raises(ValueError, match="research_result_file_invalid"):
@@ -189,6 +263,121 @@ def test_result_mutation_during_object_copy_never_publishes_mismatched_bytes(
     assert ResearchProject.open_readonly(project.root).state.current_stage == 12
     manifests = project.root / ".researchclaw/evidence/manifests"
     assert not list(manifests.glob("*.json"))
+
+
+def _read_cli_json(capsys, argv: list[str]) -> dict[str, object]:
+    assert cli_main(argv) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    return json.loads(captured.out)
+
+
+def test_complete_public_recovery_chain_and_repeated_execution_is_reproducible(
+    tmp_path, capsys
+):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "public-chain", register_self_test=False
+    )
+    root = str(project.root)
+    self_test = _read_cli_json(
+        capsys, ["experiment", "prepare-self-test", root, "--json"]
+    )
+    assert Path(self_test["argv"][0]).is_absolute()
+    completed = subprocess.run(
+        self_test["argv"], cwd=project.root, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
+    _read_cli_json(capsys, self_test["registration_argv"][1:])
+    _read_cli_json(
+        capsys,
+        ["approve", root, "--decision", "approve", "--note", "release matrix", "--json"],
+    )
+    first_preparation = _read_cli_json(
+        capsys, ["execution", "prepare-run", root, "--json"]
+    )
+    first_run = subprocess.run(
+        first_preparation["argv"],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert first_run.returncode == 0, first_run.stderr
+    first_bytes = (project.root / "experiment/results.json").read_bytes()
+    first_payload = json.loads(first_bytes)
+    assert first_payload["metrics"]["primary"]["value"] == 0.5
+
+    _read_cli_json(
+        capsys,
+        [
+            "execution", "quarantine-result", root, "--reason", "repeat_probe",
+            "--confirm", "--json",
+        ],
+    )
+    _read_cli_json(
+        capsys,
+        ["execution", "cleanup-quarantined-result", root, "--confirm", "--json"],
+    )
+    second_preparation = _read_cli_json(
+        capsys, ["execution", "prepare-run", root, "--json"]
+    )
+    assert second_preparation["argv"] == first_preparation["argv"]
+    second_run = subprocess.run(
+        second_preparation["argv"],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert second_run.returncode == 0, second_run.stderr
+    second_bytes = (project.root / "experiment/results.json").read_bytes()
+    assert second_bytes == first_bytes
+    registered = _read_cli_json(
+        capsys,
+        [
+            "execution", "register-result", root, "--result",
+            "experiment/results.json", "--confirm-research-result", "--json",
+        ],
+    )
+    assert registered["current_stage"] == 13
+    result_sha256 = hashlib.sha256(first_bytes).hexdigest()
+    assert (project.root / f".researchclaw/evidence/objects/{result_sha256}").is_file()
+
+
+def test_stale_contract_public_route_reprepares_without_stage_regression(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "stale-contract")
+    root = str(project.root)
+    preparation = _read_cli_json(
+        capsys, ["execution", "prepare-run", root, "--json"]
+    )
+    completed = subprocess.run(
+        preparation["argv"],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    contract = project.root / "experiment/execution_contract.json"
+    contract.write_bytes(b"{}")
+    status = _read_cli_json(capsys, ["status", root, "--json"])
+    assert status["current_stage"] == 12
+    assert status["next_action"] == "prepare_run"
+    reprepared = _read_cli_json(
+        capsys, ["execution", "prepare-run", root, "--json"]
+    )
+    assert Path(reprepared["argv"][0]).is_absolute()
+    assert json.loads(contract.read_bytes())["contract_id"]
+    assert cli_main(
+        [
+            "execution", "register-result", root, "--result",
+            "experiment/results.json", "--confirm-research-result", "--json",
+        ]
+    ) == 2
+    capsys.readouterr()
+    assert ResearchProject.open_readonly(project.root).state.current_stage == 12
 
 
 def test_32_mib_evidence_identity_and_copy_stay_below_8_mib_python_peak(tmp_path):

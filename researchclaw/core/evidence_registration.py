@@ -613,9 +613,14 @@ def _manifest_payload(
             "size": (project.root / "approvals/stage-12.json").stat().st_size,
         }
     )
-    execution_payload = json.loads(
-        (project.root / str(contract_ref["path"])).read_text(encoding="utf-8")
+    contract_source = next(
+        (source for source in sources if source.role == "execution_contract"), None
     )
+    if contract_source is None:
+        raise ValueError("research_result_provenance_mismatch")
+    execution_payload = _read_bound_execution_contract(project, contract_source)
+    if execution_payload.get("contract_id") != contract_ref.get("contract_id"):
+        raise ValueError("research_result_file_invalid")
     return {
         "schema_version": 1,
         "registration_id": registration_id,
@@ -643,6 +648,73 @@ def _manifest_payload(
         "split_summary": _thaw(validated.payload["split_summary"]),
         "runtime": _thaw(validated.payload["runtime"]),
     }
+
+
+def _read_bound_execution_contract(
+    project: ResearchProject, source: EvidenceSource
+) -> dict[str, object]:
+    """Snapshot the exact contract bytes that the immutable object will publish."""
+    from .execution_gate import open_project_file_descriptor
+
+    required = {
+        "schema_version", "contract_id", "project_id", "created_at", "argv",
+        "environment_fingerprint", "result_path", "bindings", "inputs",
+        "prohibitions", "result_template",
+    }
+    descriptor, _ = open_project_file_descriptor(project.root, source.path)
+    try:
+        initial = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or initial.st_size != source.expected_size
+            or initial.st_size > _PENDING_MAX_BYTES
+        ):
+            raise ValueError
+        chunks: list[bytes] = []
+        remaining = source.expected_size
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                raise ValueError
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise ValueError
+        final = os.fstat(descriptor)
+        encoded = b"".join(chunks)
+        if (
+            hashlib.sha256(encoded).hexdigest() != source.expected_sha256
+            or (
+                initial.st_dev, initial.st_ino, initial.st_mode, initial.st_size,
+                initial.st_mtime_ns, initial.st_ctime_ns,
+            )
+            != (
+                final.st_dev, final.st_ino, final.st_mode, final.st_size,
+                final.st_mtime_ns, final.st_ctime_ns,
+            )
+        ):
+            raise ValueError
+        payload = json.loads(
+            encoded.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
+        fingerprint = payload.get("environment_fingerprint") if isinstance(payload, dict) else None
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != required
+            or payload.get("schema_version") != 1
+            or isinstance(payload.get("schema_version"), bool)
+            or payload.get("project_id") != project.state.project_id
+            or not isinstance(fingerprint, str)
+            or _SHA256.fullmatch(fingerprint) is None
+        ):
+            raise ValueError
+        return payload
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("research_result_file_invalid") from error
+    finally:
+        os.close(descriptor)
 
 
 def _after_strict_validation(_validated) -> None:
@@ -1380,10 +1452,10 @@ def register_immutable_research_evidence(
             raise ValueError("research_result_registration_conflict")
         sources = _collect_sources(current, validated_result)
         registration_id = secrets.token_hex(16)
+        _after_strict_validation(validated_result)
         manifest = _manifest_payload(
             current, validated_result, registration_id, sources
         )
-        _after_strict_validation(validated_result)
         manifest_path = f".researchclaw/evidence/manifests/{registration_id}.json"
         event = EvaluationEvent.create(
             "research_result_registered",

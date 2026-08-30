@@ -42,6 +42,7 @@ researchclaw-codex = "researchclaw.codex.cli:main"
 packages = ["researchclaw", "sibyl", "arc"]
 
 [tool.pytest.ini_options]
+addopts = "-m 'not large_evidence'"
 markers = [
     "large_evidence: opt-in 1 GiB immutable evidence streaming benchmark",
 ]

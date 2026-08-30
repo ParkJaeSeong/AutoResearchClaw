@@ -175,6 +175,10 @@ class ResearchResultRegistrationStatus:
         return asdict(self)
 
 
+def _after_research_result_snapshot() -> None:
+    """Test seam inside validation after bound contract/result snapshots."""
+
+
 @dataclass(frozen=True)
 class _PendingResearchResultRegistration:
     project_id: str
@@ -961,7 +965,7 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
             not registration_recovery
             or str(error)
             not in {"execution_contract_invalid", "execution_contract_stale"}
-            or current.state.artifacts.get(EXECUTION_CONTRACT_PATH) is None
+            or current.state.artifacts.get(EXECUTION_CONTRACT_PATH) is not None
         ):
             raise
         existing = None
@@ -992,6 +996,9 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
         except (OSError, TypeError, ValueError) as error:
             raise ValueError("execution_contract_invalid") from error
     _record_contract_artifact(_current_project(current), existing)
+    if registration_recovery:
+        recovered = _current_project(current)
+        recovered.persist_state(replace(recovered.state, last_error=None))
     _clear_contract_preparation_journal(current)
     stored_contract = _decode_execution_contract(existing)
     bindings = _freeze_json(stored_contract["bindings"])
@@ -1057,6 +1064,7 @@ def _validate_research_result_against_stage_twelve_state(
         )
     except (OSError, TypeError, ValueError) as error:
         raise ValueError("research_result_file_invalid") from error
+    _after_research_result_snapshot()
     try:
         payload = _decode_research_result(result_bytes)
     except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError) as error:

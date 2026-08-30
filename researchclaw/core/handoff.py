@@ -74,12 +74,15 @@ def _sha256(path: Path) -> str:
 
 def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None:
     immutable_grounded = _immutable_evidence_grounded(root, state)
+    immutable_sources = (
+        _immutable_evidence_source_paths(root, state) if immutable_grounded else frozenset()
+    )
     ordered_artifacts = sorted(
         state.artifacts.items(),
         key=lambda item: stage_for_output(item[0]) or FOUNDATION_STAGE_MAX,
     )
     for relative_path, artifact in ordered_artifacts:
-        if immutable_grounded and relative_path == "experiment/results.json":
+        if immutable_grounded and relative_path in immutable_sources:
             continue
         producing_stage = stage_for_output(relative_path) or min(
             state.current_stage,
@@ -130,6 +133,35 @@ def _immutable_evidence_grounded(root: Path, state: ProjectState) -> bool:
     except (OSError, TypeError, ValueError):
         return False
     return True
+
+
+def _immutable_evidence_source_paths(
+    root: Path, state: ProjectState
+) -> frozenset[str]:
+    manifest_paths = tuple(
+        path
+        for path in state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    if len(manifest_paths) != 1:
+        return frozenset()
+    try:
+        from .evidence_registration import load_evidence_manifest
+
+        manifest = load_evidence_manifest(root, manifest_paths[0])
+        objects = manifest.get("objects")
+        if not isinstance(objects, list):
+            return frozenset()
+        sources = {
+            entry.get("source_path")
+            for entry in objects
+            if isinstance(entry, dict) and isinstance(entry.get("source_path"), str)
+        }
+        if len(sources) != len(objects):
+            return frozenset()
+        return frozenset(sources)
+    except (OSError, TypeError, ValueError):
+        return frozenset()
 
 
 def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | None:
