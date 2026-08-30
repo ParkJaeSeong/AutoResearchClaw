@@ -489,12 +489,22 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
         result = {"mae": mean_absolute_error(fixture["targets"], fixture["predictions"])}
         contract_digest = hashlib.sha256(Path("experiment/package_contract.json").read_bytes())
+        manifest_digest = hashlib.sha256(Path("experiment/package_manifest.json").read_bytes())
+        entry_point_digest = hashlib.sha256(Path("experiment/code/main.py").read_bytes())
         fixture_digest = hashlib.sha256(fixture_path.read_bytes())
         report = {
             "schema_version": 1,
             "package_contract": {
                 "path": "experiment/package_contract.json",
                 "sha256": contract_digest.hexdigest(),
+            },
+            "package_manifest": {
+                "path": "experiment/package_manifest.json",
+                "sha256": manifest_digest.hexdigest(),
+            },
+            "entry_point": {
+                "path": "experiment/code/main.py",
+                "sha256": entry_point_digest.hexdigest(),
             },
             "fixture": {
                 "path": str(fixture_path),
@@ -530,7 +540,17 @@ if __name__ == "__main__":
                     {
                         "path": "experiment/code/main.py",
                         "sha256": hashlib.sha256(main_source.encode("utf-8")).hexdigest(),
-                    }
+                    },
+                    {
+                        "path": "experiment/code/config.json",
+                        "sha256": hashlib.sha256(b"{}\n").hexdigest(),
+                    },
+                    {
+                        "path": "experiment/code/self_test_config.json",
+                        "sha256": hashlib.sha256(
+                            ('{"environment_fingerprint":"' + "a" * 64 + '"}\n').encode("utf-8")
+                        ).hexdigest(),
+                    },
                 ]
             },
             sort_keys=True,

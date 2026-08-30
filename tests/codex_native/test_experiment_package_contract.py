@@ -1,6 +1,8 @@
 import hashlib
 import json
 import math
+import subprocess
+import sys
 
 import pytest
 
@@ -43,6 +45,14 @@ def _write_self_test_report(project, package, **overrides):
         "package_contract": {
             "path": EXPERIMENT_PACKAGE_CONTRACT_PATH,
             "sha256": package.contract_sha256,
+        },
+        "package_manifest": {
+            "path": "experiment/package_manifest.json",
+            "sha256": package.package_manifest_sha256,
+        },
+        "entry_point": {
+            "path": "experiment/code/main.py",
+            "sha256": package.entry_point_sha256,
         },
         "fixture": {
             "path": "experiment/self_test_fixture.json",
@@ -210,3 +220,156 @@ def test_registered_self_test_rejects_invalid_external_report(tmp_path, override
 
     with pytest.raises(ValueError, match=error):
         validate_registered_self_test(project, package)
+
+
+def test_registered_self_test_rejects_a_manifest_bound_metric_change(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    _write_self_test_report(project, package)
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source.replace(
+            "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+            "    return 0.0\n",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="package changed"):
+        validate_registered_self_test(project, package)
+
+
+def test_registered_self_test_rejects_a_manifest_declared_file_change(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    _write_self_test_report(project, package)
+    (project.root / "experiment/code/config.json").write_text(
+        '{"changed": true}\n', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="package manifest identity"):
+        validate_registered_self_test(project, package)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "    probe = Path('experiment/self_test_fixture.json')\n    return probe.stat()[6]\n",
+        "    return size_alias()\n\n\ndef size_helper() -> float:\n    probe = Path('experiment/self_test_fixture.json')\n    return float(probe.stat().st_size)\n\n\nsize_alias = size_helper\n",
+    ],
+)
+def test_package_contract_rejects_subscripted_or_aliased_size_proxies(tmp_path, replacement):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source.replace(
+            "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+            replacement,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="size proxy"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_indirect_dict_fallback_evidence(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + "\ndef placeholder_fallback() -> dict[str, object]:\n"
+        + "    return build_placeholder_output()\n"
+        + "\ndef build_placeholder_output() -> dict[str, object]:\n"
+        + "    return dict(mae=0.5, evidence_eligible=True)\n",
+    )
+
+    with pytest.raises(ValueError, match="fallback"):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize("target", ["self_test", "execution"])
+def test_package_contract_rejects_duplicate_config_flags(tmp_path, target):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    contract = _load_contract(project)
+    contract[target]["argv_suffix"] = [
+        "--config",
+        "experiment/code/config.json",
+        "--config",
+        "experiment/code/self_test_config.json",
+        *(["--self-test"] if target == "self_test" else []),
+    ]
+    _write_contract(project, contract)
+
+    with pytest.raises(ValueError, match="exactly one --config"):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize(
+    ("fixture_bytes", "error"),
+    [
+        (b'{"targets": [], "targets": []}\n', "JSON keys must be unique"),
+        (b'{"payload": "' + b"x" * (65 * 1024) + b'"}\n', "fixture exceeds the bound"),
+    ],
+)
+def test_package_contract_rejects_nonclosed_or_oversized_fixture(tmp_path, fixture_bytes, error):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    (project.root / "experiment/self_test_fixture.json").write_bytes(fixture_bytes)
+
+    with pytest.raises(ValueError, match=error):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize("field", ["contract", "report"])
+def test_package_contract_rejects_boolean_schema_version(tmp_path, field):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    if field == "contract":
+        contract = _load_contract(project)
+        contract["schema_version"] = True
+        _write_contract(project, contract)
+        with pytest.raises(ValueError, match="schema_version"):
+            validate_experiment_package_contract(project)
+        return
+    package = validate_experiment_package_contract(project)
+    _write_self_test_report(project, package, schema_version=True)
+
+    with pytest.raises(ValueError, match="schema_version"):
+        validate_registered_self_test(project, package)
+
+
+def test_package_contract_rejects_self_test_actual_hard_coded_away_from_metric(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(project, source.replace('"actual": result["mae"]', '"actual": 0.5'))
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_known_answer_entrypoint_writes_only_its_mode_specific_output(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    command = [sys.executable, "experiment/code/main.py"]
+    self_test = subprocess.run(
+        [*command, "--config", "experiment/code/self_test_config.json", "--self-test"],
+        cwd=project.root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert self_test.returncode == 0
+    assert (project.root / SELF_TEST_REPORT_PATH).is_file()
+    assert not (project.root / "experiment/results.json").exists()
+    (project.root / SELF_TEST_REPORT_PATH).unlink()
+    execution = subprocess.run(
+        [*command, "--config", "experiment/code/config.json"],
+        cwd=project.root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert execution.returncode == 0
+    assert (project.root / "experiment/results.json").is_file()
+    assert not (project.root / SELF_TEST_REPORT_PATH).exists()
