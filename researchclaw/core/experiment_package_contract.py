@@ -6,15 +6,18 @@ import ast
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .computational_package import validate_python_capability_safety
-from .models import ArtifactRef
+from .models import ArtifactRef, ProjectState
 from .paths import resolve_project_artifact
+from .persistence import _fsync_directory, atomic_write_json
 from .project import ResearchProject
 from .transactions import project_mutation
 
@@ -24,6 +27,10 @@ SELF_TEST_REPORT_PATH = "experiment/self_test_report.json"
 _PACKAGE_MANIFEST_PATH = "experiment/package_manifest.json"
 _MAX_JSON_BYTES = 1024 * 1024
 _MAX_FIXTURE_JSON_BYTES = 64 * 1024
+_SELF_TEST_REGISTRATION_PENDING_PATH = (
+    ".researchclaw/experiment-self-test-registration.pending.json"
+)
+_MAX_SELF_TEST_REGISTRATION_PENDING_BYTES = 16 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PACKAGE_KEYS = {
     "schema_version", "entry_point", "config_path", "result_path",
@@ -48,6 +55,39 @@ class ValidatedExperimentPackage:
     metric_entrypoints: Mapping[str, str]
     self_test_argv: tuple[str, ...]
     execution_argv: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _PendingSelfTestRegistration:
+    project_id: str
+    artifact: ArtifactRef
+    event_log_size: int
+    event_log_prefix_sha256: str
+    prior_state_sha256: str
+    target_state_sha256: str
+    target_next_action: str
+    event: object
+
+    def to_dict(self) -> dict[str, object]:
+        from .events import EvaluationEvent
+
+        if not isinstance(self.event, EvaluationEvent):
+            raise ValueError("experiment_self_test_registration_recovery_invalid")
+        return {
+            "schema_version": 1,
+            "project_id": self.project_id,
+            "artifact": {
+                "path": self.artifact.path,
+                "sha256": self.artifact.sha256,
+                "size": self.artifact.size,
+            },
+            "event_log_size": self.event_log_size,
+            "event_log_prefix_sha256": self.event_log_prefix_sha256,
+            "prior_state_sha256": self.prior_state_sha256,
+            "target_state_sha256": self.target_state_sha256,
+            "target_next_action": self.target_next_action,
+            "event": self.event.to_dict(),
+        }
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -1200,8 +1240,401 @@ def validate_registered_self_test(
     )
 
 
+def _self_test_registration_pending_path(project: ResearchProject) -> Path:
+    return project.root / _SELF_TEST_REGISTRATION_PENDING_PATH
+
+
+def _state_sha256(state: ProjectState) -> str:
+    payload = json.dumps(
+        state.to_dict(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _persist_self_test_registration_pending(
+    project: ResearchProject, pending: _PendingSelfTestRegistration
+) -> None:
+    payload = pending.to_dict()
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    if len(encoded) > _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES:
+        raise ValueError("experiment_self_test_registration_recovery_invalid")
+    atomic_write_json(
+        _self_test_registration_pending_path(project),
+        payload,
+        prefix="experiment-self-test-registration-",
+        compact=True,
+    )
+
+
+def _clear_self_test_registration_pending(project: ResearchProject) -> None:
+    path = _self_test_registration_pending_path(project)
+    path.unlink(missing_ok=True)
+    _fsync_directory(path.parent)
+
+
+def _read_self_test_registration_pending(project: ResearchProject) -> bytes:
+    path = _self_test_registration_pending_path(project)
+    descriptor = os.open(
+        path,
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
+    )
+    try:
+        file_stat = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(file_stat.st_mode)
+            or file_stat.st_size > _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES
+        ):
+            raise ValueError("pending self-test registration is invalid")
+        chunks: list[bytes] = []
+        remaining = _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(4096, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) > _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES:
+            raise ValueError("pending self-test registration is too large")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def _load_self_test_registration_pending(
+    project: ResearchProject,
+) -> _PendingSelfTestRegistration | None:
+    path = _self_test_registration_pending_path(project)
+    if not os.path.lexists(path):
+        return None
+    try:
+        raw = json.loads(
+            _read_self_test_registration_pending(project).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=lambda _raw: (_ for _ in ()).throw(
+                ValueError("pending self-test registration numbers must be finite")
+            ),
+        )
+        fields = {
+            "schema_version",
+            "project_id",
+            "artifact",
+            "event_log_size",
+            "event_log_prefix_sha256",
+            "prior_state_sha256",
+            "target_state_sha256",
+            "target_next_action",
+            "event",
+        }
+        if not isinstance(raw, dict) or set(raw) != fields:
+            raise ValueError("pending self-test registration must be closed")
+        artifact_raw = raw["artifact"]
+        event_raw = raw["event"]
+        if (
+            not isinstance(raw["schema_version"], int)
+            or isinstance(raw["schema_version"], bool)
+            or raw["schema_version"] != 1
+            or not isinstance(raw["project_id"], str)
+            or not raw["project_id"]
+            or not isinstance(artifact_raw, dict)
+            or set(artifact_raw) != {"path", "sha256", "size"}
+            or artifact_raw["path"] != SELF_TEST_REPORT_PATH
+            or not isinstance(artifact_raw["sha256"], str)
+            or _SHA256.fullmatch(artifact_raw["sha256"]) is None
+            or not isinstance(artifact_raw["size"], int)
+            or isinstance(artifact_raw["size"], bool)
+            or artifact_raw["size"] < 0
+            or not isinstance(raw["event_log_size"], int)
+            or isinstance(raw["event_log_size"], bool)
+            or raw["event_log_size"] < 0
+            or not isinstance(raw["event_log_prefix_sha256"], str)
+            or _SHA256.fullmatch(raw["event_log_prefix_sha256"]) is None
+            or not isinstance(raw["prior_state_sha256"], str)
+            or _SHA256.fullmatch(raw["prior_state_sha256"]) is None
+            or not isinstance(raw["target_state_sha256"], str)
+            or _SHA256.fullmatch(raw["target_state_sha256"]) is None
+            or raw["target_next_action"]
+            not in {"approve_experiment_execution", "report_missing_execution_inputs"}
+            or not isinstance(event_raw, dict)
+            or set(event_raw)
+            != {"schema_version", "timestamp", "type", "project_id", "payload"}
+        ):
+            raise ValueError("pending self-test registration identity is invalid")
+        from .events import EvaluationEvent
+
+        artifact = ArtifactRef(
+            path=artifact_raw["path"],
+            sha256=artifact_raw["sha256"],
+            size=artifact_raw["size"],
+        )
+        event = EvaluationEvent.from_dict(event_raw)
+        expected_payload = {
+            "path": artifact.path,
+            "sha256": artifact.sha256,
+            "size": artifact.size,
+        }
+        if (
+            raw["project_id"] != project.state.project_id
+            or event.project_id != raw["project_id"]
+            or event.type != "experiment_self_test_registered"
+            or not isinstance(event.payload.get("size"), int)
+            or isinstance(event.payload.get("size"), bool)
+            or event.payload != expected_payload
+        ):
+            raise ValueError("pending self-test registration binding is invalid")
+        current_identity = _state_sha256(project.state)
+        if current_identity == raw["prior_state_sha256"]:
+            target_state = replace(
+                project.state,
+                next_action=raw["target_next_action"],
+                artifacts={
+                    **project.state.artifacts,
+                    SELF_TEST_REPORT_PATH: artifact,
+                },
+            )
+            if _state_sha256(target_state) != raw["target_state_sha256"]:
+                raise ValueError("pending self-test registration state is invalid")
+        elif current_identity == raw["target_state_sha256"]:
+            if (
+                project.state.next_action != raw["target_next_action"]
+                or project.state.artifacts.get(SELF_TEST_REPORT_PATH) != artifact
+            ):
+                raise ValueError("pending self-test registration state is invalid")
+        elif (
+            project.state.next_action == "register_experiment_self_test"
+            and project.state.artifacts.get(SELF_TEST_REPORT_PATH) == artifact
+            and _state_sha256(
+                replace(
+                    project.state,
+                    next_action=raw["target_next_action"],
+                )
+            )
+            == raw["target_state_sha256"]
+        ):
+            pass
+        else:
+            raise ValueError("pending self-test registration state changed")
+        return _PendingSelfTestRegistration(
+            project_id=raw["project_id"],
+            artifact=artifact,
+            event_log_size=raw["event_log_size"],
+            event_log_prefix_sha256=raw["event_log_prefix_sha256"],
+            prior_state_sha256=raw["prior_state_sha256"],
+            target_state_sha256=raw["target_state_sha256"],
+            target_next_action=raw["target_next_action"],
+            event=event,
+        )
+    except (
+        OSError,
+        UnicodeError,
+        TypeError,
+        ValueError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as error:
+        raise ValueError(
+            "experiment_self_test_registration_recovery_invalid"
+        ) from error
+
+
+def _complete_self_test_event_log_identity(
+    project: ResearchProject,
+) -> tuple[int, str]:
+    try:
+        from .events import event_log_for
+
+        for _event in event_log_for(project.root).iter_events():
+            pass
+        path = project.root / "evaluation/events.jsonl"
+        if not path.exists():
+            return 0, hashlib.sha256(b"").hexdigest()
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        try:
+            file_stat = os.fstat(descriptor)
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError("event log must be a regular file")
+            digest = hashlib.sha256()
+            size = 0
+            while chunk := os.read(descriptor, 64 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
+            return size, digest.hexdigest()
+        finally:
+            os.close(descriptor)
+    except (OSError, TypeError, ValueError) as error:
+        raise ValueError(
+            "experiment_self_test_registration_recovery_invalid"
+        ) from error
+
+
+def _self_test_registration_event_tail(
+    project: ResearchProject, pending: _PendingSelfTestRegistration
+) -> bytes:
+    from .events import MAX_EVENT_RECORD_BYTES
+
+    path = project.root / "evaluation/events.jsonl"
+    if not path.exists():
+        if pending.event_log_size == 0:
+            return b""
+        raise ValueError("experiment_self_test_registration_recovery_invalid")
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+        )
+        try:
+            file_stat = os.fstat(descriptor)
+            total_size = file_stat.st_size
+            if (
+                not stat.S_ISREG(file_stat.st_mode)
+                or total_size < pending.event_log_size
+                or total_size - pending.event_log_size > MAX_EVENT_RECORD_BYTES
+            ):
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
+            digest = hashlib.sha256()
+            remaining = pending.event_log_size
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    raise ValueError(
+                        "experiment_self_test_registration_recovery_invalid"
+                    )
+                digest.update(chunk)
+                remaining -= len(chunk)
+            if digest.hexdigest() != pending.event_log_prefix_sha256:
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
+            tail = os.read(descriptor, MAX_EVENT_RECORD_BYTES + 1)
+            if len(tail) > MAX_EVENT_RECORD_BYTES or os.read(descriptor, 1):
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
+            return tail
+        finally:
+            os.close(descriptor)
+    except (OSError, ValueError) as error:
+        if isinstance(error, ValueError) and str(error) == (
+            "experiment_self_test_registration_recovery_invalid"
+        ):
+            raise
+        raise ValueError(
+            "experiment_self_test_registration_recovery_invalid"
+        ) from error
+
+
+def _truncate_self_test_registration_event_tail(
+    project: ResearchProject, offset: int
+) -> None:
+    path = project.root / "evaluation/events.jsonl"
+    descriptor = os.open(
+        path,
+        os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        os.ftruncate(descriptor, offset)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _fsync_directory(path.parent)
+
+
+def _complete_pending_self_test_registration(
+    project: ResearchProject,
+    pending: _PendingSelfTestRegistration,
+) -> ArtifactRef:
+    from .events import EventLog, EvaluationEvent, event_log_for
+
+    if not isinstance(pending.event, EvaluationEvent):
+        raise ValueError("experiment_self_test_registration_recovery_invalid")
+    record = EventLog._bounded_record(pending.event)
+    tail = _self_test_registration_event_tail(project, pending)
+    if tail != record:
+        if tail:
+            ownership_marker = pending.artifact.sha256.encode("ascii")
+            if not record.startswith(tail) or ownership_marker not in tail:
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
+            _truncate_self_test_registration_event_tail(
+                project, pending.event_log_size
+            )
+        event_log_for(project.root).append_locked(
+            pending.event,
+            expected_offset=pending.event_log_size,
+        )
+    if _self_test_registration_event_tail(project, pending) != record:
+        raise OSError("self-test registration event was not persisted")
+
+    current = ResearchProject.open_readonly(project.root)
+    current_identity = _state_sha256(current.state)
+    if current_identity == pending.prior_state_sha256:
+        target_state = replace(
+            current.state,
+            next_action=pending.target_next_action,
+            artifacts={
+                **current.state.artifacts,
+                SELF_TEST_REPORT_PATH: pending.artifact,
+            },
+        )
+        if _state_sha256(target_state) != pending.target_state_sha256:
+            raise ValueError(
+                "experiment_self_test_registration_recovery_invalid"
+            )
+        current = current.persist_state(target_state)
+    elif (
+        current.state.next_action == "register_experiment_self_test"
+        and current.state.artifacts.get(SELF_TEST_REPORT_PATH) == pending.artifact
+        and _state_sha256(
+            replace(
+                current.state,
+                next_action=pending.target_next_action,
+            )
+        )
+        == pending.target_state_sha256
+    ):
+        current = current.persist_state(
+            replace(
+                current.state,
+                next_action=pending.target_next_action,
+            )
+        )
+    elif current_identity != pending.target_state_sha256:
+        raise ValueError("experiment_self_test_registration_recovery_invalid")
+    if (
+        current.state.artifacts.get(SELF_TEST_REPORT_PATH) != pending.artifact
+        or current.state.next_action != pending.target_next_action
+    ):
+        raise ValueError("experiment_self_test_registration_recovery_invalid")
+    _clear_self_test_registration_pending(current)
+    return pending.artifact
+
+
 def _current_registered_self_test(project: ResearchProject) -> ArtifactRef:
     try:
+        if os.path.lexists(_self_test_registration_pending_path(project)):
+            raise ValueError("self-test registration is incomplete")
         package = validate_experiment_package_contract(project)
         artifact = validate_registered_self_test(project, package)
         registered = project.state.artifacts.get(SELF_TEST_REPORT_PATH)
@@ -1264,8 +1697,44 @@ def register_experiment_self_test(
     except (OSError, ValueError) as error:
         raise ValueError("experiment_self_test_required") from error
 
-    from .events import EvaluationEvent, event_log_for
+    pending = _load_self_test_registration_pending(current)
+    if pending is not None:
+        if pending.artifact != artifact:
+            raise ValueError("experiment_self_test_registration_recovery_invalid")
+        completed = _complete_pending_self_test_registration(current, pending)
+        _current_registered_self_test(ResearchProject.open_readonly(current.root))
+        return completed
 
+    try:
+        already_grounded = _self_test_registration_event_is_grounded(
+            current, artifact
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError(
+            "experiment_self_test_registration_recovery_invalid"
+        ) from error
+    if (
+        already_grounded
+        and current.state.artifacts.get(SELF_TEST_REPORT_PATH) == artifact
+    ):
+        return artifact
+
+    from .events import EvaluationEvent
+
+    target_next_action = (
+        "approve_experiment_execution"
+        if state.next_action
+        in {"register_experiment_self_test", "approve_experiment_execution"}
+        else state.next_action
+    )
+    target_state = replace(
+        state,
+        next_action=target_next_action,
+        artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
+    )
+    event_log_size, event_log_prefix_sha256 = (
+        _complete_self_test_event_log_identity(current)
+    )
     event = EvaluationEvent.create(
         "experiment_self_test_registered",
         state.project_id,
@@ -1275,19 +1744,17 @@ def register_experiment_self_test(
             "size": artifact.size,
         },
     )
-    if not _self_test_registration_event_is_grounded(current, artifact):
-        event_log_for(current.root).append(event)
-    current = current.persist_state(
-        replace(
-            state,
-            next_action=(
-                "approve_experiment_execution"
-                if state.next_action
-                in {"register_experiment_self_test", "approve_experiment_execution"}
-                else state.next_action
-            ),
-            artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
-        )
+    pending = _PendingSelfTestRegistration(
+        project_id=state.project_id,
+        artifact=artifact,
+        event_log_size=event_log_size,
+        event_log_prefix_sha256=event_log_prefix_sha256,
+        prior_state_sha256=_state_sha256(state),
+        target_state_sha256=_state_sha256(target_state),
+        target_next_action=target_next_action,
+        event=event,
     )
-    _current_registered_self_test(current)
-    return artifact
+    _persist_self_test_registration_pending(current, pending)
+    completed = _complete_pending_self_test_registration(current, pending)
+    _current_registered_self_test(ResearchProject.open_readonly(current.root))
+    return completed

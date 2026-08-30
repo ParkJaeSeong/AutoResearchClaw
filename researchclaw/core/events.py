@@ -135,7 +135,11 @@ class EventLog:
         """Append at an exact offset while the caller owns the event-log flock."""
         descriptor = os.open(
             self.path,
-            os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+            os.O_WRONLY
+            | os.O_APPEND
+            | os.O_CREAT
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o644,
         )
         try:
             actual_offset = os.fstat(descriptor).st_size
