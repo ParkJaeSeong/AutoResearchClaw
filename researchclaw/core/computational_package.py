@@ -428,6 +428,7 @@ _ALLOWED_BUILTIN_CALLS = frozenset(
         "RuntimeError",
         "TypeError",
         "ValueError",
+        "abs",
         "all",
         "any",
         "bool",
@@ -1627,6 +1628,56 @@ def _add_callable_aliases(tree: ast.AST, aliases: dict[str, str]) -> None:
                 aliases[name] = resolved or name
 
 
+def validate_python_capability_safety(
+    path: str, source: str
+) -> tuple[ComputationalPackageIssue, ...]:
+    """Return generic static capability violations for one generated Python file.
+
+    Package-specific validators may impose stricter artifact-write rules while
+    sharing this import, call-provenance, and absolute-path safety baseline.
+    """
+    try:
+        tree = ast.parse(source, filename=path)
+    except SyntaxError:
+        return ()
+    aliases = _import_aliases(tree)
+    _add_callable_aliases(tree, aliases)
+    callables = _LexicalCallables(tree)
+    forbidden = False
+    unsafe_path = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            forbidden = forbidden or any(
+                not _allowed_import(alias.name) for alias in node.names
+            )
+        elif isinstance(node, ast.ImportFrom):
+            forbidden = forbidden or (
+                node.module is None
+                or node.level != 0
+                or not _allowed_import_from(node.module, node.names)
+            )
+        elif isinstance(node, ast.Call):
+            forbidden = forbidden or _forbidden_call(
+                _resolved_call_name(node.func, aliases)
+            ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
+                node, aliases, callables
+            )
+            unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
+    issues: list[ComputationalPackageIssue] = []
+    if forbidden:
+        _issue(
+            issues,
+            "forbidden_capability",
+            path,
+            "generated Python uses a prohibited capability",
+        )
+    if unsafe_path:
+        _issue(issues, "unsafe_path", path, "generated Python contains an absolute literal path")
+    return tuple(issues)
+
+
 def _validate_python_capabilities(
     outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -1641,34 +1692,17 @@ def _validate_python_capabilities(
 
         aliases = _import_aliases(tree)
         _add_callable_aliases(tree, aliases)
-        callables = _LexicalCallables(tree)
+        issues.extend(validate_python_capability_safety(path, source))
         forbidden = False
-        unsafe_path = False
         fake_result_assignment = False
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                forbidden = forbidden or any(not _allowed_import(alias.name) for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                forbidden = forbidden or (
-                    node.module is None
-                    or node.level != 0
-                    or not _allowed_import_from(node.module, node.names)
-                )
-            elif isinstance(node, ast.Call):
-                forbidden = forbidden or _forbidden_call(
-                    _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
-                    node, aliases, callables
-                )
-                unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
-            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
                 fake_result_assignment = fake_result_assignment or any(
                     _FAKE_RESULT_NAME.search(name) is not None
                     for target in targets
                     for name in _assignment_names(target)
                 )
-                unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
 
         if fake_result_assignment and not (
             path == "experiment/code/tests/test_smoke.py"
@@ -1696,8 +1730,6 @@ def _validate_python_capabilities(
                 path,
                 "generated Python uses a prohibited capability or synthetic-result fallback",
             )
-        if unsafe_path:
-            _issue(issues, "unsafe_path", path, "generated Python contains an absolute literal path")
 
 
 def _validate_requirements(

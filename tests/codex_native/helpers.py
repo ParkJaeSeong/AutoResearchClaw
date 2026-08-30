@@ -448,6 +448,129 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
     }
 
 
+def build_known_answer_experiment_package(root: Path) -> ResearchProject:
+    """Build the closed Stage-10 package used by evidence-contract tests."""
+    project = ResearchProject.create(root, "known-answer package", "materials_ai")
+    fixture_path = project.root / "experiment/self_test_fixture.json"
+    fixture_payload = {
+        "targets": [1.0, 2.0, 3.0, 4.0],
+        "predictions": [1.5, 1.5, 2.5, 4.5],
+    }
+    fixture_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture_path.write_text(
+        json.dumps(fixture_payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    main_path = project.root / "experiment/code/main.py"
+    main_path.parent.mkdir(parents=True, exist_ok=True)
+    main_source = '''import argparse
+import hashlib
+import json
+from pathlib import Path
+
+
+def mean_absolute_error(targets: list[float], predictions: list[float]) -> float:
+    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)
+
+
+def run_experiment(config: dict[str, object]) -> dict[str, object]:
+    targets = [1.0, 2.0, 3.0, 4.0]
+    predictions = [1.5, 1.5, 2.5, 4.5]
+    return {"mae": mean_absolute_error(targets, predictions)}
+
+
+def main(argv: list[str] | None = None) -> dict[str, object]:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args(argv)
+    config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    if args.self_test:
+        fixture_path = Path("experiment/self_test_fixture.json")
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        result = {"mae": mean_absolute_error(fixture["targets"], fixture["predictions"])}
+        contract_digest = hashlib.sha256(Path("experiment/package_contract.json").read_bytes())
+        fixture_digest = hashlib.sha256(fixture_path.read_bytes())
+        report = {
+            "schema_version": 1,
+            "package_contract": {
+                "path": "experiment/package_contract.json",
+                "sha256": contract_digest.hexdigest(),
+            },
+            "fixture": {
+                "path": str(fixture_path),
+                "sha256": fixture_digest.hexdigest(),
+            },
+            "environment_fingerprint": config["environment_fingerprint"],
+            "metrics": [{"name": "mae", "actual": result["mae"], "expected": 0.5, "tolerance": 0.0}],
+            "passed": True,
+            "development_only": True,
+        }
+        Path("experiment/self_test_report.json").write_text(json.dumps(report, sort_keys=True) + "\\n", encoding="utf-8")
+        return report
+    result = run_experiment(config)
+    Path("experiment/results.json").write_text(json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")
+    return result
+
+
+if __name__ == "__main__":
+    main()
+'''
+    main_path.write_text(main_source, encoding="utf-8")
+    config_path = project.root / "experiment/code/config.json"
+    config_path.write_text("{}\n", encoding="utf-8")
+    self_test_config_path = project.root / "experiment/code/self_test_config.json"
+    self_test_config_path.write_text(
+        '{"environment_fingerprint":"' + "a" * 64 + '"}\n', encoding="utf-8"
+    )
+    manifest_path = project.root / "experiment/package_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "path": "experiment/code/main.py",
+                        "sha256": hashlib.sha256(main_source.encode("utf-8")).hexdigest(),
+                    }
+                ]
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    contract = {
+        "schema_version": 1,
+        "entry_point": "experiment/code/main.py",
+        "config_path": "experiment/code/config.json",
+        "result_path": "experiment/results.json",
+        "metrics": [
+            {
+                "name": "mae",
+                "unit": "absolute_error",
+                "implementation": "experiment.code.main:mean_absolute_error",
+            }
+        ],
+        "self_test": {
+            "argv_suffix": [
+                "--config",
+                "experiment/code/self_test_config.json",
+                "--self-test",
+            ],
+            "fixture_path": "experiment/self_test_fixture.json",
+            "expected_metrics": [
+                {"name": "mae", "expected": 0.5, "tolerance": 0.0}
+            ],
+        },
+        "execution": {"argv_suffix": ["--config", "experiment/code/config.json"]},
+        "dependencies": [],
+        "prohibitions": {},
+    }
+    (project.root / "experiment/package_contract.json").write_text(
+        json.dumps(contract, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    return ResearchProject.open(root)
+
+
 def set_stage_ten_required_paths(root: Path, required_paths: list[str]) -> None:
     """Keep the Stage-10 config and manifest fixture hashes aligned."""
     config_path = root / "experiment/code/config.json"
