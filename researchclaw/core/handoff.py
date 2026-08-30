@@ -365,11 +365,18 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
             desired_next_action = "report_missing_execution_inputs"
         else:
             desired_status = StageStatus.AWAITING_APPROVAL
-            desired_next_action = (
-                "approve_experiment_execution"
-                if readiness == "ready_for_execution" and plan_eligible
-                else "report_missing_execution_inputs"
-            )
+            if readiness == "ready_for_execution" and plan_eligible:
+                try:
+                    from .experiment_package_contract import (
+                        _current_registered_self_test,
+                    )
+
+                    _current_registered_self_test(current_project)
+                    desired_next_action = "approve_experiment_execution"
+                except (OSError, ValueError):
+                    desired_next_action = "register_experiment_self_test"
+            else:
+                desired_next_action = "report_missing_execution_inputs"
         if (
             state.status is not desired_status
             or state.next_action != desired_next_action
@@ -477,7 +484,21 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if execution_boundary:
-        if state.next_action == "prepare_run":
+        if state.next_action == "register_experiment_self_test":
+            next_action = state.next_action
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "register-self-test",
+                    str(current_project.root.resolve()),
+                    "--report",
+                    "experiment/self_test_report.json",
+                    "--confirm-self-test",
+                    "--json",
+                )
+            )
+        elif state.next_action == "prepare_run":
             next_action = state.next_action
             next_command = _command(
                 current_project.root,

@@ -1,12 +1,19 @@
 import hashlib
 import json
 import shlex
+import subprocess
+import sys
 import threading
 from dataclasses import replace
 
 import pytest
 
 from researchclaw.core.events import event_log_for
+from researchclaw.core.experiment_package_contract import (
+    SELF_TEST_REPORT_PATH,
+    register_experiment_self_test,
+    validate_experiment_package_contract,
+)
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
@@ -16,9 +23,56 @@ from researchclaw.core.research_execution import (
 )
 from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
+    build_stage_twelve_project,
     load_execution_contract,
     write_contract_bound_research_result,
 )
+
+
+def test_stage_twelve_handoff_routes_through_explicit_self_test_registration(tmp_path):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+
+    before = build_handoff(project)
+
+    assert before.next_action == "register_experiment_self_test"
+    assert before.approval_eligible is False
+    assert shlex.split(before.next_command) == [
+        "researchclaw-codex",
+        "experiment",
+        "register-self-test",
+        str(project.root.resolve()),
+        "--report",
+        SELF_TEST_REPORT_PATH,
+        "--confirm-self-test",
+        "--json",
+    ]
+
+    package = validate_experiment_package_contract(ResearchProject.open(project.root))
+    completed = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    register_experiment_self_test(
+        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+    )
+
+    after = build_handoff(ResearchProject.open(project.root))
+    assert after.next_action == "approve_experiment_execution"
+    assert after.approval_eligible is True
+    assert shlex.split(after.next_command) == [
+        "researchclaw-codex",
+        "approve",
+        str(project.root.resolve()),
+        "--decision",
+        "<approve|reject>",
+        "--json",
+    ]
 
 
 def test_stage_thirteen_handoff_reports_the_next_unsupported_boundary(tmp_path):

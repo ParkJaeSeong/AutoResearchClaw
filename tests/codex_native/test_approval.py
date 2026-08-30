@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import replace
 import subprocess
@@ -7,12 +8,16 @@ import pytest
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate, verify_current_approval
+from researchclaw.core.events import EvaluationEvent, EventLog, event_log_for
 from researchclaw.core.experiment_package_contract import (
     SELF_TEST_REPORT_PATH,
+    _current_registered_self_test,
     register_experiment_self_test,
     validate_experiment_package_contract,
 )
+from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.state import StateStore
 from researchclaw.core.validation import validate_current_stage
 from tests.codex_native.helpers import (
     build_self_test_registration_project,
@@ -216,6 +221,147 @@ def test_register_experiment_self_test_records_artifact_and_event_at_gate(tmp_pa
         "sha256": artifact.sha256,
         "size": artifact.size,
     }
+
+
+def _run_external_self_test(project):
+    package = validate_experiment_package_contract(project)
+    completed = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def _current_report_ref(project):
+    report = project.root / SELF_TEST_REPORT_PATH
+    payload = report.read_bytes()
+    return ArtifactRef(
+        path=SELF_TEST_REPORT_PATH,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+    )
+
+
+def test_self_test_registration_event_append_failure_leaves_gate_ineligible(
+    tmp_path, monkeypatch
+):
+    project = build_self_test_registration_project(tmp_path / "project")
+    _run_external_self_test(project)
+    original_append = EventLog.append
+
+    def fail_append(_self, _event):
+        raise OSError("injected event failure")
+
+    monkeypatch.setattr(EventLog, "append", fail_append)
+    with pytest.raises(OSError, match="injected event failure"):
+        register_experiment_self_test(project, SELF_TEST_REPORT_PATH)
+
+    reopened = ResearchProject.open(project.root)
+    assert SELF_TEST_REPORT_PATH not in reopened.state.artifacts
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        _current_registered_self_test(reopened)
+
+    monkeypatch.setattr(EventLog, "append", original_append)
+    artifact = register_experiment_self_test(reopened, SELF_TEST_REPORT_PATH)
+    assert _current_registered_self_test(ResearchProject.open(project.root)) == artifact
+    assert sum(
+        event.type == "experiment_self_test_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
+def test_self_test_registration_state_save_failure_is_recoverable_and_idempotent(
+    tmp_path, monkeypatch
+):
+    project = build_self_test_registration_project(tmp_path / "project")
+    _run_external_self_test(project)
+    original_save = StateStore.save
+    failed = False
+
+    def fail_registration_save(store, state):
+        nonlocal failed
+        if SELF_TEST_REPORT_PATH in state.artifacts and not failed:
+            failed = True
+            raise OSError("injected state failure")
+        return original_save(store, state)
+
+    monkeypatch.setattr(StateStore, "save", fail_registration_save)
+    with pytest.raises(OSError, match="injected state failure"):
+        register_experiment_self_test(project, SELF_TEST_REPORT_PATH)
+
+    reopened = ResearchProject.open(project.root)
+    assert SELF_TEST_REPORT_PATH not in reopened.state.artifacts
+    assert sum(
+        event.type == "experiment_self_test_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        _current_registered_self_test(reopened)
+
+    artifact = register_experiment_self_test(reopened, SELF_TEST_REPORT_PATH)
+    assert _current_registered_self_test(ResearchProject.open(project.root)) == artifact
+    assert sum(
+        event.type == "experiment_self_test_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+    assert register_experiment_self_test(
+        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+    ) == artifact
+    assert sum(
+        event.type == "experiment_self_test_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
+def test_exact_self_test_artifact_ref_without_registration_event_is_ineligible(tmp_path):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+    _run_external_self_test(project)
+    artifact = _current_report_ref(project)
+    project.persist_state(
+        replace(
+            project.state,
+            artifacts={**project.state.artifacts, SELF_TEST_REPORT_PATH: artifact},
+        )
+    )
+
+    reopened = ResearchProject.open(project.root)
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        _current_registered_self_test(reopened)
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        approve_current_gate(reopened, "approve", "Run it")
+
+
+def test_partial_self_test_registration_event_does_not_ground_forged_state(tmp_path):
+    project = build_self_test_registration_project(tmp_path / "project")
+    _run_external_self_test(project)
+    artifact = _current_report_ref(project)
+    event_log_for(project.root).append(
+        EvaluationEvent.create(
+            "experiment_self_test_registered",
+            project.state.project_id,
+            {"path": artifact.path, "sha256": artifact.sha256},
+        )
+    )
+    project.persist_state(
+        replace(
+            project.state,
+            artifacts={**project.state.artifacts, SELF_TEST_REPORT_PATH: artifact},
+        )
+    )
+
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        _current_registered_self_test(ResearchProject.open(project.root))
+
+    assert register_experiment_self_test(
+        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+    ) == artifact
+    assert _current_registered_self_test(ResearchProject.open(project.root)) == artifact
 
 
 def test_execution_approval_binds_gate_and_self_test_artifacts_without_executing(tmp_path):

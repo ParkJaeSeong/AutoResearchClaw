@@ -95,7 +95,7 @@ def test_resume_uses_only_project_files(tmp_path):
 @pytest.mark.parametrize(
     ("readiness", "unmet", "next_action", "approval_eligible"),
     [
-        ("ready_for_execution", [], "approve_experiment_execution", False),
+        ("ready_for_execution", [], "register_experiment_self_test", False),
         (
             "needs_input",
             [
@@ -187,6 +187,7 @@ def test_stage_twelve_status_and_handoff_report_validated_execution_readiness(
         assert payload["execution_readiness"] == readiness
         assert payload["unmet_prerequisites"] == unmet
         assert payload["approval_eligible"] is approval_eligible
+        assert payload["next_action"] == next_action
     assert handoff["next_action"] == next_action
 
 

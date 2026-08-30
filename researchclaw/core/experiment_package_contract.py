@@ -980,11 +980,31 @@ def _validate_metrics(
 
 
 def _reject_module_scope_lambdas(tree: ast.Module) -> None:
-    for statement in tree.body:
-        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
-            continue
-        if any(isinstance(node, ast.Lambda) for node in ast.walk(statement)):
+    class ModuleExecutionVisitor(ast.NodeVisitor):
+        def visit_Lambda(self, _node: ast.Lambda) -> None:
             raise ValueError("entry_point must not define a module-scope lambda")
+
+        def _visit_function_definition(
+            self, node: ast.FunctionDef | ast.AsyncFunctionDef
+        ) -> None:
+            # The body is a separate lexical scope. Definitions' decorators,
+            # defaults, and annotations are nevertheless evaluated by the
+            # module execution that creates the function.
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+            for type_parameter in getattr(node, "type_params", ()):
+                self.visit(type_parameter)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._visit_function_definition(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._visit_function_definition(node)
+
+    ModuleExecutionVisitor().visit(tree)
 
 
 def validate_experiment_package_contract(project: ResearchProject) -> ValidatedExperimentPackage:
@@ -1187,9 +1207,34 @@ def _current_registered_self_test(project: ResearchProject) -> ArtifactRef:
         registered = project.state.artifacts.get(SELF_TEST_REPORT_PATH)
         if registered != artifact:
             raise ValueError("self-test report is not registered")
+        if not _self_test_registration_event_is_grounded(project, artifact):
+            raise ValueError("self-test registration event is missing")
         return artifact
     except (OSError, ValueError) as error:
         raise ValueError("experiment_self_test_required") from error
+
+
+def _self_test_registration_event_is_grounded(
+    project: ResearchProject, artifact: ArtifactRef
+) -> bool:
+    """Return whether one bounded event exactly grounds the current report."""
+    from .events import event_log_for
+
+    expected_payload = {
+        "path": artifact.path,
+        "sha256": artifact.sha256,
+        "size": artifact.size,
+    }
+    for event in event_log_for(project.root).iter_events():
+        if (
+            event.type == "experiment_self_test_registered"
+            and event.project_id == project.state.project_id
+            and isinstance(event.payload.get("size"), int)
+            and not isinstance(event.payload.get("size"), bool)
+            and event.payload == expected_payload
+        ):
+            return True
+    return False
 
 
 @project_mutation
@@ -1204,7 +1249,11 @@ def register_experiment_self_test(
         or 11 not in state.completed_stages
         or state.status.value != "awaiting_approval"
         or state.next_action
-        not in {"approve_experiment_execution", "report_missing_execution_inputs"}
+        not in {
+            "register_experiment_self_test",
+            "approve_experiment_execution",
+            "report_missing_execution_inputs",
+        }
     ):
         raise ValueError("experiment_self_test_registration_unavailable")
     if report_path != SELF_TEST_REPORT_PATH:
@@ -1226,11 +1275,19 @@ def register_experiment_self_test(
             "size": artifact.size,
         },
     )
-    current.persist_state(
+    if not _self_test_registration_event_is_grounded(current, artifact):
+        event_log_for(current.root).append(event)
+    current = current.persist_state(
         replace(
             state,
+            next_action=(
+                "approve_experiment_execution"
+                if state.next_action
+                in {"register_experiment_self_test", "approve_experiment_execution"}
+                else state.next_action
+            ),
             artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
         )
     )
-    event_log_for(current.root).append(event)
+    _current_registered_self_test(current)
     return artifact

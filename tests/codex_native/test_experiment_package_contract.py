@@ -641,6 +641,30 @@ def test_package_contract_rejects_module_scope_lambda_report_mutation(tmp_path):
         validate_experiment_package_contract(project)
 
 
+@pytest.mark.parametrize(
+    "module_statement",
+    [
+        "if True:\n    hidden = lambda: 0.5\n",
+        "try:\n    hidden = lambda: 0.5\nexcept Exception:\n    pass\n",
+        "for _item in ():\n    hidden = lambda: 0.5\n",
+        "while False:\n    hidden = lambda: 0.5\n",
+        "with open(__file__) as _handle:\n    hidden = lambda: 0.5\n",
+        "match 1:\n    case _:\n        hidden = lambda: 0.5\n",
+        "if (hidden := lambda: 0.5):\n    pass\n",
+    ],
+    ids=["if", "try", "for", "while", "with", "match", "walrus"],
+)
+def test_package_contract_rejects_lambda_nested_in_module_execution(
+    tmp_path, module_statement
+):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(project, module_statement + "\n" + source)
+
+    with pytest.raises(ValueError, match="module-scope lambda"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_multi_hop_local_dict_fallback_alias(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")

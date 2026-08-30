@@ -23,6 +23,7 @@ _NEXT_ACTIONS = frozenset(
         "report_validation_design_milestone_only",
         "report_computational_package_milestone_only",
         "report_resource_plan_milestone_only",
+        "register_experiment_self_test",
         "approve_experiment_execution",
         "report_missing_execution_inputs",
         "prepare_run",

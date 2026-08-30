@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -85,6 +86,52 @@ def test_experiment_register_self_test_cli_records_external_report(tmp_path, cap
     assert len(payload["sha256"]) == 64
     assert payload["size"] > 0
     assert captured.err == ""
+
+
+def test_resume_cli_reports_self_test_registration_command_before_approval(
+    tmp_path, capsys
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+
+    assert main(["resume", str(project.root), "--json"]) == 0
+    before = json.loads(capsys.readouterr().out)
+    assert before["next_action"] == "register_experiment_self_test"
+    assert before["approval_eligible"] is False
+    assert shlex.split(before["next_command"]) == [
+        "researchclaw-codex",
+        "experiment",
+        "register-self-test",
+        str(project.root.resolve()),
+        "--report",
+        "experiment/self_test_report.json",
+        "--confirm-self-test",
+        "--json",
+    ]
+
+    _run_known_answer_self_test(ResearchProject.open(project.root))
+    assert main(
+        [
+            "experiment",
+            "register-self-test",
+            str(project.root),
+            "--report",
+            "experiment/self_test_report.json",
+            "--confirm-self-test",
+            "--json",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(["resume", str(project.root), "--json"]) == 0
+    after = json.loads(capsys.readouterr().out)
+    assert after["next_action"] == "approve_experiment_execution"
+    assert after["approval_eligible"] is True
+    assert shlex.split(after["next_command"])[:2] == [
+        "researchclaw-codex",
+        "approve",
+    ]
 
 
 def test_experiment_register_self_test_cli_requires_confirmation(tmp_path, capsys):
