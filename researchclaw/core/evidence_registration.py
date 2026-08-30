@@ -24,6 +24,7 @@ from .transactions import project_transaction
 
 
 EVIDENCE_PENDING_PATH = ".researchclaw/evidence/pending-registration.json"
+EVIDENCE_REGISTRATION_ANCHOR_PATH = ".researchclaw/evidence/pending-registration-anchor.json"
 _PENDING_MAX_BYTES = 256 * 1024
 _MANIFEST_MAX_BYTES = 1024 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -113,6 +114,72 @@ def _pending_path(project: ResearchProject) -> Path:
     return resolve_project_artifact(project.root, EVIDENCE_PENDING_PATH)
 
 
+def _anchor_path(project: ResearchProject) -> Path:
+    return resolve_project_artifact(project.root, EVIDENCE_REGISTRATION_ANCHOR_PATH)
+
+
+def _persist_anchor(
+    project: ResearchProject,
+    *,
+    registration_id: str,
+    prior: ProjectState,
+    target: ProjectState,
+) -> None:
+    path = _anchor_path(project)
+    if os.path.lexists(path):
+        raise ValueError("evidence_registration_interrupted")
+    payload = {
+        "schema_version": 1,
+        "registration_id": registration_id,
+        "project_id": prior.project_id,
+        "prior_state_sha256": _hash(prior.to_dict()),
+        "prior_state": prior.to_dict(),
+        "target_state_sha256": _hash(target.to_dict()),
+        "target_state": target.to_dict(),
+    }
+    atomic_write_json(path, payload, prefix="evidence-anchor-", compact=True)
+    os.chmod(path, 0o400, follow_symlinks=False)
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _fsync_directory(path.parent)
+
+
+def _load_anchor(
+    project: ResearchProject, registration_id: object | None = None
+) -> tuple[ProjectState, ProjectState, str]:
+    try:
+        raw = _decode_pending_json(
+            _read_regular_bounded(_anchor_path(project), _PENDING_MAX_BYTES)
+        )
+        if not isinstance(raw, dict) or set(raw) != {
+            "schema_version", "registration_id", "project_id",
+            "prior_state_sha256", "prior_state",
+            "target_state_sha256", "target_state",
+        }:
+            raise ValueError
+        anchor_registration_id = raw.get("registration_id")
+        if (
+            raw.get("schema_version") != 1
+            or isinstance(raw.get("schema_version"), bool)
+            or not isinstance(anchor_registration_id, str)
+            or (registration_id is not None and anchor_registration_id != registration_id)
+            or raw.get("project_id") != project.state.project_id
+            or _hash(raw.get("prior_state")) != raw.get("prior_state_sha256")
+            or _hash(raw.get("target_state")) != raw.get("target_state_sha256")
+        ):
+            raise ValueError
+        prior = ProjectState.from_dict(raw["prior_state"])
+        target = ProjectState.from_dict(raw["target_state"])
+        if prior.project_id != project.state.project_id or target.project_id != prior.project_id:
+            raise ValueError
+        return prior, target, anchor_registration_id
+    except (OSError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+
+
 def _persist_pending(project: ResearchProject, pending: Mapping[str, object]) -> None:
     encoded = _canonical_json(pending)
     atomic_write_json(
@@ -127,6 +194,11 @@ def _clear_pending(project: ResearchProject) -> None:
     path = _pending_path(project)
     path.unlink(missing_ok=True)
     _fsync_directory(path.parent)
+    anchor = _anchor_path(project)
+    if os.path.lexists(anchor):
+        os.chmod(anchor, 0o600, follow_symlinks=False)
+        anchor.unlink()
+        _fsync_directory(anchor.parent)
 
 
 def _reject_duplicate_keys(pairs):
@@ -223,6 +295,14 @@ def _validate_pending_event_schema(
 def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     path = _pending_path(project)
     if not os.path.lexists(path):
+        anchor_path = _anchor_path(project)
+        if os.path.lexists(anchor_path):
+            prior, target, _registration_id = _load_anchor(project)
+            if project.state != prior and project.state != target:
+                raise ValueError("evidence_registration_interrupted")
+            os.chmod(anchor_path, 0o600, follow_symlinks=False)
+            anchor_path.unlink()
+            _fsync_directory(anchor_path.parent)
         return None
     try:
         raw = _decode_pending_json(_read_regular_bounded(path, _PENDING_MAX_BYTES))
@@ -272,6 +352,25 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     }:
         raise ValueError("evidence_registration_interrupted")
     if raw.get("project_id") != project.state.project_id:
+        raise ValueError("evidence_registration_interrupted")
+    trusted_prior, trusted_target, _anchor_registration_id = _load_anchor(
+        project, raw.get("registration_id")
+    )
+    trusted_prior_dict = trusted_prior.to_dict()
+    trusted_target_hash = _hash(trusted_target.to_dict())
+    recovery_identity_tampered = (
+        raw.get("prior_state") != trusted_prior_dict
+        or raw.get("prior_state_sha256") != _hash(trusted_prior_dict)
+        or raw.get("target_state_sha256") != trusted_target_hash
+    )
+    raw["prior_state"] = trusted_prior_dict
+    raw["prior_state_sha256"] = _hash(raw["prior_state"])
+    raw["target_state_sha256"] = trusted_target_hash
+    if recovery_identity_tampered:
+        raw["phase"] = "aborting"
+        raw["abort_intent"] = True
+        raw["abort_error"] = "evidence_object_integrity_failure"
+        _persist_pending(project, raw)
         raise ValueError("evidence_registration_interrupted")
     _validate_pending_event_schema(
         raw.get("event"),
@@ -1333,6 +1432,12 @@ def register_immutable_research_evidence(
             "abort_intent": False,
             "abort_error": None,
         }
+        _persist_anchor(
+            current,
+            registration_id=registration_id,
+            prior=current.state,
+            target=target,
+        )
         _persist_pending(current, pending)
         _after_pending_persisted(pending)
         store = EvidenceStore(current.root)

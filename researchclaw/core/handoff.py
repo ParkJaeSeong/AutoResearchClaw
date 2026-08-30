@@ -161,6 +161,20 @@ def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | No
         last_error=None,
     )
     stage_twelve_project = ResearchProject(root=root, state=stage_twelve_state)
+    contract_ref = state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    try:
+        contract_file = resolve_project_artifact(root, EXECUTION_CONTRACT_PATH)
+        contract_current = (
+            contract_ref is not None
+            and contract_ref.path == EXECUTION_CONTRACT_PATH
+            and contract_file.is_file()
+            and contract_file.stat().st_size == contract_ref.size
+            and _sha256(contract_file) == contract_ref.sha256
+        )
+    except (OSError, ValueError):
+        contract_current = False
+    if not contract_current:
+        return "prepare_run"
     try:
         _load_current_stage_twelve_approval(stage_twelve_project)
     except ValueError:
@@ -180,7 +194,6 @@ def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | No
             else "prepare_run"
         )
 
-    contract_ref = state.artifacts.get(EXECUTION_CONTRACT_PATH)
     result_ref = state.artifacts.get(RESEARCH_RESULT_PATH)
     if (
         contract_ref is None
@@ -207,7 +220,7 @@ def _recover_stale_stage_twelve_contract(
     project: ResearchProject,
 ) -> ResearchProject | None:
     """Classify an invalid execution contract before generic stage rewinds."""
-    from .research_execution import EXECUTION_CONTRACT_PATH, RESEARCH_RESULT_PATH
+    from .research_execution import EXECUTION_CONTRACT_PATH
 
     state = project.state
     if state.current_stage != 12 or 11 not in state.completed_stages:
@@ -234,7 +247,7 @@ def _recover_stale_stage_twelve_contract(
             artifacts={
                 path: artifact
                 for path, artifact in state.artifacts.items()
-                if path not in {EXECUTION_CONTRACT_PATH, RESEARCH_RESULT_PATH}
+                if path != EXECUTION_CONTRACT_PATH
             },
             last_error={
                 "error_class": StageStatus.NEEDS_REVISION.value,
@@ -372,6 +385,15 @@ def _rewind_stage_twelve_registration(
         "recommended_action": next_action,
         "retry_state": "stage_twelve_registration_recovery",
     }
+    def retained(path: str) -> bool:
+        if path.startswith(".researchclaw/evidence/"):
+            return False
+        if next_action == "prepare_run":
+            return path != "experiment/execution_contract.json"
+        if next_action == "quarantine_result":
+            return True
+        return path != "experiment/results.json"
+
     return project.persist_state(
         replace(
             state,
@@ -384,8 +406,7 @@ def _rewind_stage_twelve_registration(
             artifacts={
                 path: artifact
                 for path, artifact in state.artifacts.items()
-                if path != "experiment/results.json"
-                and not path.startswith(".researchclaw/evidence/")
+                if retained(path)
             },
             last_error=last_error,
         )
@@ -411,6 +432,9 @@ def _command(root: Path, *arguments: str) -> str:
 def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProject:
     """Fail closed on stale artifacts or an unsubstantiated Stage-12 approval."""
     from .research_execution import _recover_pending_registration_locked
+    from .evidence_store import recover_pending_result_quarantine
+
+    recover_pending_result_quarantine(project)
 
     _recover_pending_registration_locked(
         project,

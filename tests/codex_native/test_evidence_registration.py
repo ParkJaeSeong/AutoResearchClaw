@@ -3,6 +3,7 @@ import json
 import os
 import threading
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -626,6 +627,59 @@ def test_retry_after_fault_following_pending_clear_is_idempotent(tmp_path, monke
         event.type == "research_result_registered"
         for event in event_log_for(project.root).read_all()
     ) == 1
+
+
+def test_forged_recovery_prior_never_restores_attacker_state(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+    original_prior = project.state
+
+    def interrupt(*_args):
+        raise OSError("leave promoted state")
+
+    monkeypatch.setattr(evidence_registration, "_after_state_saved", interrupt)
+    with pytest.raises(OSError, match="leave promoted state"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending_path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    pending["prior_state"]["status"] = "needs_revision"
+    pending["prior_state"]["next_action"] = "validate_stage"
+    pending["prior_state"]["last_error"] = {
+        "error_class": "needs_revision", "stage_id": 12, "attempt_number": 1,
+        "issues": [], "artifact_hashes": {}, "recommended_action": "forged",
+        "retry_state": "artifact_invalidated",
+    }
+    pending["prior_state_sha256"] = evidence_registration._hash(pending["prior_state"])
+    pending_path.write_text(json.dumps(pending, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence_registration_interrupted"):
+        recover_pending_evidence_registration(project)
+    assert recover_pending_evidence_registration(project) is None
+    assert ResearchProject.open(project.root).state == original_prior
+
+
+def test_abort_recovery_rejects_unrelated_current_state_mutation(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def interrupt(*_args):
+        raise OSError("leave promoted state")
+
+    monkeypatch.setattr(evidence_registration, "_after_state_saved", interrupt)
+    with pytest.raises(OSError, match="leave promoted state"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    current = ResearchProject.open(project.root).state
+    (project.root / ".researchclaw/state.json").write_text(
+        json.dumps(replace(current, topic="unrelated mutation").to_dict()),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        recover_pending_evidence_registration(project)
+    with pytest.raises(ValueError, match="evidence_registration_interrupted"):
+        recover_pending_evidence_registration(project)
+    assert ResearchProject.open(project.root).state.topic == "unrelated mutation"
 
 
 @pytest.mark.parametrize(

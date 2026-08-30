@@ -3,6 +3,7 @@ import subprocess
 import sys
 import threading
 from dataclasses import replace
+import hashlib
 
 
 from researchclaw.core.events import event_log_for
@@ -14,6 +15,7 @@ from researchclaw.core.experiment_package_contract import (
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
+from researchclaw.core.models import ArtifactRef
 from researchclaw.core.research_execution import (
     prepare_research_execution,
     register_research_result,
@@ -133,6 +135,23 @@ def test_invalid_legacy_stage_thirteen_result_routes_to_confirmed_quarantine(tmp
 def test_stale_stage_twelve_contract_remains_at_stage_twelve_and_prepares_again(tmp_path):
     project = build_approved_stage_twelve_project(tmp_path / "project")
     prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    result_path = write_contract_bound_research_result(project, contract)
+    result_bytes = result_path.read_bytes()
+    state = ResearchProject.open(project.root).state
+    StateStore(project.root / ".researchclaw").save(
+        replace(
+            state,
+            artifacts={
+                **state.artifacts,
+                "experiment/results.json": ArtifactRef(
+                    "experiment/results.json",
+                    hashlib.sha256(result_bytes).hexdigest(),
+                    len(result_bytes),
+                ),
+            },
+        )
+    )
     contract_path = project.root / "experiment/execution_contract.json"
     contract_path.write_text("{}", encoding="utf-8")
 
@@ -142,6 +161,7 @@ def test_stale_stage_twelve_contract_remains_at_stage_twelve_and_prepares_again(
     assert handoff.current_stage == 12
     assert handoff.next_action == "prepare_run"
     assert "experiment/execution_contract.json" not in state.artifacts
+    assert "experiment/results.json" in state.artifacts
     assert "validate_stage" not in handoff.next_command
 
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+from dataclasses import replace
 
 import pytest
 
@@ -12,6 +13,11 @@ from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.experiment_package_contract import validate_experiment_package_contract
 from researchclaw.core.research_execution import prepare_research_execution
+from researchclaw.core.research_execution import register_research_result
+from researchclaw.core import evidence_store
+from researchclaw.core.evidence_store import quarantine_unregistered_result
+from researchclaw.core.events import EventLog, event_log_for
+from researchclaw.core.state import StateStore
 from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
     build_self_test_registration_project,
@@ -92,6 +98,124 @@ def test_quarantine_result_cli_requires_confirmation_and_moves_regular_result(
     assert not (project.root / "experiment/results.json").exists()
     assert (project.root / payload["quarantine_path"]).is_file()
     assert ResearchProject.open(project.root).build_handoff().next_action == "prepare_run"
+    prepared = prepare_research_execution(ResearchProject.open(project.root))
+    completed = subprocess.run(
+        prepared.argv,
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    registered = register_research_result(
+        ResearchProject.open(project.root), "experiment/results.json"
+    )
+    assert registered.current_stage == 13
+    assert registered.manifest_path.startswith(".researchclaw/evidence/manifests/")
+
+
+@pytest.mark.parametrize(
+    "fault_seam",
+    (
+        "_after_result_quarantine_move",
+        "_after_result_quarantine_event",
+        "_after_result_quarantine_state",
+    ),
+)
+def test_quarantine_result_recovers_each_durable_seam(
+    tmp_path, monkeypatch, fault_seam
+):
+    project = build_approved_stage_twelve_project(tmp_path / fault_seam)
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    monkeypatch.setattr(
+        evidence_store, fault_seam, lambda: (_ for _ in ()).throw(OSError("fault"))
+    )
+    with pytest.raises(OSError, match="fault"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    result = quarantine_unregistered_result(project, "invalid_result", True)
+    assert (project.root / result.quarantine_path).is_file()
+    assert ResearchProject.open(project.root).state.next_action == "prepare_run"
+    assert sum(
+        event.type == "research_result_quarantined"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
+def test_quarantine_does_not_move_a_replacement_after_descriptor_capture(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    source = project.root / "experiment/results.json"
+    original = project.root / "experiment/original-results.json"
+
+    def replace_source():
+        source.rename(original)
+        source.write_bytes(b"unrelated replacement")
+
+    monkeypatch.setattr(evidence_store, "_before_result_quarantine_move", replace_source)
+    with pytest.raises(ValueError, match="source changed"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+
+    assert source.read_bytes() == b"unrelated replacement"
+    assert original.is_file()
+
+
+def test_quarantine_rejects_result_referenced_by_noncurrent_valid_manifest(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+    register_research_result(project, "experiment/results.json")
+    current = ResearchProject.open(project.root).state
+    StateStore(project.root / ".researchclaw").save(
+        replace(
+            current,
+            current_stage=12,
+            completed_stages=tuple(stage for stage in current.completed_stages if stage != 12),
+            next_action="prepare_run",
+            artifacts={
+                path: ref
+                for path, ref in current.artifacts.items()
+                if not path.startswith(".researchclaw/evidence/")
+            },
+        )
+    )
+
+    with pytest.raises(ValueError, match="registered evidence"):
+        quarantine_unregistered_result(
+            ResearchProject.open(project.root), "invalid_result", True
+        )
+
+
+def test_quarantine_repairs_owned_partial_event_before_retry(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+
+    def partial_append(self, event, *, expected_offset):
+        record = EventLog._bounded_record(event)
+        with self.path.open("ab") as handle:
+            handle.write(record[:8])
+            handle.flush()
+            os.fsync(handle.fileno())
+        raise OSError("partial event")
+
+    monkeypatch.setattr(EventLog, "append_locked", partial_append)
+    with pytest.raises(OSError, match="partial event"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    quarantine_unregistered_result(project, "invalid_result", True)
+    assert sum(
+        event.type == "research_result_quarantined"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
 
 
 def test_experiment_register_self_test_cli_records_external_report(tmp_path, capsys):
