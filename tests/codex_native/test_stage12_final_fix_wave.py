@@ -9,7 +9,6 @@ import pytest
 import researchclaw.core.research_execution as research_execution
 import researchclaw.core.evidence_registration as evidence_registration
 from researchclaw.codex.cli import main as cli_main
-from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.development_execution import (
     run_development_experiment,
     validate_development_result,
@@ -477,128 +476,6 @@ def test_oversized_event_is_rejected_before_any_record_bytes_are_written(tmp_pat
     assert event_path.read_bytes() == before
 
 
-@pytest.mark.skip(reason="replaced by immutable pending pre-write size-cap test")
-def test_pending_size_cap_is_enforced_before_atomic_write(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    current = ResearchProject.open(project.root)
-    current.persist_state(replace(current.state, topic="x" * (160 * 1024)))
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-
-    with pytest.raises(
-        ValueError, match="^research_result_registration_recovery_invalid$"
-    ):
-        register_research_result(current, "experiment/results.json")
-
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
-    assert not (
-        project.root / ".researchclaw/evidence/pending-registration.json"
-    ).exists()
-
-
-@pytest.mark.parametrize(
-    ("mutation", "next_action"),
-    (
-        ("missing_result", "prepare_run"),
-        ("missing_result_ref", "register_research_result"),
-        ("stale_contract", "prepare_run"),
-        ("invalid_approval", "approve_experiment_execution"),
-    ),
-)
-@pytest.mark.skip(
-    reason="mutable Stage-13 recovery was replaced by immutable manifests"
-)
-def test_stage_thirteen_rewinds_to_supported_stage_twelve_actions(
-    tmp_path, mutation, next_action
-):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    current = ResearchProject.open(project.root)
-    if mutation == "missing_result":
-        (project.root / "experiment/results.json").unlink()
-    elif mutation == "missing_result_ref":
-        current.persist_state(
-            replace(
-                current.state,
-                artifacts={
-                    path: artifact
-                    for path, artifact in current.state.artifacts.items()
-                    if path != "experiment/results.json"
-                },
-            )
-        )
-    elif mutation == "stale_contract":
-        (project.root / "experiment/execution_contract.json").write_bytes(b"{}")
-    else:
-        approval_path = project.root / "approvals/stage-12.json"
-        approval = json.loads(approval_path.read_text(encoding="utf-8"))
-        approval["project_id"] = "forged-project"
-        approval_path.write_text(json.dumps(approval), encoding="utf-8")
-
-    handoff = build_handoff(project)
-
-    assert handoff.current_stage == 12
-    assert handoff.next_action == next_action
-    assert handoff.next_action != "validate_stage"
-
-
-@pytest.mark.skip(
-    reason="working-tree contract is not Stage-13 grounding after registration"
-)
-def test_stage_thirteen_stale_contract_rewind_can_prepare_fresh_contract(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    contract_path = project.root / "experiment/execution_contract.json"
-    contract_path.write_bytes(b"{}")
-
-    handoff = build_handoff(project)
-    prepared = prepare_research_execution(ResearchProject.open(project.root))
-
-    assert handoff.current_stage == 12
-    assert handoff.next_action == "prepare_run"
-    assert prepared.readiness == "ready_for_explicit_execution"
-    assert (
-        prepared.contract_sha256
-        == hashlib.sha256(contract_path.read_bytes()).hexdigest()
-    )
-    assert tuple(load_execution_contract(project.root)["argv"]) == prepared.argv
-
-
-@pytest.mark.skip(
-    reason="mutable result reference is not Stage-13 grounding after registration"
-)
-def test_stage_thirteen_missing_result_reference_rewind_can_register(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    current = ResearchProject.open(project.root)
-    current.persist_state(
-        replace(
-            current.state,
-            artifacts={
-                path: artifact
-                for path, artifact in current.state.artifacts.items()
-                if path != "experiment/results.json"
-            },
-        )
-    )
-
-    handoff = build_handoff(project)
-    registered = register_research_result(
-        ResearchProject.open(project.root), "experiment/results.json"
-    )
-
-    assert handoff.next_action == "register_research_result"
-    assert registered.current_stage == 13
-    assert build_handoff(ResearchProject.open(project.root)).current_stage == 13
-
-
 def test_stage_thirteen_grounding_streams_event_log_without_read_all(
     tmp_path, monkeypatch
 ):
@@ -613,33 +490,6 @@ def test_stage_thirteen_grounding_streams_event_log_without_read_all(
     monkeypatch.setattr(EventLog, "read_all", reject_read_all)
 
     assert build_handoff(project).current_stage == 13
-
-
-@pytest.mark.skip(
-    reason="immutable manifest preserves the approved registration snapshot"
-)
-def test_stage_thirteen_invalid_approval_rewind_can_reapprove_and_register(tmp_path):
-    project = build_approved_stage_twelve_project(tmp_path / "project")
-    prepare_research_execution(project)
-    write_contract_bound_research_result(project, load_execution_contract(project.root))
-    register_research_result(project, "experiment/results.json")
-    approval_path = project.root / "approvals/stage-12.json"
-    approval = json.loads(approval_path.read_text(encoding="utf-8"))
-    approval["project_id"] = "forged-project"
-    approval_path.write_text(json.dumps(approval), encoding="utf-8")
-
-    handoff = build_handoff(project)
-    approve_current_gate(
-        ResearchProject.open(project.root),
-        "approve",
-        "renew grounded execution approval",
-    )
-    approved = ResearchProject.open(project.root)
-    registered = register_research_result(approved, "experiment/results.json")
-
-    assert handoff.next_action == "approve_experiment_execution"
-    assert approved.state.next_action == "register_research_result"
-    assert registered.current_stage == 13
 
 
 def test_prepare_run_recovers_owned_contract_commit_before_state_reference(

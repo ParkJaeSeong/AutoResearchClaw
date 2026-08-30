@@ -7,6 +7,7 @@ from copy import deepcopy
 import pytest
 
 import researchclaw.core.evidence_registration as evidence_registration
+import researchclaw.core.research_execution as research_execution
 from researchclaw.core.evidence_registration import (
     EVIDENCE_PENDING_PATH,
     load_evidence_manifest,
@@ -201,12 +202,158 @@ def test_recovery_durably_aborts_if_immutable_object_is_corrupt_after_promotion(
     with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
         recover_pending_evidence_registration(project)
 
-    durable = json.loads(pending_path.read_text(encoding="utf-8"))
-    assert durable["abort_intent"] is True
-    assert durable["phase"] == "aborting"
+    assert not pending_path.exists()
     assert ResearchProject.open(project.root).state.current_stage == 12
+    assert (
+        research_execution.effective_research_result_registration_events(project)
+        == ()
+    )
+    assert sum(
+        event.type == "research_result_registration_rolled_back"
+        for event in event_log_for(project.root).read_all()
+    ) == (1 if fault_seam == "_after_event_written" else 0)
 
     assert recover_pending_evidence_registration(project) is None
+    assert ResearchProject.open(project.root).state.current_stage == 12
+
+
+@pytest.mark.parametrize(
+    "abort_fault",
+    (
+        "_after_abort_intent_persisted",
+        "_after_abort_rollback_event",
+        "_after_abort_state_restored",
+    ),
+)
+def test_integrity_abort_recovers_each_durable_boundary_exactly_once(
+    tmp_path, monkeypatch, abort_fault
+):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_event():
+        raise OSError("leave committed registration")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_event_written", stop_after_event
+    )
+    with pytest.raises(OSError, match="leave committed registration"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending_path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    object_path = (
+        project.root
+        / ".researchclaw/evidence/objects"
+        / pending["manifest"]["result"]["sha256"]
+    )
+    object_path.chmod(0o600)
+    object_path.write_bytes(b"corrupt")
+
+    def interrupt_abort(*_args):
+        raise OSError(f"fault at {abort_fault}")
+
+    monkeypatch.setattr(evidence_registration, abort_fault, interrupt_abort)
+    with pytest.raises(OSError, match="fault at"):
+        recover_pending_evidence_registration(project)
+    monkeypatch.undo()
+
+    assert recover_pending_evidence_registration(project) is None
+    assert recover_pending_evidence_registration(project) is None
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert (
+        research_execution.effective_research_result_registration_events(project)
+        == ()
+    )
+    events = event_log_for(project.root).read_all()
+    assert sum(
+        event.type == "research_result_registration_rolled_back"
+        for event in events
+    ) == 1
+
+
+def test_missing_manifest_after_success_event_is_neutralized(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_event():
+        raise OSError("leave committed registration")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_event_written", stop_after_event
+    )
+    with pytest.raises(OSError, match="leave committed registration"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending_path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    (project.root / pending["manifest_path"]).unlink()
+
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        recover_pending_evidence_registration(project)
+
+    assert not pending_path.exists()
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert (
+        research_execution.effective_research_result_registration_events(project)
+        == ()
+    )
+
+
+def test_manifest_path_replacement_during_registered_status_fails_closed(
+    tmp_path, monkeypatch
+):
+    project, _result = _valid_result(tmp_path / "project")
+    status = register_research_result(project, "experiment/results.json")
+    path = project.root / status.manifest_path
+
+    def replace_after_snapshot(_snapshot):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload["metrics"]["primary"]["value"] = 7.5
+        replacement = path.with_suffix(".replacement")
+        replacement.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.replace(replacement, path)
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_manifest_snapshot", replace_after_snapshot
+    )
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        register_research_result(project, "experiment/results.json")
+
+
+def test_manifest_path_replacement_during_recovery_fails_closed(
+    tmp_path, monkeypatch
+):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def stop_after_manifest(_manifest):
+        raise OSError("leave recovery pending")
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_manifest_published", stop_after_manifest
+    )
+    with pytest.raises(OSError, match="leave recovery pending"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending_path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    path = project.root / pending["manifest_path"]
+
+    def replace_after_snapshot(_snapshot):
+        replacement = path.with_suffix(".replacement")
+        replacement.write_bytes(path.read_bytes())
+        os.replace(replacement, path)
+
+    monkeypatch.setattr(
+        evidence_registration, "_after_manifest_snapshot", replace_after_snapshot
+    )
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        recover_pending_evidence_registration(project)
+
     assert not pending_path.exists()
     assert ResearchProject.open(project.root).state.current_stage == 12
 

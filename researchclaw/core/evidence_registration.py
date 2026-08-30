@@ -69,6 +69,17 @@ class EvidenceRegistrationStatus:
         }
 
 
+@dataclass(frozen=True)
+class _ManifestSnapshot:
+    artifact: ArtifactRef
+    payload: Mapping[str, object]
+    device: int
+    inode: int
+    mode: int
+    mtime_ns: int
+    ctime_ns: int
+
+
 def _canonical_json(value: object, *, maximum: int = _PENDING_MAX_BYTES) -> bytes:
     try:
         payload = json.dumps(
@@ -209,6 +220,8 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         "manifest",
         "event",
         "event_sha256",
+        "rollback_event",
+        "rollback_event_sha256",
         "event_offset",
         "phase",
         "abort_intent",
@@ -234,12 +247,14 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         "target_state_sha256",
         "manifest_sha256",
         "event_sha256",
+        "rollback_event_sha256",
     ):
         if not isinstance(raw.get(field), str) or _SHA256.fullmatch(raw[field]) is None:
             raise ValueError("evidence_registration_interrupted")
     if (
         _hash(raw["manifest"]) != raw["manifest_sha256"]
         or _hash(raw["event"]) != raw["event_sha256"]
+        or _hash(raw["rollback_event"]) != raw["rollback_event_sha256"]
         or _hash(raw["prior_state"]) != raw["prior_state_sha256"]
     ):
         raise ValueError("evidence_registration_interrupted")
@@ -261,6 +276,7 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         raise ValueError("evidence_registration_interrupted")
     try:
         event = EvaluationEvent.from_dict(raw["event"])
+        rollback_event = EvaluationEvent.from_dict(raw["rollback_event"])
     except (TypeError, ValueError) as error:
         raise ValueError("evidence_registration_interrupted") from error
     manifest_result = manifest.get("result")
@@ -288,6 +304,16 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         or not isinstance(raw.get("event_offset"), int)
         or isinstance(raw.get("event_offset"), bool)
         or raw["event_offset"] < 0
+        or rollback_event.type != "research_result_registration_rolled_back"
+        or rollback_event.project_id != raw["project_id"]
+        or rollback_event.payload
+        != {
+            "contract_path": event.payload.get("contract_path"),
+            "contract_sha256": event.payload.get("contract_sha256"),
+            "result_path": event.payload.get("result_path"),
+            "result_sha256": event.payload.get("result_sha256"),
+            "registration_event_sha256": raw["event_sha256"],
+        }
     ):
         raise ValueError("evidence_registration_interrupted")
     expected_sources = [
@@ -478,16 +504,74 @@ def _after_pending_cleared() -> None:
     """Durability test seam."""
 
 
-def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, object]:
+def _after_abort_intent_persisted() -> None:
+    """Durability test seam after abort ownership is durable."""
+
+
+def _after_abort_rollback_event() -> None:
+    """Durability test seam after an owned success event is neutralized."""
+
+
+def _after_abort_state_restored() -> None:
+    """Durability test seam after Stage 12 prior state is restored."""
+
+
+def _after_manifest_snapshot(_snapshot) -> None:
+    """Race-test seam after one descriptor-backed manifest snapshot."""
+
+
+def _read_manifest_snapshot(
+    project_root: Path, manifest_path: str
+) -> _ManifestSnapshot:
     validate_relative_path(manifest_path, kind="evidence manifest")
     if not manifest_path.startswith(".researchclaw/evidence/manifests/"):
         raise ValueError("evidence_object_integrity_failure")
     try:
-        payload = _read_regular_bounded(
-            Path(project_root) / manifest_path, _MANIFEST_MAX_BYTES
+        descriptor = os.open(
+            Path(project_root) / manifest_path,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
         )
+        try:
+            initial = os.fstat(descriptor)
+            if not stat.S_ISREG(initial.st_mode) or initial.st_size > _MANIFEST_MAX_BYTES:
+                raise ValueError("evidence_object_integrity_failure")
+            chunks = []
+            remaining = _MANIFEST_MAX_BYTES + 1
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            encoded = b"".join(chunks)
+            final = os.fstat(descriptor)
+            if (
+                len(encoded) > _MANIFEST_MAX_BYTES
+                or len(encoded) != initial.st_size
+                or (
+                    initial.st_dev,
+                    initial.st_ino,
+                    initial.st_mode,
+                    initial.st_size,
+                    initial.st_mtime_ns,
+                    initial.st_ctime_ns,
+                )
+                != (
+                    final.st_dev,
+                    final.st_ino,
+                    final.st_mode,
+                    final.st_size,
+                    final.st_mtime_ns,
+                    final.st_ctime_ns,
+                )
+            ):
+                raise ValueError("evidence_object_integrity_failure")
+        finally:
+            os.close(descriptor)
         raw = json.loads(
-            payload.decode("utf-8"),
+            encoded.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_constant,
         )
@@ -514,17 +598,51 @@ def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, 
         "runtime",
     }:
         raise ValueError("evidence_object_integrity_failure")
-    return raw
+    snapshot = _ManifestSnapshot(
+        ArtifactRef(
+            manifest_path, hashlib.sha256(encoded).hexdigest(), len(encoded)
+        ),
+        raw,
+        final.st_dev,
+        final.st_ino,
+        final.st_mode,
+        final.st_mtime_ns,
+        final.st_ctime_ns,
+    )
+    _after_manifest_snapshot(snapshot)
+    return snapshot
 
 
-def _manifest_artifact(project_root: Path, manifest_path: str) -> ArtifactRef:
+def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -> None:
     try:
-        payload = _read_regular_bounded(
-            Path(project_root) / manifest_path, _MANIFEST_MAX_BYTES
+        current = os.stat(
+            Path(project_root) / snapshot.artifact.path, follow_symlinks=False
         )
-    except (OSError, ValueError) as error:
+    except OSError as error:
         raise ValueError("evidence_object_integrity_failure") from error
-    return ArtifactRef(manifest_path, hashlib.sha256(payload).hexdigest(), len(payload))
+    if (
+        (
+            current.st_dev,
+            current.st_ino,
+            current.st_mode,
+            current.st_mtime_ns,
+            current.st_ctime_ns,
+        )
+        != (
+            snapshot.device,
+            snapshot.inode,
+            snapshot.mode,
+            snapshot.mtime_ns,
+            snapshot.ctime_ns,
+        )
+        or current.st_size != snapshot.artifact.size
+        or not stat.S_ISREG(current.st_mode)
+    ):
+        raise ValueError("evidence_object_integrity_failure")
+
+
+def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, object]:
+    return dict(_read_manifest_snapshot(project_root, manifest_path).payload)
 
 
 def _validate_manifest_bindings(
@@ -689,9 +807,10 @@ def registered_evidence_status(
         return None
     manifest_path = paths[0]
     manifest_reference = project.state.artifacts[manifest_path]
-    if _manifest_artifact(project.root, manifest_path) != manifest_reference:
+    snapshot = _read_manifest_snapshot(project.root, manifest_path)
+    if snapshot.artifact != manifest_reference:
         raise ValueError("evidence_object_integrity_failure")
-    manifest = load_evidence_manifest(project.root, manifest_path)
+    manifest = snapshot.payload
     _validate_manifest_bindings(project, manifest_path, manifest)
     _verify_manifest_objects(project, manifest)
     result = manifest.get("result")
@@ -714,6 +833,7 @@ def registered_evidence_status(
         != ArtifactRef("experiment/results.json", result_digest, result_size)
     ):
         raise ValueError("evidence_object_integrity_failure")
+    _revalidate_manifest_path(project.root, snapshot)
     return EvidenceRegistrationStatus(
         registration_id,
         manifest_path,
@@ -733,14 +853,46 @@ def _prior_state(pending: Mapping[str, object]) -> ProjectState:
     return prior
 
 
+def _ensure_owned_success_neutralized(
+    project: ResearchProject, pending: Mapping[str, object]
+) -> None:
+    success = pending["event"]
+    rollback = pending["rollback_event"]
+    success_present = False
+    rollback_present = False
+    try:
+        for event in event_log_for(project.root).iter_events():
+            event_dict = event.to_dict()
+            success_present = success_present or event_dict == success
+            rollback_present = rollback_present or event_dict == rollback
+    except ValueError:
+        _repair_owned_partial_event(project, pending)
+        success_present = False
+        rollback_present = False
+    if rollback_present or not success_present:
+        return
+    offset = _validated_event_log_offset(project)
+    event_log_for(project.root).append_locked(
+        EvaluationEvent.from_dict(rollback), expected_offset=offset
+    )
+    if not any(
+        event.to_dict() == rollback
+        for event in event_log_for(project.root).iter_events()
+    ):
+        raise ValueError("evidence_registration_interrupted")
+
+
 def _finish_abort(project: ResearchProject, pending: dict[str, object]) -> None:
     prior = _prior_state(pending)
     current = ResearchProject.open_readonly(project.root)
+    _ensure_owned_success_neutralized(current, pending)
+    _after_abort_rollback_event()
     current_hash = _hash(current.state.to_dict())
     if current_hash == pending["target_state_sha256"]:
         StateStore(current.root / ".researchclaw").save(prior)
     elif current_hash != pending["prior_state_sha256"]:
         raise ValueError("evidence_registration_interrupted")
+    _after_abort_state_restored()
     _clear_pending(ResearchProject.open_readonly(current.root))
 
 
@@ -752,12 +904,8 @@ def _begin_integrity_abort(
     pending["abort_intent"] = True
     pending["abort_error"] = "evidence_object_integrity_failure"
     _persist_pending(project, pending)
-    prior = _prior_state(pending)
-    current = ResearchProject.open_readonly(project.root)
-    if _hash(current.state.to_dict()) == pending["target_state_sha256"]:
-        StateStore(current.root / ".researchclaw").save(prior)
-    elif _hash(current.state.to_dict()) != pending["prior_state_sha256"]:
-        raise ValueError("evidence_registration_interrupted")
+    _after_abort_intent_persisted()
+    _finish_abort(project, pending)
 
 
 def _validated_event_log_offset(project: ResearchProject) -> int:
@@ -785,22 +933,26 @@ def _recover_locked(
         _finish_abort(current, pending)
         return None
     if not manifest_exists:
-        pending["phase"] = "aborting"
-        pending["abort_intent"] = True
-        _persist_pending(current, pending)
-        _clear_pending(current)
-        return None
+        if pending["phase"] == "publishing":
+            pending["phase"] = "aborting"
+            pending["abort_intent"] = True
+            _persist_pending(current, pending)
+            _finish_abort(current, pending)
+            return None
+        _begin_integrity_abort(current, pending)
+        raise ValueError("evidence_object_integrity_failure")
     try:
-        manifest = load_evidence_manifest(current.root, manifest_path)
+        snapshot = _read_manifest_snapshot(current.root, manifest_path)
+        manifest = snapshot.payload
         _validate_manifest_bindings(current, manifest_path, manifest)
-        manifest_artifact = _manifest_artifact(current.root, manifest_path)
-        if manifest_artifact.sha256 != pending[
+        if snapshot.artifact.sha256 != pending[
             "manifest_sha256"
-        ] or manifest_artifact.size != len(
+        ] or snapshot.artifact.size != len(
             _canonical_json(pending["manifest"], maximum=_MANIFEST_MAX_BYTES)
         ):
             raise ValueError("evidence_object_integrity_failure")
         _verify_manifest_objects(current, manifest)
+        _revalidate_manifest_path(current.root, snapshot)
     except ValueError as error:
         if str(error) != "evidence_object_integrity_failure":
             raise
@@ -831,6 +983,7 @@ def _recover_locked(
         )
     try:
         _verify_manifest_objects(current, manifest)
+        _revalidate_manifest_path(current.root, snapshot)
     except ValueError as error:
         if str(error) == "evidence_object_integrity_failure":
             _begin_integrity_abort(current, pending)
@@ -887,6 +1040,17 @@ def register_immutable_research_evidence(
                 "input_count": validated_result.input_count,
             },
         )
+        rollback_event = EvaluationEvent.create(
+            "research_result_registration_rolled_back",
+            current.state.project_id,
+            {
+                "contract_path": event.payload["contract_path"],
+                "contract_sha256": event.payload["contract_sha256"],
+                "result_path": event.payload["result_path"],
+                "result_sha256": event.payload["result_sha256"],
+                "registration_event_sha256": _hash(event.to_dict()),
+            },
+        )
         event_offset = _validated_event_log_offset(current)
         target_stub = {
             "manifest_path": manifest_path,
@@ -907,6 +1071,8 @@ def register_immutable_research_evidence(
             "manifest": manifest,
             "event": event.to_dict(),
             "event_sha256": _hash(event.to_dict()),
+            "rollback_event": rollback_event.to_dict(),
+            "rollback_event_sha256": _hash(rollback_event.to_dict()),
             "event_offset": event_offset,
             "phase": "publishing",
             "abort_intent": False,
