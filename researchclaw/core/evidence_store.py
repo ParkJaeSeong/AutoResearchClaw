@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import re
 import secrets
-import shutil
 import stat
 from typing import Any
 
@@ -32,6 +31,7 @@ _OBJECT_PREFIX = ".researchclaw/evidence/objects/"
 _MANIFEST_PREFIX = ".researchclaw/evidence/manifests/"
 _TEMPORARY_PREFIX = ".publish-"
 _TEMPORARY_SUFFIX = ".tmp"
+_QUARANTINE_PREFIX = ".gc-"
 
 
 def _is_temporary_name(name: str) -> bool:
@@ -75,6 +75,7 @@ class _FileSnapshot:
     device: int
     inode: int
     mode: int
+    nlink: int
     size: int
     mtime_ns: int
     ctime_ns: int
@@ -124,12 +125,64 @@ def _write_all(descriptor: int, chunk: bytes) -> None:
         view = view[written:]
 
 
+def _cleanup_publication(
+    *,
+    source_descriptor: int,
+    directory_descriptor: int,
+    temporary_descriptor: int | None,
+    temporary_name: str,
+    temporary_exists: bool,
+    directory_changed: bool,
+) -> None:
+    first_error: BaseException | None = None
+
+    def attempt(operation) -> None:
+        nonlocal first_error
+        try:
+            operation()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+
+    if temporary_descriptor is not None:
+        attempt(lambda: os.close(temporary_descriptor))
+    if temporary_exists:
+        attempt(lambda: os.unlink(temporary_name, dir_fd=directory_descriptor))
+        directory_changed = True
+    if directory_changed:
+        attempt(lambda: os.fsync(directory_descriptor))
+    attempt(lambda: os.close(directory_descriptor))
+    attempt(lambda: os.close(source_descriptor))
+    if first_error is not None:
+        raise first_error
+
+
 def _before_source_recheck(_descriptor: int) -> None:
     """Test seam after the stream and before the final source identity check."""
 
 
 def _before_gc_removal() -> None:
     """Test seam immediately before GC repeats its complete dry-run scan."""
+
+
+def _before_gc_candidate_quarantine(_snapshot: _FileSnapshot) -> None:
+    """Test seam after final scan and before atomic candidate quarantine."""
+
+
+def _before_gc_quarantine_verify(
+    _snapshot: _FileSnapshot, _quarantine_name: str
+) -> None:
+    """Test seam after atomic quarantine and before moved-inode verification."""
+
+
+def _before_gc_quarantine_delete(
+    _snapshot: _FileSnapshot, _quarantine_name: str
+) -> None:
+    """Test seam after moved-inode verification and before private deletion."""
+
+
+def _before_capacity_measure(_directory_descriptor: int) -> None:
+    """Test seam after destination open and before descriptor-bound capacity."""
 
 
 def _descriptor_digest(descriptor: int) -> tuple[str, int, os.stat_result]:
@@ -157,21 +210,11 @@ def _snapshot(
         device=file_stat.st_dev,
         inode=file_stat.st_ino,
         mode=file_stat.st_mode,
+        nlink=file_stat.st_nlink,
         size=file_stat.st_size,
         mtime_ns=file_stat.st_mtime_ns,
         ctime_ns=file_stat.st_ctime_ns,
         sha256=sha256,
-    )
-
-
-def _matches_snapshot(file_stat: os.stat_result, snapshot: _FileSnapshot) -> bool:
-    return (
-        file_stat.st_dev == snapshot.device
-        and file_stat.st_ino == snapshot.inode
-        and file_stat.st_mode == snapshot.mode
-        and file_stat.st_size == snapshot.size
-        and file_stat.st_mtime_ns == snapshot.mtime_ns
-        and file_stat.st_ctime_ns == snapshot.ctime_ns
     )
 
 
@@ -213,6 +256,18 @@ def _canonical_json(payload: Mapping[str, object]) -> bytes:
     return b"".join(chunks)
 
 
+def _bounded_directory_names(
+    directory_descriptor: int, *, limit: int, error_message: str
+) -> list[str]:
+    names: list[str] = []
+    with os.scandir(directory_descriptor) as entries:
+        for entry in entries:
+            if len(names) >= limit:
+                raise ValueError(error_message)
+            names.append(entry.name)
+    return names
+
+
 class EvidenceStore:
     """Immutable content-addressed storage contained within one project."""
 
@@ -227,12 +282,14 @@ class EvidenceStore:
         self.evidence_root = root / ".researchclaw/evidence"
         self.objects_root = self.evidence_root / "objects"
         self.manifests_root = self.evidence_root / "manifests"
+        self.quarantine_root = self.evidence_root / "gc-quarantine"
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
         for relative_parts in (
             (".researchclaw", "evidence", "objects"),
             (".researchclaw", "evidence", "manifests"),
+            (".researchclaw", "evidence", "gc-quarantine"),
         ):
             self._ensure_directory_chain(relative_parts)
 
@@ -259,6 +316,9 @@ class EvidenceStore:
                 )
                 os.close(descriptor)
                 descriptor = child
+            if relative_parts[-1] == "gc-quarantine":
+                os.fchmod(descriptor, 0o700)
+                os.fsync(descriptor)
         except (OSError, ValueError) as error:
             raise ValueError("evidence store path is not a regular directory") from error
         finally:
@@ -286,8 +346,14 @@ class EvidenceStore:
                 )
                 os.close(descriptor)
                 descriptor = child
-            if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_stat = os.fstat(descriptor)
+            if not stat.S_ISDIR(directory_stat.st_mode):
                 raise ValueError("evidence store path is not a directory")
+            if (
+                Path(path) == self.quarantine_root
+                and stat.S_IMODE(directory_stat.st_mode) != 0o700
+            ):
+                raise ValueError("evidence GC quarantine is not private")
             return descriptor
         except Exception:
             os.close(descriptor)
@@ -305,15 +371,19 @@ class EvidenceStore:
                 dir_fd=directory_descriptor,
             )
         except OSError as error:
-            raise ValueError("evidence object integrity check failed") from error
+            raise ValueError("evidence_object_integrity_failure") from error
         try:
             observed_digest, observed_size, file_stat = _descriptor_digest(descriptor)
         except (OSError, ValueError) as error:
-            raise ValueError("evidence object integrity check failed") from error
+            raise ValueError("evidence_object_integrity_failure") from error
         finally:
             os.close(descriptor)
-        if observed_digest != digest or observed_size != expected_size:
-            raise ValueError("evidence object integrity check failed")
+        if (
+            observed_digest != digest
+            or observed_size != expected_size
+            or file_stat.st_nlink != 1
+        ):
+            raise ValueError("evidence_object_integrity_failure")
         path = f"{_OBJECT_PREFIX}{digest}"
         evidence_object = EvidenceObject(digest, observed_size, path)
         return evidence_object, _snapshot(
@@ -354,9 +424,11 @@ class EvidenceStore:
                         source.expected_size,
                     )
                     reusable_bytes += source.expected_size
+            _before_capacity_measure(directory_descriptor)
+            file_system = os.fstatvfs(directory_descriptor)
+            available_bytes = file_system.f_bavail * file_system.f_frsize
         finally:
             os.close(directory_descriptor)
-        available_bytes = shutil.disk_usage(self.objects_root).free
         reserve = max(_MINIMUM_CAPACITY_RESERVE, required_new_bytes // 20)
         if available_bytes < required_new_bytes + reserve:
             raise ValueError("insufficient evidence store capacity")
@@ -423,6 +495,10 @@ class EvidenceStore:
                     directory_changed = True
                 except FileExistsError:
                     pass
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+                temporary_exists = False
+                directory_changed = True
+                os.fsync(directory_descriptor)
                 evidence_object, _snapshot_value = self._verify_object(
                     directory_descriptor,
                     source.expected_sha256,
@@ -430,18 +506,14 @@ class EvidenceStore:
                 )
                 return evidence_object
             finally:
-                if temporary_descriptor is not None:
-                    os.close(temporary_descriptor)
-                if temporary_exists:
-                    try:
-                        os.unlink(temporary_name, dir_fd=directory_descriptor)
-                        directory_changed = True
-                    except FileNotFoundError:
-                        pass
-                if directory_changed:
-                    os.fsync(directory_descriptor)
-                os.close(directory_descriptor)
-                os.close(source_descriptor)
+                _cleanup_publication(
+                    source_descriptor=source_descriptor,
+                    directory_descriptor=directory_descriptor,
+                    temporary_descriptor=temporary_descriptor,
+                    temporary_name=temporary_name,
+                    temporary_exists=temporary_exists,
+                    directory_changed=directory_changed,
+                )
 
     def write_manifest(
         self, registration_id: str, payload: Mapping[str, object]
@@ -551,53 +623,67 @@ class EvidenceStore:
         return value, context_identity
 
     def _context_references(
-        self,
+        self, candidate_paths: set[str]
     ) -> tuple[set[str], tuple[dict[str, object], ...]]:
         referenced: set[str] = set()
         identities: list[dict[str, object]] = []
         manifest_descriptor = self._open_directory(self.manifests_root)
         try:
-            manifest_names = sorted(os.listdir(manifest_descriptor))
-            if len(manifest_names) > _MAX_GC_CONTEXT_FILES:
-                raise ValueError("evidence GC context file limit exceeded")
+            manifest_names = sorted(
+                _bounded_directory_names(
+                    manifest_descriptor,
+                    limit=_MAX_GC_CONTEXT_FILES,
+                    error_message="evidence GC context file limit exceeded",
+                )
+            )
             for name in manifest_names:
                 relative_path = f"{_MANIFEST_PREFIX}{name}"
                 value, identity = self._read_json_file(
                     manifest_descriptor, name, relative_path
                 )
                 identities.append(identity)
-                self._find_references(value, referenced)
+                self._find_references(value, referenced, candidate_paths)
         finally:
             os.close(manifest_descriptor)
 
         metadata_root = self.project_root / ".researchclaw"
         metadata_descriptor = self._open_directory(metadata_root)
         try:
-            active_names = sorted(
-                name
-                for name in os.listdir(metadata_descriptor)
-                if "pending" in name.lower() or "journal" in name.lower()
-            )
-            if len(active_names) + len(identities) > _MAX_GC_CONTEXT_FILES:
-                raise ValueError("evidence GC context file limit exceeded")
+            active_names: list[str] = []
+            scanned_entries = 0
+            with os.scandir(metadata_descriptor) as entries:
+                for entry in entries:
+                    if scanned_entries >= _MAX_GC_CONTEXT_FILES:
+                        raise ValueError("evidence GC context file limit exceeded")
+                    scanned_entries += 1
+                    name = entry.name
+                    if "pending" not in name.lower() and "journal" not in name.lower():
+                        continue
+                    if len(identities) + len(active_names) >= _MAX_GC_CONTEXT_FILES:
+                        raise ValueError("evidence GC context file limit exceeded")
+                    active_names.append(name)
+            active_names.sort()
             for name in active_names:
                 relative_path = f".researchclaw/{name}"
                 value, identity = self._read_json_file(
                     metadata_descriptor, name, relative_path
                 )
                 identities.append(identity)
-                self._find_references(value, referenced)
+                self._find_references(value, referenced, candidate_paths)
         finally:
             os.close(metadata_descriptor)
         return referenced, tuple(identities)
 
-    def _find_references(self, value: object, references: set[str]) -> None:
+    def _find_references(
+        self, value: object, references: set[str], candidate_paths: set[str]
+    ) -> None:
         if isinstance(value, dict):
             path = value.get("path")
             digest = value.get("sha256")
             size = value.get("size")
             if isinstance(path, str) and path.startswith(_OBJECT_PREFIX):
-                references.add(path)
+                if path in candidate_paths:
+                    references.add(path)
                 expected_digest = path.removeprefix(_OBJECT_PREFIX)
                 if _is_temporary_name(expected_digest):
                     pass
@@ -616,24 +702,29 @@ class EvidenceStore:
                 and not isinstance(size, bool)
                 and size >= 0
             ):
-                references.add(f"{_OBJECT_PREFIX}{digest}")
+                object_path = f"{_OBJECT_PREFIX}{digest}"
+                if object_path in candidate_paths:
+                    references.add(object_path)
             for item in value.values():
-                self._find_references(item, references)
+                self._find_references(item, references, candidate_paths)
         elif isinstance(value, list):
             for item in value:
-                self._find_references(item, references)
-        elif isinstance(value, str) and value.startswith(_OBJECT_PREFIX):
+                self._find_references(item, references, candidate_paths)
+        elif isinstance(value, str) and value in candidate_paths:
             references.add(value)
 
     def _gc_snapshot(self) -> _GcSnapshot:
-        references, context_identities = self._context_references()
         directory_descriptor = self._open_directory(self.objects_root)
         object_pairs: list[tuple[EvidenceObject, _FileSnapshot]] = []
         temporary_files: list[_FileSnapshot] = []
         try:
-            names = sorted(os.listdir(directory_descriptor))
-            if len(names) > _MAX_GC_ENTRIES:
-                raise ValueError("evidence GC entry limit exceeded")
+            names = sorted(
+                _bounded_directory_names(
+                    directory_descriptor,
+                    limit=_MAX_GC_ENTRIES,
+                    error_message="evidence GC entry limit exceeded",
+                )
+            )
             for name in names:
                 relative_path = f"{_OBJECT_PREFIX}{name}"
                 if _SHA256.fullmatch(name) is not None:
@@ -645,8 +736,7 @@ class EvidenceStore:
                     evidence_object, object_snapshot = self._verify_object(
                         directory_descriptor, name, file_stat.st_size
                     )
-                    if relative_path not in references:
-                        object_pairs.append((evidence_object, object_snapshot))
+                    object_pairs.append((evidence_object, object_snapshot))
                 elif _is_temporary_name(name):
                     descriptor = os.open(
                         name,
@@ -661,17 +751,28 @@ class EvidenceStore:
                             raise ValueError("evidence temporary is not regular")
                     finally:
                         os.close(descriptor)
-                    if relative_path not in references:
-                        temporary_files.append(
-                            _snapshot(
-                                name=name,
-                                path=relative_path,
-                                file_stat=file_stat,
-                                sha256=None,
-                            )
+                    temporary_files.append(
+                        _snapshot(
+                            name=name,
+                            path=relative_path,
+                            file_stat=file_stat,
+                            sha256=None,
                         )
+                    )
         finally:
             os.close(directory_descriptor)
+
+        candidate_paths = {
+            *(item.path for item, _snapshot_value in object_pairs),
+            *(snapshot.path for snapshot in temporary_files),
+        }
+        references, context_identities = self._context_references(candidate_paths)
+        object_pairs = [
+            pair for pair in object_pairs if pair[0].path not in references
+        ]
+        temporary_files = [
+            snapshot for snapshot in temporary_files if snapshot.path not in references
+        ]
 
         token_payload: dict[str, Any] = {
             "schema_version": 1,
@@ -701,41 +802,204 @@ class EvidenceStore:
 
     def plan_gc(self) -> EvidenceGcPlan:
         with project_transaction(self.project_root):
+            self._recover_quarantine()
             return self._gc_snapshot().plan
 
-    def _remove_exact(self, directory_descriptor: int, snapshot: _FileSnapshot) -> None:
-        descriptor = os.open(
-            snapshot.name,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
-            dir_fd=directory_descriptor,
+    @staticmethod
+    def _quarantine_name(original_name: str) -> str:
+        return (
+            f"{_QUARANTINE_PREFIX}{secrets.token_hex(16)}-"
+            f"{original_name.encode('utf-8').hex()}"
         )
+
+    @staticmethod
+    def _quarantine_original(name: str) -> str:
+        if not name.startswith(_QUARANTINE_PREFIX):
+            raise ValueError("evidence GC quarantine contains an unknown entry")
+        token, separator, encoded = name.removeprefix(_QUARANTINE_PREFIX).partition("-")
+        if (
+            not separator
+            or len(token) != 32
+            or any(character not in "0123456789abcdef" for character in token)
+        ):
+            raise ValueError("evidence GC quarantine contains an unknown entry")
         try:
-            if snapshot.sha256 is None:
-                file_stat = os.fstat(descriptor)
-                if not stat.S_ISREG(file_stat.st_mode) or not _matches_snapshot(
-                    file_stat, snapshot
-                ):
-                    raise ValueError("evidence GC plan is stale")
-            else:
-                digest, size, file_stat = _descriptor_digest(descriptor)
-                if (
-                    digest != snapshot.sha256
-                    or size != snapshot.size
-                    or not _matches_snapshot(file_stat, snapshot)
-                ):
-                    raise ValueError("evidence GC plan is stale")
-            current_path_stat = os.stat(
-                snapshot.name,
-                dir_fd=directory_descriptor,
+            original = bytes.fromhex(encoded).decode("utf-8")
+        except (UnicodeError, ValueError) as error:
+            raise ValueError(
+                "evidence GC quarantine contains an unknown entry"
+            ) from error
+        if _SHA256.fullmatch(original) is None and not _is_temporary_name(original):
+            raise ValueError("evidence GC quarantine contains an unknown entry")
+        return original
+
+    def _restore_quarantined(
+        self,
+        objects_descriptor: int,
+        quarantine_descriptor: int,
+        quarantine_name: str,
+        original_name: str,
+    ) -> bool:
+        try:
+            os.link(
+                quarantine_name,
+                original_name,
+                src_dir_fd=quarantine_descriptor,
+                dst_dir_fd=objects_descriptor,
                 follow_symlinks=False,
             )
-            if not _matches_snapshot(current_path_stat, snapshot):
-                raise ValueError("evidence GC plan is stale")
-            os.unlink(snapshot.name, dir_fd=directory_descriptor)
+        except FileExistsError:
+            quarantine_stat = os.stat(
+                quarantine_name,
+                dir_fd=quarantine_descriptor,
+                follow_symlinks=False,
+            )
+            original_stat = os.stat(
+                original_name,
+                dir_fd=objects_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                stat.S_ISREG(quarantine_stat.st_mode)
+                and stat.S_ISREG(original_stat.st_mode)
+                and quarantine_stat.st_dev == original_stat.st_dev
+                and quarantine_stat.st_ino == original_stat.st_ino
+            ):
+                os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
+                os.fsync(quarantine_descriptor)
+                return True
+            return False
+        os.fsync(objects_descriptor)
+        os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
+        os.fsync(quarantine_descriptor)
+        return True
+
+    def _recover_quarantine(self) -> None:
+        objects_descriptor = self._open_directory(self.objects_root)
+        try:
+            quarantine_descriptor = self._open_directory(self.quarantine_root)
+        except Exception:
+            os.close(objects_descriptor)
+            raise
+        try:
+            names = _bounded_directory_names(
+                quarantine_descriptor,
+                limit=_MAX_GC_ENTRIES,
+                error_message="evidence GC quarantine entry limit exceeded",
+            )
+            for name in sorted(names):
+                original_name = self._quarantine_original(name)
+                descriptor = os.open(
+                    name,
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                    dir_fd=quarantine_descriptor,
+                )
+                try:
+                    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                        raise ValueError("evidence GC quarantine entry is not regular")
+                finally:
+                    os.close(descriptor)
+                if not self._restore_quarantined(
+                    objects_descriptor,
+                    quarantine_descriptor,
+                    name,
+                    original_name,
+                ):
+                    raise ValueError("evidence GC quarantine recovery is blocked")
         finally:
-            os.close(descriptor)
+            os.close(quarantine_descriptor)
+            os.close(objects_descriptor)
+
+    @staticmethod
+    def _quarantined_snapshot_matches(
+        file_stat: os.stat_result, snapshot: _FileSnapshot
+    ) -> bool:
+        return (
+            file_stat.st_dev == snapshot.device
+            and file_stat.st_ino == snapshot.inode
+            and file_stat.st_mode == snapshot.mode
+            and file_stat.st_nlink == snapshot.nlink
+            and file_stat.st_size == snapshot.size
+            and file_stat.st_mtime_ns == snapshot.mtime_ns
+        )
+
+    def _quarantine_and_remove(
+        self,
+        objects_descriptor: int,
+        quarantine_descriptor: int,
+        snapshot: _FileSnapshot,
+    ) -> None:
+        _before_gc_candidate_quarantine(snapshot)
+        quarantine_name = self._quarantine_name(snapshot.name)
+        try:
+            os.stat(
+                quarantine_name,
+                dir_fd=quarantine_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError("evidence GC quarantine name collision")
+        try:
+            os.rename(
+                snapshot.name,
+                quarantine_name,
+                src_dir_fd=objects_descriptor,
+                dst_dir_fd=quarantine_descriptor,
+            )
+        except FileNotFoundError as error:
+            raise ValueError("evidence GC plan is stale") from error
+        os.fsync(objects_descriptor)
+        os.fsync(quarantine_descriptor)
+        _before_gc_quarantine_verify(snapshot, quarantine_name)
+        descriptor: int | None = None
+        verification_error: BaseException | None = None
+        restorable = False
+        matches = False
+        try:
+            descriptor = os.open(
+                quarantine_name,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0),
+                dir_fd=quarantine_descriptor,
+            )
+            file_stat = os.fstat(descriptor)
+            restorable = stat.S_ISREG(file_stat.st_mode)
+            if snapshot.sha256 is None:
+                matches = (
+                    restorable
+                    and self._quarantined_snapshot_matches(file_stat, snapshot)
+                )
+            else:
+                digest, size, file_stat = _descriptor_digest(descriptor)
+                matches = (
+                    digest == snapshot.sha256
+                    and size == snapshot.size
+                    and self._quarantined_snapshot_matches(file_stat, snapshot)
+                )
+        except (OSError, ValueError) as error:
+            verification_error = error
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+        if not matches:
+            if restorable:
+                self._restore_quarantined(
+                    objects_descriptor,
+                    quarantine_descriptor,
+                    quarantine_name,
+                    snapshot.name,
+                )
+            if verification_error is not None:
+                raise verification_error
+            raise ValueError("evidence GC plan is stale")
+        _before_gc_quarantine_delete(snapshot, quarantine_name)
+        os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
+        os.fsync(quarantine_descriptor)
 
     def collect(
         self, plan: EvidenceGcPlan, confirm_token: str
@@ -748,6 +1012,7 @@ class EvidenceStore:
         ):
             raise ValueError("evidence GC confirmation token mismatch")
         with project_transaction(self.project_root):
+            self._recover_quarantine()
             current = self._gc_snapshot()
             if current.plan != plan:
                 raise ValueError("evidence GC plan is stale")
@@ -757,12 +1022,18 @@ class EvidenceStore:
                 raise ValueError("evidence GC plan is stale")
             directory_descriptor = self._open_directory(self.objects_root)
             try:
-                for snapshot in current.object_files:
-                    self._remove_exact(directory_descriptor, snapshot)
-                for snapshot in current.temporary_files:
-                    self._remove_exact(directory_descriptor, snapshot)
-                if current.object_files or current.temporary_files:
-                    os.fsync(directory_descriptor)
+                quarantine_descriptor = self._open_directory(self.quarantine_root)
+                try:
+                    for snapshot in current.object_files:
+                        self._quarantine_and_remove(
+                            directory_descriptor, quarantine_descriptor, snapshot
+                        )
+                    for snapshot in current.temporary_files:
+                        self._quarantine_and_remove(
+                            directory_descriptor, quarantine_descriptor, snapshot
+                        )
+                finally:
+                    os.close(quarantine_descriptor)
             finally:
                 os.close(directory_descriptor)
         return plan.objects
