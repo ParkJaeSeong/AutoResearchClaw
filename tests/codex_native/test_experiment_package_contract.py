@@ -528,6 +528,29 @@ def size_proxy() -> float:
         validate_experiment_package_contract(project)
 
 
+def test_package_contract_rejects_size_proxy_despite_cross_function_shadow(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        "    return size_proxy()\n",
+    ) + '''
+
+def size_proxy() -> float:
+    probe = Path("experiment/self_test_fixture.json")
+    return float(probe.stat().st_size)
+
+
+def unrelated_shadow() -> dict[str, object]:
+    size_proxy = dict
+    return size_proxy(ok=True)
+'''
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="size proxy"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_multi_hop_local_dict_fallback_alias(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
@@ -544,6 +567,32 @@ def placeholder_fallback() -> dict[str, object]:
     )
 
     with pytest.raises(ValueError, match="fallback|callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_fallback_despite_cross_function_shadow(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + '''
+
+def placeholder_fallback() -> dict[str, object]:
+    return build_output()
+
+
+def build_output() -> dict[str, object]:
+    return {"mae": 0.5, "evidence_eligible": True}
+
+
+def unrelated_shadow() -> dict[str, object]:
+    build_output = dict
+    return build_output(ok=True)
+''',
+    )
+
+    with pytest.raises(ValueError, match="fallback"):
         validate_experiment_package_contract(project)
 
 
@@ -600,6 +649,60 @@ def test_package_contract_rejects_a_later_self_test_report_overwrite(tmp_path):
         validate_experiment_package_contract(project)
 
 
+def test_package_contract_rejects_open_write_report_overwrite(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '    result = run_experiment(config)\n',
+        '    retained_report = open(\n'
+        '        "experiment/self_test_report.json", "w", encoding="utf-8"\n'
+        '    )\n'
+        '    retained_report.write(json.dumps({"metrics": []}) + "\\n")\n'
+        '    retained_report.close()\n'
+        '    result = run_experiment(config)\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_path_import_alias_report_overwrite(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "from pathlib import Path\n",
+        "from pathlib import Path\nfrom pathlib import Path as ReportPath\n",
+    ).replace(
+        '    result = run_experiment(config)\n',
+        '    ReportPath("experiment/self_test_report.json").write_text(\n'
+        '        json.dumps({"metrics": []}) + "\\n", encoding="utf-8"\n'
+        '    )\n'
+        '    result = run_experiment(config)\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_computed_report_path_overwrite(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '    result = run_experiment(config)\n',
+        '    retained_report = "experiment/" + "self_test_report.json"\n'
+        '    Path(retained_report).write_text(\n'
+        '        json.dumps({"metrics": []}) + "\\n", encoding="utf-8"\n'
+        '    )\n'
+        '    result = run_experiment(config)\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_report_mapping_mutation_before_write(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
@@ -609,6 +712,25 @@ def test_package_contract_rejects_report_mapping_mutation_before_write(tmp_path)
     ).replace(
         '        Path("experiment/self_test_report.json").write_text',
         '        result.update({"mae": 0.5})\n'
+        '        Path("experiment/self_test_report.json").write_text',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_report_mapping_mutation_in_reachable_helper(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+        '\n\ndef overwrite_metric(result: dict[str, object]) -> None:\n'
+        '    result.update({"mae": 0.5})\n'
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+    ).replace(
+        '        Path("experiment/self_test_report.json").write_text',
+        '        overwrite_metric(result)\n'
         '        Path("experiment/self_test_report.json").write_text',
     )
     _replace_main(project, source)

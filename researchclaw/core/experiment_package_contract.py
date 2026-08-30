@@ -192,22 +192,64 @@ def _top_level_functions(tree: ast.Module) -> dict[str, ast.FunctionDef]:
     return {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
 
 
+class _LexicalScopeNodes(ast.NodeVisitor):
+    """Collect one function's nodes without crossing into a nested lexical scope."""
+
+    def __init__(self) -> None:
+        self.nodes: list[ast.AST] = []
+
+    def generic_visit(self, node: ast.AST) -> None:
+        self.nodes.append(node)
+        super().generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.nodes.append(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self.nodes.append(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self.nodes.append(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.nodes.append(node)
+
+
+def _lexical_scope_nodes(function: ast.FunctionDef) -> list[ast.AST]:
+    collector = _LexicalScopeNodes()
+    for statement in function.body:
+        collector.visit(statement)
+    return collector.nodes
+
+
 def _function_aliases(
     tree: ast.Module, functions: Mapping[str, ast.FunctionDef]
 ) -> dict[str, str]:
+    """Resolve only ordered module-scope aliases to known local callables."""
     aliases: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)) or not isinstance(node.value, ast.Name):
+    alias_targets: set[str] = set()
+    for node in tree.body:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
             continue
         target_names = (
             [target.id for target in node.targets if isinstance(target, ast.Name)]
             if isinstance(node, ast.Assign)
             else [node.target.id] if isinstance(node.target, ast.Name) else []
         )
+        if any(target in alias_targets for target in target_names):
+            raise ValueError("callable alias is ambiguous or reassigned")
+        if not isinstance(node.value, ast.Name):
+            continue
         value_name = node.value.id
         resolved = aliases.get(value_name, value_name)
+        if (
+            resolved in functions
+            and getattr(functions[resolved], "lineno", 0) >= getattr(node, "lineno", 0)
+        ):
+            raise ValueError("callable alias is defined before its target")
         if resolved in functions or resolved == "dict":
             aliases.update({target: resolved for target in target_names})
+            alias_targets.update(target_names)
     return aliases
 
 
@@ -228,22 +270,29 @@ def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> tuple[str 
 
     assignments = sorted(
         [
-            node for node in ast.walk(function)
+            node for node in _lexical_scope_nodes(function)
             if isinstance(node, (ast.Assign, ast.AnnAssign))
         ],
         key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
     )
 
     def resolve(name: str, before: tuple[int, int], seen: set[str]) -> tuple[str, bool]:
-        definitions = [
-            node for node in assignments
-            if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)) < before
-            and any(
+        all_definitions = [
+            node
+            for node in assignments
+            if any(
                 isinstance(target, ast.Name) and target.id == name
                 for target in _assignment_targets(node)
             )
         ]
+        definitions = [
+            node
+            for node in all_definitions
+            if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)) < before
+        ]
         if not definitions:
+            if all_definitions:
+                raise ValueError("callable alias is used before its definition")
             return name, bool(seen)
         if len(definitions) != 1 or not isinstance(definitions[0].value, ast.Name):
             raise ValueError("callable alias is ambiguous or reassigned")
@@ -283,12 +332,26 @@ def _dotted_name(node: ast.AST, aliases: Mapping[str, str]) -> str | None:
     return None
 
 
-def _reachable_metric_nodes(
+def _resolved_local_call_name(
+    function: ast.FunctionDef,
+    call: ast.Call,
+    functions: Mapping[str, ast.FunctionDef],
+    function_aliases: Mapping[str, str],
+) -> str | None:
+    target_name, local_alias = _local_alias_target(function, call)
+    if target_name is None or not local_alias:
+        return _local_call_name(call, function_aliases)
+    if target_name not in functions and target_name != "dict":
+        raise ValueError("callable alias is unresolved or ambiguous")
+    return target_name
+
+
+def _reachable_local_functions(
     function: ast.FunctionDef,
     functions: Mapping[str, ast.FunctionDef],
     function_aliases: Mapping[str, str],
-) -> list[ast.AST]:
-    nodes: list[ast.AST] = []
+) -> list[ast.FunctionDef]:
+    reachable: list[ast.FunctionDef] = []
     queued = [function]
     visited: set[str] = set()
     while queued:
@@ -296,17 +359,47 @@ def _reachable_metric_nodes(
         if current.name in visited:
             continue
         visited.add(current.name)
-        nodes.extend(ast.walk(current))
-        for node in ast.walk(current):
+        reachable.append(current)
+        current_nodes = _lexical_scope_nodes(current)
+        for node in current_nodes:
             if isinstance(node, ast.Call):
-                target_name, local_alias = _local_alias_target(current, node)
-                if target_name is None or not local_alias:
-                    target_name = _local_call_name(node, function_aliases)
-                elif local_alias and target_name not in functions and target_name != "dict":
-                    raise ValueError("callable alias is unresolved or ambiguous")
+                target_name = _resolved_local_call_name(
+                    current, node, functions, function_aliases
+                )
                 target = functions.get(target_name or "")
                 if target is not None:
                     queued.append(target)
+    return reachable
+
+
+def _reachable_metric_nodes(
+    function: ast.FunctionDef,
+    functions: Mapping[str, ast.FunctionDef],
+    function_aliases: Mapping[str, str],
+) -> list[ast.AST]:
+    return [
+        node
+        for reachable in _reachable_local_functions(
+            function, functions, function_aliases
+        )
+        for node in _lexical_scope_nodes(reachable)
+    ]
+
+
+def _reachable_called_function_nodes(
+    function: ast.FunctionDef,
+    initial_nodes: list[ast.AST],
+    functions: Mapping[str, ast.FunctionDef],
+    function_aliases: Mapping[str, str],
+) -> list[ast.AST]:
+    nodes: list[ast.AST] = []
+    for call in (node for node in initial_nodes if isinstance(node, ast.Call)):
+        target_name = _resolved_local_call_name(
+            function, call, functions, function_aliases
+        )
+        target = functions.get(target_name or "")
+        if target is not None:
+            nodes.extend(_reachable_metric_nodes(target, functions, function_aliases))
     return nodes
 
 
@@ -338,32 +431,34 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
     for function in functions.values():
         if re.search(r"(?:fallback|placeholder)", function.name, re.I) is None:
             continue
-        for node in _reachable_metric_nodes(function, functions, function_aliases):
-            if isinstance(node, ast.Dict):
-                for key, value in zip(node.keys, node.values, strict=True):
-                    if (
-                        isinstance(key, ast.Constant)
-                        and key.value == "evidence_eligible"
-                        and isinstance(value, ast.Constant)
-                        and value.value is True
-                    ):
-                        return True
-            if not isinstance(node, ast.Call):
-                continue
-            local_target, local_alias = _local_alias_target(function, node)
-            target_name = (
-                local_target if local_alias else _local_call_name(node, function_aliases)
-            )
-            if (
-                target_name == "dict"
-                and any(
-                    keyword.arg == "evidence_eligible"
-                    and isinstance(keyword.value, ast.Constant)
-                    and keyword.value.value is True
-                    for keyword in node.keywords
+        for reachable in _reachable_local_functions(
+            function, functions, function_aliases
+        ):
+            for node in _lexical_scope_nodes(reachable):
+                if isinstance(node, ast.Dict):
+                    for key, value in zip(node.keys, node.values, strict=True):
+                        if (
+                            isinstance(key, ast.Constant)
+                            and key.value == "evidence_eligible"
+                            and isinstance(value, ast.Constant)
+                            and value.value is True
+                        ):
+                            return True
+                if not isinstance(node, ast.Call):
+                    continue
+                target_name = _resolved_local_call_name(
+                    reachable, node, functions, function_aliases
                 )
-            ):
-                return True
+                if (
+                    target_name == "dict"
+                    and any(
+                        keyword.arg == "evidence_eligible"
+                        and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is True
+                        for keyword in node.keywords
+                    )
+                ):
+                    return True
     return False
 
 
@@ -413,7 +508,7 @@ def _dict_fields(node: ast.Dict) -> dict[str, ast.AST]:
     }
 
 
-def _is_self_test_report_write(call: ast.Call) -> bool:
+def _is_literal_path_text_write(call: ast.Call, path: str) -> bool:
     if not isinstance(call.func, ast.Attribute) or call.func.attr != "write_text":
         return False
     target = call.func.value
@@ -423,8 +518,228 @@ def _is_self_test_report_write(call: ast.Call) -> bool:
         and target.func.id == "Path"
         and len(target.args) == 1
         and isinstance(target.args[0], ast.Constant)
-        and target.args[0].value == SELF_TEST_REPORT_PATH
+        and target.args[0].value == path
     )
+
+
+def _is_self_test_report_write(call: ast.Call) -> bool:
+    return _is_literal_path_text_write(call, SELF_TEST_REPORT_PATH)
+
+
+_MUTATING_METHODS = {
+    "chmod",
+    "dump",
+    "mkdir",
+    "rename",
+    "replace",
+    "rmdir",
+    "save",
+    "savefig",
+    "symlink_to",
+    "hardlink_to",
+    "to_csv",
+    "to_json",
+    "to_parquet",
+    "to_pickle",
+    "touch",
+    "truncate",
+    "unlink",
+    "write",
+    "write_bytes",
+    "write_text",
+    "writelines",
+}
+_MUTATING_CALLS = {
+    "os.chmod",
+    "os.makedirs",
+    "os.mkdir",
+    "os.open",
+    "os.remove",
+    "os.rename",
+    "os.replace",
+    "os.rmdir",
+    "os.symlink",
+    "os.unlink",
+    "shutil.copy",
+    "shutil.copy2",
+    "shutil.copyfile",
+    "shutil.copytree",
+    "shutil.move",
+    "shutil.rmtree",
+}
+
+
+def _open_call_may_write(call: ast.Call, aliases: Mapping[str, str]) -> bool:
+    name = _dotted_name(call.func, aliases)
+    operation = call.func.attr if isinstance(call.func, ast.Attribute) else name
+    if operation != "open":
+        return False
+    mode_node: ast.AST | None = None
+    mode_index = 1 if name in {"open", "builtins.open", "io.open"} else 0
+    if len(call.args) > mode_index:
+        mode_node = call.args[mode_index]
+    for keyword in call.keywords:
+        if keyword.arg == "mode":
+            mode_node = keyword.value
+    if mode_node is None:
+        return False
+    return not (
+        isinstance(mode_node, ast.Constant)
+        and isinstance(mode_node.value, str)
+        and not any(marker in mode_node.value for marker in "wax+")
+    )
+
+
+def _call_may_mutate_filesystem(
+    call: ast.Call, aliases: Mapping[str, str]
+) -> bool:
+    name = _dotted_name(call.func, aliases)
+    operation = call.func.attr if isinstance(call.func, ast.Attribute) else name
+    if operation in _MUTATING_METHODS:
+        return True
+    if name in _MUTATING_CALLS or (
+        name is not None
+        and (name.startswith("shutil.copy") or name == "shutil.move")
+    ):
+        return True
+    if operation == "open":
+        return _open_call_may_write(call, aliases)
+    return name in {"json.dump", "dump"} or (
+        name in {"print", "builtins.print"}
+        and any(keyword.arg == "file" for keyword in call.keywords)
+    )
+
+
+def _has_unambiguous_path_binding(tree: ast.Module, main: ast.FunctionDef) -> bool:
+    imports = [
+        imported
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "pathlib"
+        and node.level == 0
+        for imported in node.names
+        if imported.name == "Path" and imported.asname is None
+    ]
+    module_rebindings = [
+        node
+        for node in tree.body
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "Path"
+        )
+        or (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and any(
+                isinstance(target, ast.Name) and target.id == "Path"
+                for target in _assignment_targets(node)
+            )
+        )
+        or (
+            isinstance(node, ast.Import)
+            and any(
+                (imported.asname or imported.name.split(".")[0]) == "Path"
+                for imported in node.names
+            )
+        )
+        or (
+            isinstance(node, ast.ImportFrom)
+            and any(
+                (imported.asname or imported.name) == "Path"
+                and not (
+                    node.module == "pathlib"
+                    and node.level == 0
+                    and imported.name == "Path"
+                    and imported.asname is None
+                )
+                for imported in node.names
+            )
+        )
+    ]
+    main_nodes = _lexical_scope_nodes(main)
+    local_rebindings = [
+        node
+        for node in main_nodes
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == "Path"
+        )
+        or (isinstance(node, ast.arg) and node.arg == "Path")
+        or (
+            isinstance(node, (ast.Import, ast.ImportFrom))
+            and any(
+                (imported.asname or imported.name.split(".")[0]) == "Path"
+                for imported in node.names
+            )
+        )
+        or (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "Path"
+        )
+    ]
+    parameters = [
+        *main.args.posonlyargs,
+        *main.args.args,
+        *main.args.kwonlyargs,
+        *([main.args.vararg] if main.args.vararg is not None else []),
+        *([main.args.kwarg] if main.args.kwarg is not None else []),
+    ]
+    return (
+        len(imports) == 1
+        and not module_rebindings
+        and not local_rebindings
+        and all(parameter.arg != "Path" for parameter in parameters)
+    )
+
+
+def _has_ambiguous_writer_alias(
+    tree: ast.Module,
+    reachable_nodes: list[ast.AST],
+    aliases: Mapping[str, str],
+) -> bool:
+    for node in [*tree.body, *reachable_nodes]:
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        target = _dotted_name(node.value, aliases)
+        if target in {"open", "builtins.open", "Path", "pathlib.Path"}:
+            return True
+    return False
+
+
+def _validate_exclusive_artifact_writers(
+    tree: ast.Module,
+    main: ast.FunctionDef,
+    branch_nodes: list[ast.AST],
+    reachable_nodes: list[ast.AST],
+) -> None:
+    """Require the checked-in adapter's two exclusive literal artifact writers."""
+    aliases = _import_aliases(tree)
+    mutation_calls = [
+        node
+        for node in reachable_nodes
+        if isinstance(node, ast.Call) and _call_may_mutate_filesystem(node, aliases)
+    ]
+    report_writes = [
+        node for node in mutation_calls if _is_self_test_report_write(node)
+    ]
+    result_writes = [
+        node
+        for node in mutation_calls
+        if _is_literal_path_text_write(node, "experiment/results.json")
+    ]
+    approved = {*report_writes, *result_writes}
+    if (
+        not _has_unambiguous_path_binding(tree, main)
+        or _has_ambiguous_writer_alias(tree, reachable_nodes, aliases)
+        or len(report_writes) != 1
+        or report_writes[0] not in branch_nodes
+        or len(result_writes) != 1
+        or result_writes[0] in branch_nodes
+        or any(node not in approved for node in mutation_calls)
+    ):
+        raise ValueError(
+            "self-test adapter must use only its exclusive canonical artifact writers"
+        )
 
 
 def _self_test_report_payload_name(call: ast.Call) -> str | None:
@@ -448,12 +763,8 @@ def _self_test_report_payload_name(call: ast.Call) -> str | None:
     return serializer.args[0].id
 
 
-def _mapping_is_mutated_before_write(nodes: list[ast.AST], write: ast.Call) -> bool:
-    write_position = (getattr(write, "lineno", 0), getattr(write, "col_offset", 0))
+def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
     for node in nodes:
-        position = (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
-        if position >= write_position:
-            continue
         if isinstance(node, ast.AugAssign) and (
             isinstance(node.target, (ast.Name, ast.Subscript))
             or isinstance(node.op, ast.BitOr)
@@ -481,12 +792,18 @@ def _validate_self_test_adapter(
         raise ValueError("self-test adapter requires a top-level main function")
     functions = _top_level_functions(tree)
     function_aliases = _function_aliases(tree, functions)
+    main_nodes = _lexical_scope_nodes(main)
+    if any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef))
+        for node in main_nodes
+    ):
+        raise ValueError("self-test adapter must not contain nested lexical scopes")
     branches = [
-        node for node in ast.walk(main)
+        node for node in main_nodes
         if isinstance(node, ast.If) and _is_positive_self_test_condition(node.test)
     ]
     mentioned_branches = [
-        node for node in ast.walk(main)
+        node for node in main_nodes
         if isinstance(node, ast.If) and _mentions_self_test(node.test)
     ]
     if len(branches) != 1 or len(mentioned_branches) != 1:
@@ -498,6 +815,7 @@ def _validate_self_test_adapter(
     ):
         raise ValueError("self-test adapter must not use ambiguous provenance branches")
     all_nodes = _reachable_metric_nodes(main, functions, function_aliases)
+    _validate_exclusive_artifact_writers(tree, main, nodes, all_nodes)
     writes = [
         (node, _self_test_report_payload_name(node))
         for node in all_nodes
@@ -507,7 +825,17 @@ def _validate_self_test_adapter(
         raise ValueError("self-test adapter must write exactly one self-test report")
     write, report_name = writes[0]
     assert report_name is not None
-    if _mapping_is_mutated_before_write(nodes, write):
+    write_position = (getattr(write, "lineno", 0), getattr(write, "col_offset", 0))
+    before_write_nodes = [
+        node
+        for node in nodes
+        if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
+        < write_position
+    ]
+    called_nodes = _reachable_called_function_nodes(
+        main, before_write_nodes, functions, function_aliases
+    )
+    if _mapping_is_mutated([*before_write_nodes, *called_nodes]):
         raise ValueError("self-test adapter rejects mutable report provenance")
     write_line = getattr(write, "lineno", 0)
     assignments = sorted(
