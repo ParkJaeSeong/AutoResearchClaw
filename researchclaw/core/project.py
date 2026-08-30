@@ -194,6 +194,13 @@ class ResearchProject:
             and current_project.state.status is StageStatus.AWAITING_APPROVAL
             and current_project.state.next_action == "approve_experiment_execution"
         )
+        if approval_eligible:
+            try:
+                from .experiment_package_contract import _current_registered_self_test
+
+                _current_registered_self_test(current_project)
+            except (OSError, ValueError):
+                approval_eligible = False
         return {
             **current_project.state.to_dict(),
             "execution_readiness": readiness,

@@ -457,6 +457,13 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             and state.status is StageStatus.AWAITING_APPROVAL
             and state.next_action == "approve_experiment_execution"
         )
+        if approval_eligible:
+            try:
+                from .experiment_package_contract import _current_registered_self_test
+
+                _current_registered_self_test(current_project)
+            except (OSError, ValueError):
+                approval_eligible = False
     elif stage_thirteen_boundary:
         stage_name = get_contract(state.current_stage).name
         approval_required = False

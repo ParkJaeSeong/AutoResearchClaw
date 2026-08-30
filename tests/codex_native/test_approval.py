@@ -180,6 +180,8 @@ def test_stage_twelve_approval_requires_registered_self_test(tmp_path):
         tmp_path / "project", register_self_test=False
     )
 
+    assert project.status_dict()["approval_eligible"] is False
+
     with pytest.raises(ValueError, match="experiment_self_test_required"):
         approve_current_gate(project, "approve", "Run it")
 

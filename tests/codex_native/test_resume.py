@@ -95,7 +95,7 @@ def test_resume_uses_only_project_files(tmp_path):
 @pytest.mark.parametrize(
     ("readiness", "unmet", "next_action", "approval_eligible"),
     [
-        ("ready_for_execution", [], "approve_experiment_execution", True),
+        ("ready_for_execution", [], "approve_experiment_execution", False),
         (
             "needs_input",
             [
