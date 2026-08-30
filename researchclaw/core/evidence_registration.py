@@ -1070,10 +1070,75 @@ def _finish_abort(project: ResearchProject, pending: dict[str, object]) -> None:
     current_hash = _hash(current.state.to_dict())
     if current_hash == pending["target_state_sha256"]:
         StateStore(current.root / ".researchclaw").save(prior)
+    elif _is_original_registration_target(current.state, prior, pending):
+        # A pending manifest is mutable recovery input.  The already-persisted
+        # Stage-13 state retains the original registration artifact identities,
+        # so derive the legitimate target from that closed layout instead of a
+        # target hash an attacker can recompute with rewritten pending bytes.
+        StateStore(current.root / ".researchclaw").save(prior)
     elif current_hash != pending["prior_state_sha256"]:
         raise ValueError("evidence_registration_interrupted")
     _after_abort_state_restored()
     _clear_pending(ResearchProject.open_readonly(current.root))
+
+
+def _is_original_registration_target(
+    current: ProjectState,
+    prior: ProjectState,
+    pending: Mapping[str, object],
+) -> bool:
+    """Recognize only the exact Stage-13 shape owned by this registration."""
+    registration_id = pending.get("registration_id")
+    manifest_path = pending.get("manifest_path")
+    if (
+        not isinstance(registration_id, str)
+        or manifest_path
+        != f".researchclaw/evidence/manifests/{registration_id}.json"
+        or current.current_stage != 13
+        or current.status is not StageStatus.READY
+        or current.next_action != "prepare_stage"
+        or current.last_error is not None
+        or 12 not in current.completed_stages
+        or "experiment/results.json" in prior.artifacts
+        or manifest_path in prior.artifacts
+    ):
+        return False
+    manifest_ref = current.artifacts.get(manifest_path)
+    compatibility_ref = current.artifacts.get("experiment/results.json")
+    if manifest_ref is None or compatibility_ref is None:
+        return False
+    result_object_path = (
+        f".researchclaw/evidence/objects/{compatibility_ref.sha256}"
+    )
+    result_ref = current.artifacts.get(result_object_path)
+    if (
+        result_object_path in prior.artifacts
+        or result_ref
+        != ArtifactRef(
+            result_object_path,
+            compatibility_ref.sha256,
+            compatibility_ref.size,
+        )
+    ):
+        return False
+    expected = replace(
+        prior,
+        current_stage=13,
+        status=StageStatus.READY,
+        completed_stages=(
+            *tuple(stage for stage in prior.completed_stages if stage != 12),
+            12,
+        ),
+        next_action="prepare_stage",
+        artifacts={
+            **prior.artifacts,
+            str(manifest_path): manifest_ref,
+            result_object_path: result_ref,
+            "experiment/results.json": compatibility_ref,
+        },
+        last_error=None,
+    )
+    return current == expected
 
 
 def _begin_integrity_abort(

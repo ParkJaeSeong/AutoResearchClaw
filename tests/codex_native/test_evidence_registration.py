@@ -592,12 +592,12 @@ def test_recovery_derives_target_from_manifest_instead_of_trusting_target_hash(
     with pytest.raises(ValueError):
         recover_pending_evidence_registration(project)
 
-    if pending_path.exists():
-        durable = json.loads(pending_path.read_text(encoding="utf-8"))
-        assert durable["abort_intent"] is True
-        assert durable["phase"] == "aborting"
-    else:
-        assert ResearchProject.open(project.root).state.current_stage == 12
+    # Integrity failure is reported once, but the durable abort must be
+    # actionable on retry even when the attacker recomputed the pending target.
+    assert recover_pending_evidence_registration(project) is None
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert not pending_path.exists()
+
     events_after = event_log_for(project.root).read_all()
     assert sum(event.type == "research_result_registered" for event in events_after) <= sum(
         event.type == "research_result_registered" for event in events_before

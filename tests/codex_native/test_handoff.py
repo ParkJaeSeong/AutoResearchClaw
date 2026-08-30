@@ -2,6 +2,7 @@ import shlex
 import subprocess
 import sys
 import threading
+from dataclasses import replace
 
 
 from researchclaw.core.events import event_log_for
@@ -12,6 +13,7 @@ from researchclaw.core.experiment_package_contract import (
 )
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.state import StateStore
 from researchclaw.core.research_execution import (
     prepare_research_execution,
     register_research_result,
@@ -105,6 +107,42 @@ def _registered_stage_thirteen_project(root):
     write_contract_bound_research_result(project, contract)
     register_research_result(project, "experiment/results.json")
     return ResearchProject.open(project.root)
+
+
+def test_invalid_legacy_stage_thirteen_result_routes_to_confirmed_quarantine(tmp_path):
+    project = _registered_stage_thirteen_project(tmp_path / "project")
+    state = project.state
+    legacy_artifacts = {
+        path: ref
+        for path, ref in state.artifacts.items()
+        if not path.startswith(".researchclaw/evidence/")
+    }
+    StateStore(project.root / ".researchclaw").save(
+        replace(state, artifacts=legacy_artifacts)
+    )
+    (project.root / "experiment/results.json").write_text("{}", encoding="utf-8")
+
+    handoff = build_handoff(ResearchProject.open(project.root))
+
+    assert handoff.current_stage == 12
+    assert handoff.next_action == "quarantine_result"
+    assert "quarantine-result" in handoff.next_command
+    assert "--confirm" in handoff.next_command
+
+
+def test_stale_stage_twelve_contract_remains_at_stage_twelve_and_prepares_again(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract_path = project.root / "experiment/execution_contract.json"
+    contract_path.write_text("{}", encoding="utf-8")
+
+    handoff = build_handoff(ResearchProject.open(project.root))
+
+    state = ResearchProject.open(project.root).state
+    assert handoff.current_stage == 12
+    assert handoff.next_action == "prepare_run"
+    assert "experiment/execution_contract.json" not in state.artifacts
+    assert "validate_stage" not in handoff.next_command
 
 
 def test_handoff_holds_registration_lock_through_durable_normalization(

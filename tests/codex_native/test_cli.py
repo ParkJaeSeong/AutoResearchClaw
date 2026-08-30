@@ -64,6 +64,36 @@ def test_json_errors_keep_stdout_empty(tmp_path, capsys):
     assert "state.json" in captured.err
 
 
+def test_quarantine_result_cli_requires_confirmation_and_moves_regular_result(
+    tmp_path, capsys
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    contract = load_execution_contract(project.root)
+    write_contract_bound_research_result(project, contract)
+
+    assert main(
+        [
+            "execution", "quarantine-result", str(project.root),
+            "--reason", "invalid_result", "--json",
+        ]
+    ) == 2
+    assert not capsys.readouterr().out
+
+    assert main(
+        [
+            "execution", "quarantine-result", str(project.root),
+            "--reason", "invalid_result", "--confirm", "--json",
+        ]
+    ) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["original_path"] == "experiment/results.json"
+    assert payload["reason"] == "invalid_result"
+    assert not (project.root / "experiment/results.json").exists()
+    assert (project.root / payload["quarantine_path"]).is_file()
+    assert ResearchProject.open(project.root).build_handoff().next_action == "prepare_run"
+
+
 def test_experiment_register_self_test_cli_records_external_report(tmp_path, capsys):
     project = build_self_test_registration_project(tmp_path / "project")
     _run_known_answer_self_test(project)
@@ -752,5 +782,9 @@ def test_stage_twelve_cli_commands_normalize_durable_lineage_before_mutating(
     state = ResearchProject.open(project.root).state
     assert state.current_stage == expected_stage
     assert state.status.value == "needs_revision"
-    assert state.next_action == "validate_stage"
+    assert state.next_action == (
+        "validate_experiment_package"
+        if lineage_damage == "tampered-package-file"
+        else "validate_stage"
+    )
     assert not (project.root / "approvals/stage-12.json").exists()

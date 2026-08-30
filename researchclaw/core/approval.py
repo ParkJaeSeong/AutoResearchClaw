@@ -127,6 +127,8 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
 
         current_project = normalize_durable_project(current_project)
     state = current_project.state
+    if state.next_action == "validate_experiment_package":
+        raise ValueError("experiment_self_test_required")
     if state.status is not StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is not awaiting approval")
 

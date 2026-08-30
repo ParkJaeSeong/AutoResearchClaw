@@ -6,6 +6,7 @@ import argparse
 import json
 import shlex
 import sys
+from dataclasses import asdict
 from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
@@ -24,6 +25,11 @@ from researchclaw.core.research_execution import (
     prepare_research_execution,
     register_research_result,
 )
+from researchclaw.core.evidence_store import (
+    EvidenceStore,
+    quarantine_unregistered_result,
+)
+from researchclaw.core.evidence_registration import registered_evidence_status
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
 
@@ -167,6 +173,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirm registration of a contract-bound research result",
     )
     register_result.add_argument("--json", action="store_true", help="emit JSON")
+    quarantine_result = execution_commands.add_parser(
+        "quarantine-result", help="quarantine one unregistered mutable result"
+    )
+    quarantine_result.add_argument("root", metavar="PROJECT")
+    quarantine_result.add_argument("--reason", required=True, metavar="CATEGORY")
+    quarantine_result.add_argument("--confirm", action="store_true")
+    quarantine_result.add_argument("--json", action="store_true", help="emit JSON")
+
+    evidence = subcommands.add_parser("evidence", help="audit and collect evidence")
+    evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
+    gc = evidence_commands.add_parser("gc", help="plan or confirm evidence collection")
+    gc.add_argument("root", metavar="PROJECT")
+    gc_mode = gc.add_mutually_exclusive_group(required=True)
+    gc_mode.add_argument("--dry-run", action="store_true")
+    gc_mode.add_argument("--confirm-token", metavar="TOKEN")
+    gc.add_argument("--json", action="store_true", help="emit JSON")
+    audit = evidence_commands.add_parser("audit", help="audit immutable evidence grounding")
+    audit.add_argument("root", metavar="PROJECT")
+    audit.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -233,6 +258,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "execution" and args.execution_command == "register-result":
             project = ResearchProject.open(args.root)
             payload = register_research_result(project, args.result).to_dict()
+        elif args.command == "execution" and args.execution_command == "quarantine-result":
+            project = ResearchProject.open(args.root)
+            payload = quarantine_unregistered_result(
+                project, args.reason, args.confirm
+            ).to_dict()
+        elif args.command == "evidence" and args.evidence_command == "gc":
+            store = EvidenceStore(ResearchProject.open(args.root).root)
+            plan = store.plan_gc()
+            payload = (
+                asdict(plan)
+                if args.dry_run
+                else asdict(store.collect(plan, args.confirm_token))
+            )
+        elif args.command == "evidence" and args.evidence_command == "audit":
+            project = ResearchProject.open_readonly(args.root)
+            status = registered_evidence_status(project)
+            payload = {
+                "project_id": project.state.project_id,
+                "classification": (
+                    "immutable_registered" if status is not None else "legacy_untrusted"
+                ),
+                "registration": None if status is None else status.to_dict(),
+            }
         elif args.command == "stage" and args.stage_command == "prepare":
             project = ResearchProject.open(args.root)
             payload = prepare_task_packet(
@@ -271,6 +319,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(shlex.join(argv))
             else:
                 print(f"stage 12: {payload['readiness']}")
+        elif args.command == "evidence":
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
     return exit_code

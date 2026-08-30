@@ -174,7 +174,11 @@ def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | No
     except ValueError as error:
         if str(error) == "execution_approval_invalid":
             return "approve_experiment_execution"
-        return "prepare_run"
+        return (
+            "quarantine_result"
+            if (root / RESEARCH_RESULT_PATH).exists()
+            else "prepare_run"
+        )
 
     contract_ref = state.artifacts.get(EXECUTION_CONTRACT_PATH)
     result_ref = state.artifacts.get(RESEARCH_RESULT_PATH)
@@ -196,7 +200,83 @@ def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | No
         metric_count=validated.metric_count,
         input_count=validated.input_count,
     )
-    return None if grounded else "register_research_result"
+    return None if grounded else "audit_legacy_evidence"
+
+
+def _recover_stale_stage_twelve_contract(
+    project: ResearchProject,
+) -> ResearchProject | None:
+    """Classify an invalid execution contract before generic stage rewinds."""
+    from .research_execution import EXECUTION_CONTRACT_PATH, RESEARCH_RESULT_PATH
+
+    state = project.state
+    if state.current_stage != 12 or 11 not in state.completed_stages:
+        return None
+    reference = state.artifacts.get(EXECUTION_CONTRACT_PATH)
+    if reference is None:
+        return None
+    try:
+        path = resolve_project_artifact(project.root, EXECUTION_CONTRACT_PATH)
+        valid = (
+            path.is_file()
+            and path.stat().st_size == reference.size
+            and _sha256(path) == reference.sha256
+        )
+    except (OSError, ValueError):
+        valid = False
+    if valid:
+        return None
+    return project.persist_state(
+        replace(
+            state,
+            status=StageStatus.READY,
+            next_action="prepare_run",
+            artifacts={
+                path: artifact
+                for path, artifact in state.artifacts.items()
+                if path not in {EXECUTION_CONTRACT_PATH, RESEARCH_RESULT_PATH}
+            },
+            last_error={
+                "error_class": StageStatus.NEEDS_REVISION.value,
+                "stage_id": 12,
+                "attempt_number": state.retry_counts.get("12", 0) + 1,
+                "issues": [{
+                    "code": "execution_contract_stale",
+                    "path": EXECUTION_CONTRACT_PATH,
+                    "message": "Prepare a new immutable execution contract.",
+                }],
+                "artifact_hashes": {},
+                "recommended_action": "prepare_run",
+                "retry_state": "stage_twelve_registration_recovery",
+            },
+        )
+    )
+
+
+def _recover_invalid_stage_twelve_package(
+    project: ResearchProject,
+) -> ResearchProject | None:
+    """Route a once-registered package/self-test failure back to Stage 10."""
+    from .experiment_package_contract import SELF_TEST_REPORT_PATH
+
+    state = project.state
+    if (
+        state.current_stage != 12
+        or 11 not in state.completed_stages
+        or SELF_TEST_REPORT_PATH not in state.artifacts
+    ):
+        return None
+    if _first_invalid_artifact_stage(project.root, state) != 10:
+        return None
+    rewound = _rewind_for_revalidation(
+        project, 10, approval_invalidated=False
+    )
+    return rewound.persist_state(
+        replace(
+            rewound.state,
+            next_action="validate_experiment_package",
+        )
+    )
 
 
 def _first_invalid_completed_approval_stage(project: ResearchProject) -> int | None:
@@ -305,6 +385,7 @@ def _rewind_stage_twelve_registration(
                 path: artifact
                 for path, artifact in state.artifacts.items()
                 if path != "experiment/results.json"
+                and not path.startswith(".researchclaw/evidence/")
             },
             last_error=last_error,
         )
@@ -337,6 +418,12 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
     )
     current_project = ResearchProject.open(project.root)
     state = current_project.state
+    recovered_package = _recover_invalid_stage_twelve_package(current_project)
+    if recovered_package is not None:
+        return recovered_package
+    recovered_contract = _recover_stale_stage_twelve_contract(current_project)
+    if recovered_contract is not None:
+        return recovered_contract
     stage_thirteen_action = _stage_thirteen_recovery_action(
         current_project.root,
         state,
@@ -376,6 +463,8 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
                 "prepare_run",
                 "register_research_result",
                 "approve_experiment_execution",
+                "quarantine_result",
+                "audit_legacy_evidence",
             }
             and isinstance(state.last_error, dict)
             and state.last_error.get("retry_state")
@@ -557,6 +646,18 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
                     "--json",
                 )
             )
+        elif state.next_action == "quarantine_result":
+            next_action = state.next_action
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex", "execution", "quarantine-result",
+                    str(current_project.root.resolve()), "--reason",
+                    "invalid_result", "--confirm", "--json",
+                )
+            )
+        elif state.next_action == "audit_legacy_evidence":
+            next_action = state.next_action
+            next_command = _command(current_project.root, "evidence", "audit")
         elif approval_eligible:
             next_action = "approve_experiment_execution"
             next_command = shlex.join(
@@ -592,7 +693,11 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         next_command = _command(current_project.root, "evaluate")
         approval_required = False
     elif status is StageStatus.NEEDS_REVISION:
-        next_action = "validate_stage"
+        next_action = (
+            state.next_action
+            if state.next_action == "validate_experiment_package"
+            else "validate_stage"
+        )
         next_command = _command(current_project.root, "stage", "validate")
     elif status is StageStatus.AWAITING_APPROVAL:
         next_action = "approve"

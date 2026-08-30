@@ -511,7 +511,11 @@ def test_public_recheck_normalizes_all_durable_lineage_before_refreshing(
     state = ResearchProject.open(project.root).state
     assert state.current_stage == expected_stage
     assert state.status is StageStatus.NEEDS_REVISION
-    assert state.next_action == "validate_stage"
+    assert state.next_action == (
+        "validate_experiment_package"
+        if lineage_damage == "tampered-package-file"
+        else "validate_stage"
+    )
 
 
 def test_recheck_rejects_a_human_rejected_ready_plan(stage_12_ready_project):

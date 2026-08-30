@@ -813,7 +813,11 @@ def test_stage_twelve_approval_normalizes_all_durable_lineage_before_deciding(
     state = ResearchProject.open(project.root).state
     assert state.current_stage == expected_stage
     assert state.status.value == "needs_revision"
-    assert state.next_action == "validate_stage"
+    assert state.next_action == (
+        "validate_experiment_package"
+        if lineage_damage == "tampered-package-file"
+        else "validate_stage"
+    )
     assert not (project.root / "approvals/stage-12.json").exists()
 
 

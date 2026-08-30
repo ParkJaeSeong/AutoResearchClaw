@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import ctypes
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from datetime import datetime, timezone
 import errno
 import hashlib
 import hmac
@@ -19,6 +20,9 @@ from typing import Any
 
 from .execution_gate import open_project_file_descriptor
 from .models import ArtifactRef
+from .events import EvaluationEvent, event_log_for
+from .project import ResearchProject
+from .state import StateStore
 from .paths import validate_relative_path
 from .transactions import project_transaction
 
@@ -165,6 +169,18 @@ class EvidenceGcResult:
     quarantined_temporary_paths: tuple[str, ...]
     reclaimed_bytes: int
     quarantined_bytes: int
+
+
+@dataclass(frozen=True)
+class QuarantinedResult:
+    original_path: str
+    quarantine_path: str
+    sha256: str
+    size: int
+    reason: str
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -400,6 +416,7 @@ class EvidenceStore:
         self.objects_root = self.evidence_root / "objects"
         self.manifests_root = self.evidence_root / "manifests"
         self.quarantine_root = self.evidence_root / "gc-quarantine"
+        self.results_quarantine_root = self.evidence_root / "quarantine/results"
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
@@ -407,6 +424,7 @@ class EvidenceStore:
             (".researchclaw", "evidence", "objects"),
             (".researchclaw", "evidence", "manifests"),
             (".researchclaw", "evidence", "gc-quarantine"),
+            (".researchclaw", "evidence", "quarantine", "results"),
         ):
             self._ensure_directory_chain(relative_parts)
 
@@ -433,7 +451,7 @@ class EvidenceStore:
                 )
                 os.close(descriptor)
                 descriptor = child
-            if relative_parts[-1] == "gc-quarantine":
+            if relative_parts[-1] in {"gc-quarantine", "results"}:
                 os.fchmod(descriptor, 0o700)
                 os.fsync(descriptor)
         except (OSError, ValueError) as error:
@@ -1371,3 +1389,108 @@ class EvidenceStore:
             reclaimed_bytes=0,
             quarantined_bytes=plan.total_bytes,
         )
+
+
+def quarantine_unregistered_result(
+    project: ResearchProject, reason: str, confirm: bool
+) -> QuarantinedResult:
+    """Move one mutable, unregistered result into a private durable quarantine."""
+    if confirm is not True:
+        raise ValueError("result quarantine requires --confirm")
+    if (
+        not isinstance(reason, str)
+        or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) is None
+    ):
+        raise ValueError("result quarantine reason is invalid")
+    from .evidence_registration import registered_evidence_status
+
+    with project_transaction(project.root, allow_pending=True):
+        current = ResearchProject.open_readonly(project.root)
+        if registered_evidence_status(current) is not None:
+            raise ValueError("registered evidence cannot be quarantined")
+        relative = "experiment/results.json"
+        source_descriptor, _ = open_project_file_descriptor(current.root, relative)
+        store = EvidenceStore(current.root)
+        source_directory = store._open_directory(current.root / "experiment")
+        quarantine_directory = store._open_directory(store.results_quarantine_root)
+        try:
+            digest, size, source_stat = _descriptor_digest(source_descriptor)
+            if source_stat.st_nlink != 1:
+                raise ValueError("result quarantine requires an unlinked regular file")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            destination_name = f"{timestamp}-{digest}.json"
+            _native_rename_noreplace(
+                source_directory,
+                "results.json",
+                quarantine_directory,
+                destination_name,
+            )
+            os.fsync(quarantine_directory)
+            os.fsync(source_directory)
+            destination = os.open(
+                destination_name,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=quarantine_directory,
+            )
+            try:
+                moved_digest, moved_size, moved_stat = _descriptor_digest(destination)
+            finally:
+                os.close(destination)
+            if (
+                moved_digest != digest
+                or moved_size != size
+                or moved_stat.st_dev != source_stat.st_dev
+                or moved_stat.st_ino != source_stat.st_ino
+            ):
+                raise ValueError("result quarantine identity changed")
+        finally:
+            os.close(quarantine_directory)
+            os.close(source_directory)
+            os.close(source_descriptor)
+        quarantine_path = (
+            f".researchclaw/evidence/quarantine/results/{destination_name}"
+        )
+        log = event_log_for(current.root)
+        event_path = current.root / "evaluation/events.jsonl"
+        event_offset = event_path.stat().st_size if event_path.exists() else 0
+        log.append_locked(
+            EvaluationEvent.create(
+                "research_result_quarantined",
+                current.state.project_id,
+                {
+                    "original_path": relative,
+                    "sha256": digest,
+                    "size": size,
+                    "reason": reason,
+                    "quarantine_path": quarantine_path,
+                },
+            ),
+            expected_offset=event_offset,
+        )
+        if current.state.current_stage == 12:
+            StateStore(current.root / ".researchclaw").save(
+                replace(
+                    current.state,
+                    status=current.state.status,
+                    next_action="prepare_run",
+                    artifacts={
+                        path: artifact
+                        for path, artifact in current.state.artifacts.items()
+                        if path != relative
+                    },
+                    last_error={
+                        "error_class": "needs_revision",
+                        "stage_id": 12,
+                        "attempt_number": current.state.retry_counts.get("12", 0) + 1,
+                        "issues": [{
+                            "code": "research_result_quarantined",
+                            "path": relative,
+                            "message": "Prepare a fresh execution contract before rerunning.",
+                        }],
+                        "artifact_hashes": {},
+                        "recommended_action": "prepare_run",
+                        "retry_state": "stage_twelve_registration_recovery",
+                    },
+                )
+            )
+        return QuarantinedResult(relative, quarantine_path, digest, size, reason)

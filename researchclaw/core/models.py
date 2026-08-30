@@ -28,6 +28,9 @@ _NEXT_ACTIONS = frozenset(
         "report_missing_execution_inputs",
         "prepare_run",
         "register_research_result",
+        "quarantine_result",
+        "validate_experiment_package",
+        "audit_legacy_evidence",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})
