@@ -473,6 +473,7 @@ def build_known_answer_experiment_package(root: Path) -> ResearchProject:
     main_path = project.root / "experiment/code/main.py"
     main_path.parent.mkdir(parents=True, exist_ok=True)
     main_source = '''import argparse
+import ctypes
 import hashlib
 from importlib.metadata import version
 import json
@@ -510,18 +511,111 @@ def execution_environment_descriptor_identity(descriptor: int) -> dict[str, int 
     }
 
 
-def execution_environment_fingerprint(required_distributions: list[str]) -> str:
+def execution_environment_process_image() -> Path:
+    if sys.platform == "darwin":
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        proc_buffer = ctypes.create_string_buffer(4096)
+        proc_length = libproc.proc_pidpath(os.getpid(), proc_buffer, len(proc_buffer))
+        if proc_length <= 0 or proc_length >= len(proc_buffer):
+            raise ValueError("execution environment unavailable")
+        libsystem = ctypes.CDLL(None, use_errno=True)
+        size = ctypes.c_uint32(0)
+        if libsystem._NSGetExecutablePath(None, ctypes.byref(size)) != -1 or size.value <= 1:
+            raise ValueError("execution environment unavailable")
+        dyld_buffer = ctypes.create_string_buffer(size.value)
+        if libsystem._NSGetExecutablePath(dyld_buffer, ctypes.byref(size)) != 0:
+            raise ValueError("execution environment unavailable")
+        proc_path = Path(os.fsdecode(proc_buffer.value)).resolve(strict=True)
+        dyld_path = Path(os.fsdecode(dyld_buffer.value)).resolve(strict=True)
+        if proc_path != dyld_path:
+            raise ValueError("execution environment unavailable")
+        return proc_path
+    if sys.platform == "linux":
+        return Path(os.readlink("/proc/self/exe")).resolve(strict=True)
+    raise ValueError("execution environment unavailable")
+
+
+def execution_environment_framework_root(path: Path) -> Path | None:
+    expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    for index in range(len(path.parts) - 2):
+        if path.parts[index:index + 3] == (
+            "Python.framework",
+            "Versions",
+            expected_version,
+        ):
+            return Path(*path.parts[:index + 3])
+    return None
+
+
+def execution_environment_runtime_paths() -> tuple[Path, Path, Path, bool]:
     interpreter = Path(sys.executable).resolve(strict=True)
-    contract_interpreter = Path(sys.executable)
-    is_venv_entrypoint = Path(sys.prefix, "pyvenv.cfg").is_file()
-    if interpreter.is_symlink():
+    base_interpreter = Path(sys._base_executable).resolve(strict=True)
+    process_image = execution_environment_process_image()
+    is_venv = sys.prefix != sys.base_prefix
+    if is_venv:
+        prefix = Path(sys.prefix).resolve(strict=True)
+        configuration = prefix / "pyvenv.cfg"
+        if configuration.resolve(strict=True) != configuration or not configuration.is_file():
+            raise ValueError("execution environment unavailable")
+        if interpreter.parent != prefix / "bin":
+            raise ValueError("execution environment unavailable")
+    elif interpreter != base_interpreter:
         raise ValueError("execution environment unavailable")
-    descriptor = os.open(
+    if sys.platform == "darwin":
+        framework_root = execution_environment_framework_root(base_interpreter)
+        image_framework_root = execution_environment_framework_root(process_image)
+        if framework_root is None or image_framework_root is None:
+            if base_interpreter != process_image:
+                raise ValueError("execution environment unavailable")
+        elif (
+            framework_root != image_framework_root
+            or base_interpreter.parent != framework_root / "bin"
+            or base_interpreter.name
+            != f"python{sys.version_info.major}.{sys.version_info.minor}"
+            or process_image
+            != framework_root / "Resources/Python.app/Contents/MacOS/Python"
+        ):
+            raise ValueError("execution environment unavailable")
+    elif sys.platform == "linux":
+        expected_process_image = interpreter if is_venv else base_interpreter
+        if expected_process_image != process_image:
+            raise ValueError("execution environment unavailable")
+    else:
+        raise ValueError("execution environment unavailable")
+    return interpreter, process_image, base_interpreter, is_venv
+
+
+def execution_environment_fingerprint(
+    required_distributions: list[str], expected_interpreter: str | None = None
+) -> str:
+    interpreter, process_image, base_interpreter, is_venv = (
+        execution_environment_runtime_paths()
+    )
+    if expected_interpreter is not None and expected_interpreter != str(interpreter):
+        raise ValueError("execution environment changed")
+    interpreter_descriptor = os.open(
         interpreter,
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
+    process_descriptor = os.open(
+        process_image,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    base_descriptor = os.open(
+        base_interpreter,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
     try:
-        identity = execution_environment_descriptor_identity(descriptor)
+        interpreter_identity = execution_environment_descriptor_identity(
+            interpreter_descriptor
+        )
+        process_identity = execution_environment_descriptor_identity(process_descriptor)
+        base_identity = execution_environment_descriptor_identity(base_descriptor)
+        if is_venv and (
+            interpreter_identity["size"] != base_identity["size"]
+            or interpreter_identity["sha256"] != base_identity["sha256"]
+        ):
+            raise ValueError("execution environment unavailable")
         dependencies = {name: version(name) for name in required_distributions}
         implementation = sys.implementation.name.strip().lower()
         release = python_version().strip()
@@ -529,21 +623,42 @@ def execution_environment_fingerprint(required_distributions: list[str]) -> str:
         build = list(python_build())
         system = sys.platform.strip().lower()
         architecture = machine().strip().lower()
-        if execution_environment_descriptor_identity(descriptor) != identity:
+        if execution_environment_runtime_paths() != (
+            interpreter,
+            process_image,
+            base_interpreter,
+            is_venv,
+        ):
+            raise ValueError("execution environment changed")
+        if (
+            execution_environment_descriptor_identity(interpreter_descriptor)
+            != interpreter_identity
+            or execution_environment_descriptor_identity(process_descriptor)
+            != process_identity
+            or execution_environment_descriptor_identity(base_descriptor) != base_identity
+        ):
             raise ValueError("execution environment changed")
     finally:
-        os.close(descriptor)
+        os.close(interpreter_descriptor)
+        os.close(process_descriptor)
+        os.close(base_descriptor)
     payload = {
         "schema_version": 1,
-        "interpreter": str(
-            contract_interpreter if is_venv_entrypoint else interpreter
-        ),
+        "interpreter": str(interpreter),
         "interpreter_identity": {
-            "device": identity["device"],
-            "inode": identity["inode"],
-            "size": identity["size"],
-            "mtime_ns": identity["mtime_ns"],
-            "sha256": identity["sha256"],
+            "device": interpreter_identity["device"],
+            "inode": interpreter_identity["inode"],
+            "size": interpreter_identity["size"],
+            "mtime_ns": interpreter_identity["mtime_ns"],
+            "sha256": interpreter_identity["sha256"],
+        },
+        "process_image": str(process_image),
+        "process_image_identity": {
+            "device": process_identity["device"],
+            "inode": process_identity["inode"],
+            "size": process_identity["size"],
+            "mtime_ns": process_identity["mtime_ns"],
+            "sha256": process_identity["sha256"],
         },
         "python_implementation": implementation,
         "python_version": release,
@@ -622,7 +737,7 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
             Path("experiment/package_contract.json").read_text(encoding="utf-8")
         )
         if execution_contract["environment_fingerprint"] != execution_environment_fingerprint(
-            package_contract["dependencies"]
+            package_contract["dependencies"], execution_contract["argv"][0]
         ):
             raise ValueError("execution environment changed")
     result = run_experiment(config)

@@ -1,41 +1,24 @@
-"""Closed, canonical evidence about a Python execution environment."""
+"""Closed, canonical evidence about the current Python execution environment."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+import ctypes
 from dataclasses import dataclass
 import hashlib
+import importlib.metadata
 import json
 import os
 from pathlib import Path
+import platform as runtime_platform
 import re
-import secrets
 import stat
-import subprocess
+import sys
 from types import MappingProxyType
 
 
 _DISTRIBUTION_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
-_PROBE_TIMEOUT_SECONDS = 10
-_SNAPSHOT_PREFIX = ".researchclaw-execution-"
-_PROBE_SOURCE = """
-import importlib.metadata
-import json
-import platform
-import sys
-
-required = json.loads(sys.argv[1])
-dependencies = {name: importlib.metadata.version(name) for name in required}
-print(json.dumps({
-    \"python_implementation\": sys.implementation.name.strip().lower(),
-    \"python_version\": platform.python_version().strip(),
-    \"python_full_version\": sys.version.strip(),
-    \"python_build\": list(platform.python_build()),
-    \"platform\": sys.platform.strip().lower(),
-    \"machine\": platform.machine().strip().lower(),
-    \"dependencies\": dict(sorted(dependencies.items())),
-}, ensure_ascii=False, sort_keys=True, separators=(\",\", \":\"), allow_nan=False))
-"""
+_MACOS_PROC_PATH_BUFFER_BYTES = 4096
 
 
 @dataclass(frozen=True)
@@ -54,18 +37,18 @@ class ExecutionEnvironment:
 
 
 @dataclass(frozen=True)
-class _VerifiedInterpreter:
+class _VerifiedExecutable:
     path: Path
-    snapshot_directory: Path
     descriptor: int
     identity: Mapping[str, int | str]
 
 
 @dataclass(frozen=True)
-class _VerifiedSnapshot:
-    path: Path
-    descriptor: int
-    identity: Mapping[str, int | str]
+class _CurrentRuntimePaths:
+    interpreter: Path
+    process_image: Path
+    base_interpreter: Path
+    venv_prefix: Path | None
 
 
 def normalize_required_distributions(
@@ -89,6 +72,8 @@ def canonical_environment_payload(
     *,
     interpreter: str,
     interpreter_identity: Mapping[str, object],
+    process_image: str,
+    process_image_identity: Mapping[str, object],
     python_implementation: str,
     python_version: str,
     python_full_version: str,
@@ -102,6 +87,8 @@ def canonical_environment_payload(
         "schema_version": 1,
         "interpreter": interpreter,
         "interpreter_identity": dict(interpreter_identity),
+        "process_image": process_image,
+        "process_image_identity": dict(process_image_identity),
         "python_implementation": python_implementation.strip().lower(),
         "python_version": python_version.strip(),
         "python_full_version": python_full_version.strip(),
@@ -142,282 +129,248 @@ def _descriptor_identity(descriptor: int) -> dict[str, int | str]:
     }
 
 
-def _open_verified_interpreter(interpreter: Path) -> _VerifiedInterpreter:
-    if not interpreter.is_absolute():
+def _require_exact_executable_path(path: Path) -> os.stat_result:
+    """Require one canonical absolute path whose leaf and parents are not aliases."""
+    if not path.is_absolute() or path != Path(os.path.abspath(path)):
         raise ValueError("execution_environment_unavailable")
+    if path.resolve(strict=True) != path:
+        raise ValueError("execution_environment_unavailable")
+    path_status = os.lstat(path)
+    if not stat.S_ISREG(path_status.st_mode) or not path_status.st_mode & 0o111:
+        raise ValueError("execution_environment_unavailable")
+    return path_status
+
+
+def _canonical_runtime_executable(path: Path | str) -> Path:
+    raw_path = Path(path)
+    if not raw_path.is_absolute():
+        raise ValueError("execution_environment_unavailable")
+    resolved = raw_path.resolve(strict=True)
+    _require_exact_executable_path(resolved)
+    return resolved
+
+
+def _open_verified_executable(path: Path) -> _VerifiedExecutable:
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise ValueError("execution_environment_unavailable")
+    path_status = _require_exact_executable_path(path)
     descriptor: int | None = None
     try:
-        contract_path = Path(os.path.abspath(interpreter))
-        resolved = contract_path.resolve(strict=True)
-        is_venv_entrypoint = (contract_path.parent.parent / "pyvenv.cfg").is_file()
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        )
+        descriptor_status = os.fstat(descriptor)
         if (
-            resolved.is_symlink()
-            or not hasattr(os, "O_NOFOLLOW")
-            or (interpreter.is_symlink() and not is_venv_entrypoint)
+            descriptor_status.st_dev != path_status.st_dev
+            or descriptor_status.st_ino != path_status.st_ino
         ):
             raise ValueError("execution_environment_unavailable")
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
-        descriptor = os.open(resolved, flags)
-    except (OSError, RuntimeError, ValueError) as error:
-        if descriptor is not None:
-            os.close(descriptor)
-        raise ValueError("execution_environment_unavailable") from error
-    try:
         identity = _descriptor_identity(descriptor)
+        return _VerifiedExecutable(path, descriptor, identity)
     except (OSError, ValueError) as error:
-        os.close(descriptor)
-        raise ValueError("execution_environment_unavailable") from error
-    return _VerifiedInterpreter(
-        contract_path,
-        contract_path.parent if is_venv_entrypoint else resolved.parent,
-        descriptor,
-        identity,
-    )
-
-
-def _before_descriptor_probe(_verified: _VerifiedInterpreter) -> None:
-    """Test seam between descriptor verification and descriptor execution."""
-
-
-def _descriptor_execution_path(descriptor: int) -> str:
-    path = Path("/dev/fd") / str(descriptor)
-    if not path.exists():
-        raise ValueError("execution_environment_unavailable")
-    return str(path)
-
-
-def _before_snapshot_subprocess(_snapshot: _VerifiedSnapshot) -> None:
-    """Test seam immediately before the final snapshot pathname check."""
-
-
-def _snapshot_path(directory: Path) -> tuple[int, Path]:
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | os.O_NOFOLLOW
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    for _ in range(32):
-        path = directory / f"{_SNAPSHOT_PREFIX}{secrets.token_hex(16)}"
-        try:
-            return os.open(path, flags, 0o700), path
-        except FileExistsError:
-            continue
-    raise OSError("could not allocate execution snapshot")
-
-
-def _same_snapshot_identity(
-    identity: Mapping[str, int | str], expected: Mapping[str, int | str]
-) -> bool:
-    return identity == expected
-
-
-def _unlink_owned_snapshot(path: Path, descriptor: int) -> None:
-    """Remove a snapshot only when the visible name still identifies our FD."""
-    pathname_status = os.stat(path, follow_symlinks=False)
-    descriptor_status = os.fstat(descriptor)
-    if (
-        pathname_status.st_dev != descriptor_status.st_dev
-        or pathname_status.st_ino != descriptor_status.st_ino
-    ):
-        raise ValueError("execution_environment_unavailable")
-    path.unlink()
-
-
-def _snapshot_descriptor(verified: _VerifiedInterpreter) -> _VerifiedSnapshot:
-    """Copy one verified descriptor to a private executable on its filesystem."""
-    descriptor: int | None = None
-    snapshot_descriptor: int | None = None
-    snapshot_path: Path | None = None
-    try:
-        descriptor, snapshot_path = _snapshot_path(verified.snapshot_directory)
-        if os.fstat(descriptor).st_dev != verified.identity["device"]:
-            raise ValueError("execution_environment_unavailable")
-        if _descriptor_identity(verified.descriptor) != verified.identity:
-            raise ValueError("execution_environment_unavailable")
-        os.lseek(verified.descriptor, 0, os.SEEK_SET)
-        with os.fdopen(os.dup(descriptor), "wb", closefd=True) as snapshot_file:
-            while chunk := os.read(verified.descriptor, 1024 * 1024):
-                snapshot_file.write(chunk)
-            snapshot_file.flush()
-        os.fsync(descriptor)
-        os.fchmod(descriptor, 0o700)
-        os.close(descriptor)
-        descriptor = None
-        snapshot_descriptor = os.open(
-            snapshot_path,
-            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW,
-        )
-        identity_descriptor = os.dup(snapshot_descriptor)
-        try:
-            snapshot_identity = _descriptor_identity(identity_descriptor)
-        finally:
-            os.close(identity_descriptor)
-        if not (
-            snapshot_identity["size"] == verified.identity["size"]
-            and snapshot_identity["sha256"] == verified.identity["sha256"]
-        ):
-            raise ValueError("execution_environment_unavailable")
-        snapshot = _VerifiedSnapshot(snapshot_path, snapshot_descriptor, snapshot_identity)
-        snapshot_descriptor = None
-        return snapshot
-    except (OSError, ValueError) as error:
-        if snapshot_path is not None:
-            try:
-                owned_descriptor = (
-                    snapshot_descriptor
-                    if snapshot_descriptor is not None
-                    else descriptor
-                )
-                if owned_descriptor is not None:
-                    _unlink_owned_snapshot(snapshot_path, owned_descriptor)
-            except (OSError, ValueError):
-                pass
         if descriptor is not None:
             os.close(descriptor)
-        if snapshot_descriptor is not None:
-            os.close(snapshot_descriptor)
         raise ValueError("execution_environment_unavailable") from error
 
 
-def _validate_snapshot_path(snapshot: _VerifiedSnapshot) -> None:
-    descriptor = os.open(
-        snapshot.path,
-        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW,
-    )
+def _linux_proc_self_executable() -> Path:
+    """Return the kernel-attested process image name on Linux."""
+    return Path(os.readlink("/proc/self/exe"))
+
+
+def _macos_process_image_paths() -> tuple[Path, Path]:
+    """Return independent libproc and dyld attestations of the loaded image."""
     try:
-        if not _same_snapshot_identity(
-            _descriptor_identity(descriptor), snapshot.identity
-        ):
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        proc_pidpath = libproc.proc_pidpath
+        proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        proc_pidpath.restype = ctypes.c_int
+        proc_buffer = ctypes.create_string_buffer(_MACOS_PROC_PATH_BUFFER_BYTES)
+        proc_length = proc_pidpath(os.getpid(), proc_buffer, len(proc_buffer))
+        if proc_length <= 0 or proc_length >= len(proc_buffer):
             raise ValueError("execution_environment_unavailable")
-    finally:
-        os.close(descriptor)
 
+        libsystem = ctypes.CDLL(None, use_errno=True)
+        get_executable_path = libsystem._NSGetExecutablePath
+        get_executable_path.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint32),
+        ]
+        get_executable_path.restype = ctypes.c_int
+        size = ctypes.c_uint32(0)
+        if get_executable_path(None, ctypes.byref(size)) != -1 or size.value <= 1:
+            raise ValueError("execution_environment_unavailable")
+        dyld_buffer = ctypes.create_string_buffer(size.value)
+        if get_executable_path(dyld_buffer, ctypes.byref(size)) != 0:
+            raise ValueError("execution_environment_unavailable")
 
-def _cleanup_snapshot(snapshot: _VerifiedSnapshot) -> None:
-    try:
-        _unlink_owned_snapshot(snapshot.path, snapshot.descriptor)
-    except FileNotFoundError as error:
+        proc_path = _canonical_runtime_executable(os.fsdecode(proc_buffer.value))
+        dyld_path = _canonical_runtime_executable(os.fsdecode(dyld_buffer.value))
+        return proc_path, dyld_path
+    except (AttributeError, OSError, TypeError, ValueError, UnicodeError) as error:
         raise ValueError("execution_environment_unavailable") from error
-    finally:
-        os.close(snapshot.descriptor)
 
 
-def _probe_command(
-    executable: str, required_distributions: tuple[str, ...], *, pass_fds: tuple[int, ...]
-) -> dict[str, object]:
-    completed = subprocess.run(
-        [
-            executable,
-            "-I",
-            "-c",
-            _PROBE_SOURCE,
-            json.dumps(required_distributions, separators=(",", ":")),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=_PROBE_TIMEOUT_SECONDS,
-        pass_fds=pass_fds,
-    )
-    if completed.returncode != 0:
-        raise ValueError("execution_environment_unavailable")
-    value = json.loads(completed.stdout)
-    if not isinstance(value, dict):
-        raise ValueError("execution_environment_unavailable")
-    return value
+def _attested_process_image() -> Path:
+    if sys.platform == "darwin":
+        proc_path, dyld_path = _macos_process_image_paths()
+        if proc_path != dyld_path:
+            raise ValueError("execution_environment_unavailable")
+        return proc_path
+    if sys.platform.startswith("linux"):
+        return _canonical_runtime_executable(_linux_proc_self_executable())
+    raise ValueError("execution_environment_unavailable")
 
 
-def _probe_snapshot(
-    verified: _VerifiedInterpreter, required_distributions: tuple[str, ...]
-) -> dict[str, object]:
-    snapshot = _snapshot_descriptor(verified)
-    try:
-        _before_snapshot_subprocess(snapshot)
-        _validate_snapshot_path(snapshot)
-        value = _probe_command(
-            str(snapshot.path), required_distributions, pass_fds=(snapshot.descriptor,)
-        )
-        _validate_snapshot_path(snapshot)
-        return value
-    finally:
-        _cleanup_snapshot(snapshot)
+def _macos_framework_root(path: Path) -> Path | None:
+    expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    matches = [
+        index
+        for index in range(len(path.parts) - 2)
+        if path.parts[index : index + 2] == ("Python.framework", "Versions")
+        and path.parts[index + 2] == expected_version
+    ]
+    if len(matches) != 1:
+        return None
+    return Path(*path.parts[: matches[0] + 3])
 
 
-def _probe_execution_environment(
-    verified: _VerifiedInterpreter, required_distributions: tuple[str, ...]
-) -> dict[str, object]:
-    try:
-        _before_descriptor_probe(verified)
-        try:
-            value = _probe_command(
-                _descriptor_execution_path(verified.descriptor),
-                required_distributions,
-                pass_fds=(verified.descriptor,),
-            )
-        except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
-            value = _probe_snapshot(verified, required_distributions)
-    except (
-        OSError,
-        ValueError,
-        json.JSONDecodeError,
-        subprocess.TimeoutExpired,
-        UnicodeError,
-    ) as error:
-        raise ValueError("execution_environment_unavailable") from error
-    fields = {
-        "python_implementation",
-        "python_version",
-        "python_full_version",
-        "python_build",
-        "platform",
-        "machine",
-        "dependencies",
-    }
-    dependencies = value.get("dependencies") if isinstance(value, dict) else None
+def _current_venv_prefix(interpreter: Path) -> Path | None:
+    if sys.prefix == sys.base_prefix:
+        return None
+    prefix = Path(sys.prefix).resolve(strict=True)
+    configuration = prefix / "pyvenv.cfg"
+    configuration_status = os.lstat(configuration)
     if (
-        not isinstance(value, dict)
-        or set(value) != fields
-        or not all(isinstance(value[field], str) and value[field] for field in fields - {"dependencies", "python_build"})
-        or not isinstance(value["python_build"], list)
-        or len(value["python_build"]) != 2
-        or any(not isinstance(item, str) or not item for item in value["python_build"])
-        or not isinstance(dependencies, dict)
-        or tuple(dependencies) != required_distributions
-        or any(not isinstance(version, str) or not version for version in dependencies.values())
+        configuration.resolve(strict=True) != configuration
+        or not stat.S_ISREG(configuration_status.st_mode)
+        or interpreter.parent != prefix / "bin"
     ):
         raise ValueError("execution_environment_unavailable")
-    return value
+    return prefix
+
+
+def _current_runtime_paths() -> _CurrentRuntimePaths:
+    interpreter = _canonical_runtime_executable(sys.executable)
+    base_interpreter = _canonical_runtime_executable(
+        getattr(sys, "_base_executable", sys.executable)
+    )
+    process_image = _attested_process_image()
+    venv_prefix = _current_venv_prefix(interpreter)
+    if venv_prefix is None and interpreter != base_interpreter:
+        raise ValueError("execution_environment_unavailable")
+
+    if sys.platform == "darwin":
+        framework_root = _macos_framework_root(base_interpreter)
+        image_framework_root = _macos_framework_root(process_image)
+        if framework_root is None or image_framework_root is None:
+            if base_interpreter != process_image:
+                raise ValueError("execution_environment_unavailable")
+        elif (
+            framework_root != image_framework_root
+            or base_interpreter.parent != framework_root / "bin"
+            or base_interpreter.name
+            != f"python{sys.version_info.major}.{sys.version_info.minor}"
+            or process_image
+            != framework_root / "Resources/Python.app/Contents/MacOS/Python"
+        ):
+            raise ValueError("execution_environment_unavailable")
+    elif sys.platform.startswith("linux"):
+        expected_process_image = interpreter if venv_prefix is not None else base_interpreter
+        if expected_process_image != process_image:
+            raise ValueError("execution_environment_unavailable")
+    else:
+        raise ValueError("execution_environment_unavailable")
+
+    return _CurrentRuntimePaths(
+        interpreter=interpreter,
+        process_image=process_image,
+        base_interpreter=base_interpreter,
+        venv_prefix=venv_prefix,
+    )
+
+
+def _open_runtime_executables(
+    paths: _CurrentRuntimePaths,
+) -> dict[Path, _VerifiedExecutable]:
+    verified: dict[Path, _VerifiedExecutable] = {}
+    try:
+        for path in (paths.interpreter, paths.process_image, paths.base_interpreter):
+            if path not in verified:
+                verified[path] = _open_verified_executable(path)
+        if paths.venv_prefix is not None:
+            interpreter_identity = verified[paths.interpreter].identity
+            base_identity = verified[paths.base_interpreter].identity
+            if (
+                interpreter_identity["size"] != base_identity["size"]
+                or interpreter_identity["sha256"] != base_identity["sha256"]
+            ):
+                raise ValueError("execution_environment_unavailable")
+        return verified
+    except (OSError, ValueError) as error:
+        for item in verified.values():
+            os.close(item.descriptor)
+        raise ValueError("execution_environment_unavailable") from error
 
 
 def inspect_execution_environment(
     interpreter: Path, required_distributions: tuple[str, ...]
 ) -> ExecutionEnvironment:
-    """Inspect one regular, exact Python interpreter without a shell."""
+    """Inspect only the OS-attested interpreter running this process."""
     required = normalize_required_distributions(required_distributions)
-    verified = _open_verified_interpreter(Path(interpreter))
+    requested = Path(interpreter)
+    verified: dict[Path, _VerifiedExecutable] = {}
     try:
-        probe = _probe_execution_environment(verified, required)
-        if _descriptor_identity(verified.descriptor) != verified.identity:
+        _require_exact_executable_path(requested)
+        paths = _current_runtime_paths()
+        if requested != paths.interpreter:
             raise ValueError("execution_environment_unavailable")
-        dependencies = probe["dependencies"]
-        assert isinstance(dependencies, dict)
-        build = probe["python_build"]
-        assert isinstance(build, list)
+        verified = _open_runtime_executables(paths)
+        dependencies = {
+            name: importlib.metadata.version(name).strip() for name in required
+        }
+        if any(not version for version in dependencies.values()):
+            raise ValueError("execution_environment_unavailable")
+        implementation = sys.implementation.name.strip().lower()
+        release = runtime_platform.python_version().strip()
+        full_version = sys.version.strip()
+        build = tuple(runtime_platform.python_build())
+        system = sys.platform.strip().lower()
+        architecture = runtime_platform.machine().strip().lower()
+        if (
+            not implementation
+            or not release
+            or not full_version
+            or len(build) != 2
+            or any(not item for item in build)
+            or not system
+            or not architecture
+            or _current_runtime_paths() != paths
+            or any(
+                _descriptor_identity(item.descriptor) != item.identity
+                for item in verified.values()
+            )
+        ):
+            raise ValueError("execution_environment_unavailable")
+
+        interpreter_identity = verified[paths.interpreter].identity
+        process_image_identity = verified[paths.process_image].identity
         payload = canonical_environment_payload(
-            interpreter=str(verified.path),
-            interpreter_identity=verified.identity,
-            python_implementation=str(probe["python_implementation"]),
-            python_version=str(probe["python_version"]),
-            python_full_version=str(probe["python_full_version"]),
+            interpreter=str(paths.interpreter),
+            interpreter_identity=interpreter_identity,
+            process_image=str(paths.process_image),
+            process_image_identity=process_image_identity,
+            python_implementation=implementation,
+            python_version=release,
+            python_full_version=full_version,
             python_build=(str(build[0]), str(build[1])),
-            platform=str(probe["platform"]),
-            machine=str(probe["machine"]),
+            platform=system,
+            machine=architecture,
             dependencies=dependencies,
         )
         return ExecutionEnvironment(
-            interpreter=str(verified.path),
+            interpreter=str(paths.interpreter),
             python_implementation=str(payload["python_implementation"]),
             python_version=str(payload["python_version"]),
             python_full_version=str(payload["python_full_version"]),
@@ -427,7 +380,16 @@ def inspect_execution_environment(
             dependencies=MappingProxyType(dict(sorted(dependencies.items()))),
             fingerprint=execution_environment_fingerprint(payload),
         )
-    except (OSError, ValueError) as error:
+    except (
+        AttributeError,
+        importlib.metadata.PackageNotFoundError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        UnicodeError,
+    ) as error:
         raise ValueError("execution_environment_unavailable") from error
     finally:
-        os.close(verified.descriptor)
+        for item in verified.values():
+            os.close(item.descriptor)

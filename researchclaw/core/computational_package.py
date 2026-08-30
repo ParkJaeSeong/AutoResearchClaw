@@ -241,6 +241,21 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "time.monotonic",
     }
 )
+_CURRENT_PROCESS_ATTESTATION_CALLS = frozenset(
+    {
+        "ctypes.CDLL",
+        "ctypes.byref",
+        "ctypes.c_uint32",
+        "ctypes.create_string_buffer",
+        "ctypes.CDLL()._NSGetExecutablePath",
+        "ctypes.CDLL().proc_pidpath",
+        "libproc.proc_pidpath",
+        "libsystem._NSGetExecutablePath",
+        "os.fsdecode",
+        "os.getpid",
+        "os.readlink",
+    }
+)
 _ALLOWED_DISTRIBUTIONS = frozenset({"pytest"})
 _ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
     {
@@ -1469,7 +1484,10 @@ def _add_callable_aliases(tree: ast.AST, aliases: dict[str, str]) -> None:
 
 
 def validate_python_capability_safety(
-    path: str, source: str
+    path: str,
+    source: str,
+    *,
+    allow_current_process_attestation: bool = False,
 ) -> tuple[ComputationalPackageIssue, ...]:
     """Return generic static capability violations for one generated Python file.
 
@@ -1488,7 +1506,11 @@ def validate_python_capability_safety(
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             forbidden = forbidden or any(
-                not _allowed_import(alias.name) for alias in node.names
+                not _allowed_import(alias.name)
+                and not (
+                    allow_current_process_attestation and alias.name == "ctypes"
+                )
+                for alias in node.names
             )
         elif isinstance(node, ast.ImportFrom):
             forbidden = forbidden or (
@@ -1497,12 +1519,28 @@ def validate_python_capability_safety(
                 or not _allowed_import_from(node.module, node.names)
             )
         elif isinstance(node, ast.Call):
-            forbidden = forbidden or _forbidden_call(
-                _resolved_call_name(node.func, aliases)
-            ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
-                node, aliases, callables
+            call_name = _resolved_call_name(node.func, aliases)
+            attestation_call = (
+                allow_current_process_attestation
+                and call_name in _CURRENT_PROCESS_ATTESTATION_CALLS
             )
-            unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
+            forbidden = forbidden or _forbidden_call(
+                call_name
+            ) or _call_is_dynamic_dispatch(node, aliases) or not (
+                attestation_call
+                or _call_has_allowed_provenance(node, aliases, callables)
+            )
+            unsafe_path = unsafe_path or (
+                _call_uses_absolute_path(node, aliases)
+                and not (
+                    attestation_call
+                    and call_name == "os.readlink"
+                    and len(node.args) == 1
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value == "/proc/self/exe"
+                    and not node.keywords
+                )
+            )
         elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
             unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
     issues: list[ComputationalPackageIssue] = []

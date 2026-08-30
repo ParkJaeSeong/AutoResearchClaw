@@ -114,8 +114,8 @@ def test_self_test_collector_rejects_writable_or_dynamic_os_open_flags(tmp_path,
     source = main_path.read_text(encoding="utf-8")
     if flags == "collector_flags":
         source = source.replace(
-            "    descriptor = os.open(\n",
-            "    collector_flags = os.O_RDONLY\n    descriptor = os.open(\n",
+            "    interpreter_descriptor = os.open(\n",
+            "    collector_flags = os.O_RDONLY\n    interpreter_descriptor = os.open(\n",
         )
         source = source.replace(
             "        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,\n",
@@ -138,16 +138,23 @@ def test_self_test_collector_rejects_writable_or_dynamic_os_open_flags(tmp_path,
         "    os.open = open\n",
         "    os.O_RDONLY = os.O_WRONLY\n",
         "    os.O_CLOEXEC |= os.O_WRONLY\n",
+        "    os.O_ARBITRARY = os.O_RDONLY\n",
         "    del os.O_NOFOLLOW\n",
         "    (os := sys)\n",
         "    import pathlib as os\n",
+        "    class os:\n        pass\n",
+        "    def os():\n        return None\n",
+        "    async def os():\n        return None\n",
     ),
 )
 def test_self_test_collector_rejects_rebound_os_capabilities(tmp_path, replacement):
     project = build_known_answer_experiment_package(tmp_path / "project")
     main_path = project.root / "experiment/code/main.py"
     source = main_path.read_text(encoding="utf-8")
-    source = source.replace("    descriptor = os.open(\n", replacement + "    descriptor = os.open(\n")
+    source = source.replace(
+        "    interpreter_descriptor = os.open(\n",
+        replacement + "    interpreter_descriptor = os.open(\n",
+    )
     _replace_main(project, source)
 
     with pytest.raises(ValueError, match="exclusive canonical artifact writers"):

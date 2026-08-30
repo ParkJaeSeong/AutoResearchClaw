@@ -696,6 +696,41 @@ def _is_current_interpreter_path(node: ast.AST) -> bool:
     )
 
 
+def _is_base_interpreter_path(node: ast.AST) -> bool:
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "resolve"
+        and len(node.args) == 0
+        and len(node.keywords) == 1
+        and node.keywords[0].arg == "strict"
+        and isinstance(node.keywords[0].value, ast.Constant)
+        and node.keywords[0].value.value is True
+    ):
+        return False
+    path_call = node.func.value
+    return (
+        isinstance(path_call, ast.Call)
+        and isinstance(path_call.func, ast.Name)
+        and path_call.func.id == "Path"
+        and len(path_call.args) == 1
+        and isinstance(path_call.args[0], ast.Attribute)
+        and isinstance(path_call.args[0].value, ast.Name)
+        and path_call.args[0].value.id == "sys"
+        and path_call.args[0].attr == "_base_executable"
+    )
+
+
+def _is_process_image_path(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "execution_environment_process_image"
+        and not node.args
+        and not node.keywords
+    )
+
+
 def _readonly_os_open_flags(node: ast.AST) -> frozenset[str] | None:
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
         left = _readonly_os_open_flags(node.left)
@@ -724,7 +759,7 @@ def _os_capability_target(node: ast.AST) -> bool:
         return (
             isinstance(node.value, ast.Name)
             and node.value.id == "os"
-            and node.attr in {"open", *_READONLY_OS_OPEN_ATTRIBUTES}
+            and (node.attr == "open" or node.attr.startswith("O_"))
         )
     if isinstance(node, (ast.Tuple, ast.List)):
         return any(_os_capability_target(item) for item in node.elts)
@@ -734,6 +769,23 @@ def _os_capability_target(node: ast.AST) -> bool:
 def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
     """Reject lexical writes/import aliases that invalidate the approved open call."""
     for node in nodes:
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and node.id == "os"
+        ):
+            return True
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and _os_capability_target(node)
+        ):
+            return True
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "os"
+        ):
+            return True
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and any(
             _os_capability_target(target) for target in _assignment_targets(node)
         ):
@@ -767,10 +819,136 @@ def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
                 *node.args.posonlyargs,
                 *node.args.args,
                 *node.args.kwonlyargs,
+                *([node.args.vararg] if node.args.vararg is not None else []),
+                *([node.args.kwarg] if node.args.kwarg is not None else []),
             ]
         ):
             return True
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == "os":
+            return True
+        if isinstance(node, ast.MatchMapping) and node.rest == "os":
+            return True
     return False
+
+
+_ATTESTATION_CALL_COUNTS = {
+    "ctypes.CDLL": 2,
+    "ctypes.byref": 2,
+    "ctypes.c_uint32": 1,
+    "ctypes.create_string_buffer": 2,
+    "libproc.proc_pidpath": 1,
+    "libsystem._NSGetExecutablePath": 2,
+    "os.fsdecode": 2,
+    "os.getpid": 1,
+    "os.readlink": 1,
+}
+_ATTESTATION_ATTRIBUTES = {
+    ("ctypes", "CDLL"),
+    ("ctypes", "byref"),
+    ("ctypes", "c_uint32"),
+    ("ctypes", "create_string_buffer"),
+    ("libproc", "proc_pidpath"),
+    ("libsystem", "_NSGetExecutablePath"),
+}
+
+
+def _validate_current_process_attestation(tree: ast.Module) -> None:
+    """Confine native process attestation to the canonical read-only collector."""
+    ctypes_imports = [
+        (node, imported)
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        for imported in node.names
+        if imported.name == "ctypes"
+    ]
+    if (
+        len(ctypes_imports) != 1
+        or ctypes_imports[0][1].asname is not None
+        or len(ctypes_imports[0][0].names) != 1
+    ):
+        raise ValueError("self-test adapter process attestation is invalid")
+    function = _top_level_functions(tree).get("execution_environment_process_image")
+    if function is None:
+        raise ValueError("self-test adapter process attestation is invalid")
+    function_nodes = set(ast.walk(function))
+    aliases = _import_aliases(tree)
+    observed_calls = {name: [] for name in _ATTESTATION_CALL_COUNTS}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            sensitive_attribute = (node.value.id, node.attr)
+            if node.value.id in {"ctypes", "libproc", "libsystem"}:
+                if (
+                    node not in function_nodes
+                    or sensitive_attribute not in _ATTESTATION_ATTRIBUTES
+                ):
+                    raise ValueError("self-test adapter process attestation is invalid")
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _dotted_name(node.func, aliases)
+        if call_name in observed_calls:
+            if node not in function_nodes:
+                raise ValueError("self-test adapter process attestation is invalid")
+            observed_calls[call_name].append(node)
+        elif call_name is not None and call_name.startswith(
+            ("ctypes.", "libproc.", "libsystem.")
+        ):
+            raise ValueError("self-test adapter process attestation is invalid")
+    if any(
+        len(observed_calls[name]) != count
+        for name, count in _ATTESTATION_CALL_COUNTS.items()
+    ):
+        raise ValueError("self-test adapter process attestation is invalid")
+    library_calls = observed_calls["ctypes.CDLL"]
+    if {
+        (
+            call.args[0].value
+            if len(call.args) == 1 and isinstance(call.args[0], ast.Constant)
+            else object()
+        )
+        for call in library_calls
+        if len(call.keywords) == 1
+        and call.keywords[0].arg == "use_errno"
+        and isinstance(call.keywords[0].value, ast.Constant)
+        and call.keywords[0].value.value is True
+    } != {"/usr/lib/libproc.dylib", None}:
+        raise ValueError("self-test adapter process attestation is invalid")
+    readlink_call = observed_calls["os.readlink"][0]
+    if not (
+        len(readlink_call.args) == 1
+        and isinstance(readlink_call.args[0], ast.Constant)
+        and readlink_call.args[0].value == "/proc/self/exe"
+        and not readlink_call.keywords
+    ):
+        raise ValueError("self-test adapter process attestation is invalid")
+    expected_libraries = {
+        "libproc": "/usr/lib/libproc.dylib",
+        "libsystem": None,
+    }
+    for name, expected_library in expected_libraries.items():
+        assignments = [
+            node
+            for node in function_nodes
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and any(
+                isinstance(target, ast.Name) and target.id == name
+                for target in _assignment_targets(node)
+            )
+        ]
+        if len(assignments) != 1:
+            raise ValueError("self-test adapter process attestation is invalid")
+        value = assignments[0].value
+        if not (
+            isinstance(value, ast.Call)
+            and _dotted_name(value.func, aliases) == "ctypes.CDLL"
+            and len(value.args) == 1
+            and isinstance(value.args[0], ast.Constant)
+            and value.args[0].value == expected_library
+            and len(value.keywords) == 1
+            and value.keywords[0].arg == "use_errno"
+            and isinstance(value.keywords[0].value, ast.Constant)
+            and value.keywords[0].value.value is True
+        ):
+            raise ValueError("self-test adapter process attestation is invalid")
 
 
 def _is_readonly_current_interpreter_open(
@@ -781,17 +959,22 @@ def _is_readonly_current_interpreter_open(
     if len(call.args) != 2 or call.keywords:
         return False
     path, flags = call.args
-    if isinstance(path, ast.Name) and path.id == "interpreter":
+    approved_assignments = {
+        "interpreter": _is_current_interpreter_path,
+        "base_interpreter": _is_base_interpreter_path,
+        "process_image": _is_process_image_path,
+    }
+    if isinstance(path, ast.Name) and path.id in approved_assignments:
         interpreter_assignments = [
             node.value
             for node in scope_nodes
             if isinstance(node, (ast.Assign, ast.AnnAssign))
             and any(
-                isinstance(target, ast.Name) and target.id == "interpreter"
+                isinstance(target, ast.Name) and target.id == path.id
                 for target in _assignment_targets(node)
             )
         ]
-        if len(interpreter_assignments) != 1 or not _is_current_interpreter_path(
+        if len(interpreter_assignments) != 1 or not approved_assignments[path.id](
             interpreter_assignments[0]
         ):
             return False
@@ -998,6 +1181,10 @@ def _validate_self_test_adapter(
     tree: ast.Module, metric_entrypoints: Mapping[str, str]
 ) -> None:
     """Prove that the written self-test report carries declared metric values."""
+    if _nodes_rebind_os_capabilities(list(ast.walk(tree))):
+        raise ValueError(
+            "self-test adapter must use only its exclusive canonical artifact writers"
+        )
     main = _top_level_functions(tree).get("main")
     if main is None:
         raise ValueError("self-test adapter requires a top-level main function")
@@ -1217,6 +1404,7 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     source, tree, _manifest_sha256, _entry_point_sha256 = _package_main_source(
         project.root, entry_point
     )
+    _validate_current_process_attestation(tree)
     _reject_module_scope_lambdas(tree)
     config_path, _config = _required_path(project.root, contract["config_path"], "config_path")
     result_path = contract["result_path"]
@@ -1265,7 +1453,9 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
         contract["metrics"], self_test["expected_metrics"], entry_point, tree
     )
     _validate_self_test_adapter(tree, metrics)
-    if validate_python_capability_safety(entry_point, source):
+    if validate_python_capability_safety(
+        entry_point, source, allow_current_process_attestation=True
+    ):
         raise ValueError("entry_point has a prohibited static capability")
     return ValidatedExperimentPackage(
         contract_sha256=hashlib.sha256(contract_bytes).hexdigest(),

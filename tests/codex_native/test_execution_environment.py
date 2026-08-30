@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 import json
-import os
 from pathlib import Path
 import platform
 import shutil
@@ -73,6 +72,8 @@ def test_canonical_payload_normalizes_the_generated_collector_text_fields():
     payload = canonical_environment_payload(
         interpreter="/absolute/python",
         interpreter_identity={"sha256": "a" * 64},
+        process_image="/absolute/python-image",
+        process_image_identity={"sha256": "b" * 64},
         python_implementation="  CPython  ",
         python_version=" 3.11.0 ",
         python_full_version=" Python 3.11.0 ",
@@ -87,6 +88,7 @@ def test_canonical_payload_normalizes_the_generated_collector_text_fields():
     assert payload["python_full_version"] == "Python 3.11.0"
     assert payload["platform"] == "darwin"
     assert payload["machine"] == "arm64"
+    assert payload["process_image"] == "/absolute/python-image"
 
 
 def test_generated_self_test_uses_the_canonical_environment_fingerprint(tmp_path):
@@ -119,7 +121,7 @@ def test_generated_self_test_uses_the_canonical_environment_fingerprint(tmp_path
 
 def test_generated_self_test_matches_a_venv_interpreter_contract(tmp_path):
     environment_root = tmp_path / "environment"
-    venv.EnvBuilder(with_pip=False).create(environment_root)
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(environment_root)
     interpreter = environment_root / "bin/python"
     project = build_known_answer_experiment_package(tmp_path / "project")
     package = validate_experiment_package_contract(project)
@@ -134,208 +136,111 @@ def test_generated_self_test_matches_a_venv_interpreter_contract(tmp_path):
 
     assert completed.returncode == 0, completed.stderr
     report = json.loads((project.root / SELF_TEST_REPORT_PATH).read_text())
-    assert report["environment_fingerprint"] == inspect_execution_environment(
-        interpreter, package.required_distributions
-    ).fingerprint
-
-
-def test_descriptor_probe_never_reopens_a_replaced_interpreter_path(
-    tmp_path, monkeypatch
-):
-    interpreter = tmp_path / "python"
-    replacement = tmp_path / "replacement"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
-    replacement.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-    replacement.chmod(0o755)
-    replaced = False
-
-    def replace_path(_verified):
-        nonlocal replaced
-        os.replace(replacement, interpreter)
-        replaced = True
-
-    monkeypatch.setattr(execution_environment, "_before_descriptor_probe", replace_path)
-
-    try:
-        environment = inspect_execution_environment(interpreter, ())
-    except ValueError as error:
-        assert str(error) == "execution_environment_unavailable"
-    else:
-        assert environment.python_implementation == "cpython"
-        assert environment.fingerprint
-    assert replaced
-    assert interpreter.read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
-
-
-def test_probe_rejects_repointed_current_process_path_without_a_snapshot(
-    tmp_path, monkeypatch
-):
-    interpreter = tmp_path / "not-python"
-    interpreter.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-    interpreter.chmod(0o755)
-
-    monkeypatch.setattr(sys, "executable", str(interpreter))
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
+    inspection = subprocess.run(
+        [
+            str(interpreter),
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from researchclaw.core.execution_environment import inspect_execution_environment; "
+            "print(inspect_execution_environment(Path(sys.executable).resolve(strict=True), ()).fingerprint)",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
     )
+    assert inspection.returncode == 0, inspection.stderr
+    assert report["environment_fingerprint"] == inspection.stdout.strip()
+
+
+def test_inspection_rejects_repointed_sys_executable(tmp_path, monkeypatch):
+    requested = _resolved_interpreter()
+    alternate = tmp_path / "python"
+    shutil.copy2(requested, alternate)
+    alternate.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(alternate))
+
+    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+        inspect_execution_environment(requested, ())
+
+
+def test_inspection_rejects_an_alternate_regular_python(tmp_path):
+    alternate = tmp_path / "python"
+    shutil.copy2(_resolved_interpreter(), alternate)
+    alternate.chmod(0o755)
+
+    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+        inspect_execution_environment(alternate, ())
+
+
+def test_inspection_rejects_a_venv_shaped_symlink_entrypoint(tmp_path):
+    environment_root = tmp_path / "environment"
+    (environment_root / "bin").mkdir(parents=True)
+    (environment_root / "pyvenv.cfg").write_text("home = /not/authoritative\n")
+    interpreter = environment_root / "bin/python"
+    interpreter.symlink_to(_resolved_interpreter())
 
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
         inspect_execution_environment(interpreter, ())
 
 
-def test_probe_runs_a_verified_snapshot_and_removes_it(tmp_path, monkeypatch):
-    interpreter = tmp_path / "python"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
+def test_linux_process_image_helper_reads_proc_self_exe(monkeypatch):
+    observed: list[str] = []
 
+    def readlink(path):
+        observed.append(path)
+        return "/opt/python/bin/python3.11"
+
+    monkeypatch.setattr(execution_environment.os, "readlink", readlink)
+
+    assert execution_environment._linux_proc_self_executable() == Path(
+        "/opt/python/bin/python3.11"
+    )
+    assert observed == ["/proc/self/exe"]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS process attestors")
+def test_macos_process_image_attestors_agree_on_the_loaded_image():
+    proc_path, dyld_path = execution_environment._macos_process_image_paths()
+
+    assert proc_path == dyld_path
+    assert proc_path.is_absolute()
+    assert proc_path.resolve(strict=True) == proc_path
+    assert proc_path.is_file()
+
+
+def test_macos_process_image_attestation_rejects_disagreement(monkeypatch):
+    interpreter = _resolved_interpreter()
+    monkeypatch.setattr(execution_environment.sys, "platform", "darwin")
     monkeypatch.setattr(
         execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
-    )
-    environment = inspect_execution_environment(interpreter, ())
-
-    assert environment.interpreter == str(interpreter)
-    assert environment.python_implementation == "cpython"
-    assert not list(tmp_path.glob(".researchclaw-execution-*"))
-
-
-def test_probe_removes_snapshot_when_snapshot_execution_fails(tmp_path, monkeypatch):
-    interpreter = tmp_path / "python"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
-    attempted: list[list[str]] = []
-
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
-    )
-    monkeypatch.setattr(
-        execution_environment.subprocess,
-        "run",
-        lambda argv, **_kwargs: (
-            attempted.append(argv)
-            or subprocess.CompletedProcess(argv, 1, stdout="", stderr="failed")
-        ),
+        "_macos_process_image_paths",
+        lambda: (interpreter, interpreter.with_name("different-image")),
     )
 
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
-        inspect_execution_environment(interpreter, ())
-
-    assert attempted and Path(attempted[0][0]).parent == interpreter.parent
-    assert not list(tmp_path.glob(".researchclaw-execution-*"))
+        execution_environment._attested_process_image()
 
 
-def test_probe_rechecks_original_descriptor_after_snapshot_runtime(tmp_path, monkeypatch):
-    interpreter = tmp_path / "python"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
+def test_inspection_rejects_held_descriptor_identity_drift(monkeypatch):
     original_identity = execution_environment._descriptor_identity
-    original_run = subprocess.run
-    runtime_finished = False
+    calls: dict[int, int] = {}
 
-    def run_snapshot(argv, **kwargs):
-        nonlocal runtime_finished
-        completed = original_run(argv, **kwargs)
-        runtime_finished = True
-        return completed
-
-    def changed_after_runtime(descriptor):
+    def drifting_identity(descriptor):
         identity = original_identity(descriptor)
-        if runtime_finished and identity["inode"] == interpreter.stat().st_ino:
+        calls[descriptor] = calls.get(descriptor, 0) + 1
+        if calls[descriptor] > 1:
             return {**identity, "sha256": "0" * 64}
         return identity
 
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
-    )
-    monkeypatch.setattr(execution_environment.subprocess, "run", run_snapshot)
-    monkeypatch.setattr(execution_environment, "_descriptor_identity", changed_after_runtime)
+    monkeypatch.setattr(execution_environment, "_descriptor_identity", drifting_identity)
 
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
-        inspect_execution_environment(interpreter, ())
-
-    assert not list(tmp_path.glob(".researchclaw-execution-*"))
+        inspect_execution_environment(_resolved_interpreter(), ())
 
 
-def test_probe_rejects_snapshot_replaced_before_subprocess(tmp_path, monkeypatch):
-    interpreter = tmp_path / "python"
-    attacker = tmp_path / "attacker"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
-    attacker.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-    attacker.chmod(0o755)
-
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
-    )
-    monkeypatch.setattr(
-        execution_environment,
-        "_before_snapshot_subprocess",
-        lambda snapshot: os.replace(attacker, snapshot.path),
-        raising=False,
-    )
-
-    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
-        inspect_execution_environment(interpreter, ())
-
-    snapshots = list(tmp_path.glob(".researchclaw-execution-*"))
-    assert len(snapshots) == 1
-    assert snapshots[0].read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
-
-
-def test_probe_rejects_snapshot_replaced_after_subprocess_starts(tmp_path, monkeypatch):
-    interpreter = tmp_path / "python"
-    attacker = tmp_path / "attacker"
-    shutil.copy2(_resolved_interpreter(), interpreter)
-    interpreter.chmod(0o755)
-    attacker.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
-    attacker.chmod(0o755)
-    original_run = subprocess.run
-
-    def run_then_replace(argv, **kwargs):
-        completed = original_run(argv, **kwargs)
-        os.replace(attacker, Path(argv[0]))
-        return completed
-
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
-    )
-    monkeypatch.setattr(execution_environment.subprocess, "run", run_then_replace)
-
-    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
-        inspect_execution_environment(interpreter, ())
-
-    snapshots = list(tmp_path.glob(".researchclaw-execution-*"))
-    assert len(snapshots) == 1
-    assert snapshots[0].read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
-
-
-def test_snapshot_probe_preserves_venv_distribution_resolution(tmp_path, monkeypatch):
+def test_current_copied_venv_interpreter_preserves_private_distribution(tmp_path):
     environment_root = tmp_path / "environment"
-    venv.EnvBuilder(with_pip=False).create(environment_root)
+    venv.EnvBuilder(with_pip=False, symlinks=False).create(environment_root)
     interpreter = environment_root / "bin/python"
     site_packages = next((environment_root / "lib").glob("python*/site-packages"))
     metadata = site_packages / "private_probe-1.2.3.dist-info"
@@ -344,18 +249,29 @@ def test_snapshot_probe_preserves_venv_distribution_resolution(tmp_path, monkeyp
         "Metadata-Version: 2.1\nName: private-probe\nVersion: 1.2.3\n",
         encoding="utf-8",
     )
+    source = """
+import json
+from pathlib import Path
+import sys
+from researchclaw.core.execution_environment import inspect_execution_environment
 
-    monkeypatch.setattr(
-        execution_environment,
-        "_descriptor_execution_path",
-        lambda _descriptor: (_ for _ in ()).throw(
-            ValueError("execution_environment_unavailable")
-        ),
+environment = inspect_execution_environment(
+    Path(sys.executable).resolve(strict=True), ("private-probe",)
+)
+print(json.dumps({"interpreter": environment.interpreter, "dependencies": dict(environment.dependencies)}))
+"""
+
+    completed = subprocess.run(
+        [str(interpreter), "-c", source],
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    environment = inspect_execution_environment(interpreter, ("private-probe",))
 
-    assert environment.interpreter == str(interpreter)
-    assert environment.dependencies == {"private-probe": "1.2.3"}
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["interpreter"] == str(interpreter.resolve(strict=True))
+    assert payload["dependencies"] == {"private-probe": "1.2.3"}
 
 
 def test_environment_drift_invalidates_the_registered_self_test_and_prepare(
@@ -405,6 +321,28 @@ def test_external_runner_rejects_environment_drift_before_writing_result(tmp_pat
     contract = json.loads(contract_path.read_text())
     contract["environment_fingerprint"] = "0" * 64
     contract_path.write_text(json.dumps(contract, sort_keys=True, separators=(",", ":")))
+
+    completed = subprocess.run(
+        status.argv, cwd=project.root, check=False, capture_output=True, text=True
+    )
+
+    assert completed.returncode != 0
+    assert "execution environment changed" in completed.stderr
+    assert not (project.root / "experiment/results.json").exists()
+
+
+def test_external_runner_rejects_a_replaced_contract_interpreter_path(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    status = prepare_research_execution(project)
+    alternate = tmp_path / "alternate-python"
+    shutil.copy2(_resolved_interpreter(), alternate)
+    alternate.chmod(0o755)
+    contract_path = project.root / "experiment/execution_contract.json"
+    contract = json.loads(contract_path.read_text())
+    contract["argv"][0] = str(alternate)
+    contract_path.write_text(
+        json.dumps(contract, sort_keys=True, separators=(",", ":"))
+    )
 
     completed = subprocess.run(
         status.argv, cwd=project.root, check=False, capture_output=True, text=True
