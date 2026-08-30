@@ -512,6 +512,10 @@ def execution_environment_descriptor_identity(descriptor: int) -> dict[str, int 
 
 def execution_environment_fingerprint(required_distributions: list[str]) -> str:
     interpreter = Path(sys.executable).resolve(strict=True)
+    contract_interpreter = Path(sys.executable)
+    is_venv_entrypoint = Path(sys.prefix, "pyvenv.cfg").is_file()
+    if interpreter.is_symlink():
+        raise ValueError("execution environment unavailable")
     descriptor = os.open(
         interpreter,
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -531,7 +535,9 @@ def execution_environment_fingerprint(required_distributions: list[str]) -> str:
         os.close(descriptor)
     payload = {
         "schema_version": 1,
-        "interpreter": str(interpreter),
+        "interpreter": str(
+            contract_interpreter if is_venv_entrypoint else interpreter
+        ),
         "interpreter_identity": {
             "device": identity["device"],
             "inode": identity["inode"],

@@ -133,6 +133,41 @@ def test_self_test_collector_rejects_writable_or_dynamic_os_open_flags(tmp_path,
 
 
 @pytest.mark.parametrize(
+    "replacement",
+    (
+        "    os.open = open\n",
+        "    os.O_RDONLY = os.O_WRONLY\n",
+        "    os.O_CLOEXEC |= os.O_WRONLY\n",
+        "    del os.O_NOFOLLOW\n",
+        "    (os := sys)\n",
+        "    import pathlib as os\n",
+    ),
+)
+def test_self_test_collector_rejects_rebound_os_capabilities(tmp_path, replacement):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    main_path = project.root / "experiment/code/main.py"
+    source = main_path.read_text(encoding="utf-8")
+    source = source.replace("    descriptor = os.open(\n", replacement + "    descriptor = os.open(\n")
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="exclusive canonical artifact writers"):
+        validate_experiment_package_contract(project)
+
+
+def test_self_test_collector_rejects_module_scope_os_capability_rebinding(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    main_path = project.root / "experiment/code/main.py"
+    source = main_path.read_text(encoding="utf-8").replace(
+        "from pathlib import Path\n",
+        "from pathlib import Path\nos.O_RDONLY = os.O_WRONLY\n",
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="exclusive canonical artifact writers"):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize(
     ("mutate", "error"),
     [
         (

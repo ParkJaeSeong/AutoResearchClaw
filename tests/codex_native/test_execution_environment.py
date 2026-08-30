@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import venv
 
 import pytest
 
@@ -116,6 +117,28 @@ def test_generated_self_test_uses_the_canonical_environment_fingerprint(tmp_path
     assert "researchclaw" not in (project.root / package.entry_point).read_text()
 
 
+def test_generated_self_test_matches_a_venv_interpreter_contract(tmp_path):
+    environment_root = tmp_path / "environment"
+    venv.EnvBuilder(with_pip=False).create(environment_root)
+    interpreter = environment_root / "bin/python"
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+
+    completed = subprocess.run(
+        [str(interpreter), package.entry_point, *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    report = json.loads((project.root / SELF_TEST_REPORT_PATH).read_text())
+    assert report["environment_fingerprint"] == inspect_execution_environment(
+        interpreter, package.required_distributions
+    ).fingerprint
+
+
 def test_descriptor_probe_never_reopens_a_replaced_interpreter_path(
     tmp_path, monkeypatch
 ):
@@ -167,8 +190,6 @@ def test_probe_rejects_repointed_current_process_path_without_a_snapshot(
 
 def test_probe_runs_a_verified_snapshot_and_removes_it(tmp_path, monkeypatch):
     interpreter = tmp_path / "python"
-    snapshot_directory = tmp_path / "snapshots"
-    snapshot_directory.mkdir()
     shutil.copy2(_resolved_interpreter(), interpreter)
     interpreter.chmod(0o755)
 
@@ -179,24 +200,15 @@ def test_probe_runs_a_verified_snapshot_and_removes_it(tmp_path, monkeypatch):
             ValueError("execution_environment_unavailable")
         ),
     )
-    monkeypatch.setattr(
-        execution_environment,
-        "_snapshot_directory",
-        lambda: snapshot_directory,
-        raising=False,
-    )
-
     environment = inspect_execution_environment(interpreter, ())
 
     assert environment.interpreter == str(interpreter)
     assert environment.python_implementation == "cpython"
-    assert list(snapshot_directory.iterdir()) == []
+    assert not list(tmp_path.glob(".researchclaw-execution-*"))
 
 
 def test_probe_removes_snapshot_when_snapshot_execution_fails(tmp_path, monkeypatch):
     interpreter = tmp_path / "python"
-    snapshot_directory = tmp_path / "snapshots"
-    snapshot_directory.mkdir()
     shutil.copy2(_resolved_interpreter(), interpreter)
     interpreter.chmod(0o755)
     attempted: list[list[str]] = []
@@ -207,12 +219,6 @@ def test_probe_removes_snapshot_when_snapshot_execution_fails(tmp_path, monkeypa
         lambda _descriptor: (_ for _ in ()).throw(
             ValueError("execution_environment_unavailable")
         ),
-    )
-    monkeypatch.setattr(
-        execution_environment,
-        "_snapshot_directory",
-        lambda: snapshot_directory,
-        raising=False,
     )
     monkeypatch.setattr(
         execution_environment.subprocess,
@@ -226,14 +232,12 @@ def test_probe_removes_snapshot_when_snapshot_execution_fails(tmp_path, monkeypa
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
         inspect_execution_environment(interpreter, ())
 
-    assert attempted and Path(attempted[0][0]).parent == snapshot_directory
-    assert list(snapshot_directory.iterdir()) == []
+    assert attempted and Path(attempted[0][0]).parent == interpreter.parent
+    assert not list(tmp_path.glob(".researchclaw-execution-*"))
 
 
 def test_probe_rechecks_original_descriptor_after_snapshot_runtime(tmp_path, monkeypatch):
     interpreter = tmp_path / "python"
-    snapshot_directory = tmp_path / "snapshots"
-    snapshot_directory.mkdir()
     shutil.copy2(_resolved_interpreter(), interpreter)
     interpreter.chmod(0o755)
     original_identity = execution_environment._descriptor_identity
@@ -259,19 +263,99 @@ def test_probe_rechecks_original_descriptor_after_snapshot_runtime(tmp_path, mon
             ValueError("execution_environment_unavailable")
         ),
     )
-    monkeypatch.setattr(
-        execution_environment,
-        "_snapshot_directory",
-        lambda: snapshot_directory,
-        raising=False,
-    )
     monkeypatch.setattr(execution_environment.subprocess, "run", run_snapshot)
     monkeypatch.setattr(execution_environment, "_descriptor_identity", changed_after_runtime)
 
     with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
         inspect_execution_environment(interpreter, ())
 
-    assert list(snapshot_directory.iterdir()) == []
+    assert not list(tmp_path.glob(".researchclaw-execution-*"))
+
+
+def test_probe_rejects_snapshot_replaced_before_subprocess(tmp_path, monkeypatch):
+    interpreter = tmp_path / "python"
+    attacker = tmp_path / "attacker"
+    shutil.copy2(_resolved_interpreter(), interpreter)
+    interpreter.chmod(0o755)
+    attacker.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    attacker.chmod(0o755)
+
+    monkeypatch.setattr(
+        execution_environment,
+        "_descriptor_execution_path",
+        lambda _descriptor: (_ for _ in ()).throw(
+            ValueError("execution_environment_unavailable")
+        ),
+    )
+    monkeypatch.setattr(
+        execution_environment,
+        "_before_snapshot_subprocess",
+        lambda snapshot: os.replace(attacker, snapshot.path),
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+        inspect_execution_environment(interpreter, ())
+
+    snapshots = list(tmp_path.glob(".researchclaw-execution-*"))
+    assert len(snapshots) == 1
+    assert snapshots[0].read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
+
+
+def test_probe_rejects_snapshot_replaced_after_subprocess_starts(tmp_path, monkeypatch):
+    interpreter = tmp_path / "python"
+    attacker = tmp_path / "attacker"
+    shutil.copy2(_resolved_interpreter(), interpreter)
+    interpreter.chmod(0o755)
+    attacker.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    attacker.chmod(0o755)
+    original_run = subprocess.run
+
+    def run_then_replace(argv, **kwargs):
+        completed = original_run(argv, **kwargs)
+        os.replace(attacker, Path(argv[0]))
+        return completed
+
+    monkeypatch.setattr(
+        execution_environment,
+        "_descriptor_execution_path",
+        lambda _descriptor: (_ for _ in ()).throw(
+            ValueError("execution_environment_unavailable")
+        ),
+    )
+    monkeypatch.setattr(execution_environment.subprocess, "run", run_then_replace)
+
+    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+        inspect_execution_environment(interpreter, ())
+
+    snapshots = list(tmp_path.glob(".researchclaw-execution-*"))
+    assert len(snapshots) == 1
+    assert snapshots[0].read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
+
+
+def test_snapshot_probe_preserves_venv_distribution_resolution(tmp_path, monkeypatch):
+    environment_root = tmp_path / "environment"
+    venv.EnvBuilder(with_pip=False).create(environment_root)
+    interpreter = environment_root / "bin/python"
+    site_packages = next((environment_root / "lib").glob("python*/site-packages"))
+    metadata = site_packages / "private_probe-1.2.3.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: private-probe\nVersion: 1.2.3\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        execution_environment,
+        "_descriptor_execution_path",
+        lambda _descriptor: (_ for _ in ()).throw(
+            ValueError("execution_environment_unavailable")
+        ),
+    )
+    environment = inspect_execution_environment(interpreter, ("private-probe",))
+
+    assert environment.interpreter == str(interpreter)
+    assert environment.dependencies == {"private-probe": "1.2.3"}
 
 
 def test_environment_drift_invalidates_the_registered_self_test_and_prepare(

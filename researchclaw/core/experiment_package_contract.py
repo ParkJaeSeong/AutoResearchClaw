@@ -713,9 +713,71 @@ def _readonly_os_open_flags(node: ast.AST) -> frozenset[str] | None:
     return None
 
 
+_READONLY_OS_OPEN_ATTRIBUTES = frozenset({"O_RDONLY", "O_CLOEXEC", "O_NOFOLLOW"})
+
+
+def _os_capability_target(node: ast.AST) -> bool:
+    """Whether a target can change the collector's trusted ``os`` capability."""
+    if isinstance(node, ast.Name):
+        return node.id == "os"
+    if isinstance(node, ast.Attribute):
+        return (
+            isinstance(node.value, ast.Name)
+            and node.value.id == "os"
+            and node.attr in {"open", *_READONLY_OS_OPEN_ATTRIBUTES}
+        )
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return any(_os_capability_target(item) for item in node.elts)
+    return False
+
+
+def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
+    """Reject lexical writes/import aliases that invalidate the approved open call."""
+    for node in nodes:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and any(
+            _os_capability_target(target) for target in _assignment_targets(node)
+        ):
+            return True
+        if isinstance(node, ast.AugAssign) and _os_capability_target(node.target):
+            return True
+        if isinstance(node, ast.NamedExpr) and _os_capability_target(node.target):
+            return True
+        if isinstance(node, ast.Delete) and any(
+            _os_capability_target(target) for target in node.targets
+        ):
+            return True
+        if isinstance(node, ast.Import) and any(
+            imported.asname == "os" or (
+                imported.name != "os"
+                and _import_binding(imported, from_import=False) == "os"
+            )
+            for imported in node.names
+        ):
+            return True
+        if isinstance(node, ast.ImportFrom) and any(
+            _import_binding(imported, from_import=True) == "os"
+            for imported in node.names
+        ):
+            return True
+        if isinstance(node, ast.ExceptHandler) and node.name == "os":
+            return True
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and any(
+            argument.arg == "os"
+            for argument in [
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+            ]
+        ):
+            return True
+    return False
+
+
 def _is_readonly_current_interpreter_open(
     call: ast.Call, scope_nodes: list[ast.AST]
 ) -> bool:
+    if _nodes_rebind_os_capabilities(scope_nodes):
+        return False
     if len(call.args) != 2 or call.keywords:
         return False
     path, flags = call.args
@@ -853,7 +915,7 @@ def _validate_exclusive_artifact_writers(
         for node in reachable_nodes
         if isinstance(node, ast.Call)
         and _call_may_mutate_filesystem(
-            node, aliases, scope_nodes=reachable_nodes
+            node, aliases, scope_nodes=[*tree.body, *reachable_nodes]
         )
     ]
     report_writes = [

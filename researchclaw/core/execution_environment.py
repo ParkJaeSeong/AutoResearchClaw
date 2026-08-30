@@ -9,9 +9,9 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import stat
 import subprocess
-import tempfile
 from types import MappingProxyType
 
 
@@ -55,6 +55,14 @@ class ExecutionEnvironment:
 
 @dataclass(frozen=True)
 class _VerifiedInterpreter:
+    path: Path
+    snapshot_directory: Path
+    descriptor: int
+    identity: Mapping[str, int | str]
+
+
+@dataclass(frozen=True)
+class _VerifiedSnapshot:
     path: Path
     descriptor: int
     identity: Mapping[str, int | str]
@@ -135,12 +143,18 @@ def _descriptor_identity(descriptor: int) -> dict[str, int | str]:
 
 
 def _open_verified_interpreter(interpreter: Path) -> _VerifiedInterpreter:
-    if not interpreter.is_absolute() or interpreter.is_symlink():
+    if not interpreter.is_absolute():
         raise ValueError("execution_environment_unavailable")
     descriptor: int | None = None
     try:
-        resolved = interpreter.resolve(strict=True)
-        if resolved.is_symlink() or not hasattr(os, "O_NOFOLLOW"):
+        contract_path = Path(os.path.abspath(interpreter))
+        resolved = contract_path.resolve(strict=True)
+        is_venv_entrypoint = (contract_path.parent.parent / "pyvenv.cfg").is_file()
+        if (
+            resolved.is_symlink()
+            or not hasattr(os, "O_NOFOLLOW")
+            or (interpreter.is_symlink() and not is_venv_entrypoint)
+        ):
             raise ValueError("execution_environment_unavailable")
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
         descriptor = os.open(resolved, flags)
@@ -153,7 +167,12 @@ def _open_verified_interpreter(interpreter: Path) -> _VerifiedInterpreter:
     except (OSError, ValueError) as error:
         os.close(descriptor)
         raise ValueError("execution_environment_unavailable") from error
-    return _VerifiedInterpreter(resolved, descriptor, identity)
+    return _VerifiedInterpreter(
+        contract_path,
+        contract_path.parent if is_venv_entrypoint else resolved.parent,
+        descriptor,
+        identity,
+    )
 
 
 def _before_descriptor_probe(_verified: _VerifiedInterpreter) -> None:
@@ -167,20 +186,52 @@ def _descriptor_execution_path(descriptor: int) -> str:
     return str(path)
 
 
-def _snapshot_directory() -> Path:
-    return Path(tempfile.gettempdir())
+def _before_snapshot_subprocess(_snapshot: _VerifiedSnapshot) -> None:
+    """Test seam immediately before the final snapshot pathname check."""
 
 
-def _snapshot_descriptor(verified: _VerifiedInterpreter) -> Path:
+def _snapshot_path(directory: Path) -> tuple[int, Path]:
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    for _ in range(32):
+        path = directory / f"{_SNAPSHOT_PREFIX}{secrets.token_hex(16)}"
+        try:
+            return os.open(path, flags, 0o700), path
+        except FileExistsError:
+            continue
+    raise OSError("could not allocate execution snapshot")
+
+
+def _same_snapshot_identity(
+    identity: Mapping[str, int | str], expected: Mapping[str, int | str]
+) -> bool:
+    return identity == expected
+
+
+def _unlink_owned_snapshot(path: Path, descriptor: int) -> None:
+    """Remove a snapshot only when the visible name still identifies our FD."""
+    pathname_status = os.stat(path, follow_symlinks=False)
+    descriptor_status = os.fstat(descriptor)
+    if (
+        pathname_status.st_dev != descriptor_status.st_dev
+        or pathname_status.st_ino != descriptor_status.st_ino
+    ):
+        raise ValueError("execution_environment_unavailable")
+    path.unlink()
+
+
+def _snapshot_descriptor(verified: _VerifiedInterpreter) -> _VerifiedSnapshot:
     """Copy one verified descriptor to a private executable on its filesystem."""
     descriptor: int | None = None
+    snapshot_descriptor: int | None = None
     snapshot_path: Path | None = None
     try:
-        descriptor, raw_path = tempfile.mkstemp(
-            prefix=_SNAPSHOT_PREFIX,
-            dir=_snapshot_directory(),
-        )
-        snapshot_path = Path(raw_path)
+        descriptor, snapshot_path = _snapshot_path(verified.snapshot_directory)
         if os.fstat(descriptor).st_dev != verified.identity["device"]:
             raise ValueError("execution_environment_unavailable")
         if _descriptor_identity(verified.descriptor) != verified.identity:
@@ -198,22 +249,59 @@ def _snapshot_descriptor(verified: _VerifiedInterpreter) -> Path:
             snapshot_path,
             os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW,
         )
+        identity_descriptor = os.dup(snapshot_descriptor)
         try:
-            snapshot_identity = _descriptor_identity(snapshot_descriptor)
+            snapshot_identity = _descriptor_identity(identity_descriptor)
         finally:
-            os.close(snapshot_descriptor)
-        if (
-            snapshot_identity["size"] != verified.identity["size"]
-            or snapshot_identity["sha256"] != verified.identity["sha256"]
+            os.close(identity_descriptor)
+        if not (
+            snapshot_identity["size"] == verified.identity["size"]
+            and snapshot_identity["sha256"] == verified.identity["sha256"]
         ):
             raise ValueError("execution_environment_unavailable")
-        return snapshot_path
+        snapshot = _VerifiedSnapshot(snapshot_path, snapshot_descriptor, snapshot_identity)
+        snapshot_descriptor = None
+        return snapshot
     except (OSError, ValueError) as error:
+        if snapshot_path is not None:
+            try:
+                owned_descriptor = (
+                    snapshot_descriptor
+                    if snapshot_descriptor is not None
+                    else descriptor
+                )
+                if owned_descriptor is not None:
+                    _unlink_owned_snapshot(snapshot_path, owned_descriptor)
+            except (OSError, ValueError):
+                pass
         if descriptor is not None:
             os.close(descriptor)
-        if snapshot_path is not None:
-            snapshot_path.unlink(missing_ok=True)
+        if snapshot_descriptor is not None:
+            os.close(snapshot_descriptor)
         raise ValueError("execution_environment_unavailable") from error
+
+
+def _validate_snapshot_path(snapshot: _VerifiedSnapshot) -> None:
+    descriptor = os.open(
+        snapshot.path,
+        os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW,
+    )
+    try:
+        if not _same_snapshot_identity(
+            _descriptor_identity(descriptor), snapshot.identity
+        ):
+            raise ValueError("execution_environment_unavailable")
+    finally:
+        os.close(descriptor)
+
+
+def _cleanup_snapshot(snapshot: _VerifiedSnapshot) -> None:
+    try:
+        _unlink_owned_snapshot(snapshot.path, snapshot.descriptor)
+    except FileNotFoundError as error:
+        raise ValueError("execution_environment_unavailable") from error
+    finally:
+        os.close(snapshot.descriptor)
 
 
 def _probe_command(
@@ -246,12 +334,15 @@ def _probe_snapshot(
 ) -> dict[str, object]:
     snapshot = _snapshot_descriptor(verified)
     try:
-        return _probe_command(str(snapshot), required_distributions, pass_fds=())
+        _before_snapshot_subprocess(snapshot)
+        _validate_snapshot_path(snapshot)
+        value = _probe_command(
+            str(snapshot.path), required_distributions, pass_fds=(snapshot.descriptor,)
+        )
+        _validate_snapshot_path(snapshot)
+        return value
     finally:
-        try:
-            snapshot.unlink()
-        except OSError as error:
-            raise ValueError("execution_environment_unavailable") from error
+        _cleanup_snapshot(snapshot)
 
 
 def _probe_execution_environment(
