@@ -29,6 +29,7 @@ _NEXT_ACTIONS = frozenset(
         "prepare_run",
         "register_research_result",
         "quarantine_result",
+        "cleanup_quarantined_result",
         "validate_experiment_package",
         "audit_legacy_evidence",
     }

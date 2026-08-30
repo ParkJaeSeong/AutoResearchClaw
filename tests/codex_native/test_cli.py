@@ -98,10 +98,27 @@ def test_quarantine_result_cli_requires_confirmation_and_moves_regular_result(
     assert payload["reason"] == "invalid_result"
     assert (project.root / "experiment/results.json").is_file()
     assert (project.root / payload["quarantine_path"]).is_file()
+    handoff = ResearchProject.open(project.root).build_handoff()
+    assert handoff.next_action == "cleanup_quarantined_result"
+    assert "cleanup-quarantined-result" in handoff.next_command
+    assert main(
+        [
+            "execution", "cleanup-quarantined-result", str(project.root),
+            "--json",
+        ]
+    ) == 2
+    capsys.readouterr()
+    assert main(
+        [
+            "execution", "cleanup-quarantined-result", str(project.root),
+            "--confirm", "--json",
+        ]
+    ) == 0
+    cleanup = json.loads(capsys.readouterr().out)
+    assert cleanup["cleaned_path"] == "experiment/results.json"
+    assert (project.root / cleanup["preserved_path"]).is_file()
+    assert not (project.root / "experiment/results.json").exists()
     assert ResearchProject.open(project.root).build_handoff().next_action == "prepare_run"
-    # Quarantine intentionally never mutates the untrusted pathname. The
-    # operator removes it before the exclusive external runner is invoked.
-    (project.root / "experiment/results.json").unlink()
     prepared = prepare_research_execution(ResearchProject.open(project.root))
     completed = subprocess.run(
         prepared.argv,
@@ -121,6 +138,10 @@ def test_quarantine_result_cli_requires_confirmation_and_moves_regular_result(
 @pytest.mark.parametrize(
     "fault_seam",
     (
+        "_after_result_quarantine_temp_created",
+        "_after_result_quarantine_temp_write",
+        "_after_result_quarantine_temp_fsync",
+        "_after_result_quarantine_publish",
         "_after_result_quarantine_move",
         "_after_result_quarantine_event",
         "_after_result_quarantine_state",
@@ -140,9 +161,11 @@ def test_quarantine_result_recovers_each_durable_seam(
         quarantine_unregistered_result(project, "invalid_result", True)
     monkeypatch.undo()
 
-    result = quarantine_unregistered_result(project, "invalid_result", True)
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
     assert (project.root / result.quarantine_path).is_file()
-    assert ResearchProject.open(project.root).state.next_action == "prepare_run"
+    assert ResearchProject.open(project.root).state.next_action == "cleanup_quarantined_result"
     assert sum(
         event.type == "research_result_quarantined"
         for event in event_log_for(project.root).read_all()
@@ -313,6 +336,176 @@ def test_quarantine_event_identity_is_bound_to_reserved_offset(tmp_path):
     assert evidence_store._result_quarantine_event_at_offset(
         project, event, reserved_offset
     ) is False
+
+
+def test_quarantine_resumes_partial_transaction_owned_temp(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    original_write = evidence_store._write_all
+    failed = False
+
+    def partial_write(descriptor, chunk):
+        nonlocal failed
+        if not failed:
+            failed = True
+            os.write(descriptor, chunk[:17])
+            raise OSError("disk write fault")
+        original_write(descriptor, chunk)
+
+    monkeypatch.setattr(evidence_store, "_write_all", partial_write)
+    with pytest.raises(OSError, match="disk write fault"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+    assert (project.root / result.quarantine_path).is_file()
+
+
+def test_quarantine_recovers_temp_fsync_disk_error_after_reopen(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    real_fsync = os.fsync
+    armed = False
+
+    def arm_fsync_fault():
+        nonlocal armed
+        armed = True
+
+    def fail_one_fsync(descriptor):
+        nonlocal armed
+        if armed:
+            armed = False
+            raise OSError("fsync disk fault")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(evidence_store, "_after_result_quarantine_temp_write", arm_fsync_fault)
+    monkeypatch.setattr(os, "fsync", fail_one_fsync)
+    with pytest.raises(OSError, match="fsync disk fault"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+    assert (project.root / result.quarantine_path).is_file()
+
+
+def test_quarantine_recovers_native_publish_error_after_reopen(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    real_publish = evidence_store._native_rename_noreplace
+    failed = False
+
+    def fail_one_publish(*args):
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise OSError("publish disk fault")
+        return real_publish(*args)
+
+    monkeypatch.setattr(evidence_store, "_native_rename_noreplace", fail_one_publish)
+    with pytest.raises(OSError, match="publish disk fault"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+    assert (project.root / result.quarantine_path).is_file()
+
+
+def test_quarantine_preserves_foreign_transaction_temp_collision(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    created = None
+
+    def collide():
+        nonlocal created
+        pending = json.loads(
+            (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).read_text(
+                encoding="utf-8"
+            )
+        )
+        created = (
+            project.root / ".researchclaw/evidence/quarantine/copies"
+            / pending["temporary_name"]
+        )
+        created.write_bytes(b"foreign temporary bytes")
+
+    monkeypatch.setattr(evidence_store, "_before_result_quarantine_move", collide)
+    with pytest.raises(ValueError, match="temporary collision"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    assert created is not None and created.read_bytes() == b"foreign temporary bytes"
+
+
+def test_cleanup_refuses_replacement_and_hardlink_ambiguity(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    quarantine_unregistered_result(project, "invalid_result", True)
+    source = project.root / "experiment/results.json"
+    external = project.root / "experiment/ambiguous-link.json"
+    os.link(source, external)
+
+    with pytest.raises(ValueError, match="cleanup source changed"):
+        evidence_store.cleanup_quarantined_result(project, True)
+
+    assert source.is_file()
+    assert external.is_file()
+
+
+def test_cleanup_restores_late_unrelated_path_replacement(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    quarantine_unregistered_result(project, "invalid_result", True)
+    source = project.root / "experiment/results.json"
+    captured = project.root / "experiment/captured-results.json"
+    replacement = b'{"unrelated": true}\n'
+
+    def replace_path():
+        source.rename(captured)
+        source.write_bytes(replacement)
+
+    monkeypatch.setattr(evidence_store, "_before_result_cleanup_move", replace_path)
+    with pytest.raises(ValueError, match="cleanup identity changed"):
+        evidence_store.cleanup_quarantined_result(project, True)
+
+    assert source.read_bytes() == replacement
+    assert captured.is_file()
+    assert ResearchProject.open(project.root).state.next_action == (
+        "cleanup_quarantined_result"
+    )
+
+
+@pytest.mark.parametrize(
+    "fault_seam", ("_after_result_cleanup_move", "_after_result_cleanup_state")
+)
+def test_cleanup_recovers_each_durable_seam(tmp_path, monkeypatch, fault_seam):
+    project = build_approved_stage_twelve_project(tmp_path / fault_seam)
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    quarantine_unregistered_result(project, "invalid_result", True)
+
+    monkeypatch.setattr(
+        evidence_store, fault_seam, lambda: (_ for _ in ()).throw(OSError("fault"))
+    )
+    with pytest.raises(OSError, match="fault"):
+        evidence_store.cleanup_quarantined_result(project, True)
+    monkeypatch.undo()
+
+    status = evidence_store.cleanup_quarantined_result(
+        ResearchProject.open(project.root), True
+    )
+    assert status.next_action == "prepare_run"
+    assert not (project.root / "experiment/results.json").exists()
+    assert (project.root / status.preserved_path).is_file()
 
 
 def test_quarantine_cleans_orphan_registration_anchor_before_copy(tmp_path, monkeypatch):

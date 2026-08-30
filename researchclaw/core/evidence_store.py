@@ -48,6 +48,7 @@ _QUARANTINE_FINAL_SUFFIX = ".quarantined"
 _QUARANTINE_METADATA_SUFFIX = ".json"
 _QUARANTINE_DIRECTORY_RESERVE_PER_RECORD = 8192
 RESULT_QUARANTINE_PENDING_PATH = ".researchclaw/evidence/quarantine/pending-result.json"
+RESULT_QUARANTINE_CLEANUP_PATH = ".researchclaw/evidence/quarantine/pending-cleanup.json"
 _RESULT_QUARANTINE_MAX_BYTES = 256 * 1024
 _MANIFEST_SCAN_LIMIT = 4096
 _MANIFEST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\.json\Z")
@@ -182,6 +183,20 @@ class QuarantinedResult:
     sha256: str
     size: int
     reason: str
+    cleanup_required: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class QuarantineCleanupStatus:
+    cleaned_path: str
+    preserved_path: str
+    quarantine_path: str
+    sha256: str
+    size: int
+    next_action: str
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -201,6 +216,34 @@ def _after_result_quarantine_event() -> None:
 
 def _after_result_quarantine_state() -> None:
     """Test seam after state save and before journal removal."""
+
+
+def _after_result_quarantine_temp_created() -> None:
+    """Test seam after exclusive temp creation."""
+
+
+def _after_result_quarantine_temp_write() -> None:
+    """Test seam after complete temp streaming."""
+
+
+def _after_result_quarantine_temp_fsync() -> None:
+    """Test seam after temp durability and before publication."""
+
+
+def _after_result_quarantine_publish() -> None:
+    """Test seam after atomic publication and directory durability."""
+
+
+def _before_result_cleanup_move() -> None:
+    """Test seam after validation and immediately before cleanup rename."""
+
+
+def _after_result_cleanup_move() -> None:
+    """Test seam after the durable cleanup move."""
+
+
+def _after_result_cleanup_state() -> None:
+    """Test seam after the durable cleanup state transition."""
 
 
 @dataclass(frozen=True)
@@ -437,6 +480,7 @@ class EvidenceStore:
         self.manifests_root = self.evidence_root / "manifests"
         self.quarantine_root = self.evidence_root / "gc-quarantine"
         self.results_quarantine_root = self.evidence_root / "quarantine/results"
+        self.copy_quarantine_root = self.evidence_root / "quarantine/copies"
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
@@ -445,6 +489,7 @@ class EvidenceStore:
             (".researchclaw", "evidence", "manifests"),
             (".researchclaw", "evidence", "gc-quarantine"),
             (".researchclaw", "evidence", "quarantine", "results"),
+            (".researchclaw", "evidence", "quarantine", "copies"),
         ):
             self._ensure_directory_chain(relative_parts)
 
@@ -471,7 +516,7 @@ class EvidenceStore:
                 )
                 os.close(descriptor)
                 descriptor = child
-            if relative_parts[-1] in {"gc-quarantine", "results"}:
+            if relative_parts[-1] in {"gc-quarantine", "results", "copies"}:
                 os.fchmod(descriptor, 0o700)
                 os.fsync(descriptor)
         except (OSError, ValueError) as error:
@@ -1415,6 +1460,10 @@ def _result_quarantine_pending_path(project: ResearchProject) -> Path:
     return project.root / RESULT_QUARANTINE_PENDING_PATH
 
 
+def _result_cleanup_path(project: ResearchProject) -> Path:
+    return project.root / RESULT_QUARANTINE_CLEANUP_PATH
+
+
 def _result_quarantine_target(state: ProjectState) -> ProjectState:
     relative = "experiment/results.json"
     return replace(
@@ -1422,7 +1471,7 @@ def _result_quarantine_target(state: ProjectState) -> ProjectState:
         current_stage=12,
         status=StageStatus.READY,
         completed_stages=tuple(stage for stage in state.completed_stages if stage != 12),
-        next_action="prepare_run",
+        next_action="cleanup_quarantined_result",
         artifacts={
             path: ref
             for path, ref in state.artifacts.items()
@@ -1435,10 +1484,10 @@ def _result_quarantine_target(state: ProjectState) -> ProjectState:
             "issues": [{
                 "code": "research_result_quarantined",
                 "path": relative,
-                "message": "Prepare a fresh execution contract before rerunning.",
+                "message": "Explicitly clean the validated stale pathname before rerunning.",
             }],
             "artifact_hashes": {},
-            "recommended_action": "prepare_run",
+            "recommended_action": "cleanup_quarantined_result",
             "retry_state": "stage_twelve_registration_recovery",
         },
     )
@@ -1454,6 +1503,20 @@ def _persist_result_quarantine(project: ResearchProject, pending: Mapping[str, o
         _result_quarantine_pending_path(project),
         json.loads(encoded.decode("utf-8")),
         prefix="result-quarantine-",
+        compact=True,
+    )
+
+
+def _persist_result_cleanup(project: ResearchProject, pending: Mapping[str, object]) -> None:
+    from .persistence import atomic_write_json
+
+    encoded = _canonical_json(pending)
+    if len(encoded) > _RESULT_QUARANTINE_MAX_BYTES:
+        raise ValueError("result cleanup contract exceeds byte limit")
+    atomic_write_json(
+        _result_cleanup_path(project),
+        json.loads(encoded.decode("utf-8")),
+        prefix="result-cleanup-",
         compact=True,
     )
 
@@ -1489,6 +1552,7 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
         required = {
             "schema_version", "project_id", "reason", "original_path",
             "quarantine_path", "destination_name", "sha256", "size",
+            "temporary_name", "temporary_device", "temporary_inode",
             "device", "inode", "mode", "mtime_ns", "ctime_ns",
             "prior_state", "target_state", "event", "event_offset", "phase",
         }
@@ -1497,9 +1561,13 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
         prior = ProjectState.from_dict(raw["prior_state"])
         target = ProjectState.from_dict(raw["target_state"])
         destination_name = raw.get("destination_name")
+        temporary_name = raw.get("temporary_name")
         digest = raw.get("sha256")
         reason = raw.get("reason")
-        integer_fields = ("size", "device", "inode", "mode", "mtime_ns", "ctime_ns")
+        integer_fields = (
+            "size", "device", "inode", "mode", "mtime_ns", "ctime_ns",
+            "temporary_device", "temporary_inode",
+        )
         if (
             raw.get("project_id") != project.state.project_id
             or prior.project_id != project.state.project_id
@@ -1511,6 +1579,8 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
             or not isinstance(digest, str)
             or _SHA256.fullmatch(digest) is None
             or not destination_name.endswith(f"-{digest}.json")
+            or not isinstance(temporary_name, str)
+            or re.fullmatch(r"\.copy-[0-9a-f]{32}\.tmp", temporary_name) is None
             or not isinstance(reason, str)
             or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) is None
             or any(
@@ -1631,13 +1701,26 @@ def _recover_result_quarantine_locked(
     target = ProjectState.from_dict(pending["target_state"])
     store = EvidenceStore(project.root)
     quarantine_directory = store._open_directory(store.results_quarantine_root)
+    copies_directory = store._open_directory(store.copy_quarantine_root)
     destination_name = str(pending["destination_name"])
+    temporary_name = str(pending["temporary_name"])
     try:
         destination_exists = True
         try:
             os.stat(destination_name, dir_fd=quarantine_directory, follow_symlinks=False)
         except FileNotFoundError:
             destination_exists = False
+        if destination_exists:
+            try:
+                os.stat(
+                    temporary_name,
+                    dir_fd=copies_directory,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                pass
+            else:
+                raise ValueError("result quarantine temporary collision")
         if not destination_exists:
             if pending["phase"] != "prepared":
                 raise ValueError("result_quarantine_interrupted")
@@ -1648,7 +1731,7 @@ def _recover_result_quarantine_locked(
             source_descriptor, _ = open_project_file_descriptor(
                 project.root, "experiment/results.json"
             )
-            destination: int | None = None
+            temporary: int | None = None
             try:
                 source_stat = os.fstat(source_descriptor)
                 if (
@@ -1657,23 +1740,63 @@ def _recover_result_quarantine_locked(
                 ) != expected_identity or source_stat.st_nlink != 1:
                     raise ValueError("result quarantine source changed")
                 _before_result_quarantine_move()
-                destination = os.open(
-                    destination_name,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-                    0o400,
-                    dir_fd=quarantine_directory,
-                )
+                try:
+                    temporary = os.open(
+                        temporary_name,
+                        os.O_RDWR | os.O_CREAT | os.O_EXCL
+                        | getattr(os, "O_NOFOLLOW", 0),
+                        # Keep an owned in-progress object writable so recovery can
+                        # validate its prefix and resume it.  It becomes read-only
+                        # only after the no-replace publish and full verification.
+                        0o600,
+                        dir_fd=copies_directory,
+                    )
+                    created_stat = os.fstat(temporary)
+                    pending["temporary_device"] = created_stat.st_dev
+                    pending["temporary_inode"] = created_stat.st_ino
+                    _persist_result_quarantine(project, pending)
+                    _after_result_quarantine_temp_created()
+                except FileExistsError:
+                    temporary = os.open(
+                        temporary_name,
+                        os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                        | getattr(os, "O_NONBLOCK", 0),
+                        dir_fd=copies_directory,
+                    )
+                temporary_stat = os.fstat(temporary)
+                if (
+                    not stat.S_ISREG(temporary_stat.st_mode)
+                    or temporary_stat.st_nlink != 1
+                    or temporary_stat.st_size > pending["size"]
+                    or temporary_stat.st_dev != pending["temporary_device"]
+                    or temporary_stat.st_ino != pending["temporary_inode"]
+                ):
+                    raise ValueError("result quarantine temporary collision")
                 digest = hashlib.sha256()
                 observed = 0
                 while chunk := os.read(source_descriptor, _CHUNK_SIZE):
                     digest.update(chunk)
                     observed += len(chunk)
-                    _write_all(destination, chunk)
-                os.fsync(destination)
+                    if observed <= temporary_stat.st_size:
+                        existing = os.read(temporary, len(chunk))
+                        if existing != chunk:
+                            raise ValueError("result quarantine temporary collision")
+                    else:
+                        already = max(0, temporary_stat.st_size - (observed - len(chunk)))
+                        if already:
+                            existing = os.read(temporary, already)
+                            if existing != chunk[:already]:
+                                raise ValueError("result quarantine temporary collision")
+                        _write_all(temporary, chunk[already:])
+                _after_result_quarantine_temp_write()
+                os.fsync(temporary)
+                _after_result_quarantine_temp_fsync()
                 final_source = os.fstat(source_descriptor)
+                final_temporary = os.fstat(temporary)
                 if (
                     observed != pending["size"]
                     or digest.hexdigest() != pending["sha256"]
+                    or final_temporary.st_size != observed
                     or (
                         source_stat.st_dev,
                         source_stat.st_ino,
@@ -1691,10 +1814,18 @@ def _recover_result_quarantine_locked(
                 ):
                     raise ValueError("result quarantine source changed")
             finally:
-                if destination is not None:
-                    os.close(destination)
+                if temporary is not None:
+                    os.close(temporary)
                 os.close(source_descriptor)
+            _native_rename_noreplace(
+                copies_directory,
+                temporary_name,
+                quarantine_directory,
+                destination_name,
+            )
             os.fsync(quarantine_directory)
+            os.fsync(copies_directory)
+            _after_result_quarantine_publish()
             _after_result_quarantine_move()
         destination = os.open(
             destination_name,
@@ -1703,18 +1834,23 @@ def _recover_result_quarantine_locked(
         )
         try:
             digest, size, moved_stat = _descriptor_digest(destination)
+            if (
+                digest != pending["sha256"]
+                or size != pending["size"]
+                or moved_stat.st_nlink != 1
+                or moved_stat.st_dev != pending["temporary_device"]
+                or moved_stat.st_ino != pending["temporary_inode"]
+            ):
+                raise ValueError("result quarantine identity changed")
+            os.fchmod(destination, 0o400)
+            os.fsync(destination)
         finally:
             os.close(destination)
-        if (
-            digest != pending["sha256"]
-            or size != pending["size"]
-            or moved_stat.st_nlink != 1
-        ):
-            raise ValueError("result quarantine identity changed")
         if pending["phase"] == "prepared":
             pending["phase"] = "copied"
             _persist_result_quarantine(project, pending)
     finally:
+        os.close(copies_directory)
         os.close(quarantine_directory)
 
     event = EvaluationEvent.from_dict(pending["event"])
@@ -1740,6 +1876,31 @@ def _recover_result_quarantine_locked(
         raise ValueError("result_quarantine_interrupted")
     pending["phase"] = "state_saved"
     _persist_result_quarantine(project, pending)
+    cleanup = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "original_path": pending["original_path"],
+        "quarantine_path": pending["quarantine_path"],
+        "sha256": pending["sha256"],
+        "size": pending["size"],
+        "device": pending["device"],
+        "inode": pending["inode"],
+        "mode": pending["mode"],
+        "mtime_ns": pending["mtime_ns"],
+        "ctime_ns": pending["ctime_ns"],
+        "preserved_name": f"cleaned-{pending['sha256']}-{secrets.token_hex(8)}.json",
+    }
+    cleanup_path = _result_cleanup_path(project)
+    if not os.path.lexists(cleanup_path):
+        _persist_result_cleanup(project, cleanup)
+    else:
+        existing_cleanup = _load_result_cleanup(project)
+        if any(
+            existing_cleanup[key] != value
+            for key, value in cleanup.items()
+            if key != "preserved_name"
+        ):
+            raise ValueError("result cleanup contract collision")
     path = _result_quarantine_pending_path(project)
     path.unlink()
     parent_descriptor = os.open(
@@ -1762,6 +1923,192 @@ def recover_pending_result_quarantine(
         current = ResearchProject.open_readonly(project.root)
         pending = _load_result_quarantine(current)
         return None if pending is None else _recover_result_quarantine_locked(current, pending)
+
+
+def _load_result_cleanup(project: ResearchProject) -> dict[str, object]:
+    try:
+        descriptor, _ = open_project_file_descriptor(
+            project.root, RESULT_QUARANTINE_CLEANUP_PATH
+        )
+        try:
+            file_stat = os.fstat(descriptor)
+            if file_stat.st_size > _RESULT_QUARANTINE_MAX_BYTES:
+                raise ValueError
+            chunks: list[bytes] = []
+            remaining = file_stat.st_size
+            while remaining:
+                chunk = os.read(descriptor, min(remaining, 64 * 1024))
+                if not chunk:
+                    raise ValueError
+                chunks.append(chunk)
+                remaining -= len(chunk)
+        finally:
+            os.close(descriptor)
+        raw = json.loads(
+            b"".join(chunks).decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
+        required = {
+            "schema_version", "project_id", "original_path", "quarantine_path",
+            "sha256", "size", "device", "inode", "mode", "mtime_ns", "ctime_ns",
+            "preserved_name",
+        }
+        digest = raw.get("sha256") if isinstance(raw, dict) else None
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != required
+            or raw.get("schema_version") != 1
+            or raw.get("project_id") != project.state.project_id
+            or raw.get("original_path") != "experiment/results.json"
+            or not isinstance(digest, str)
+            or _SHA256.fullmatch(digest) is None
+            or not isinstance(raw.get("preserved_name"), str)
+            or re.fullmatch(r"cleaned-[0-9a-f]{64}-[0-9a-f]{16}\.json", raw["preserved_name"]) is None
+            or any(
+                not isinstance(raw.get(field), int)
+                or isinstance(raw.get(field), bool)
+                or raw[field] < 0
+                for field in ("size", "device", "inode", "mode", "mtime_ns", "ctime_ns")
+            )
+        ):
+            raise ValueError
+        return raw
+    except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError("result_cleanup_interrupted") from error
+
+
+def cleanup_quarantined_result(
+    project: ResearchProject, confirm: bool
+) -> QuarantineCleanupStatus:
+    """Explicitly remove the validated stale pathname by preserving its inode."""
+    if confirm is not True:
+        raise ValueError("result cleanup requires --confirm")
+    with project_transaction(project.root, allow_pending=True):
+        current = ResearchProject.open_readonly(project.root)
+        cleanup = _load_result_cleanup(current)
+        if current.state.next_action not in {
+            "cleanup_quarantined_result", "prepare_run"
+        }:
+            raise ValueError("result cleanup is not the current action")
+        store = EvidenceStore(current.root)
+        source_directory = store._open_directory(current.root / "experiment")
+        destination_directory = store._open_directory(store.results_quarantine_root)
+        source_descriptor: int | None = None
+        try:
+            expected = (
+                cleanup["device"], cleanup["inode"], cleanup["mode"], cleanup["size"],
+                cleanup["mtime_ns"], cleanup["ctime_ns"],
+            )
+            try:
+                source_descriptor, _ = open_project_file_descriptor(
+                    current.root, cleanup["original_path"]
+                )
+            except FileNotFoundError:
+                source_descriptor = None
+            preserved_exists = True
+            try:
+                os.stat(
+                    str(cleanup["preserved_name"]),
+                    dir_fd=destination_directory,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                preserved_exists = False
+            if source_descriptor is not None:
+                if preserved_exists:
+                    raise ValueError("result cleanup source still occupied")
+                digest, size, source_stat = _descriptor_digest(source_descriptor)
+                if (
+                    digest != cleanup["sha256"]
+                    or size != cleanup["size"]
+                    or source_stat.st_nlink != 1
+                    or (
+                        source_stat.st_dev, source_stat.st_ino, source_stat.st_mode,
+                        source_stat.st_size, source_stat.st_mtime_ns,
+                        source_stat.st_ctime_ns,
+                    ) != expected
+                ):
+                    raise ValueError("result cleanup source changed")
+                current_path = os.stat(
+                    "results.json", dir_fd=source_directory, follow_symlinks=False
+                )
+                if (
+                    current_path.st_dev != source_stat.st_dev
+                    or current_path.st_ino != source_stat.st_ino
+                ):
+                    raise ValueError("result cleanup source changed")
+                _before_result_cleanup_move()
+                _native_rename_noreplace(
+                    source_directory,
+                    "results.json",
+                    destination_directory,
+                    str(cleanup["preserved_name"]),
+                )
+                os.fsync(destination_directory)
+                os.fsync(source_directory)
+            moved = os.open(
+                str(cleanup["preserved_name"]),
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=destination_directory,
+            )
+            try:
+                moved_digest, moved_size, moved_stat = _descriptor_digest(moved)
+            finally:
+                os.close(moved)
+            if (
+                moved_digest != cleanup["sha256"]
+                or moved_size != cleanup["size"]
+                or moved_stat.st_dev != cleanup["device"]
+                or moved_stat.st_ino != cleanup["inode"]
+                or moved_stat.st_nlink != 1
+            ):
+                # A replacement can win after the final pathname check. Restore
+                # that unrelated inode if its original name is still vacant;
+                # otherwise keep it preserved in quarantine and fail closed.
+                try:
+                    _native_rename_noreplace(
+                        destination_directory,
+                        str(cleanup["preserved_name"]),
+                        source_directory,
+                        "results.json",
+                    )
+                except OSError:
+                    pass
+                else:
+                    os.fsync(source_directory)
+                    os.fsync(destination_directory)
+                raise ValueError("result cleanup identity changed")
+            _after_result_cleanup_move()
+        finally:
+            os.close(destination_directory)
+            os.close(source_directory)
+            if source_descriptor is not None:
+                os.close(source_descriptor)
+        target_state = replace(
+            current.state,
+            next_action="prepare_run",
+            last_error={
+                **(current.state.last_error or {}),
+                "recommended_action": "prepare_run",
+            },
+        )
+        StateStore(current.root / ".researchclaw").save(target_state)
+        _after_result_cleanup_state()
+        contract_path = _result_cleanup_path(current)
+        contract_path.unlink()
+        parent = os.open(contract_path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+        preserved_path = (
+            f".researchclaw/evidence/quarantine/results/{cleanup['preserved_name']}"
+        )
+        return QuarantineCleanupStatus(
+            "experiment/results.json", preserved_path, str(cleanup["quarantine_path"]),
+            str(cleanup["sha256"]), int(cleanup["size"]), "prepare_run",
+        )
 
 
 def quarantine_unregistered_result(
@@ -1794,6 +2141,7 @@ def quarantine_unregistered_result(
             raise ValueError("result quarantine requires an unlinked regular file")
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         destination_name = f"{timestamp}-{digest}.json"
+        temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
         quarantine_path = f".researchclaw/evidence/quarantine/results/{destination_name}"
         target = _result_quarantine_target(current.state)
         event_path = current.root / "evaluation/events.jsonl"
@@ -1809,6 +2157,8 @@ def quarantine_unregistered_result(
             "schema_version": 1, "project_id": current.state.project_id,
             "reason": reason, "original_path": "experiment/results.json",
             "quarantine_path": quarantine_path, "destination_name": destination_name,
+            "temporary_name": temporary_name, "temporary_device": 0,
+            "temporary_inode": 0,
             "sha256": digest, "size": size, "device": source_stat.st_dev,
             "inode": source_stat.st_ino, "mode": source_stat.st_mode,
             "mtime_ns": source_stat.st_mtime_ns, "ctime_ns": source_stat.st_ctime_ns,

@@ -16,6 +16,7 @@ _REGISTRATION_PENDING_NAMES = (
     "evidence/pending-registration.json",
     "evidence/pending-registration-anchor.json",
     "evidence/quarantine/pending-result.json",
+    "evidence/quarantine/pending-cleanup.json",
 )
 
 

@@ -488,6 +488,7 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
                 "register_research_result",
                 "approve_experiment_execution",
                 "quarantine_result",
+                "cleanup_quarantined_result",
                 "audit_legacy_evidence",
             }
             and isinstance(state.last_error, dict)
@@ -600,6 +601,8 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
                 "report_resource_plan_milestone_only",
                 "prepare_run",
                 "register_research_result",
+                "quarantine_result",
+                "cleanup_quarantined_result",
             }
             and execution_record is not None
             and execution_record.decision == "approve"
@@ -677,6 +680,15 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
                     "researchclaw-codex", "execution", "quarantine-result",
                     str(current_project.root.resolve()), "--reason",
                     "invalid_result", "--confirm", "--json",
+                )
+            )
+        elif state.next_action == "cleanup_quarantined_result":
+            next_action = state.next_action
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex", "execution",
+                    "cleanup-quarantined-result",
+                    str(current_project.root.resolve()), "--confirm", "--json",
                 )
             )
         elif state.next_action == "audit_legacy_evidence":

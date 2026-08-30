@@ -27,6 +27,7 @@ from researchclaw.core.research_execution import (
 )
 from researchclaw.core.evidence_store import (
     EvidenceStore,
+    cleanup_quarantined_result,
     quarantine_unregistered_result,
 )
 from researchclaw.core.evidence_registration import registered_evidence_status
@@ -181,6 +182,13 @@ def build_parser() -> argparse.ArgumentParser:
     quarantine_result.add_argument("--reason", required=True, metavar="CATEGORY")
     quarantine_result.add_argument("--confirm", action="store_true")
     quarantine_result.add_argument("--json", action="store_true", help="emit JSON")
+    cleanup_result = execution_commands.add_parser(
+        "cleanup-quarantined-result",
+        help="explicitly preserve and remove the validated stale result pathname",
+    )
+    cleanup_result.add_argument("root", metavar="PROJECT")
+    cleanup_result.add_argument("--confirm", action="store_true")
+    cleanup_result.add_argument("--json", action="store_true", help="emit JSON")
 
     evidence = subcommands.add_parser("evidence", help="audit and collect evidence")
     evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
@@ -264,6 +272,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload = quarantine_unregistered_result(
                 project, args.reason, args.confirm
             ).to_dict()
+        elif args.command == "execution" and args.execution_command == "cleanup-quarantined-result":
+            project = ResearchProject.open(args.root)
+            payload = cleanup_quarantined_result(project, args.confirm).to_dict()
         elif args.command == "evidence" and args.evidence_command == "gc":
             store = EvidenceStore(ResearchProject.open(args.root).root)
             plan = store.plan_gc()

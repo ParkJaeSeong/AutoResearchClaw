@@ -171,9 +171,12 @@ If recovery identifies an invalid unregistered result, the confirmed
 bytes into the private evidence quarantine and removes the result only from
 durable project state. It deliberately does **not** move, overwrite, or delete
 the mutable `experiment/results.json` pathname. Before rerunning the exclusive
-external command, the operator must inspect and clean up that untrusted path.
-This sacrifices automatic cleanup so a pathname replacement or late hardlink
-can never make quarantine mutate unrelated bytes.
+external command, the handoff requires the separately confirmed
+`execution cleanup-quarantined-result` action. Cleanup revalidates the exact
+no-symlink single-link source identity and preserves it under the private
+quarantine before clearing the pathname; a replacement, symlink, or ambiguous
+hardlink is refused. This explicit second confirmation keeps quarantine itself
+non-mutating while making cleanup honest and actionable.
 
 Successful registration records the validated result and advances the project
 to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
