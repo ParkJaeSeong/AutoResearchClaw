@@ -1,7 +1,7 @@
 # Codex-Native Stage 12 Research Result Registration Design
 
 **Date:** 2026-08-29  
-**Status:** Approved design  
+**Status:** Superseded for future implementation by `2026-08-30-stage12-trustworthy-execution-evidence-design.md`
 **Scope:** Explicit research execution handoff, result registration, and Stage 12 completion
 
 ## Purpose
