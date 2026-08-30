@@ -54,11 +54,11 @@ result-registration boundary; it is not an execution capability.
 18. If `resume` reports an existing result, stale contract, environment drift, interrupted registration, insufficient disk, or `audit_legacy_evidence`, follow the exact recovery command. Quarantine requires explicit `--confirm`. `researchclaw-codex evidence audit ROOT --json` classifies old generic contracts/results as `legacy_untrusted`: audit-only, never registerable or silently migrated.
 19. Never run the deferred research argv, execute generated research code, create results yourself, install packages, download data, access networks, call LLMs, or spawn agents. Approval is hash-bound recordkeeping only; it does not execute.
 
-The required future behavior never writes a published partial quarantine temp:
+Recovery never writes a published partial quarantine temp:
 it preserves the inode and uses a fresh inode when capacity permits, otherwise
 failing closed for manual/operator action. A complete read-only candidate may
-be verified and published without mutation. This is a mandatory pending Task 8
-release gate, not a current guarantee. Evidence objects are never
+be verified and published without mutation. The adversarial release gate
+verifies this guarantee. Evidence objects are never
 operator-deleted.
 
 Durable files, not conversation memory, determine the next action. Preserve

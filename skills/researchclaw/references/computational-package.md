@@ -230,10 +230,10 @@ the typed, content-hashed baseline once, appends a durable
 packet. Never use this option to bless a project where Stage-10 authoring may
 already have begun.
 
-Required future recovery behavior preserves every published partial
+Recovery preserves every published partial
 quarantine temp and uses a fresh inode instead of writing it; a complete
-read-only candidate may be verified without mutation. This is a mandatory
-pending Task 8 release gate, not a current guarantee.
+read-only candidate may be verified without mutation. The adversarial release
+gate verifies this guarantee.
 
 When validation succeeds, run:
 

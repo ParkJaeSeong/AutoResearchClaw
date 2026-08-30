@@ -29,7 +29,7 @@ publication. A legacy generic contract or mutable result is audit-only,
 `legacy_untrusted`, and non-registerable; route it through `evidence audit`
 rather than approval or migration. Quarantine requires separate confirmation.
 
-Required future recovery behavior preserves a published partial quarantine
+Recovery preserves a published partial quarantine
 temp and uses a fresh inode instead of writing it; a complete read-only
-candidate may be verified without mutation. This is a mandatory pending Task 8
-release gate, not a current guarantee.
+candidate may be verified without mutation. The adversarial release gate
+verifies this guarantee.

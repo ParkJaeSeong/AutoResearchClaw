@@ -560,7 +560,9 @@ def _collect_sources(project: ResearchProject, validated) -> tuple[EvidenceSourc
                 raise ValueError("research_result_provenance_mismatch")
             role = (
                 "package_file"
-                if name in {"package_files", "package_manifest", "config"}
+                if name in {
+                    "package_files", "package_contract", "package_manifest", "config"
+                }
                 else f"binding:{name}"
             )
             candidates.append(
@@ -1376,12 +1378,12 @@ def register_immutable_research_evidence(
             return recovered
         if current.state.current_stage != 12:
             raise ValueError("research_result_registration_conflict")
-        _after_strict_validation(validated_result)
         sources = _collect_sources(current, validated_result)
         registration_id = secrets.token_hex(16)
         manifest = _manifest_payload(
             current, validated_result, registration_id, sources
         )
+        _after_strict_validation(validated_result)
         manifest_path = f".researchclaw/evidence/manifests/{registration_id}.json"
         event = EvaluationEvent.create(
             "research_result_registered",

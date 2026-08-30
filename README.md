@@ -251,12 +251,11 @@ Unknown or crash-abandoned copy candidates are likewise inventoried and left
 untouched. This policy prefers unrelated-byte safety over automatic capacity
 recovery.
 
-The required future behavior is that a published partial quarantine temp is
+The enforced recovery behavior is that a published partial quarantine temp is
 never resumed or written: recovery preserves that inode and starts with a
 fresh inode when capacity permits, otherwise failing closed with explicit
 manual/operator action. A complete read-only candidate may be verified and
-published without mutation. This is a mandatory pending Task 8 release gate,
-not a current guarantee; Task 8 must implement and prove it before release.
+published without mutation. The adversarial release gate verifies this guarantee.
 
 ### Stage-12 recovery routes
 
@@ -268,7 +267,7 @@ not a current guarantee; Task 8 must implement and prove it before release.
 | Insufficient disk | Make no evidence mutation; inspect `evidence quarantine-inventory ROOT --json` and arrange operator-managed capacity. Evidence objects are never operator-deleted. |
 | Interrupted registration | Run `status`, `resume`, or the same registration command; recovery verifies the pending immutable transaction and either completes it or restores Stage 12. |
 | Legacy Stage 13 evidence | Run `researchclaw-codex evidence audit ROOT --json`; `classification: "legacy_untrusted"` is audit-only and cannot be registered or silently migrated. Return to Stage 10 package validation for new trusted evidence. |
-| Published partial quarantine temp | Mandatory pending Task 8 release gate, not a current guarantee: preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
+| Published partial quarantine temp | Preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
 
 `evidence audit` returns exactly `project_id`, `classification`, and
 `registration`. `classification` is `immutable_registered` only when the

@@ -553,6 +553,14 @@ def _build_execution_contract(
         if identity.sha256 != digest:
             raise ValueError("execution_approval_invalid")
         bindings[name] = {"path": path, "sha256": digest}
+    package_contract_path = "experiment/package_contract.json"
+    package_contract_identity = _project_file_identity(
+        project.root, package_contract_path
+    )
+    bindings["package_contract"] = {
+        "path": package_contract_path,
+        "sha256": package_contract_identity.sha256,
+    }
     bindings["package_files"] = _package_file_bindings(project)
 
     prohibitions = dict(raw_prohibitions)

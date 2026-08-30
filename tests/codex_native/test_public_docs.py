@@ -223,13 +223,14 @@ def test_stage_twelve_public_contract_is_explicit_immutable_and_legacy_safe():
     assert "delete evidence objects manually" not in normalized
 
 
-def test_each_public_operator_file_marks_partial_temp_contract_pending_task_eight():
+def test_each_public_operator_file_states_verified_partial_temp_contract():
     for path in STAGE_TWELVE_PUBLIC_FILES:
         normalized = " ".join(path.read_text(encoding="utf-8").split()).lower()
         assert "experiment prepare-self-test" in normalized, path
         assert "published partial quarantine temp" in normalized, path
-        assert "mandatory pending task 8 release gate" in normalized, path
-        assert "not a current guarantee" in normalized, path
+        assert "adversarial release gate" in normalized, path
+        assert "verifies this guarantee" in normalized, path
+        assert "not a current guarantee" not in normalized, path
 
 
 def test_stage_twelve_public_contract_documents_order_and_recovery_routes():

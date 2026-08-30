@@ -418,32 +418,17 @@ def test_quarantine_growth_probe_is_bounded_and_never_writes_extra_byte(
     assert source_read_bytes == expected_size + 1
 
 
-@pytest.mark.parametrize("complete", (False, True))
-def test_quarantine_owned_temp_completes_at_capacity_boundary(
-    tmp_path, monkeypatch, complete
+def test_quarantine_complete_owned_temp_publishes_read_only_at_capacity_boundary(
+    tmp_path, monkeypatch
 ):
-    project = build_approved_stage_twelve_project(tmp_path / str(complete))
+    project = build_approved_stage_twelve_project(tmp_path / "complete")
     prepare_research_execution(project)
     write_contract_bound_research_result(project, load_execution_contract(project.root))
-    if complete:
-        monkeypatch.setattr(
-            evidence_store,
-            "_after_result_quarantine_temp_fsync",
-            lambda: (_ for _ in ()).throw(OSError("complete owned temp")),
-        )
-    else:
-        real_write = evidence_store._write_all
-        failed = False
-
-        def partial_write(descriptor, chunk):
-            nonlocal failed
-            if not failed:
-                failed = True
-                os.write(descriptor, chunk[:17])
-                raise OSError("partial owned temp")
-            real_write(descriptor, chunk)
-
-        monkeypatch.setattr(evidence_store, "_write_all", partial_write)
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_result_quarantine_temp_fsync",
+        lambda: (_ for _ in ()).throw(OSError("complete owned temp")),
+    )
     with pytest.raises(OSError, match="owned temp"):
         quarantine_unregistered_result(project, "invalid_result", True)
     monkeypatch.undo()
@@ -472,6 +457,95 @@ def test_quarantine_owned_temp_completes_at_capacity_boundary(
     destination = project.root / result.quarantine_path
     assert (destination.stat().st_dev, destination.stat().st_ino) == before_identity
     assert destination.stat().st_size == expected_size
+
+
+def test_quarantine_partial_owned_temp_is_never_resumed_after_late_hardlink(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "late-hardlink")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    real_write = evidence_store._write_all
+    failed = False
+
+    def partial_write(descriptor, chunk):
+        nonlocal failed
+        if not failed:
+            failed = True
+            os.write(descriptor, chunk[:17])
+            raise OSError("partial owned temp")
+        real_write(descriptor, chunk)
+
+    monkeypatch.setattr(evidence_store, "_write_all", partial_write)
+    with pytest.raises(OSError, match="partial owned temp"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+    pending = json.loads(
+        (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).read_text()
+    )
+    temporary = (
+        project.root / ".researchclaw/evidence/quarantine/copies"
+        / pending["temporary_name"]
+    )
+    before = temporary.read_bytes()
+    external_link = tmp_path / "late-hardlink.bin"
+
+    def add_late_hardlink():
+        os.link(temporary, external_link)
+
+    monkeypatch.setattr(
+        evidence_store, "_after_result_quarantine_temp_reopen_validation", add_late_hardlink
+    )
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
+
+    assert temporary.read_bytes() == before
+    assert external_link.read_bytes() == before
+    assert (project.root / result.quarantine_path).read_bytes() != before
+    assert (project.root / result.quarantine_path).stat().st_ino != temporary.stat().st_ino
+
+
+def test_quarantine_partial_owned_temp_at_capacity_fails_without_mutation(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "partial-at-capacity")
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    real_write = evidence_store._write_all
+    failed = False
+
+    def partial_write(descriptor, chunk):
+        nonlocal failed
+        if not failed:
+            failed = True
+            os.write(descriptor, chunk[:17])
+            raise OSError("partial owned temp")
+        real_write(descriptor, chunk)
+
+    monkeypatch.setattr(evidence_store, "_write_all", partial_write)
+    with pytest.raises(OSError, match="partial owned temp"):
+        quarantine_unregistered_result(project, "invalid_result", True)
+    monkeypatch.undo()
+    pending = json.loads(
+        (project.root / evidence_store.RESULT_QUARANTINE_PENDING_PATH).read_text()
+    )
+    temporary = (
+        project.root / ".researchclaw/evidence/quarantine/copies"
+        / pending["temporary_name"]
+    )
+    before = temporary.read_bytes()
+    monkeypatch.setattr(evidence_store, "_RESULT_QUARANTINE_ENTRY_LIMIT", 1)
+
+    with pytest.raises(
+        evidence_store.ResultQuarantineCapacityError,
+        match="operator cleanup|required|capacity",
+    ):
+        quarantine_unregistered_result(
+            ResearchProject.open(project.root), "invalid_result", True
+        )
+
+    assert temporary.read_bytes() == before
 
 
 @pytest.mark.parametrize("mutation", ("append", "replace"))
@@ -585,7 +659,7 @@ def test_quarantine_owned_temp_identity_replacement_is_preserved_and_refused(
     assert temporary.read_bytes() == b"foreign replacement"
 
 
-def test_quarantine_owned_temp_late_path_replacement_is_preserved_and_refused(
+def test_quarantine_owned_partial_late_path_replacement_is_preserved_and_rotated(
     tmp_path, monkeypatch
 ):
     project = build_approved_stage_twelve_project(tmp_path / "project")
@@ -614,6 +688,7 @@ def test_quarantine_owned_temp_late_path_replacement_is_preserved_and_refused(
         / pending["temporary_name"]
     )
     original = temporary.with_name("owned-original-preserved.tmp")
+    original_bytes = temporary.read_bytes()
     foreign = b"late foreign replacement"
 
     def replace_after_reopen():
@@ -625,13 +700,13 @@ def test_quarantine_owned_temp_late_path_replacement_is_preserved_and_refused(
         "_after_result_quarantine_temp_reopen_validation",
         replace_after_reopen,
     )
-    with pytest.raises(ValueError, match="temporary collision"):
-        quarantine_unregistered_result(
-            ResearchProject.open(project.root), "invalid_result", True
-        )
+    result = quarantine_unregistered_result(
+        ResearchProject.open(project.root), "invalid_result", True
+    )
 
     assert temporary.read_bytes() == foreign
-    assert original.is_file()
+    assert original.read_bytes() == original_bytes
+    assert (project.root / result.quarantine_path).stat().st_ino != original.stat().st_ino
 
 
 @pytest.mark.parametrize("tamper", ("hardlink", "oversize", "symlink"))

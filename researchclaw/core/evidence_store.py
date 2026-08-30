@@ -1803,6 +1803,7 @@ def _recover_result_quarantine_locked(
                 project.root, "experiment/results.json"
             )
             temporary: int | None = None
+            reopened_partial_was_preserved = False
             try:
                 source_stat = os.fstat(source_descriptor)
                 if (
@@ -1815,13 +1816,59 @@ def _recover_result_quarantine_locked(
                     try:
                         temporary = os.open(
                             temporary_name,
-                            os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
                             | getattr(os, "O_NONBLOCK", 0),
                             dir_fd=copies_directory,
                         )
                     except OSError as error:
                         raise ValueError("result quarantine temporary collision") from error
-                else:
+                    temporary_stat = os.fstat(temporary)
+                    if (
+                        not stat.S_ISREG(temporary_stat.st_mode)
+                        or temporary_stat.st_nlink != 1
+                        or temporary_stat.st_size > pending["size"]
+                        or temporary_stat.st_dev != pending["temporary_device"]
+                        or temporary_stat.st_ino != pending["temporary_inode"]
+                    ):
+                        raise ValueError("result quarantine temporary collision")
+                    if temporary_stat.st_size < pending["size"]:
+                        remaining_prefix = temporary_stat.st_size
+                        while remaining_prefix:
+                            amount = min(_CHUNK_SIZE, remaining_prefix)
+                            source_prefix = os.read(source_descriptor, amount)
+                            temporary_prefix = os.read(temporary, amount)
+                            if (
+                                len(source_prefix) != amount
+                                or temporary_prefix != source_prefix
+                            ):
+                                raise ValueError("result quarantine temporary collision")
+                            remaining_prefix -= amount
+                        os.lseek(source_descriptor, 0, os.SEEK_SET)
+                        os.lseek(temporary, 0, os.SEEK_SET)
+                        _require_result_quarantine_capacity(
+                            result_quarantine_inventory(project),
+                            additional_entries=1,
+                            additional_retained_bytes=int(pending["size"]),
+                            required_free_bytes=int(pending["size"]),
+                        )
+                        _after_result_quarantine_temp_reopen_validation()
+                        reopened_partial_was_preserved = True
+                        os.close(temporary)
+                        temporary = None
+                        rotations = int(pending["temporary_rotations"])
+                        if rotations >= _RESULT_QUARANTINE_ROTATION_LIMIT:
+                            raise ResultQuarantineCapacityError(
+                                "temporary rotation limit exceeded",
+                                result_quarantine_inventory(project),
+                            )
+                        temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
+                        pending["temporary_name"] = temporary_name
+                        pending["temporary_rotations"] = rotations + 1
+                        pending["temporary_device"] = 0
+                        pending["temporary_inode"] = 0
+                        pending["phase"] = "temp_named"
+                        _persist_result_quarantine(project, pending)
+                if pending["phase"] == "temp_named":
                     while temporary is None:
                         try:
                             temporary = os.open(
@@ -1867,12 +1914,14 @@ def _recover_result_quarantine_locked(
                     or temporary_stat.st_ino != pending["temporary_inode"]
                 ):
                     raise ValueError("result quarantine temporary collision")
-                _after_result_quarantine_temp_reopen_validation()
-                _require_result_quarantine_recovery_capacity(
-                    result_quarantine_inventory(project),
-                    expected_size=int(pending["size"]),
-                    existing_size=temporary_stat.st_size,
-                )
+                if not reopened_partial_was_preserved:
+                    _after_result_quarantine_temp_reopen_validation()
+                if temporary_stat.st_size == pending["size"]:
+                    _require_result_quarantine_recovery_capacity(
+                        result_quarantine_inventory(project),
+                        expected_size=int(pending["size"]),
+                        existing_size=temporary_stat.st_size,
+                    )
                 digest = hashlib.sha256()
                 observed = 0
                 expected_size = int(pending["size"])

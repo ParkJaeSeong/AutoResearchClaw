@@ -1265,8 +1265,9 @@ def test_prepare_run_writes_the_exact_closed_contract_shape(tmp_path):
             "sha256": hashlib.sha256((project.root / path).read_bytes()).hexdigest(),
         }
         for name, path in {
-            "design": "experiment/design.json",
-            "package_manifest": "experiment/package_manifest.json",
+                "design": "experiment/design.json",
+                "package_contract": "experiment/package_contract.json",
+                "package_manifest": "experiment/package_manifest.json",
             "config": "experiment/code/config.json",
             "resources": "experiment/resources.json",
         }.items()

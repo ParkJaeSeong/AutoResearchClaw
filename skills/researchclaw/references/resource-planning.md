@@ -288,8 +288,8 @@ Legacy generic contracts, mutable results, and ungrounded Stage-13 artifacts
 are `legacy_untrusted`: audit-only and non-registerable. Use
 `researchclaw-codex evidence audit ROOT --json`; never silently migrate them.
 Quarantine actions require `--confirm`. Evidence objects are never operator-deleted.
-Required future behavior preserves a published partial quarantine temp and
+Recovery preserves a published partial quarantine temp and
 never writes it again; it uses a fresh inode when capacity permits or fails
 closed for explicit manual/operator action. A complete read-only candidate may
-be verified and published without mutation. This is a mandatory pending Task 8
-release gate, not a current guarantee.
+be verified and published without mutation. The adversarial release gate
+verifies this guarantee.
