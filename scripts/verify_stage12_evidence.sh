@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+# Trust boundary: this release gate runs only with local/operator-controlled
+# executables. PYTHON_BIN is preferred. The probe validates Python/pytest
+# capability and catches accidental wrappers; portable shell cannot authenticate
+# a responsive same-user executable that sees and emulates every challenge.
+
 new_probe_nonce() {
     nonce_path=$(mktemp "${TMPDIR:-/tmp}/stage12-python-nonce.XXXXXX")
     nonce_name=${nonce_path##*/}
@@ -148,27 +153,125 @@ if [ "${1:-}" = "--print-python" ]; then
     exit 0
 fi
 
+run_bounded_output() {
+    bounded_log=$1
+    shift
+    status_log=$(mktemp "${TMPDIR:-/tmp}/stage12-pytest-status.XXXXXX")
+    rm -f "$status_log"
+    "$PYTHON_BIN" -c 'import subprocess, sys
+output_path, status_path, raw_limit, *command = sys.argv[1:]
+limit = int(raw_limit)
+process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+total = 0
+overflow = False
+with open(output_path, "wb") as output:
+    assert process.stdout is not None
+    while True:
+        chunk = process.stdout.read(65536)
+        if not chunk:
+            break
+        remaining = limit + 1 - total
+        if remaining > 0:
+            output.write(chunk[:remaining])
+            total += min(len(chunk), remaining)
+        if len(chunk) > remaining or total > limit:
+            overflow = True
+            process.kill()
+            break
+status = process.wait()
+with open(status_path, "w", encoding="ascii") as status_file:
+    status_file.write(str(125 if overflow else status) + "\n")' \
+        "$bounded_log" "$status_log" 4194304 "$@" >/dev/null 2>&1 || true
+    if [ ! -f "$status_log" ]; then
+        rm -f "$status_log"
+        return 1
+    fi
+    command_status=$(cat "$status_log")
+    rm -f "$status_log"
+    [ "$command_status" = 0 ]
+}
+
 run_mandatory_pytest() {
+    expected_marker=$1
+    shift
+    collection_log=$(mktemp "${TMPDIR:-/tmp}/stage12-pytest-collect.XXXXXX")
+    if ! run_bounded_output \
+        "$collection_log" "$PYTHON_BIN" -m pytest --collect-only -q "$@"; then
+        cat "$collection_log"
+        echo "mandatory Stage-12 pytest collection was missing or malformed: $expected_marker" >&2
+        rm -f "$collection_log"
+        return 1
+    fi
+    collection_size=$(wc -c <"$collection_log")
+    collection_summary=$(awk 'NF { line=$0 } END { print line }' "$collection_log")
+    if [ "$collection_size" -gt 4194304 ] \
+        || ! grep -F "$expected_marker" "$collection_log" >/dev/null \
+        || ! printf '%s\n' "$collection_summary" \
+            | grep -E '^[1-9][0-9]* tests? collected in [0-9.]+s' >/dev/null; then
+        echo "mandatory Stage-12 pytest collection was missing or malformed: $expected_marker" >&2
+        rm -f "$collection_log"
+        return 1
+    fi
+    rm -f "$collection_log"
+
     result_log=$(mktemp "${TMPDIR:-/tmp}/stage12-pytest.XXXXXX")
-    if ! "$PYTHON_BIN" -m pytest -q -ra "$@" >"$result_log" 2>&1; then
+    if ! run_bounded_output \
+        "$result_log" "$PYTHON_BIN" -m pytest -q -ra "$@"; then
         cat "$result_log"
+        echo "mandatory Stage-12 pytest execution failed or produced invalid bounded output: $expected_marker" >&2
         rm -f "$result_log"
         return 1
     fi
-    cat "$result_log"
-    if grep -E '[0-9]+ (skipped|xfailed|xpassed)' "$result_log" >/dev/null; then
-        echo "mandatory Stage-12 gate contained skipped/xfailed/xpassed tests" >&2
+    result_size=$(wc -c <"$result_log")
+    final_summary=$(awk 'NF { line=$0 } END { print line }' "$result_log")
+    if [ "$result_size" -gt 4194304 ] \
+        || ! printf '%s\n' "$final_summary" \
+            | grep -E '^[1-9][0-9]* passed in [0-9.]+s' >/dev/null \
+        || printf '%s\n' "$final_summary" \
+            | grep -E '(skipped|xfailed|xpassed|deselected|errors?)' >/dev/null; then
+        echo "mandatory Stage-12 pytest gate did not report executed passing tests only: $expected_marker" >&2
         rm -f "$result_log"
         return 1
     fi
+    grep -F "evidence benchmark:" "$result_log" || true
+    printf '%s\n' "$final_summary"
     rm -f "$result_log"
 }
 
-run_mandatory_pytest tests/codex_native/test_stage12_trustworthy_evidence_integration.py
-run_mandatory_pytest tests/codex_native
+run_compileall_gate() {
+    nonce=$(new_probe_nonce)
+    compile_log=$(mktemp "${TMPDIR:-/tmp}/stage12-compileall.XXXXXX")
+    if ! (
+        ulimit -f 64
+        "$PYTHON_BIN" -c 'import compileall, sys
+nonce = sys.argv[1]
+ok = compileall.compile_dir("researchclaw", quiet=1) and compileall.compile_dir("tests/codex_native", quiet=1)
+if not ok:
+    raise SystemExit(1)
+print("RC_STAGE12_COMPILEALL_V1\t" + nonce)' "$nonce" >"$compile_log" 2>&1
+    ); then
+        cat "$compile_log"
+        rm -f "$compile_log"
+        return 1
+    fi
+    expected=$(printf 'RC_STAGE12_COMPILEALL_V1\t%s' "$nonce")
+    actual=$(cat "$compile_log")
+    rm -f "$compile_log"
+    if [ "$actual" != "$expected" ]; then
+        echo "mandatory Stage-12 compileall gate did not report its exact marker" >&2
+        return 1
+    fi
+}
+
+run_mandatory_pytest \
+    tests/codex_native/test_stage12_trustworthy_evidence_integration.py:: \
+    tests/codex_native/test_stage12_trustworthy_evidence_integration.py
+run_mandatory_pytest tests/codex_native/ tests/codex_native
 # The 1 GiB test remains excluded from ordinary pytest collection by its marker;
 # this release gate opts in explicitly and treats it as mandatory.
-run_mandatory_pytest tests/performance/test_evidence_store_benchmark.py -m large_evidence
-"$PYTHON_BIN" -m compileall -q researchclaw tests/codex_native
+run_mandatory_pytest \
+    tests/performance/test_evidence_store_benchmark.py:: \
+    tests/performance/test_evidence_store_benchmark.py -m large_evidence
+run_compileall_gate
 ruff check researchclaw tests/codex_native
 git diff --check

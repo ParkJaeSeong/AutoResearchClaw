@@ -312,6 +312,23 @@ The Python distribution and Codex plugin use the same derivative release
 version. This derivative is `0.1.0`. Upstream AutoResearchClaw release numbers
 are tracked separately and do not determine the derivative's version.
 
+### Stage-12 release verification trust boundary
+
+Run `scripts/verify_stage12_evidence.sh` only in a trusted, operator-controlled
+local environment. Set `PYTHON_BIN` to the preferred Python 3.11+ interpreter;
+it must import pytest. Project virtual environments and PATH executables are
+also treated as trusted candidates. The script validates Python/pytest
+capability and catches accidental no-op or malformed wrappers, but portable
+shell cannot authenticate a responsive same-user executable that can observe
+and emulate every probe. Such a malicious local executable is outside this
+release gate's threat model.
+
+Candidate validation alone is insufficient for success. Each mandatory pytest
+run must emit executed test-node markers and a positive, clean pass summary with
+no skips, xfails, xpasses, deselections, or errors. Compileall must emit its
+exact per-run marker. Missing, empty, malformed, or oversized command output
+fails the release gate even when the selected executable returns status zero.
+
 Product identity:
 
 - Repository: `AutoResearchClaw-Codex`

@@ -26,7 +26,12 @@ def _fake_python(path: Path, *, valid: bool) -> Path:
     return _executable(path, "#!/bin/sh\nexit 1\n")
 
 
-def _run(tmp_path: Path, *, python_bin: str | None = None):
+def _run(
+    tmp_path: Path,
+    *,
+    python_bin: str | None = None,
+    arguments: tuple[str, ...] = ("--print-python",),
+):
     environment = os.environ.copy()
     environment["PATH"] = f"{tmp_path / 'bin'}:/usr/bin:/bin"
     if python_bin is None:
@@ -34,7 +39,7 @@ def _run(tmp_path: Path, *, python_bin: str | None = None):
     else:
         environment["PYTHON_BIN"] = python_bin
     return subprocess.run(
-        [str(SCRIPT), "--print-python"],
+        [str(SCRIPT), *arguments],
         cwd=ROOT,
         env=environment,
         check=False,
@@ -128,3 +133,33 @@ def test_release_selector_rejects_huge_probe_output(tmp_path):
     )
     completed = _run(tmp_path, python_bin=str(candidate))
     assert completed.returncode != 0
+
+
+def test_responsive_spoof_cannot_satisfy_mandatory_pytest_output_gate(tmp_path):
+    candidate = tmp_path / "responsive-spoof"
+    quoted = shlex.quote(str(candidate))
+    _executable(
+        candidate,
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then\n"
+        f"  printf 'RC_STAGE12_PYTHON_V1\\t%s\\t3\\t12\\t%s\\t8.0\\t/fake.py\\n' \"$3\" {quoted}\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 0\n",
+    )
+    selected = _run(tmp_path, python_bin=str(candidate))
+    assert selected.returncode == 0
+    assert selected.stdout.strip() == str(candidate)
+
+    completed = _run(tmp_path, python_bin=str(candidate), arguments=())
+    assert completed.returncode != 0
+    assert "pytest collection was missing or malformed" in completed.stderr
+
+
+def test_release_contract_documents_trusted_executable_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "trusted, operator-controlled" in readme
+    assert "cannot authenticate a responsive same-user executable" in readme
+    assert "validates Python/pytest" in script
+    assert "cannot authenticate" in script
