@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import build_foundation_report
+from researchclaw.core.experiment_package_contract import register_experiment_self_test
 from researchclaw.core.execution_gate import (
     recheck_development_input,
     recheck_execution_readiness,
@@ -56,6 +57,27 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate = subcommands.add_parser("evaluate", help="report foundation workflow metrics")
     evaluate.add_argument("root", metavar="ROOT")
     evaluate.add_argument("--json", action="store_true", help="emit JSON")
+
+    experiment = subcommands.add_parser(
+        "experiment", help="manage experiment-package validation evidence"
+    )
+    experiment_commands = experiment.add_subparsers(
+        dest="experiment_command", required=True
+    )
+    register_self_test = experiment_commands.add_parser(
+        "register-self-test", help="register an externally run known-answer self-test"
+    )
+    register_self_test.add_argument("root", metavar="PROJECT")
+    register_self_test.add_argument(
+        "--report", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_self_test.add_argument(
+        "--confirm-self-test",
+        action="store_true",
+        required=True,
+        help="confirm registration of the externally produced self-test report",
+    )
+    register_self_test.add_argument("--json", action="store_true", help="emit JSON")
 
     stage = subcommands.add_parser("stage", help="prepare a research stage")
     stage_commands = stage.add_subparsers(dest="stage_command", required=True)
@@ -170,6 +192,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evaluate":
             project = ResearchProject.open(args.root)
             payload = build_foundation_report(project)
+        elif args.command == "experiment" and args.experiment_command == "register-self-test":
+            project = ResearchProject.open(args.root)
+            artifact = register_experiment_self_test(project, args.report)
+            payload = {
+                "path": artifact.path,
+                "sha256": artifact.sha256,
+                "size": artifact.size,
+            }
         elif args.command == "execution" and args.execution_command == "recheck":
             if args.development:
                 project = ResearchProject.open_readonly(args.root)
@@ -228,6 +258,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"stage {payload['stage_id']}: {'valid' if payload['valid'] else 'invalid'}")
         elif args.command == "evaluate":
             print(f"{payload['project_id']}: {payload['stage_completion_rate']:.0%} complete")
+        elif args.command == "experiment":
+            print(f"registered self-test: {payload['path']}")
         elif args.command == "execution":
             print(f"stage 12: {payload['readiness']}")
         else:

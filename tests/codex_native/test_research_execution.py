@@ -1516,7 +1516,9 @@ def test_prepare_run_writes_bound_contract_without_executing_project_code(tmp_pa
     assert not marker.exists()
 
 
-def test_marker_fixture_writes_only_when_project_code_is_run(tmp_path, monkeypatch):
+def test_registered_package_does_not_retain_stage_ten_marker_fixture(
+    tmp_path, monkeypatch
+):
     project = build_approved_stage_twelve_project(
         tmp_path / "project", include_execution_marker=True
     )
@@ -1526,7 +1528,7 @@ def test_marker_fixture_writes_only_when_project_code_is_run(tmp_path, monkeypat
     with pytest.raises(SystemExit):
         runpy.run_path("experiment/code/main.py", run_name="__main__")
 
-    assert marker.read_text(encoding="utf-8") == "executed"
+    assert not marker.exists()
 
 
 def test_prepare_run_writes_the_exact_closed_contract_shape(tmp_path):

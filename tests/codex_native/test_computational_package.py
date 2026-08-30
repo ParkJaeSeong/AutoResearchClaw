@@ -1,5 +1,7 @@
 import hashlib
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -162,6 +164,39 @@ def test_canonical_scaffold_defensively_rejects_symlinked_inputs():
     assert "cursor.is_symlink()" in source
     assert "candidate.resolve(strict=True)" in source
     assert "project_root not in resolved.parents" in source
+
+
+def test_canonical_package_has_no_generic_input_byte_metric_runner():
+    source = computational_package.canonical_computational_scaffold()[
+        "experiment/code/main.py"
+    ]
+
+    assert "total_input_bytes" not in source
+    assert "_run_bounded_experiment" not in source
+    assert "st_size" not in source
+    assert "evidence_eligible" not in source
+
+
+def test_canonical_package_default_execution_requires_an_implementation(tmp_path):
+    project = build_completed_validation_design_project(tmp_path / "project")
+    write_valid_fixture_artifacts(project.root, 10)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "experiment/code/main.py",
+            "--config",
+            "experiment/code/config.json",
+        ],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "experiment implementation missing" in completed.stderr
+    assert not (project.root / "experiment/results.json").exists()
 
 
 @pytest.mark.parametrize(

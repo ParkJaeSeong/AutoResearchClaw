@@ -1,13 +1,24 @@
 import json
 from dataclasses import replace
+import subprocess
+import sys
 
 import pytest
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate, verify_current_approval
+from researchclaw.core.experiment_package_contract import (
+    SELF_TEST_REPORT_PATH,
+    register_experiment_self_test,
+    validate_experiment_package_contract,
+)
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.validation import validate_current_stage
-from tests.codex_native.helpers import build_stage_twelve_project, complete_first_four_stages
+from tests.codex_native.helpers import (
+    build_self_test_registration_project,
+    build_stage_twelve_project,
+    complete_first_four_stages,
+)
 
 
 def _project_at_stage_five_gate(root):
@@ -164,7 +175,48 @@ def test_stage_twelve_approval_refuses_needs_input(tmp_path, decision):
         approve_current_gate(project, decision, "Run it")
 
 
-def test_execution_approval_binds_four_artifacts_without_executing(tmp_path):
+def test_stage_twelve_approval_requires_registered_self_test(tmp_path):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        approve_current_gate(project, "approve", "Run it")
+
+
+def test_register_experiment_self_test_records_artifact_and_event_at_gate(tmp_path):
+    project = build_self_test_registration_project(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    completed = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    state_before = project.state
+
+    artifact = register_experiment_self_test(project, SELF_TEST_REPORT_PATH)
+
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 12
+    assert reopened.state.status.value == "awaiting_approval"
+    assert reopened.state.next_action == "approve_experiment_execution"
+    assert reopened.state.completed_stages == state_before.completed_stages
+    assert reopened.state.artifacts[SELF_TEST_REPORT_PATH] == artifact
+    event = json.loads(
+        (project.root / "evaluation/events.jsonl").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    assert event["type"] == "experiment_self_test_registered"
+    assert event["payload"] == {
+        "path": artifact.path,
+        "sha256": artifact.sha256,
+        "size": artifact.size,
+    }
+
+
+def test_execution_approval_binds_gate_and_self_test_artifacts_without_executing(tmp_path):
     project, _declared_input = build_stage_twelve_project(tmp_path / "project")
     completed_before = project.state.completed_stages
 
@@ -175,6 +227,7 @@ def test_execution_approval_binds_four_artifacts_without_executing(tmp_path):
         "experiment/package_manifest.json",
         "experiment/code/config.json",
         "experiment/resources.json",
+        "experiment/self_test_report.json",
     }
     reopened = ResearchProject.open(project.root)
     assert reopened.state.current_stage == 12
@@ -190,6 +243,24 @@ def test_execution_approval_binds_four_artifacts_without_executing(tmp_path):
     assert handoff.next_action == "report_resource_plan_milestone_only"
     assert " approve " not in f" {handoff.next_command} "
     assert "stage prepare" not in handoff.next_command
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "experiment/package_contract.json",
+        "experiment/self_test_fixture.json",
+    ],
+)
+def test_stage_twelve_approval_rejects_registered_self_test_identity_drift(
+    tmp_path, relative_path
+):
+    project, _declared_input = build_stage_twelve_project(tmp_path / "project")
+    path = project.root / relative_path
+    path.write_bytes(path.read_bytes() + b"\n")
+
+    with pytest.raises(ValueError, match="experiment_self_test_required"):
+        approve_current_gate(ResearchProject.open(project.root), "approve", "Run it")
 
 
 def test_stage_twelve_approval_rechecks_readiness_against_current_inputs(tmp_path):

@@ -1,12 +1,22 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 from unittest.mock import patch
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.execution_gate import recheck_execution_readiness
+from researchclaw.core.experiment_package_contract import (
+    SELF_TEST_REPORT_PATH,
+    register_experiment_self_test,
+    validate_experiment_package_contract,
+)
+from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.resource_planning import (
     hardware_drift_warnings,
@@ -598,6 +608,190 @@ if __name__ == "__main__":
     return ResearchProject.open(root)
 
 
+def build_self_test_registration_project(root: Path) -> ResearchProject:
+    """Promote the closed known-answer package to the Stage-12 registration gate."""
+    project = build_known_answer_experiment_package(root)
+    project.persist_state(
+        replace(
+            project.state,
+            current_stage=12,
+            status=StageStatus.AWAITING_APPROVAL,
+            completed_stages=tuple(range(1, 12)),
+            next_action="approve_experiment_execution",
+        )
+    )
+    return ResearchProject.open(root)
+
+
+def _current_artifact(root: Path, relative_path: str) -> ArtifactRef:
+    path = root / relative_path
+    payload = path.read_bytes()
+    return ArtifactRef(
+        path=relative_path,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+    )
+
+
+def _install_known_answer_stage_twelve_package(project: ResearchProject) -> ResearchProject:
+    source = build_known_answer_experiment_package(
+        project.root.parent / f".{project.root.name}-known-answer-source"
+    )
+    copied_paths = (
+        "experiment/code/main.py",
+        "experiment/code/self_test_config.json",
+        "experiment/package_contract.json",
+        "experiment/self_test_fixture.json",
+    )
+    for relative_path in copied_paths:
+        target = project.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source.root / relative_path, target)
+
+    main_path = project.root / "experiment/code/main.py"
+    main_source = main_path.read_text(encoding="utf-8")
+    generic_result_write = (
+        "    result = run_experiment(config)\n"
+        "    Path(\"experiment/results.json\").write_text(json.dumps(result, sort_keys=True) + \"\\n\", encoding=\"utf-8\")\n"
+        "    return result\n"
+    )
+    contract_bound_result_write = '''    execution_path = Path("experiment/execution_contract.json")
+    execution_bytes = execution_path.read_bytes()
+    execution_contract = json.loads(execution_bytes.decode("utf-8"))
+    bindings = execution_contract["bindings"]
+    for binding in [
+        bindings["design"], bindings["package_manifest"], bindings["config"],
+        bindings["resources"], *bindings["package_files"],
+    ]:
+        payload = Path(binding["path"]).read_bytes()
+        binding_digest = hashlib.sha256(payload)
+        if binding_digest.hexdigest() != binding["sha256"]:
+            raise ValueError("execution binding changed")
+    for declared in execution_contract["inputs"]:
+        payload = Path(declared["path"]).read_bytes()
+        input_digest = hashlib.sha256(payload)
+        if (
+            len(payload) != declared["size_bytes"]
+            or input_digest.hexdigest() != declared["sha256"]
+        ):
+            raise ValueError("execution input changed")
+    resources = json.loads(Path(bindings["resources"]["path"]).read_text(encoding="utf-8"))
+    maximum_seconds = resources["budget"]["total_estimated_duration_seconds"]
+    experiment_result = run_experiment(config)
+    metric = config["metrics"][0]
+    execution_digest = hashlib.sha256(execution_bytes)
+    result = {
+        "schema_version": 1,
+        "project_id": execution_contract["project_id"],
+        "execution_contract": {
+            "path": str(execution_path),
+            "contract_id": execution_contract["contract_id"],
+            "sha256": execution_digest.hexdigest(),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {
+            "primary": {
+                "name": metric["name"],
+                "value": float(experiment_result["mae"]),
+                "unit": metric["unit"],
+            }
+        },
+        "split_summary": {
+            "isolation_key": config["split_strategy"]["isolation_key"],
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "bindings": bindings,
+            "inputs": execution_contract["inputs"],
+        },
+        "runtime": {
+            "elapsed_seconds": min(1.0, float(maximum_seconds)),
+            "maximum_seconds": maximum_seconds,
+        },
+    }
+    Path("experiment/results.json").write_text(
+        json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\\n",
+        encoding="utf-8",
+    )
+    return result
+'''
+    assert generic_result_write in main_source
+    main_path.write_text(
+        main_source.replace(generic_result_write, contract_bound_result_write),
+        encoding="utf-8",
+    )
+
+    manifest_path = project.root / "experiment/package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    main_ref = _current_artifact(project.root, "experiment/code/main.py")
+    for entry in manifest["files"]:
+        if entry["path"] == main_ref.path:
+            entry["sha256"] = main_ref.sha256
+            break
+    self_test_config_ref = _current_artifact(
+        project.root, "experiment/code/self_test_config.json"
+    )
+    manifest["files"].append(
+        {
+            "path": self_test_config_ref.path,
+            "role": "self_test_configuration",
+            "sha256": self_test_config_ref.sha256,
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+    resources_path = project.root / "experiment/resources.json"
+    resources = json.loads(resources_path.read_text(encoding="utf-8"))
+    resources["bindings"]["package_manifest"]["sha256"] = hashlib.sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    resources_path.write_text(
+        json.dumps(resources, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    updated = ResearchProject.open(project.root)
+    tracked = {
+        relative_path: _current_artifact(project.root, relative_path)
+        for relative_path in (
+            "experiment/code/main.py",
+            "experiment/package_manifest.json",
+            "experiment/resources.json",
+        )
+    }
+    updated.persist_state(
+        replace(updated.state, artifacts={**updated.state.artifacts, **tracked})
+    )
+    return ResearchProject.open(project.root)
+
+
+def register_stage_twelve_known_answer_self_test(
+    project: ResearchProject,
+) -> ArtifactRef:
+    """Explicitly run the test package's known answer, then register its report."""
+    package = validate_experiment_package_contract(project)
+    completed = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return register_experiment_self_test(
+        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+    )
+
+
 def set_stage_ten_required_paths(root: Path, required_paths: list[str]) -> None:
     """Keep the Stage-10 config and manifest fixture hashes aligned."""
     config_path = root / "experiment/code/config.json"
@@ -705,6 +899,7 @@ def build_stage_twelve_project(
     *,
     readiness: str = "ready_for_execution",
     include_execution_marker: bool = False,
+    register_self_test: bool = True,
 ) -> tuple[ResearchProject, Path]:
     """Build a real Stage-12 boundary with an optional missing declared input."""
     project = build_completed_validation_design_project(root)
@@ -800,7 +995,13 @@ def build_stage_twelve_project(
     resources = project.root / "experiment/resources.json"
     resources.write_text(json.dumps(plan, sort_keys=True) + "\n", encoding="utf-8")
     assert validate_current_stage(project).valid is True
-    return ResearchProject.open(project.root), declared_input
+    project = _install_known_answer_stage_twelve_package(
+        ResearchProject.open(project.root)
+    )
+    if register_self_test:
+        register_stage_twelve_known_answer_self_test(project)
+        project = ResearchProject.open(project.root)
+    return project, declared_input
 
 
 def build_approved_stage_twelve_project(

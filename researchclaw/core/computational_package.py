@@ -62,15 +62,12 @@ _PYTHON_PATHS = (
 _REQUIREMENTS_PATH = "experiment/code/requirements.txt"
 _README_PATH = "experiment/code/README.md"
 _CANONICAL_MAIN = """import argparse
-import hashlib
 import json
 import time
 from pathlib import Path
 from typing import Any
 
 MAX_JSON_BYTES = 1048576
-EXECUTION_CONTRACT_PATH = Path('experiment/execution_contract.json')
-RESULT_PATH = Path('experiment/results.json')
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     value: dict[str, Any] = {}
@@ -97,26 +94,14 @@ def _safe_path(raw_path: str) -> Path:
 
 def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
     safe = _safe_path(str(path))
-    if safe.stat().st_size > MAX_JSON_BYTES:
+    with safe.open('rb') as handle:
+        payload = handle.read(MAX_JSON_BYTES + 1)
+    if len(payload) > MAX_JSON_BYTES:
         raise ValueError('JSON file exceeds the execution bound')
-    payload = safe.read_bytes()
     value = json.loads(payload.decode('utf-8'), object_pairs_hook=_reject_duplicate_keys)
     if not isinstance(value, dict):
         raise ValueError('JSON file must contain an object')
     return value, payload
-
-def _identity(raw_path: str) -> tuple[int, str]:
-    path = _safe_path(raw_path)
-    digest = hashlib.sha256()
-    size = 0
-    with path.open('rb') as handle:
-        while True:
-            chunk = handle.read(1048576)
-            if not chunk:
-                break
-            size += len(chunk)
-            digest.update(chunk)
-    return size, digest.hexdigest()
 
 def load_config(config_path: Path) -> dict[str, Any]:
     config, _payload = _read_json(config_path)
@@ -141,139 +126,8 @@ def build_plan(config: dict[str, Any]) -> dict[str, Any]:
         'seeds': config['seeds'],
     }
 
-def _load_execution_contract(config: dict[str, Any], config_path: Path) -> tuple[dict[str, Any], str, int]:
-    contract, contract_bytes = _read_json(EXECUTION_CONTRACT_PATH)
-    if set(contract) != {
-        'schema_version', 'contract_id', 'project_id', 'created_at', 'command',
-        'result_path', 'bindings', 'inputs', 'prohibitions', 'result_template',
-    }:
-        raise ValueError('execution contract has an invalid shape')
-    canonical_text = json.dumps(
-        contract, ensure_ascii=False, sort_keys=True, separators=(',', ':'),
-        allow_nan=False,
-    )
-    canonical = canonical_text.encode('utf-8')
-    if canonical != contract_bytes:
-        raise ValueError('execution contract is not canonical')
-    if (
-        contract['schema_version'] != 1
-        or contract['project_id'] != config['project_id']
-        or contract['command'] != 'python experiment/code/main.py --config experiment/code/config.json'
-        or contract['result_path'] != str(RESULT_PATH)
-    ):
-        raise ValueError('execution contract does not match the package')
-    identity_payload = {
-        key: contract[key]
-        for key in (
-            'project_id', 'command', 'result_path', 'bindings', 'inputs',
-            'prohibitions', 'result_template',
-        )
-    }
-    identity_text = json.dumps(
-        identity_payload, ensure_ascii=False, sort_keys=True,
-        separators=(',', ':'), allow_nan=False,
-    )
-    identity_bytes = identity_text.encode('utf-8')
-    identity_hasher = hashlib.sha256(identity_bytes)
-    identity_digest = identity_hasher.hexdigest()
-    if contract['contract_id'] != identity_digest:
-        raise ValueError('execution contract identity is invalid')
-    template = contract['result_template']
-    if (
-        not isinstance(template, dict)
-        or template.get('schema_version') != 1
-        or template.get('required_fields') != [
-            'schema_version', 'project_id', 'execution_contract',
-            'development_only', 'evidence_eligible', 'status', 'metrics',
-            'split_summary', 'provenance', 'runtime',
-        ]
-        or template.get('development_only') is not False
-        or template.get('evidence_eligible') is not True
-        or template.get('status') != 'completed'
-    ):
-        raise ValueError('execution result template is invalid')
-    prohibitions = contract['prohibitions']
-    if (
-        not isinstance(prohibitions, dict)
-        or not prohibitions
-        or any(value is not False for value in prohibitions.values())
-    ):
-        raise ValueError('execution prohibitions are invalid')
-    bindings = contract['bindings']
-    if not isinstance(bindings, dict):
-        raise ValueError('execution bindings are invalid')
-    binding_records = [
-        bindings['design'], bindings['package_manifest'], bindings['config'],
-        bindings['resources'], *bindings['package_files'],
-    ]
-    for binding in binding_records:
-        if not isinstance(binding, dict) or set(binding) != {'path', 'sha256'}:
-            raise ValueError('execution binding is invalid')
-        _size, digest = _identity(binding['path'])
-        if digest != binding['sha256']:
-            raise ValueError('execution binding changed')
-    if bindings['config']['path'] != str(config_path):
-        raise ValueError('execution config binding is invalid')
-    inputs = contract['inputs']
-    if not isinstance(inputs, list):
-        raise ValueError('execution inputs are invalid')
-    input_paths: list[str] = []
-    for declared in inputs:
-        if not isinstance(declared, dict) or set(declared) != {
-            'path', 'size_bytes', 'sha256', 'license_status',
-        }:
-            raise ValueError('execution input is invalid')
-        if declared['license_status'] not in {'confirmed', 'not_required'}:
-            raise ValueError('execution input license is invalid')
-        size, digest = _identity(declared['path'])
-        if size != declared['size_bytes'] or digest != declared['sha256']:
-            raise ValueError('execution input changed')
-        input_paths.append(declared['path'])
-    if len(input_paths) != len(set(input_paths)):
-        raise ValueError('execution input paths must be unique')
-    if sorted(input_paths) != sorted(config['input_contract']['required_paths']):
-        raise ValueError('execution inputs do not match the config')
-    resources, _resource_bytes = _read_json(Path(bindings['resources']['path']))
-    maximum_seconds = resources['budget']['total_estimated_duration_seconds']
-    if not isinstance(maximum_seconds, int) or isinstance(maximum_seconds, bool) or maximum_seconds <= 0:
-        raise ValueError('execution budget is invalid')
-    contract_digest = hashlib.sha256(contract_bytes)
-    return contract, contract_digest.hexdigest(), maximum_seconds
-
-def _run_bounded_experiment(config: dict[str, Any], contract: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    configured_metrics = config['metrics']
-    if not isinstance(configured_metrics, list) or not configured_metrics:
-        raise ValueError('configured metrics must be non-empty')
-    metric = configured_metrics[0]
-    if not isinstance(metric, dict):
-        raise ValueError('configured metric is invalid')
-    total_input_bytes = sum(item['size_bytes'] for item in contract['inputs'])
-    metrics = {
-        'primary': {
-            'name': metric['name'],
-            'value': float(total_input_bytes),
-            'unit': metric['unit'],
-        }
-    }
-    groups = config['split_strategy']['groups']
-    if set(groups) != {'train', 'validation', 'calibration', 'test'}:
-        raise ValueError('configured split roles are invalid')
-    roles = {
-        role: {'cell_count': 0, 'group_count': 0}
-        for role in ('train', 'validation', 'calibration', 'test')
-    }
-    for index, _declared in enumerate(contract['inputs']):
-        role = groups[index % len(groups)]
-        roles[role]['cell_count'] += 1
-        roles[role]['group_count'] += 1
-    split_summary = {
-        'isolation_key': config['split_strategy']['isolation_key'],
-        'roles': roles,
-        'cell_overlap_count': 0,
-        'group_overlap_count': 0,
-        'leakage_count': 0,
-    }
-    return metrics, split_summary
+def run_experiment(config: dict[str, Any]) -> dict[str, Any]:
+    raise RuntimeError('experiment implementation missing')
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser = argparse.ArgumentParser()
@@ -281,50 +135,16 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args(argv)
     config_path = Path(args.config)
-    result_path = Path('experiment/results.json')
     config = load_config(config_path)
     plan = build_plan(config)
     if args.dry_run:
         validate_inputs(config)
         print(json.dumps(plan, sort_keys=True))
         return plan
-    if RESULT_PATH.exists():
-        raise FileExistsError('declared result already exists')
+    validate_inputs(config)
     started = time.monotonic()
-    contract, contract_sha256, maximum_seconds = _load_execution_contract(
-        config, config_path
-    )
-    metrics, split_summary = _run_bounded_experiment(config, contract)
-    elapsed_seconds = time.monotonic() - started
-    if elapsed_seconds > maximum_seconds:
-        raise RuntimeError('execution exceeded its approved budget')
-    result = {
-        'schema_version': 1,
-        'project_id': contract['project_id'],
-        'execution_contract': {
-            'path': str(EXECUTION_CONTRACT_PATH),
-            'contract_id': contract['contract_id'],
-            'sha256': contract_sha256,
-        },
-        'development_only': False,
-        'evidence_eligible': True,
-        'status': 'completed',
-        'metrics': metrics,
-        'split_summary': split_summary,
-        'provenance': {
-            'bindings': contract['bindings'],
-            'inputs': contract['inputs'],
-        },
-        'runtime': {
-            'elapsed_seconds': elapsed_seconds,
-            'maximum_seconds': maximum_seconds,
-        },
-    }
-    result_text = json.dumps(
-        result, ensure_ascii=False, sort_keys=True, allow_nan=False
-    ) + '\\n'
-    with result_path.open('x', encoding='utf-8') as result_handle:
-        result_handle.write(result_text)
+    result = run_experiment(config)
+    _elapsed_seconds = time.monotonic() - started
     return result
 
 if __name__ == '__main__':

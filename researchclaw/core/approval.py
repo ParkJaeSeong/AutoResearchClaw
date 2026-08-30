@@ -213,6 +213,11 @@ def _approve_stage_twelve(
     )
 
     state = project.state
+    self_test_artifact = None
+    if decision == "approve":
+        from .experiment_package_contract import _current_registered_self_test
+
+        self_test_artifact = _current_registered_self_test(project)
     prior_record = load_approval_record(project.root, 12)
     current_rejection = (
         prior_record is not None
@@ -240,6 +245,8 @@ def _approve_stage_twelve(
 
     refreshed_project = ResearchProject.open(project.root)
     artifact_hashes = stage_twelve_artifact_hashes(refreshed_project)
+    if self_test_artifact is not None:
+        artifact_hashes[self_test_artifact.path] = self_test_artifact.sha256
     record = ApprovalRecord(
         schema_version=_SCHEMA_VERSION,
         project_id=refreshed_project.state.project_id,
@@ -321,6 +328,13 @@ def approval_matches_state(root: Path, state: ProjectState, record: ApprovalReco
             from .execution_gate import _stage_twelve_artifact_hashes
 
             expected_hashes = _stage_twelve_artifact_hashes(root, state)
+            if record.decision == "approve":
+                from .experiment_package_contract import _current_registered_self_test
+
+                self_test = _current_registered_self_test(
+                    ResearchProject(root=root, state=state)
+                )
+                expected_hashes[self_test.path] = self_test.sha256
             return record.artifact_hashes == expected_hashes
         contract = get_contract(record.stage_id)
         if not contract.requires_approval or set(record.artifact_hashes) != set(contract.required_outputs):

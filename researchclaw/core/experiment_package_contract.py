@@ -7,7 +7,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -16,6 +16,7 @@ from .computational_package import validate_python_capability_safety
 from .models import ArtifactRef
 from .paths import resolve_project_artifact
 from .project import ResearchProject
+from .transactions import project_mutation
 
 
 EXPERIMENT_PACKAGE_CONTRACT_PATH = "experiment/package_contract.json"
@@ -978,6 +979,14 @@ def _validate_metrics(
     return metrics, expected
 
 
+def _reject_module_scope_lambdas(tree: ast.Module) -> None:
+    for statement in tree.body:
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            continue
+        if any(isinstance(node, ast.Lambda) for node in ast.walk(statement)):
+            raise ValueError("entry_point must not define a module-scope lambda")
+
+
 def validate_experiment_package_contract(project: ResearchProject) -> ValidatedExperimentPackage:
     """Validate the non-executing closed package contract for a project."""
     contract, contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
@@ -990,6 +999,7 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     source, tree, _manifest_sha256, _entry_point_sha256 = _package_main_source(
         project.root, entry_point
     )
+    _reject_module_scope_lambdas(tree)
     config_path, _config = _required_path(project.root, contract["config_path"], "config_path")
     result_path = contract["result_path"]
     if result_path != "experiment/results.json":
@@ -1168,3 +1178,59 @@ def validate_registered_self_test(
         sha256=hashlib.sha256(report_bytes).hexdigest(),
         size=report_path.stat().st_size,
     )
+
+
+def _current_registered_self_test(project: ResearchProject) -> ArtifactRef:
+    try:
+        package = validate_experiment_package_contract(project)
+        artifact = validate_registered_self_test(project, package)
+        registered = project.state.artifacts.get(SELF_TEST_REPORT_PATH)
+        if registered != artifact:
+            raise ValueError("self-test report is not registered")
+        return artifact
+    except (OSError, ValueError) as error:
+        raise ValueError("experiment_self_test_required") from error
+
+
+@project_mutation
+def register_experiment_self_test(
+    project: ResearchProject, report_path: str
+) -> ArtifactRef:
+    """Register one externally produced, current known-answer self-test report."""
+    current = ResearchProject.open(project.root)
+    state = current.state
+    if (
+        state.current_stage != 12
+        or 11 not in state.completed_stages
+        or state.status.value != "awaiting_approval"
+        or state.next_action
+        not in {"approve_experiment_execution", "report_missing_execution_inputs"}
+    ):
+        raise ValueError("experiment_self_test_registration_unavailable")
+    if report_path != SELF_TEST_REPORT_PATH:
+        raise ValueError("experiment_self_test_required")
+    try:
+        package = validate_experiment_package_contract(current)
+        artifact = validate_registered_self_test(current, package)
+    except (OSError, ValueError) as error:
+        raise ValueError("experiment_self_test_required") from error
+
+    from .events import EvaluationEvent, event_log_for
+
+    event = EvaluationEvent.create(
+        "experiment_self_test_registered",
+        state.project_id,
+        {
+            "path": artifact.path,
+            "sha256": artifact.sha256,
+            "size": artifact.size,
+        },
+    )
+    current.persist_state(
+        replace(
+            state,
+            artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
+        )
+    )
+    event_log_for(current.root).append(event)
+    return artifact

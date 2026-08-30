@@ -9,15 +9,29 @@ import pytest
 
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.experiment_package_contract import validate_experiment_package_contract
 from researchclaw.core.research_execution import prepare_research_execution
 from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
+    build_self_test_registration_project,
     build_completed_validation_design_project,
     build_stage_twelve_project,
     load_execution_contract,
     write_runnable_development_fixture,
     write_contract_bound_research_result,
 )
+
+
+def _run_known_answer_self_test(project):
+    package = validate_experiment_package_contract(project)
+    result = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _remove_stage_ten_snapshot(project):
@@ -47,6 +61,70 @@ def test_json_errors_keep_stdout_empty(tmp_path, capsys):
     assert exit_code == 2
     assert captured.out == ""
     assert "state.json" in captured.err
+
+
+def test_experiment_register_self_test_cli_records_external_report(tmp_path, capsys):
+    project = build_self_test_registration_project(tmp_path / "project")
+    _run_known_answer_self_test(project)
+
+    assert main(
+        [
+            "experiment",
+            "register-self-test",
+            str(project.root),
+            "--report",
+            "experiment/self_test_report.json",
+            "--confirm-self-test",
+            "--json",
+        ]
+    ) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["path"] == "experiment/self_test_report.json"
+    assert len(payload["sha256"]) == 64
+    assert payload["size"] > 0
+    assert captured.err == ""
+
+
+def test_experiment_register_self_test_cli_requires_confirmation(tmp_path, capsys):
+    project = build_self_test_registration_project(tmp_path / "project")
+    _run_known_answer_self_test(project)
+
+    assert main(
+        [
+            "experiment",
+            "register-self-test",
+            str(project.root),
+            "--report",
+            "experiment/self_test_report.json",
+            "--json",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "--confirm-self-test" in captured.err
+
+
+def test_experiment_register_self_test_cli_normalizes_invalid_report(tmp_path, capsys):
+    project = build_self_test_registration_project(tmp_path / "project")
+
+    assert main(
+        [
+            "experiment",
+            "register-self-test",
+            str(project.root),
+            "--report",
+            "experiment/self_test_report.json",
+            "--confirm-self-test",
+            "--json",
+        ]
+    ) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: experiment_self_test_required\n"
 
 
 def test_json_status_normalizes_malformed_state_to_stderr(tmp_path, capsys):

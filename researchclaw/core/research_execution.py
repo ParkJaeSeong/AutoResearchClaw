@@ -21,6 +21,7 @@ from .execution_gate import (
     _read_project_file_snapshot,
 )
 from .events import EventLog, EvaluationEvent, MAX_EVENT_RECORD_BYTES, event_log_for
+from .experiment_package_contract import SELF_TEST_REPORT_PATH
 from .models import ArtifactRef, ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import _fsync_directory, atomic_write_json
@@ -38,6 +39,7 @@ _STAGE_TWELVE_ARTIFACT_PATHS = (
     _PACKAGE_MANIFEST_PATH,
     "experiment/code/config.json",
     RESOURCE_PLAN_PATH,
+    SELF_TEST_REPORT_PATH,
 )
 _REGISTRATION_LOCK_PATH = "evaluation/events.jsonl"
 _REGISTRATION_PENDING_PATH = (

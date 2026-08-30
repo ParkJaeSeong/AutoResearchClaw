@@ -595,6 +595,52 @@ def test_package_contract_rejects_async_or_lambda_nested_metric_helper(
         validate_experiment_package_contract(project)
 
 
+def test_package_contract_rejects_module_scope_lambda_size_proxy(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "def mean_absolute_error(targets: list[float], predictions: list[float]) -> float:\n",
+        'size_proxy = lambda: float(Path("experiment/self_test_fixture.json").stat().st_size)\n\n\n'
+        "def mean_absolute_error(targets: list[float], predictions: list[float]) -> float:\n",
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="module-scope lambda"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_module_scope_lambda_evidence_fallback(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + "\nplaceholder_fallback = lambda: "
+        + "{'mae': 0.5, 'evidence_eligible': True}\n",
+    )
+
+    with pytest.raises(ValueError, match="module-scope lambda"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_module_scope_lambda_report_mutation(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "def main(argv: list[str] | None = None) -> dict[str, object]:\n",
+        "mutate_report = lambda report: report.update({'passed': True})\n\n\n"
+        "def main(argv: list[str] | None = None) -> dict[str, object]:\n",
+    ).replace(
+        '        Path("experiment/self_test_report.json").write_text',
+        "        mutate_report(report)\n"
+        '        Path("experiment/self_test_report.json").write_text',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="module-scope lambda"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_multi_hop_local_dict_fallback_alias(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
