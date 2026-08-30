@@ -1139,16 +1139,23 @@ def _recover_locked(
             raise
         _begin_integrity_abort(current, pending)
         raise
+    prior = _prior_state(pending)
+    derived_target = _target_state(prior, pending)
+    derived_manifest_ref = derived_target.artifacts.get(manifest_path)
+    if (
+        _hash(derived_target.to_dict()) != pending["target_state_sha256"]
+        or derived_manifest_ref != snapshot.artifact
+    ):
+        _begin_integrity_abort(current, pending)
+        raise ValueError("evidence_object_integrity_failure")
     if current.state.current_stage == 12:
-        if _hash(current.state.to_dict()) != pending["prior_state_sha256"]:
+        if current.state != prior:
             raise ValueError("evidence_registration_interrupted")
-        target = _target_state(current.state, pending)
-        if _hash(target.to_dict()) != pending["target_state_sha256"]:
-            raise ValueError("evidence_registration_interrupted")
-        StateStore(current.root / ".researchclaw").save(target)
+        StateStore(current.root / ".researchclaw").save(derived_target)
         current = ResearchProject.open_readonly(current.root)
-    elif _hash(current.state.to_dict()) != pending["target_state_sha256"]:
-        raise ValueError("evidence_registration_interrupted")
+    elif current.state != derived_target:
+        _begin_integrity_abort(current, pending)
+        raise ValueError("evidence_object_integrity_failure")
     try:
         event_exists = _event_present(current, pending)
     except ValueError:
@@ -1169,9 +1176,10 @@ def _recover_locked(
         if str(error) == "evidence_object_integrity_failure":
             _begin_integrity_abort(current, pending)
         raise
-    if _hash(ResearchProject.open_readonly(current.root).state.to_dict()) != pending[
-        "target_state_sha256"
-    ] or not _event_present(current, pending):
+    if (
+        ResearchProject.open_readonly(current.root).state != derived_target
+        or not _event_present(current, pending)
+    ):
         raise ValueError("evidence_registration_interrupted")
     _clear_pending(current)
     return _status(pending)

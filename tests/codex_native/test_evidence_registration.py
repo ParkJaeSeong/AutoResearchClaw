@@ -556,6 +556,78 @@ def test_registered_status_rejects_valid_json_manifest_rewrite(tmp_path):
         register_research_result(project, "experiment/results.json")
 
 
+@pytest.mark.parametrize("fault_seam", ("_after_state_saved", "_after_event_written"))
+@pytest.mark.parametrize("recompute_target_hash", (False, True))
+def test_recovery_derives_target_from_manifest_instead_of_trusting_target_hash(
+    tmp_path, monkeypatch, fault_seam, recompute_target_hash
+):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def interrupt(*_args):
+        raise OSError("leave promoted recovery")
+
+    monkeypatch.setattr(evidence_registration, fault_seam, interrupt)
+    with pytest.raises(OSError, match="leave promoted recovery"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    pending_path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    manifest_path = project.root / pending["manifest_path"]
+    pending["manifest"]["metrics"]["primary"]["value"] = 123.0
+    manifest_bytes = evidence_registration._canonical_json(
+        pending["manifest"], maximum=evidence_registration._MANIFEST_MAX_BYTES
+    )
+    manifest_path.chmod(0o600)
+    manifest_path.write_bytes(manifest_bytes)
+    pending["manifest_sha256"] = hashlib.sha256(manifest_bytes).hexdigest()
+    if recompute_target_hash:
+        prior = evidence_registration._prior_state(pending)
+        pending["target_state_sha256"] = evidence_registration._hash(
+            evidence_registration._target_state(prior, pending).to_dict()
+        )
+    pending_path.write_text(json.dumps(pending, sort_keys=True), encoding="utf-8")
+    events_before = event_log_for(project.root).read_all()
+
+    with pytest.raises(ValueError):
+        recover_pending_evidence_registration(project)
+
+    if pending_path.exists():
+        durable = json.loads(pending_path.read_text(encoding="utf-8"))
+        assert durable["abort_intent"] is True
+        assert durable["phase"] == "aborting"
+    else:
+        assert ResearchProject.open(project.root).state.current_stage == 12
+    events_after = event_log_for(project.root).read_all()
+    assert sum(event.type == "research_result_registered" for event in events_after) <= sum(
+        event.type == "research_result_registered" for event in events_before
+    )
+    assert (
+        research_execution.effective_research_result_registration_events(project)
+        == ()
+    )
+
+
+def test_retry_after_fault_following_pending_clear_is_idempotent(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def interrupt():
+        raise OSError("fault after pending clear")
+
+    monkeypatch.setattr(evidence_registration, "_after_pending_cleared", interrupt)
+    with pytest.raises(OSError, match="fault after pending clear"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+
+    status = register_research_result(project, "experiment/results.json")
+    assert status.current_stage == 13
+    assert not (project.root / EVIDENCE_PENDING_PATH).exists()
+    assert sum(
+        event.type == "research_result_registered"
+        for event in event_log_for(project.root).read_all()
+    ) == 1
+
+
 @pytest.mark.parametrize(
     "tamper",
     (
