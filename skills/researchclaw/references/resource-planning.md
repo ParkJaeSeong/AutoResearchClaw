@@ -237,9 +237,16 @@ write `experiment/results.json`; do not prepare or run a Stage-12 experiment.
 
 ## Explicit research handoff and registration
 
-Before approval, the user explicitly runs the declared known-answer self-test
-with the verified absolute interpreter and exact argument array, then
-registers the report:
+Before approval, obtain the complete self-test argv without undocumented
+interpreter knowledge:
+
+```text
+researchclaw-codex experiment prepare-self-test ROOT --json
+```
+
+The user runs its returned authoritative `argv`, whose first item is the
+verified absolute interpreter, then uses its `registration_argv` to register
+the report:
 
 ```text
 researchclaw-codex experiment register-self-test ROOT --report experiment/self_test_report.json --confirm-self-test --json
@@ -281,7 +288,8 @@ Legacy generic contracts, mutable results, and ungrounded Stage-13 artifacts
 are `legacy_untrusted`: audit-only and non-registerable. Use
 `researchclaw-codex evidence audit ROOT --json`; never silently migrate them.
 Quarantine actions require `--confirm`. Evidence objects are never operator-deleted.
-A previously published partial quarantine temp is preserved and never written
-again; use a fresh inode when capacity permits or fail closed for explicit
-manual/operator action. A complete read-only candidate may be verified and
-published without mutation.
+Required future behavior preserves a published partial quarantine temp and
+never writes it again; it uses a fresh inode when capacity permits or fails
+closed for explicit manual/operator action. A complete read-only candidate may
+be verified and published without mutation. This is a mandatory pending Task 8
+release gate, not a current guarantee.

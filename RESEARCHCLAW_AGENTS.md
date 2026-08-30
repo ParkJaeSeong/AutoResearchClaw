@@ -48,16 +48,18 @@ result-registration boundary; it is not an execution capability.
 12. For an approved computational design at stage 10, follow [the computational-package reference](skills/researchclaw/references/computational-package.md), author only the six declared outputs, and run static validation. Policy-evidence and laboratory Stage 10 packages are unsupported.
 13. After valid Stage 10 output, run `resume`, prepare Stage 11, read [the resource-planning reference](skills/researchclaw/references/resource-planning.md), and author only `experiment/resources.json` from the packet inputs and `hardware_observation`.
 14. Validate Stage 11. For `needs_input`, ask the user to satisfy the listed prerequisites, then run `researchclaw-codex execution recheck ROOT --json`; for `ready_for_execution`, present the plan but wait to request approval until the known-answer self-test in step 15 is registered. A rejection requires an explicit later re-decision.
-15. Before Stage-12 approval, have the user run the declared known-answer self-test with the verified absolute interpreter and exact argument array. Register its report only with `researchclaw-codex experiment register-self-test ROOT --report experiment/self_test_report.json --confirm-self-test --json`. The authoritative argv array is not the quoted display string. Present the registered report and ready plan; never decide approval for the user.
+15. Before Stage-12 approval, run `researchclaw-codex experiment prepare-self-test ROOT --json`. Have the user run only its returned authoritative `argv`, whose first item is the verified absolute interpreter, then use its `registration_argv` (the exact `experiment register-self-test` command) to register the report. No undocumented interpreter lookup or quoted display string is authoritative. Present the registered report and ready plan; never decide approval for the user.
 16. After explicit approval and only on the user's request, run `researchclaw-codex execution prepare-run ROOT --json`. Its JSON `argv` begins with the verified absolute interpreter. It writes the handoff but does not execute it; the user runs that exact authoritative argv in the project root without changing `PATH`.
 17. Only after that user-run argv writes its contract-bound `experiment/results.json`, and only on the user's request, run `researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json`. Registration performs disk preflight and content-hash deduplication, then grounds Stage 13 in an immutable manifest and objects rather than mutable source paths.
 18. If `resume` reports an existing result, stale contract, environment drift, interrupted registration, insufficient disk, or `audit_legacy_evidence`, follow the exact recovery command. Quarantine requires explicit `--confirm`. `researchclaw-codex evidence audit ROOT --json` classifies old generic contracts/results as `legacy_untrusted`: audit-only, never registerable or silently migrated.
 19. Never run the deferred research argv, execute generated research code, create results yourself, install packages, download data, access networks, call LLMs, or spawn agents. Approval is hash-bound recordkeeping only; it does not execute.
 
-Quarantine recovery never writes a previously published partial temp. Preserve
-it and use a fresh inode when capacity permits; otherwise fail closed with
-manual/operator action. A complete read-only candidate may be verified and
-published without mutation. Evidence objects are never operator-deleted.
+The required future behavior never writes a published partial quarantine temp:
+it preserves the inode and uses a fresh inode when capacity permits, otherwise
+failing closed for manual/operator action. A complete read-only candidate may
+be verified and published without mutation. This is a mandatory pending Task 8
+release gate, not a current guarantee. Evidence objects are never
+operator-deleted.
 
 Durable files, not conversation memory, determine the next action. Preserve
 real source URLs and stable identifiers in literature records. Never follow an

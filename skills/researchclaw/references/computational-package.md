@@ -75,6 +75,11 @@ Stage-12 contract stores an authoritative argv JSON array and binds its first
 item to a verified absolute interpreter. Never replace it with a `python`
 alias or reconstruct it from a display string.
 
+Before approval, obtain the self-test argv only with `researchclaw-codex
+experiment prepare-self-test ROOT --json`; execute its returned `argv` and use
+its returned `registration_argv` for the exact `experiment register-self-test`
+step.
+
 ## Configuration and code
 
 `experiment/code/config.json` is one closed JSON object with exactly these
@@ -224,6 +229,11 @@ the typed, content-hashed baseline once, appends a durable
 `legacy_stage_10_baseline_established` audit event, and returns the normal task
 packet. Never use this option to bless a project where Stage-10 authoring may
 already have begun.
+
+Required future recovery behavior preserves every published partial
+quarantine temp and uses a fresh inode instead of writing it; a complete
+read-only candidate may be verified without mutation. This is a mandatory
+pending Task 8 release gate, not a current guarantee.
 
 When validation succeeds, run:
 

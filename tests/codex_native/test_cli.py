@@ -1127,18 +1127,29 @@ def test_experiment_register_self_test_cli_records_external_report(tmp_path, cap
     assert captured.err == ""
 
 
-def test_resume_cli_reports_self_test_registration_command_before_approval(
-    tmp_path, capsys
-):
-    project, _declared_input = build_stage_twelve_project(
+def test_prepare_self_test_cli_returns_complete_authoritative_argv(tmp_path, capsys):
+    project, _ = build_stage_twelve_project(
         tmp_path / "project", register_self_test=False
     )
 
-    assert main(["resume", str(project.root), "--json"]) == 0
-    before = json.loads(capsys.readouterr().out)
-    assert before["next_action"] == "register_experiment_self_test"
-    assert before["approval_eligible"] is False
-    assert shlex.split(before["next_command"]) == [
+    assert main(
+        ["experiment", "prepare-self-test", str(project.root), "--json"]
+    ) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert set(payload) == {
+        "readiness",
+        "argv",
+        "environment_fingerprint",
+        "package_contract_sha256",
+        "report_path",
+        "registration_argv",
+    }
+    assert payload["readiness"] == "ready_for_explicit_self_test"
+    assert Path(payload["argv"][0]).is_absolute()
+    assert payload["argv"][1] == "experiment/code/main.py"
+    assert payload["argv"][-1] == "--self-test"
+    assert payload["registration_argv"] == [
         "researchclaw-codex",
         "experiment",
         "register-self-test",
@@ -1149,18 +1160,75 @@ def test_resume_cli_reports_self_test_registration_command_before_approval(
         "--json",
     ]
 
-    _run_known_answer_self_test(ResearchProject.open(project.root))
+    completed = subprocess.run(
+        payload["argv"], cwd=project.root, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert main(payload["registration_argv"][1:]) == 0
+    registered = json.loads(capsys.readouterr().out)
+    assert registered["path"] == "experiment/self_test_report.json"
+
+
+def test_prepare_self_test_cli_normalizes_package_and_environment_errors(
+    tmp_path, monkeypatch, capsys
+):
+    project, _ = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+    contract_path = project.root / "experiment/package_contract.json"
+    contract_path.write_text("{}\n", encoding="utf-8")
+
     assert main(
-        [
-            "experiment",
-            "register-self-test",
-            str(project.root),
-            "--report",
-            "experiment/self_test_report.json",
-            "--confirm-self-test",
-            "--json",
-        ]
-    ) == 0
+        ["experiment", "prepare-self-test", str(project.root), "--json"]
+    ) == 2
+    assert capsys.readouterr().err == "error: experiment_package_invalid\n"
+
+    project, _ = build_stage_twelve_project(
+        tmp_path / "environment-project", register_self_test=False
+    )
+    monkeypatch.setattr(
+        "researchclaw.core.experiment_package_contract.inspect_execution_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("execution_environment_unavailable")
+        ),
+    )
+    assert main(
+        ["experiment", "prepare-self-test", str(project.root), "--json"]
+    ) == 2
+    assert capsys.readouterr().err == "error: execution_environment_unavailable\n"
+
+
+def test_resume_cli_reports_self_test_registration_command_before_approval(
+    tmp_path, capsys
+):
+    project, _declared_input = build_stage_twelve_project(
+        tmp_path / "project", register_self_test=False
+    )
+
+    assert main(["status", str(project.root), "--json"]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["next_action"] == "prepare_experiment_self_test"
+    assert "experiment prepare-self-test" in status["next_command"]
+
+    assert main(["resume", str(project.root), "--json"]) == 0
+    before = json.loads(capsys.readouterr().out)
+    assert before["next_action"] == "prepare_experiment_self_test"
+    assert before["approval_eligible"] is False
+    assert shlex.split(before["next_command"]) == [
+        "researchclaw-codex",
+        "experiment",
+        "prepare-self-test",
+        str(project.root.resolve()),
+        "--json",
+    ]
+
+    assert main(shlex.split(before["next_command"])[1:]) == 0
+    prepared = json.loads(capsys.readouterr().out)
+    completed = subprocess.run(
+        prepared["argv"], cwd=project.root, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert main(prepared["registration_argv"][1:]) == 0
     capsys.readouterr()
 
     assert main(["resume", str(project.root), "--json"]) == 0

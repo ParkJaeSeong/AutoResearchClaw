@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shlex
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -527,7 +528,14 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
                     _current_registered_self_test(current_project)
                     desired_next_action = "approve_experiment_execution"
                 except (OSError, ValueError):
-                    desired_next_action = "register_experiment_self_test"
+                    desired_next_action = (
+                        "register_experiment_self_test"
+                        if os.path.lexists(
+                            current_project.root
+                            / "experiment/self_test_report.json"
+                        )
+                        else "prepare_experiment_self_test"
+                    )
             else:
                 desired_next_action = "report_missing_execution_inputs"
         if (
@@ -638,7 +646,18 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
 
     status = state.status
     if execution_boundary:
-        if state.next_action == "register_experiment_self_test":
+        if state.next_action == "prepare_experiment_self_test":
+            next_action = state.next_action
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "prepare-self-test",
+                    str(current_project.root.resolve()),
+                    "--json",
+                )
+            )
+        elif state.next_action == "register_experiment_self_test":
             next_action = state.next_action
             next_command = shlex.join(
                 (

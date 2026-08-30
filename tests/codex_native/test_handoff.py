@@ -1,17 +1,13 @@
 import shlex
 import subprocess
-import sys
 import threading
 from dataclasses import replace
 import hashlib
+import json
 
 
+from researchclaw.codex.cli import main as cli_main
 from researchclaw.core.events import event_log_for
-from researchclaw.core.experiment_package_contract import (
-    SELF_TEST_REPORT_PATH,
-    register_experiment_self_test,
-    validate_experiment_package_contract,
-)
 from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.state import StateStore
@@ -28,38 +24,39 @@ from tests.codex_native.helpers import (
 )
 
 
-def test_stage_twelve_handoff_routes_through_explicit_self_test_registration(tmp_path):
+def test_stage_twelve_handoff_routes_through_explicit_self_test_registration(
+    tmp_path, capsys
+):
     project, _declared_input = build_stage_twelve_project(
         tmp_path / "project", register_self_test=False
     )
 
     before = build_handoff(project)
 
-    assert before.next_action == "register_experiment_self_test"
+    assert before.next_action == "prepare_experiment_self_test"
     assert before.approval_eligible is False
     assert shlex.split(before.next_command) == [
         "researchclaw-codex",
         "experiment",
-        "register-self-test",
+        "prepare-self-test",
         str(project.root.resolve()),
-        "--report",
-        SELF_TEST_REPORT_PATH,
-        "--confirm-self-test",
         "--json",
     ]
 
-    package = validate_experiment_package_contract(ResearchProject.open(project.root))
+    assert cli_main(
+        ["experiment", "prepare-self-test", str(project.root), "--json"]
+    ) == 0
+    prepared = json.loads(capsys.readouterr().out)
     completed = subprocess.run(
-        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
-        cwd=project.root,
-        check=False,
-        capture_output=True,
-        text=True,
+        prepared["argv"], cwd=project.root, check=False, capture_output=True, text=True
     )
     assert completed.returncode == 0, completed.stderr
-    register_experiment_self_test(
-        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
-    )
+
+    produced = build_handoff(ResearchProject.open(project.root))
+    assert produced.next_action == "register_experiment_self_test"
+    assert shlex.split(produced.next_command) == prepared["registration_argv"]
+    assert cli_main(prepared["registration_argv"][1:]) == 0
+    capsys.readouterr()
 
     after = build_handoff(ResearchProject.open(project.root))
     assert after.next_action == "approve_experiment_execution"

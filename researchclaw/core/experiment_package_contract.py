@@ -66,6 +66,27 @@ class ValidatedExperimentPackage:
 
 
 @dataclass(frozen=True)
+class SelfTestPreparationStatus:
+    """Complete pre-approval argv for one externally run known-answer test."""
+
+    argv: tuple[str, ...]
+    environment_fingerprint: str
+    package_contract_sha256: str
+    report_path: str
+    registration_argv: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "readiness": "ready_for_explicit_self_test",
+            "argv": list(self.argv),
+            "environment_fingerprint": self.environment_fingerprint,
+            "package_contract_sha256": self.package_contract_sha256,
+            "report_path": self.report_path,
+            "registration_argv": list(self.registration_argv),
+        }
+
+
+@dataclass(frozen=True)
 class _PendingSelfTestRegistration:
     project_id: str
     artifact: ArtifactRef
@@ -1779,7 +1800,8 @@ def _load_self_test_registration_pending(
                 raise ValueError("pending self-test registration state is invalid")
         elif (
             raw["target_next_action"] == "approve_experiment_execution"
-            and project.state.next_action == "register_experiment_self_test"
+            and project.state.next_action
+            in {"prepare_experiment_self_test", "register_experiment_self_test"}
             and SELF_TEST_REPORT_PATH not in project.state.artifacts
             and _state_sha256(
                 replace(
@@ -1791,7 +1813,8 @@ def _load_self_test_registration_pending(
         ):
             pass
         elif (
-            project.state.next_action == "register_experiment_self_test"
+            project.state.next_action
+            in {"prepare_experiment_self_test", "register_experiment_self_test"}
             and project.state.artifacts.get(SELF_TEST_REPORT_PATH) == artifact
             and _state_sha256(
                 replace(
@@ -1983,7 +2006,8 @@ def _complete_pending_self_test_registration(
         current = current.persist_state(target_state)
     elif (
         pending.target_next_action == "approve_experiment_execution"
-        and current.state.next_action == "register_experiment_self_test"
+        and current.state.next_action
+        in {"prepare_experiment_self_test", "register_experiment_self_test"}
         and SELF_TEST_REPORT_PATH not in current.state.artifacts
         and _state_sha256(
             replace(
@@ -2007,7 +2031,8 @@ def _complete_pending_self_test_registration(
             )
         current = current.persist_state(target_state)
     elif (
-        current.state.next_action == "register_experiment_self_test"
+        current.state.next_action
+        in {"prepare_experiment_self_test", "register_experiment_self_test"}
         and current.state.artifacts.get(SELF_TEST_REPORT_PATH) == pending.artifact
         and _state_sha256(
             replace(
@@ -2081,6 +2106,60 @@ def _self_test_registration_event_is_grounded(
     return False
 
 
+def prepare_experiment_self_test(
+    project: ResearchProject,
+) -> SelfTestPreparationStatus:
+    """Return a verified complete argv without executing or approving the package."""
+    current = ResearchProject.open_readonly(project.root)
+    state = current.state
+    if (
+        state.current_stage != 12
+        or 11 not in state.completed_stages
+        or state.status.value != "awaiting_approval"
+        or state.next_action
+        not in {
+            "prepare_experiment_self_test",
+            "register_experiment_self_test",
+            "approve_experiment_execution",
+        }
+    ):
+        raise ValueError("experiment_self_test_preparation_unavailable")
+    if os.path.lexists(current.root / SELF_TEST_REPORT_PATH):
+        raise ValueError("experiment_self_test_report_exists")
+    try:
+        package = validate_experiment_package_contract(current)
+    except (OSError, ValueError) as error:
+        raise ValueError("experiment_package_invalid") from error
+    try:
+        environment = inspect_execution_environment(
+            Path(sys.executable).resolve(strict=True),
+            package.required_distributions,
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError("execution_environment_unavailable") from error
+    try:
+        if validate_experiment_package_contract(current) != package:
+            raise ValueError("experiment_package_invalid")
+    except (OSError, ValueError) as error:
+        raise ValueError("experiment_package_invalid") from error
+    return SelfTestPreparationStatus(
+        argv=(environment.interpreter, package.entry_point, *package.self_test_argv),
+        environment_fingerprint=environment.fingerprint,
+        package_contract_sha256=package.contract_sha256,
+        report_path=SELF_TEST_REPORT_PATH,
+        registration_argv=(
+            "researchclaw-codex",
+            "experiment",
+            "register-self-test",
+            str(current.root.resolve()),
+            "--report",
+            SELF_TEST_REPORT_PATH,
+            "--confirm-self-test",
+            "--json",
+        ),
+    )
+
+
 @project_mutation
 def register_experiment_self_test(
     project: ResearchProject, report_path: str
@@ -2094,6 +2173,7 @@ def register_experiment_self_test(
         or state.status.value != "awaiting_approval"
         or state.next_action
         not in {
+            "prepare_experiment_self_test",
             "register_experiment_self_test",
             "approve_experiment_execution",
             "report_missing_execution_inputs",
@@ -2135,7 +2215,11 @@ def register_experiment_self_test(
     target_next_action = (
         "approve_experiment_execution"
         if state.next_action
-        in {"register_experiment_self_test", "approve_experiment_execution"}
+        in {
+            "prepare_experiment_self_test",
+            "register_experiment_self_test",
+            "approve_experiment_execution",
+        }
         else state.next_action
     )
     target_state = replace(

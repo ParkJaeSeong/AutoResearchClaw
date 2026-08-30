@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import os
 from pathlib import Path
+import shlex
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -202,12 +203,36 @@ class ResearchProject:
                 _current_registered_self_test(current_project)
             except (OSError, ValueError):
                 approval_eligible = False
-        return {
+        payload = {
             **current_project.state.to_dict(),
             "execution_readiness": readiness,
             "unmet_prerequisites": list(prerequisites),
             "approval_eligible": approval_eligible,
         }
+        if current_project.state.next_action == "prepare_experiment_self_test":
+            payload["next_command"] = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "prepare-self-test",
+                    str(current_project.root.resolve()),
+                    "--json",
+                )
+            )
+        elif current_project.state.next_action == "register_experiment_self_test":
+            payload["next_command"] = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "register-self-test",
+                    str(current_project.root.resolve()),
+                    "--report",
+                    "experiment/self_test_report.json",
+                    "--confirm-self-test",
+                    "--json",
+                )
+            )
+        return payload
 
     def persist_state(self, state: ProjectState) -> "ResearchProject":
         """Persist a replacement state and return the refreshed project value."""

@@ -14,10 +14,11 @@ Approval is bound to the validated artifact hashes. If a gate artifact changes a
 
 Always run `resume ROOT --json` after recording a decision or when returning in a later session. The durable project files, not conversation memory, determine the next action.
 
-Stage-12 execution approval has an additional evidence prerequisite. The user
-must first run the known-answer self-test with the verified absolute
-interpreter and authoritative argv, then explicitly register its report with
-`experiment register-self-test ... --confirm-self-test --json`. Show the
+Stage-12 execution approval has an additional evidence prerequisite. First run
+`researchclaw-codex experiment prepare-self-test ROOT --json`; the user runs
+its authoritative `argv` beginning with the verified absolute interpreter and
+then uses its `registration_argv` for the exact `experiment register-self-test`
+step. Show the
 current registered report and resource plan before asking for the decision.
 Approval never runs the self-test or research argv.
 
@@ -27,3 +28,8 @@ content-addressed objects. Disk preflight and deduplication precede
 publication. A legacy generic contract or mutable result is audit-only,
 `legacy_untrusted`, and non-registerable; route it through `evidence audit`
 rather than approval or migration. Quarantine requires separate confirmation.
+
+Required future recovery behavior preserves a published partial quarantine
+temp and uses a fresh inode instead of writing it; a complete read-only
+candidate may be verified without mutation. This is a mandatory pending Task 8
+release gate, not a current guarantee.

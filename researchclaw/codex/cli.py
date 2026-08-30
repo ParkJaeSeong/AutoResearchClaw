@@ -12,7 +12,10 @@ from collections.abc import Sequence
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import build_foundation_report
-from researchclaw.core.experiment_package_contract import register_experiment_self_test
+from researchclaw.core.experiment_package_contract import (
+    prepare_experiment_self_test,
+    register_experiment_self_test,
+)
 from researchclaw.core.execution_gate import (
     recheck_development_input,
     recheck_execution_readiness,
@@ -75,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     experiment_commands = experiment.add_subparsers(
         dest="experiment_command", required=True
     )
+    prepare_self_test = experiment_commands.add_parser(
+        "prepare-self-test",
+        help="return the verified argv for an external known-answer self-test",
+    )
+    prepare_self_test.add_argument("root", metavar="PROJECT")
+    prepare_self_test.add_argument("--json", action="store_true", help="emit JSON")
     register_self_test = experiment_commands.add_parser(
         "register-self-test", help="register an externally run known-answer self-test"
     )
@@ -242,6 +251,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evaluate":
             project = ResearchProject.open(args.root)
             payload = build_foundation_report(project)
+        elif args.command == "experiment" and args.experiment_command == "prepare-self-test":
+            project = ResearchProject.open_readonly(args.root)
+            payload = prepare_experiment_self_test(project).to_dict()
         elif args.command == "experiment" and args.experiment_command == "register-self-test":
             project = ResearchProject.open(args.root)
             artifact = register_experiment_self_test(project, args.report)
@@ -357,7 +369,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evaluate":
             print(f"{payload['project_id']}: {payload['stage_completion_rate']:.0%} complete")
         elif args.command == "experiment":
-            print(f"registered self-test: {payload['path']}")
+            if args.experiment_command == "prepare-self-test":
+                print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+            else:
+                print(f"registered self-test: {payload['path']}")
         elif args.command == "execution":
             if args.execution_command == "prepare-run":
                 argv = payload.get("argv")

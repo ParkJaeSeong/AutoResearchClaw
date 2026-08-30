@@ -150,10 +150,18 @@ evidence.
 Stage 12 is a non-executing trust boundary. ResearchClaw validates and records
 evidence; it does not compute research metrics. Use this order:
 
-1. Read `experiment/package_contract.json`. Run its known-answer self-test
-   outside ResearchClaw with the current verified **absolute interpreter** and
-   the declared self-test argument suffix. The argument array is authoritative;
-   a quoted command shown for people is only a display string.
+1. Ask ResearchClaw for the complete known-answer self-test argv:
+
+   ```bash
+   researchclaw-codex experiment prepare-self-test ROOT --json
+   ```
+
+   This pre-approval command validates the current package and environment and
+   returns `readiness`, `argv`, `environment_fingerprint`,
+   `package_contract_sha256`, `report_path`, and `registration_argv`. Run the returned `argv` array exactly
+   outside ResearchClaw. Its first item is the verified **absolute
+   interpreter**; the authoritative argv requires no undocumented interpreter
+   lookup and is never reconstructed from a quoted display string.
 2. Register the externally written report explicitly:
 
    ```bash
@@ -243,12 +251,12 @@ Unknown or crash-abandoned copy candidates are likewise inventoried and left
 untouched. This policy prefers unrelated-byte safety over automatic capacity
 recovery.
 
-A previously published partial quarantine temp is never resumed or written.
-Recovery preserves that inode and starts with a fresh inode when capacity
-permits; otherwise it fails closed and reports explicit manual/operator action.
-A complete read-only candidate may be verified and published without mutation.
-This is a mandatory release contract; the Stage-12 evidence release gate must
-prove it before publication.
+The required future behavior is that a published partial quarantine temp is
+never resumed or written: recovery preserves that inode and starts with a
+fresh inode when capacity permits, otherwise failing closed with explicit
+manual/operator action. A complete read-only candidate may be verified and
+published without mutation. This is a mandatory pending Task 8 release gate,
+not a current guarantee; Task 8 must implement and prove it before release.
 
 ### Stage-12 recovery routes
 
@@ -260,7 +268,7 @@ prove it before publication.
 | Insufficient disk | Make no evidence mutation; inspect `evidence quarantine-inventory ROOT --json` and arrange operator-managed capacity. Evidence objects are never operator-deleted. |
 | Interrupted registration | Run `status`, `resume`, or the same registration command; recovery verifies the pending immutable transaction and either completes it or restores Stage 12. |
 | Legacy Stage 13 evidence | Run `researchclaw-codex evidence audit ROOT --json`; `classification: "legacy_untrusted"` is audit-only and cannot be registered or silently migrated. Return to Stage 10 package validation for new trusted evidence. |
-| Published partial quarantine temp | Preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
+| Published partial quarantine temp | Mandatory pending Task 8 release gate, not a current guarantee: preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
 
 `evidence audit` returns exactly `project_id`, `classification`, and
 `registration`. `classification` is `immutable_registered` only when the
