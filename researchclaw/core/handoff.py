@@ -139,7 +139,12 @@ def _immutable_evidence_context(
         }
         if len(sources) != len(objects):
             raise ValueError("evidence_object_integrity_failure")
-        return True, frozenset(sources)
+        immutable_artifacts = {
+            entry.get("object_path")
+            for entry in objects
+            if isinstance(entry, dict) and isinstance(entry.get("object_path"), str)
+        }
+        return True, frozenset({manifest_path, *sources, *immutable_artifacts})
     except ValueError as error:
         if str(error) == "evidence_object_integrity_failure":
             raise

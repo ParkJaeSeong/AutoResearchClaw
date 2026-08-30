@@ -799,6 +799,35 @@ def _open_manifest_descriptor(
         os.close(descriptor)
 
 
+def _stat_manifest_path(
+    project_root: Path, manifest_path: str
+) -> tuple[os.stat_result, tuple[tuple[int, int, int], ...]]:
+    """Stat a manifest through verified directory descriptors without reopening it."""
+    parts = Path(manifest_path).parts
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(Path(project_root), directory_flags)
+    identities: list[tuple[int, int, int]] = []
+    try:
+        root_stat = os.fstat(descriptor)
+        identities.append((root_stat.st_dev, root_stat.st_ino, root_stat.st_mode))
+        for part in parts[:-1]:
+            child = os.open(part, directory_flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+            child_stat = os.fstat(descriptor)
+            identities.append(
+                (child_stat.st_dev, child_stat.st_ino, child_stat.st_mode)
+            )
+        current = os.stat(parts[-1], dir_fd=descriptor, follow_symlinks=False)
+        return current, tuple(identities)
+    finally:
+        os.close(descriptor)
+
+
 def _read_manifest_snapshot(
     project_root: Path, manifest_path: str
 ) -> _ManifestSnapshot:
@@ -892,31 +921,9 @@ def _read_manifest_snapshot(
 
 def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -> None:
     try:
-        descriptor, directory_identities = _open_manifest_descriptor(
+        current, directory_identities = _stat_manifest_path(
             project_root, snapshot.artifact.path
         )
-        try:
-            current = os.fstat(descriptor)
-            if (
-                current.st_size != snapshot.artifact.size
-                or current.st_size > _MANIFEST_MAX_BYTES
-            ):
-                raise ValueError("evidence_object_integrity_failure")
-            digest = hashlib.sha256()
-            size = 0
-            remaining = snapshot.artifact.size + 1
-            while remaining:
-                chunk = os.read(descriptor, min(64 * 1024, remaining))
-                if not chunk:
-                    break
-                digest.update(chunk)
-                size += len(chunk)
-                remaining -= len(chunk)
-                if size > snapshot.artifact.size:
-                    raise ValueError("evidence_object_integrity_failure")
-            final = os.fstat(descriptor)
-        finally:
-            os.close(descriptor)
     except OSError as error:
         raise ValueError("evidence_object_integrity_failure") from error
     if (
@@ -936,25 +943,7 @@ def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -
             snapshot.ctime_ns,
         )
         or current.st_size != snapshot.artifact.size
-        or size != snapshot.artifact.size
-        or digest.hexdigest() != snapshot.artifact.sha256
         or not stat.S_ISREG(current.st_mode)
-        or (
-            final.st_dev,
-            final.st_ino,
-            final.st_mode,
-            final.st_size,
-            final.st_mtime_ns,
-            final.st_ctime_ns,
-        )
-        != (
-            current.st_dev,
-            current.st_ino,
-            current.st_mode,
-            current.st_size,
-            current.st_mtime_ns,
-            current.st_ctime_ns,
-        )
     ):
         raise ValueError("evidence_object_integrity_failure")
 

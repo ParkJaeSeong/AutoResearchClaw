@@ -522,24 +522,17 @@ def test_manifest_revalidation_never_chases_a_growing_eof(tmp_path, monkeypatch)
         project.root, status.manifest_path
     )
     path = project.root / status.manifest_path
-    original_read = os.read
-    calls = 0
+    with path.open("ab") as handle:
+        handle.write(b"x" * 4096)
+        handle.flush()
+        os.fsync(handle.fileno())
 
-    def grow_before_each_read(descriptor, count):
-        nonlocal calls
-        calls += 1
-        if calls > 3:
-            raise AssertionError("revalidation followed a moving EOF")
-        with path.open("ab") as handle:
-            handle.write(b"x" * 4096)
-            handle.flush()
-            os.fsync(handle.fileno())
-        return original_read(descriptor, count)
+    def reject_second_read(_descriptor, _count):
+        raise AssertionError("identity revalidation reread manifest content")
 
-    monkeypatch.setattr(os, "read", grow_before_each_read)
+    monkeypatch.setattr(os, "read", reject_second_read)
     with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
         evidence_registration._revalidate_manifest_path(project.root, snapshot)
-    assert calls <= 2
 
 
 def test_registered_status_rejects_valid_json_manifest_rewrite(tmp_path):

@@ -313,14 +313,43 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "evidence" and args.evidence_command == "audit":
             project = ResearchProject.open_readonly(args.root)
-            status = registered_evidence_status(project)
-            payload = {
-                "project_id": project.state.project_id,
-                "classification": (
-                    "immutable_registered" if status is not None else "legacy_untrusted"
-                ),
-                "registration": None if status is None else status.to_dict(),
-            }
+            try:
+                from researchclaw.core.evidence_store import (
+                    _validated_manifest_candidates,
+                )
+
+                _validated_manifest_candidates(project, EvidenceStore(project.root))
+                status = registered_evidence_status(project)
+                payload = {
+                    "project_id": project.state.project_id,
+                    "classification": (
+                        "immutable_registered"
+                        if status is not None
+                        else "legacy_untrusted"
+                    ),
+                    "registration": None if status is None else status.to_dict(),
+                }
+            except (EvidenceIntegrityError, OSError, TypeError, ValueError):
+                payload = {
+                    "project_id": project.state.project_id,
+                    "classification": "registered_evidence_corrupt",
+                    "registration": None,
+                    "integrity_status": "failed",
+                    "error_category": "evidence_object_integrity_failure",
+                    "recommended_action": (
+                        "restore_from_trusted_backup_then_reaudit"
+                    ),
+                    "recommended_command": shlex.join(
+                        (
+                            "researchclaw-codex",
+                            "evidence",
+                            "audit",
+                            str(project.root.resolve()),
+                            "--json",
+                        )
+                    ),
+                }
+                exit_code = 2
         elif args.command == "evidence" and args.evidence_command == "quarantine-inventory":
             project = ResearchProject.open_readonly(args.root)
             payload = result_quarantine_inventory(project).to_dict()

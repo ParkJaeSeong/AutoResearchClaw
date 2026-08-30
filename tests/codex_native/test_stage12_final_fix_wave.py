@@ -664,3 +664,130 @@ def test_stage_thirteen_status_opens_manifest_once_and_rejects_growth(
     assert opens == 1
     assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
     assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+
+
+def test_stage_thirteen_status_uses_one_manifest_snapshot_without_path_hash_reopen(
+    tmp_path, monkeypatch
+):
+    project, manifest_path = _registered_stage_thirteen_project(tmp_path / "project")
+    manifest = project.root / manifest_path
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    opens = 0
+    original_open = evidence_registration._open_manifest_descriptor
+
+    def count_open(root, relative_path):
+        nonlocal opens
+        opens += 1
+        return original_open(root, relative_path)
+
+    original_path_open = type(manifest).open
+
+    def reject_manifest_path_open(path, *args, **kwargs):
+        if path == manifest:
+            raise AssertionError("manifest was reopened through Path.open")
+        return original_path_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(
+        evidence_registration, "_open_manifest_descriptor", count_open
+    )
+    monkeypatch.setattr(type(manifest), "open", reject_manifest_path_open)
+
+    summary = build_handoff(ResearchProject.open(project.root))
+
+    assert summary.current_stage == 13
+    assert opens == 1
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+
+
+def test_stage_thirteen_manifest_replacement_after_snapshot_is_structured_and_read_only(
+    tmp_path, monkeypatch
+):
+    project, manifest_path = _registered_stage_thirteen_project(tmp_path / "project")
+    manifest = project.root / manifest_path
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+    opens = 0
+    original_open = evidence_registration._open_manifest_descriptor
+
+    def count_open(root, relative_path):
+        nonlocal opens
+        opens += 1
+        return original_open(root, relative_path)
+
+    def replace_after_snapshot(_snapshot):
+        replacement = manifest.with_name("replacement.json")
+        replacement.write_bytes(manifest.read_bytes())
+        os.replace(replacement, manifest)
+
+    monkeypatch.setattr(
+        evidence_registration, "_open_manifest_descriptor", count_open
+    )
+    monkeypatch.setattr(
+        evidence_registration, "_after_manifest_snapshot", replace_after_snapshot
+    )
+
+    with pytest.raises(ValueError, match="^evidence_object_integrity_failure$"):
+        build_handoff(ResearchProject.open(project.root))
+
+    assert opens == 1
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+
+
+@pytest.mark.parametrize(
+    "candidate_kind",
+    (
+        "current_corrupt",
+        "noncurrent_corrupt",
+        "current_oversized",
+        "noncurrent_oversized",
+        "current_symlink",
+        "noncurrent_symlink",
+    ),
+)
+def test_evidence_audit_reports_corrupt_registration_as_actionable_json_without_mutation(
+    tmp_path, capsys, candidate_kind
+):
+    project, manifest_path = _registered_stage_thirteen_project(
+        tmp_path / candidate_kind
+    )
+    manifest = project.root / manifest_path
+    if candidate_kind == "current_corrupt":
+        manifest.write_bytes(b"{corrupt")
+    elif candidate_kind == "noncurrent_corrupt":
+        manifest.with_name("noncurrent.json").write_bytes(b"{corrupt")
+    elif candidate_kind == "current_oversized":
+        manifest.write_bytes(b"x" * (1024 * 1024 + 1))
+    elif candidate_kind == "noncurrent_oversized":
+        manifest.with_name("noncurrent.json").write_bytes(
+            b"x" * (1024 * 1024 + 1)
+        )
+    else:
+        external = tmp_path / "external-manifest.json"
+        external.write_bytes(manifest.read_bytes())
+        if candidate_kind == "current_symlink":
+            manifest.unlink()
+            manifest.symlink_to(external)
+        else:
+            manifest.with_name("noncurrent.json").symlink_to(external)
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+
+    assert cli_main(["evidence", "audit", str(project.root), "--json"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    payload = json.loads(captured.out)
+    assert payload == {
+        "classification": "registered_evidence_corrupt",
+        "error_category": "evidence_object_integrity_failure",
+        "integrity_status": "failed",
+        "project_id": project.state.project_id,
+        "recommended_action": "restore_from_trusted_backup_then_reaudit",
+        "recommended_command": (
+            f"researchclaw-codex evidence audit {project.root.resolve()} --json"
+        ),
+        "registration": None,
+    }
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before

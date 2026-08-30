@@ -1705,6 +1705,7 @@ def _validated_manifest_candidates(
     from .evidence_registration import (
         EVIDENCE_PENDING_PATH,
         _read_manifest_snapshot,
+        _revalidate_manifest_path,
         _validate_manifest_bindings,
         _verify_manifest_objects,
     )
@@ -1736,6 +1737,7 @@ def _validated_manifest_candidates(
             snapshot = _read_manifest_snapshot(project.root, manifest_path)
             _validate_manifest_bindings(project, manifest_path, snapshot.payload)
             _verify_manifest_objects(project, snapshot.payload)
+            _revalidate_manifest_path(project.root, snapshot)
         except (OSError, TypeError, ValueError) as error:
             raise EvidenceIntegrityError from error
         state_reference = project.state.artifacts.get(manifest_path)
