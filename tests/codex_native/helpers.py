@@ -476,8 +476,9 @@ def build_known_answer_experiment_package(root: Path) -> ResearchProject:
 import hashlib
 from importlib.metadata import version
 import json
+import os
 from pathlib import Path
-from platform import machine, python_version
+from platform import machine, python_build, python_version
 import sys
 
 
@@ -493,11 +494,23 @@ def run_experiment(config: dict[str, object]) -> dict[str, object]:
 
 def execution_environment_fingerprint(required_distributions: list[str]) -> str:
     interpreter = Path(sys.executable).resolve(strict=True)
-    identity = interpreter.stat()
     dependencies = {name: version(name) for name in required_distributions}
-    interpreter_bytes = interpreter.read_bytes()
-    interpreter_digest = hashlib.sha256(interpreter_bytes)
-    interpreter_sha256 = interpreter_digest.hexdigest()
+    descriptor = os.open(
+        interpreter,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    try:
+        identity = os.fstat(descriptor)
+        if identity.st_mode & 0o170000 != 0o100000 or not identity.st_mode & 0o111:
+            raise ValueError("execution environment unavailable")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        while chunk := os.read(descriptor, 1048576):
+            digest.update(chunk)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+    finally:
+        os.close(descriptor)
+    interpreter_sha256 = digest.hexdigest()
     payload = {
         "schema_version": 1,
         "interpreter": str(interpreter),
@@ -508,10 +521,12 @@ def execution_environment_fingerprint(required_distributions: list[str]) -> str:
             "mtime_ns": identity.st_mtime_ns,
             "sha256": interpreter_sha256,
         },
-        "python_implementation": sys.implementation.name,
-        "python_version": python_version(),
-        "platform": sys.platform,
-        "machine": machine(),
+        "python_implementation": sys.implementation.name.strip().lower(),
+        "python_version": python_version().strip(),
+        "python_full_version": sys.version.strip(),
+        "python_build": list(python_build()),
+        "platform": sys.platform.strip().lower(),
+        "machine": machine().strip().lower(),
         "dependencies": dict(sorted(dependencies.items())),
     }
     canonical = json.dumps(
@@ -576,6 +591,16 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         }
         Path("experiment/self_test_report.json").write_text(json.dumps(report, sort_keys=True) + "\\n", encoding="utf-8")
         return report
+    execution_path = Path("experiment/execution_contract.json")
+    if execution_path.exists():
+        execution_contract = json.loads(execution_path.read_text(encoding="utf-8"))
+        package_contract = json.loads(
+            Path("experiment/package_contract.json").read_text(encoding="utf-8")
+        )
+        if execution_contract["environment_fingerprint"] != execution_environment_fingerprint(
+            package_contract["dependencies"]
+        ):
+            raise ValueError("execution environment changed")
     result = run_experiment(config)
     Path("experiment/results.json").write_text(json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")
     return result

@@ -609,7 +609,6 @@ _MUTATING_CALLS = {
     "os.chmod",
     "os.makedirs",
     "os.mkdir",
-    "os.open",
     "os.remove",
     "os.rename",
     "os.replace",
@@ -658,6 +657,8 @@ def _call_may_mutate_filesystem(
         and (name.startswith("shutil.copy") or name == "shutil.move")
     ):
         return True
+    if name == "os.open":
+        return False
     if operation == "open":
         return _open_call_may_write(call, aliases)
     return name in {"json.dump", "dump"} or (
@@ -824,6 +825,14 @@ def _self_test_report_payload_name(call: ast.Call) -> str | None:
 
 
 def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
+    literal_mapping_names = {
+        target.id
+        for node in nodes
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and isinstance(getattr(node, "value", None), ast.Dict)
+        for target in _assignment_targets(node)
+        if isinstance(target, ast.Name)
+    }
     for node in nodes:
         if isinstance(node, ast.AugAssign) and (
             isinstance(node.target, (ast.Name, ast.Subscript))
@@ -838,6 +847,10 @@ def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
+            and (
+                not isinstance(node.func.value, ast.Name)
+                or node.func.value.id in literal_mapping_names
+            )
         ):
             return True
     return False
@@ -1702,6 +1715,10 @@ def _current_registered_self_test(project: ResearchProject) -> ArtifactRef:
             raise ValueError("self-test registration event is missing")
         return artifact
     except (OSError, ValueError) as error:
+        if str(error) == "execution_environment_unavailable":
+            raise ValueError("execution_environment_unavailable") from error
+        if str(error) == "self_test environment fingerprint does not match":
+            raise ValueError("execution_environment_changed") from error
         raise ValueError("experiment_self_test_required") from error
 
 

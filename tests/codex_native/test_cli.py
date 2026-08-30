@@ -384,6 +384,17 @@ def test_execution_prepare_run_cli_emits_handoff_without_running_command(
     assert not (project.root / "project-code-executed").exists()
 
 
+def test_execution_prepare_run_cli_displays_a_quoted_argv_command(tmp_path, capsys):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+
+    assert main(["execution", "prepare-run", str(project.root)]) == 0
+
+    captured = capsys.readouterr()
+    status = prepare_research_execution(ResearchProject.open(project.root))
+    assert captured.out.strip() == shlex.join(status.argv)
+    assert captured.err == ""
+
+
 def test_execution_prepare_run_cli_rejects_unapproved_project_without_mutating_state(
     tmp_path, capsys
 ):

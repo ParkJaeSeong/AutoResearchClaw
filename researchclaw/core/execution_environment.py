@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import sys
 from types import MappingProxyType
 
 
@@ -27,6 +28,8 @@ dependencies = {name: importlib.metadata.version(name) for name in required}
 print(json.dumps({
     \"python_implementation\": sys.implementation.name.strip().lower(),
     \"python_version\": platform.python_version().strip(),
+    \"python_full_version\": sys.version.strip(),
+    \"python_build\": list(platform.python_build()),
     \"platform\": sys.platform.strip().lower(),
     \"machine\": platform.machine().strip().lower(),
     \"dependencies\": dict(sorted(dependencies.items())),
@@ -41,10 +44,19 @@ class ExecutionEnvironment:
     interpreter: str
     python_implementation: str
     python_version: str
+    python_full_version: str
+    python_build: tuple[str, str]
     platform: str
     machine: str
     dependencies: Mapping[str, str]
     fingerprint: str
+
+
+@dataclass(frozen=True)
+class _VerifiedInterpreter:
+    path: Path
+    descriptor: int
+    identity: Mapping[str, int | str]
 
 
 def normalize_required_distributions(
@@ -70,6 +82,8 @@ def canonical_environment_payload(
     interpreter_identity: Mapping[str, object],
     python_implementation: str,
     python_version: str,
+    python_full_version: str,
+    python_build: tuple[str, str],
     platform: str,
     machine: str,
     dependencies: Mapping[str, str],
@@ -79,10 +93,12 @@ def canonical_environment_payload(
         "schema_version": 1,
         "interpreter": interpreter,
         "interpreter_identity": dict(interpreter_identity),
-        "python_implementation": python_implementation,
-        "python_version": python_version,
-        "platform": platform,
-        "machine": machine,
+        "python_implementation": python_implementation.strip().lower(),
+        "python_version": python_version.strip(),
+        "python_full_version": python_full_version.strip(),
+        "python_build": list(python_build),
+        "platform": platform.strip().lower(),
+        "machine": machine.strip().lower(),
         "dependencies": dict(sorted(dependencies.items())),
     }
 
@@ -99,29 +115,16 @@ def execution_environment_fingerprint(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _open_verified_interpreter(interpreter: Path) -> tuple[Path, dict[str, int | str]]:
-    if not interpreter.is_absolute() or interpreter.is_symlink():
+def _descriptor_identity(descriptor: int) -> dict[str, int | str]:
+    file_status = os.fstat(descriptor)
+    if not stat.S_ISREG(file_status.st_mode) or not file_status.st_mode & 0o111:
         raise ValueError("execution_environment_unavailable")
-    try:
-        resolved = interpreter.resolve(strict=True)
-        if resolved.is_symlink():
-            raise ValueError("execution_environment_unavailable")
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(resolved, flags)
-    except (OSError, RuntimeError, ValueError) as error:
-        raise ValueError("execution_environment_unavailable") from error
-    try:
-        file_status = os.fstat(descriptor)
-        if not stat.S_ISREG(file_status.st_mode) or not file_status.st_mode & 0o111:
-            raise ValueError("execution_environment_unavailable")
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-    except OSError as error:
-        raise ValueError("execution_environment_unavailable") from error
-    finally:
-        os.close(descriptor)
-    return resolved, {
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while chunk := os.read(descriptor, 1024 * 1024):
+        digest.update(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return {
         "device": file_status.st_dev,
         "inode": file_status.st_ino,
         "size": file_status.st_size,
@@ -130,13 +133,71 @@ def _open_verified_interpreter(interpreter: Path) -> tuple[Path, dict[str, int |
     }
 
 
+def _open_verified_interpreter(interpreter: Path) -> _VerifiedInterpreter:
+    if not interpreter.is_absolute() or interpreter.is_symlink():
+        raise ValueError("execution_environment_unavailable")
+    descriptor: int | None = None
+    try:
+        resolved = interpreter.resolve(strict=True)
+        if resolved.is_symlink() or not hasattr(os, "O_NOFOLLOW"):
+            raise ValueError("execution_environment_unavailable")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW
+        descriptor = os.open(resolved, flags)
+    except (OSError, RuntimeError, ValueError) as error:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise ValueError("execution_environment_unavailable") from error
+    try:
+        identity = _descriptor_identity(descriptor)
+    except (OSError, ValueError) as error:
+        os.close(descriptor)
+        raise ValueError("execution_environment_unavailable") from error
+    return _VerifiedInterpreter(resolved, descriptor, identity)
+
+
+def _before_descriptor_probe(_verified: _VerifiedInterpreter) -> None:
+    """Test seam between descriptor verification and descriptor execution."""
+
+
+def _descriptor_execution_path(descriptor: int) -> str:
+    path = Path("/dev/fd") / str(descriptor)
+    if not path.exists():
+        raise ValueError("execution_environment_unavailable")
+    return str(path)
+
+
+def _current_process_probe(required_distributions: tuple[str, ...]) -> dict[str, object]:
+    import importlib.metadata
+    import platform
+    import sys
+
+    try:
+        dependencies = {
+            name: importlib.metadata.version(name) for name in required_distributions
+        }
+    except Exception as error:
+        raise ValueError("execution_environment_unavailable") from error
+    return {
+        "python_implementation": sys.implementation.name.strip().lower(),
+        "python_version": platform.python_version().strip(),
+        "python_full_version": sys.version.strip(),
+        "python_build": list(platform.python_build()),
+        "platform": sys.platform.strip().lower(),
+        "machine": platform.machine().strip().lower(),
+        "dependencies": dependencies,
+    }
+
+
 def _probe_execution_environment(
-    interpreter: Path, required_distributions: tuple[str, ...]
+    verified: _VerifiedInterpreter, required_distributions: tuple[str, ...]
 ) -> dict[str, object]:
     try:
+        _before_descriptor_probe(verified)
+        if verified.path.samefile(Path(sys.executable).resolve(strict=True)):
+            return _current_process_probe(required_distributions)
         completed = subprocess.run(
             [
-                str(interpreter),
+                _descriptor_execution_path(verified.descriptor),
                 "-I",
                 "-c",
                 _PROBE_SOURCE,
@@ -146,6 +207,7 @@ def _probe_execution_environment(
             capture_output=True,
             text=True,
             timeout=_PROBE_TIMEOUT_SECONDS,
+            pass_fds=(verified.descriptor,),
         )
         if completed.returncode != 0:
             raise ValueError("execution_environment_unavailable")
@@ -161,6 +223,8 @@ def _probe_execution_environment(
     fields = {
         "python_implementation",
         "python_version",
+        "python_full_version",
+        "python_build",
         "platform",
         "machine",
         "dependencies",
@@ -169,7 +233,10 @@ def _probe_execution_environment(
     if (
         not isinstance(value, dict)
         or set(value) != fields
-        or not all(isinstance(value[field], str) and value[field] for field in fields - {"dependencies"})
+        or not all(isinstance(value[field], str) and value[field] for field in fields - {"dependencies", "python_build"})
+        or not isinstance(value["python_build"], list)
+        or len(value["python_build"]) != 2
+        or any(not isinstance(item, str) or not item for item in value["python_build"])
         or not isinstance(dependencies, dict)
         or tuple(dependencies) != required_distributions
         or any(not isinstance(version, str) or not version for version in dependencies.values())
@@ -183,25 +250,38 @@ def inspect_execution_environment(
 ) -> ExecutionEnvironment:
     """Inspect one regular, exact Python interpreter without a shell."""
     required = normalize_required_distributions(required_distributions)
-    resolved, identity = _open_verified_interpreter(Path(interpreter))
-    probe = _probe_execution_environment(resolved, required)
-    dependencies = probe["dependencies"]
-    assert isinstance(dependencies, dict)
-    payload = canonical_environment_payload(
-        interpreter=str(resolved),
-        interpreter_identity=identity,
-        python_implementation=str(probe["python_implementation"]),
-        python_version=str(probe["python_version"]),
-        platform=str(probe["platform"]),
-        machine=str(probe["machine"]),
-        dependencies=dependencies,
-    )
-    return ExecutionEnvironment(
-        interpreter=str(resolved),
-        python_implementation=str(probe["python_implementation"]),
-        python_version=str(probe["python_version"]),
-        platform=str(probe["platform"]),
-        machine=str(probe["machine"]),
-        dependencies=MappingProxyType(dict(sorted(dependencies.items()))),
-        fingerprint=execution_environment_fingerprint(payload),
-    )
+    verified = _open_verified_interpreter(Path(interpreter))
+    try:
+        probe = _probe_execution_environment(verified, required)
+        if _descriptor_identity(verified.descriptor) != verified.identity:
+            raise ValueError("execution_environment_unavailable")
+        dependencies = probe["dependencies"]
+        assert isinstance(dependencies, dict)
+        build = probe["python_build"]
+        assert isinstance(build, list)
+        payload = canonical_environment_payload(
+            interpreter=str(verified.path),
+            interpreter_identity=verified.identity,
+            python_implementation=str(probe["python_implementation"]),
+            python_version=str(probe["python_version"]),
+            python_full_version=str(probe["python_full_version"]),
+            python_build=(str(build[0]), str(build[1])),
+            platform=str(probe["platform"]),
+            machine=str(probe["machine"]),
+            dependencies=dependencies,
+        )
+        return ExecutionEnvironment(
+            interpreter=str(verified.path),
+            python_implementation=str(payload["python_implementation"]),
+            python_version=str(payload["python_version"]),
+            python_full_version=str(payload["python_full_version"]),
+            python_build=(str(build[0]), str(build[1])),
+            platform=str(payload["platform"]),
+            machine=str(payload["machine"]),
+            dependencies=MappingProxyType(dict(sorted(dependencies.items()))),
+            fingerprint=execution_environment_fingerprint(payload),
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError("execution_environment_unavailable") from error
+    finally:
+        os.close(verified.descriptor)

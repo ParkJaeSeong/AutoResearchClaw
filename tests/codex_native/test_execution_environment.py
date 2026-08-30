@@ -2,14 +2,19 @@
 
 from dataclasses import replace
 import json
+import os
 from pathlib import Path
+import platform
+import shutil
 import subprocess
 import sys
 
 import pytest
 
+import researchclaw.core.execution_environment as execution_environment
 import researchclaw.core.experiment_package_contract as package_contract
 from researchclaw.core.execution_environment import (
+    canonical_environment_payload,
     inspect_execution_environment,
     normalize_required_distributions,
 )
@@ -62,6 +67,26 @@ def test_required_distribution_names_are_closed_and_canonical():
         normalize_required_distributions(("py-yaml", "py_yaml"))
 
 
+def test_canonical_payload_normalizes_the_generated_collector_text_fields():
+    payload = canonical_environment_payload(
+        interpreter="/absolute/python",
+        interpreter_identity={"sha256": "a" * 64},
+        python_implementation="  CPython  ",
+        python_version=" 3.11.0 ",
+        python_full_version=" Python 3.11.0 ",
+        python_build=("main", "  Jan 01  "),
+        platform=" DARWIN ",
+        machine=" ARM64 ",
+        dependencies={"pytest": "8.0"},
+    )
+
+    assert payload["python_implementation"] == "cpython"
+    assert payload["python_version"] == "3.11.0"
+    assert payload["python_full_version"] == "Python 3.11.0"
+    assert payload["platform"] == "darwin"
+    assert payload["machine"] == "arm64"
+
+
 def test_generated_self_test_uses_the_canonical_environment_fingerprint(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     contract_path = project.root / "experiment/package_contract.json"
@@ -84,8 +109,39 @@ def test_generated_self_test_uses_the_canonical_environment_fingerprint(tmp_path
         _resolved_interpreter(), package.required_distributions
     )
     assert report["environment_fingerprint"] == environment.fingerprint
+    assert environment.python_full_version == sys.version.strip()
+    assert environment.python_build == tuple(platform.python_build())
     assert dict(environment.dependencies) == {"pytest": environment.dependencies["pytest"]}
     assert "researchclaw" not in (project.root / package.entry_point).read_text()
+
+
+def test_descriptor_probe_never_reopens_a_replaced_interpreter_path(
+    tmp_path, monkeypatch
+):
+    interpreter = tmp_path / "python"
+    replacement = tmp_path / "replacement"
+    shutil.copy2(_resolved_interpreter(), interpreter)
+    interpreter.chmod(0o755)
+    replacement.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    replacement.chmod(0o755)
+    replaced = False
+
+    def replace_path(_verified):
+        nonlocal replaced
+        os.replace(replacement, interpreter)
+        replaced = True
+
+    monkeypatch.setattr(execution_environment, "_before_descriptor_probe", replace_path)
+
+    try:
+        environment = inspect_execution_environment(interpreter, ())
+    except ValueError as error:
+        assert str(error) == "execution_environment_unavailable"
+    else:
+        assert environment.python_implementation == "cpython"
+        assert environment.fingerprint
+    assert replaced
+    assert interpreter.read_text(encoding="utf-8") == "#!/bin/sh\nexit 99\n"
 
 
 def test_environment_drift_invalidates_the_registered_self_test_and_prepare(
@@ -105,3 +161,34 @@ def test_environment_drift_invalidates_the_registered_self_test_and_prepare(
     assert project.status_dict()["approval_eligible"] is False
     with pytest.raises(ValueError, match="^execution_environment_changed$"):
         prepare_research_execution(project)
+
+
+def test_prepare_preserves_environment_probe_unavailability(tmp_path, monkeypatch):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+
+    monkeypatch.setattr(
+        "researchclaw.core.research_execution.inspect_execution_environment",
+        lambda _interpreter, _distributions: (_ for _ in ()).throw(
+            ValueError("execution_environment_unavailable")
+        ),
+    )
+
+    with pytest.raises(ValueError, match="^execution_environment_unavailable$"):
+        prepare_research_execution(project)
+
+
+def test_external_runner_rejects_environment_drift_before_writing_result(tmp_path):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    status = prepare_research_execution(project)
+    contract_path = project.root / "experiment/execution_contract.json"
+    contract = json.loads(contract_path.read_text())
+    contract["environment_fingerprint"] = "0" * 64
+    contract_path.write_text(json.dumps(contract, sort_keys=True, separators=(",", ":")))
+
+    completed = subprocess.run(
+        status.argv, cwd=project.root, check=False, capture_output=True, text=True
+    )
+
+    assert completed.returncode != 0
+    assert "execution environment changed" in completed.stderr
+    assert not (project.root / "experiment/results.json").exists()

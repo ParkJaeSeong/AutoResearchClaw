@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from collections.abc import Sequence
 
@@ -261,7 +262,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "experiment":
             print(f"registered self-test: {payload['path']}")
         elif args.command == "execution":
-            print(f"stage 12: {payload['readiness']}")
+            if args.execution_command == "prepare-run":
+                argv = payload.get("argv")
+                if not isinstance(argv, list) or not all(
+                    isinstance(item, str) for item in argv
+                ):
+                    raise ValueError("execution_contract_invalid")
+                print(shlex.join(argv))
+            else:
+                print(f"stage 12: {payload['readiness']}")
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
     return exit_code

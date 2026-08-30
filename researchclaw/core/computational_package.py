@@ -201,10 +201,11 @@ _ALLOWED_IMPORT_EXPORTS = {
     "hashlib": frozenset({"sha256"}),
     "importlib.metadata": frozenset({"version"}),
     "json": frozenset({"dump", "dumps", "load", "loads"}),
+    "os": frozenset(),
     "pathlib": frozenset(
         {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
     ),
-    "platform": frozenset({"machine", "python_version"}),
+    "platform": frozenset({"machine", "python_build", "python_version"}),
     "sys": frozenset(),
     "typing": frozenset({"Any"}),
     "time": frozenset({"monotonic"}),
@@ -225,11 +226,17 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "json.dumps",
         "json.load",
         "json.loads",
+        "os.close",
+        "os.fstat",
+        "os.lseek",
+        "os.open",
+        "os.read",
         "pathlib.Path",
         "pathlib.PurePath",
         "pathlib.PurePosixPath",
         "pathlib.PureWindowsPath",
         "platform.machine",
+        "platform.python_build",
         "platform.python_version",
         "time.monotonic",
     }
@@ -294,6 +301,7 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "hexdigest",
         "items",
         "keys",
+        "lower",
         "open",
         "parse_args",
         "read",
@@ -746,6 +754,11 @@ def _call_is_dynamic_dispatch(
     node: ast.Call,
     aliases: Mapping[str, str],
 ) -> bool:
+    if (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"lower", "strip"}
+    ):
+        return False
     current = node.func
     while isinstance(current, ast.Attribute):
         current = current.value
