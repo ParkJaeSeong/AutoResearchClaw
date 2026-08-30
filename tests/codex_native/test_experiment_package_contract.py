@@ -551,6 +551,50 @@ def unrelated_shadow() -> dict[str, object]:
         validate_experiment_package_contract(project)
 
 
+def test_package_contract_rejects_nested_size_proxy(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        '    def size_proxy() -> float:\n'
+        '        probe = Path("experiment/self_test_fixture.json")\n'
+        '        return float(probe.stat().st_size)\n'
+        '    return size_proxy()\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="nested"):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize(
+    "nested_helper",
+    [
+        '    async def hidden_helper() -> float:\n'
+        '        probe = Path("experiment/self_test_fixture.json")\n'
+        '        return float(probe.stat().st_size)\n',
+        '    hidden_helper = lambda: float(\n'
+        '        Path("experiment/self_test_fixture.json").stat().st_size\n'
+        '    )\n',
+    ],
+    ids=["async", "lambda"],
+)
+def test_package_contract_rejects_async_or_lambda_nested_metric_helper(
+    tmp_path, nested_helper
+):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        nested_helper
+        + "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="nested"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_multi_hop_local_dict_fallback_alias(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
@@ -593,6 +637,25 @@ def unrelated_shadow() -> dict[str, object]:
     )
 
     with pytest.raises(ValueError, match="fallback"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_nested_evidence_eligible_fallback(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + '''
+
+def placeholder_fallback() -> dict[str, object]:
+    def build_output() -> dict[str, object]:
+        return {"mae": 0.5, "evidence_eligible": True}
+    return build_output()
+''',
+    )
+
+    with pytest.raises(ValueError, match="nested"):
         validate_experiment_package_contract(project)
 
 
@@ -703,6 +766,31 @@ def test_package_contract_rejects_computed_report_path_overwrite(tmp_path):
         validate_experiment_package_contract(project)
 
 
+def test_package_contract_rejects_helper_local_path_rebinding(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+        '\n\ndef redirected_path(_path: str) -> Path:\n'
+        '    return Path("experiment/redirected.json")\n'
+        '\n\ndef write_result(\n'
+        '    result: dict[str, object], Path=redirected_path\n'
+        ') -> None:\n'
+        '    Path("experiment/results.json").write_text(\n'
+        '        json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8"\n'
+        '    )\n'
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+    ).replace(
+        '    Path("experiment/results.json").write_text('
+        'json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")\n',
+        '    write_result(result)\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter|Path"):
+        validate_experiment_package_contract(project)
+
+
 def test_package_contract_rejects_report_mapping_mutation_before_write(tmp_path):
     project = build_known_answer_experiment_package(tmp_path / "project")
     source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
@@ -736,6 +824,27 @@ def test_package_contract_rejects_report_mapping_mutation_in_reachable_helper(tm
     _replace_main(project, source)
 
     with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_nested_helper_mapping_mutation(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+        '\n\ndef overwrite_metric(result: dict[str, object]) -> None:\n'
+        '    def mutate() -> None:\n'
+        '        result.update({"mae": 0.5})\n'
+        '    mutate()\n'
+        '\n\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n',
+    ).replace(
+        '        Path("experiment/self_test_report.json").write_text',
+        '        overwrite_metric(result)\n'
+        '        Path("experiment/self_test_report.json").write_text',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="nested"):
         validate_experiment_package_contract(project)
 
 

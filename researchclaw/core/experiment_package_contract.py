@@ -361,6 +361,14 @@ def _reachable_local_functions(
         visited.add(current.name)
         reachable.append(current)
         current_nodes = _lexical_scope_nodes(current)
+        if any(
+            isinstance(
+                node,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef),
+            )
+            for node in current_nodes
+        ):
+            raise ValueError("reachable function must not define a nested callable")
         for node in current_nodes:
             if isinstance(node, ast.Call):
                 target_name = _resolved_local_call_name(
@@ -610,8 +618,57 @@ def _call_may_mutate_filesystem(
     )
 
 
-def _has_unambiguous_path_binding(tree: ast.Module, main: ast.FunctionDef) -> bool:
-    imports = [
+def _import_binding(imported: ast.alias, *, from_import: bool) -> str:
+    if imported.asname is not None:
+        return imported.asname
+    return imported.name if from_import else imported.name.split(".")[0]
+
+
+def _nodes_bind_path(nodes: list[ast.AST]) -> bool:
+    for node in nodes:
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Store)
+            and node.id == "Path"
+        ):
+            return True
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "Path"
+        ):
+            return True
+        if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+            _import_binding(imported, from_import=isinstance(node, ast.ImportFrom))
+            == "Path"
+            for imported in node.names
+        ):
+            return True
+        if isinstance(node, ast.ExceptHandler) and node.name == "Path":
+            return True
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == "Path":
+            return True
+        if isinstance(node, ast.MatchMapping) and node.rest == "Path":
+            return True
+    return False
+
+
+def _function_binds_path(function: ast.FunctionDef) -> bool:
+    parameters = [
+        *function.args.posonlyargs,
+        *function.args.args,
+        *function.args.kwonlyargs,
+        *([function.args.vararg] if function.args.vararg is not None else []),
+        *([function.args.kwarg] if function.args.kwarg is not None else []),
+    ]
+    return any(parameter.arg == "Path" for parameter in parameters) or _nodes_bind_path(
+        _lexical_scope_nodes(function)
+    )
+
+
+def _has_unambiguous_path_binding(
+    tree: ast.Module, reachable_functions: list[ast.FunctionDef]
+) -> bool:
+    approved_imports = [
         imported
         for node in tree.body
         if isinstance(node, ast.ImportFrom)
@@ -620,75 +677,30 @@ def _has_unambiguous_path_binding(tree: ast.Module, main: ast.FunctionDef) -> bo
         for imported in node.names
         if imported.name == "Path" and imported.asname is None
     ]
-    module_rebindings = [
-        node
-        for node in tree.body
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name == "Path"
-        )
-        or (
-            isinstance(node, (ast.Assign, ast.AnnAssign))
-            and any(
-                isinstance(target, ast.Name) and target.id == "Path"
-                for target in _assignment_targets(node)
-            )
-        )
-        or (
-            isinstance(node, ast.Import)
-            and any(
-                (imported.asname or imported.name.split(".")[0]) == "Path"
-                for imported in node.names
-            )
-        )
-        or (
+    noncanonical_import = any(
+        _import_binding(imported, from_import=isinstance(node, ast.ImportFrom))
+        == "Path"
+        and not (
             isinstance(node, ast.ImportFrom)
-            and any(
-                (imported.asname or imported.name) == "Path"
-                and not (
-                    node.module == "pathlib"
-                    and node.level == 0
-                    and imported.name == "Path"
-                    and imported.asname is None
-                )
-                for imported in node.names
-            )
+            and node.module == "pathlib"
+            and node.level == 0
+            and imported.name == "Path"
+            and imported.asname is None
         )
-    ]
-    main_nodes = _lexical_scope_nodes(main)
-    local_rebindings = [
-        node
-        for node in main_nodes
-        if (
-            isinstance(node, ast.Name)
-            and isinstance(node.ctx, ast.Store)
-            and node.id == "Path"
-        )
-        or (isinstance(node, ast.arg) and node.arg == "Path")
-        or (
-            isinstance(node, (ast.Import, ast.ImportFrom))
-            and any(
-                (imported.asname or imported.name.split(".")[0]) == "Path"
-                for imported in node.names
-            )
-        )
-        or (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and node.name == "Path"
-        )
-    ]
-    parameters = [
-        *main.args.posonlyargs,
-        *main.args.args,
-        *main.args.kwonlyargs,
-        *([main.args.vararg] if main.args.vararg is not None else []),
-        *([main.args.kwarg] if main.args.kwarg is not None else []),
-    ]
+        for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for imported in node.names
+    )
+    collector = _LexicalScopeNodes()
+    for statement in tree.body:
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            continue
+        collector.visit(statement)
     return (
-        len(imports) == 1
-        and not module_rebindings
-        and not local_rebindings
-        and all(parameter.arg != "Path" for parameter in parameters)
+        len(approved_imports) == 1
+        and not noncanonical_import
+        and not _nodes_bind_path(collector.nodes)
+        and not any(_function_binds_path(function) for function in reachable_functions)
     )
 
 
@@ -708,7 +720,7 @@ def _has_ambiguous_writer_alias(
 
 def _validate_exclusive_artifact_writers(
     tree: ast.Module,
-    main: ast.FunctionDef,
+    reachable_functions: list[ast.FunctionDef],
     branch_nodes: list[ast.AST],
     reachable_nodes: list[ast.AST],
 ) -> None:
@@ -729,7 +741,7 @@ def _validate_exclusive_artifact_writers(
     ]
     approved = {*report_writes, *result_writes}
     if (
-        not _has_unambiguous_path_binding(tree, main)
+        not _has_unambiguous_path_binding(tree, reachable_functions)
         or _has_ambiguous_writer_alias(tree, reachable_nodes, aliases)
         or len(report_writes) != 1
         or report_writes[0] not in branch_nodes
@@ -793,11 +805,6 @@ def _validate_self_test_adapter(
     functions = _top_level_functions(tree)
     function_aliases = _function_aliases(tree, functions)
     main_nodes = _lexical_scope_nodes(main)
-    if any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef))
-        for node in main_nodes
-    ):
-        raise ValueError("self-test adapter must not contain nested lexical scopes")
     branches = [
         node for node in main_nodes
         if isinstance(node, ast.If) and _is_positive_self_test_condition(node.test)
@@ -814,8 +821,17 @@ def _validate_self_test_adapter(
         for node in nodes
     ):
         raise ValueError("self-test adapter must not use ambiguous provenance branches")
-    all_nodes = _reachable_metric_nodes(main, functions, function_aliases)
-    _validate_exclusive_artifact_writers(tree, main, nodes, all_nodes)
+    reachable_functions = _reachable_local_functions(
+        main, functions, function_aliases
+    )
+    all_nodes = [
+        node
+        for function in reachable_functions
+        for node in _lexical_scope_nodes(function)
+    ]
+    _validate_exclusive_artifact_writers(
+        tree, reachable_functions, nodes, all_nodes
+    )
     writes = [
         (node, _self_test_report_payload_name(node))
         for node in all_nodes
