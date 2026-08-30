@@ -29,6 +29,7 @@ from researchclaw.core.research_execution import (
     register_research_result,
 )
 from researchclaw.core.evidence_store import (
+    EvidenceIntegrityError,
     EvidenceStore,
     ResultQuarantineCapacityError,
     cleanup_quarantined_result,
@@ -344,7 +345,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             report = validate_current_stage(project)
             payload = report.to_dict()
             exit_code = 0 if report.valid else 2
-    except ResultQuarantineCapacityError as error:
+    except (ResultQuarantineCapacityError, EvidenceIntegrityError) as error:
         if getattr(args, "json", False):
             print(
                 json.dumps(error.to_dict(), ensure_ascii=False, sort_keys=True),

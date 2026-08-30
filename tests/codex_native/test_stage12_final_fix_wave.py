@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -8,6 +9,7 @@ import pytest
 
 import researchclaw.core.research_execution as research_execution
 import researchclaw.core.evidence_registration as evidence_registration
+import researchclaw.core.evidence_store as evidence_store
 from researchclaw.codex.cli import main as cli_main
 from researchclaw.core.development_execution import (
     run_development_experiment,
@@ -542,3 +544,123 @@ def test_prepare_run_recovers_owned_contract_commit_before_state_reference(
     assert not (
         project.root / ".researchclaw/execution-contract-preparation.pending.json"
     ).exists()
+
+
+def _registered_stage_thirteen_project(root):
+    project = build_approved_stage_twelve_project(root)
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    registered = register_research_result(project, "experiment/results.json")
+    return ResearchProject.open(project.root), registered.manifest_path
+
+
+@pytest.mark.parametrize(
+    "candidate_kind",
+    ("current_corrupt", "noncurrent_corrupt", "symlink", "oversized", "duplicate"),
+)
+def test_quarantine_fails_closed_for_every_invalid_manifest_candidate(
+    tmp_path, capsys, candidate_kind
+):
+    project, manifest_path = _registered_stage_thirteen_project(
+        tmp_path / candidate_kind
+    )
+    manifests = project.root / ".researchclaw/evidence/manifests"
+    current = project.root / manifest_path
+    candidate = manifests / "noncurrent-candidate.json"
+    if candidate_kind == "current_corrupt":
+        current.write_bytes(b"{corrupt")
+    elif candidate_kind == "noncurrent_corrupt":
+        candidate.write_bytes(b"{corrupt")
+    elif candidate_kind == "symlink":
+        os.symlink(current.name, candidate)
+    elif candidate_kind == "oversized":
+        candidate.write_bytes(b"x" * (1024 * 1024 + 1))
+    else:
+        candidate.write_bytes(current.read_bytes())
+
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+    artifacts_before = dict(project.state.artifacts)
+
+    with pytest.raises(ValueError, match="^evidence_object_integrity_failure$"):
+        evidence_store.quarantine_unregistered_result(
+            project, "invalid_result", True
+        )
+    assert cli_main(
+        [
+            "execution", "quarantine-result", str(project.root),
+            "--reason", "invalid_result", "--confirm", "--json",
+        ]
+    ) == 2
+    cli_error = json.loads(capsys.readouterr().err)
+    assert cli_error == {
+        "error": "evidence_object_integrity_failure",
+        "recommended_action": "audit_legacy_evidence",
+    }
+    with pytest.raises(ValueError, match="^evidence_object_integrity_failure$"):
+        build_handoff(ResearchProject.open(project.root))
+
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 13
+    assert reopened.state.artifacts == artifacts_before
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+    assert (project.root / "experiment/results.json").is_file()
+
+
+def test_stage_thirteen_status_caps_manifest_before_any_path_read_bytes(
+    tmp_path, monkeypatch
+):
+    project, manifest_path = _registered_stage_thirteen_project(tmp_path / "project")
+    manifest = project.root / manifest_path
+    manifest.write_bytes(b"x" * (1024 * 1024 + 1))
+    original = type(manifest).read_bytes
+
+    def bounded_read_bytes(path):
+        if path.parent == manifest.parent:
+            raise AssertionError("manifest bypassed descriptor-backed bounded snapshot")
+        return original(path)
+
+    monkeypatch.setattr(type(manifest), "read_bytes", bounded_read_bytes)
+
+    with pytest.raises(ValueError, match="^evidence_object_integrity_failure$"):
+        build_handoff(ResearchProject.open(project.root))
+
+
+def test_stage_thirteen_status_opens_manifest_once_and_rejects_growth(
+    tmp_path, monkeypatch
+):
+    project, manifest_path = _registered_stage_thirteen_project(tmp_path / "project")
+    manifest = project.root / manifest_path
+    state_before = (project.root / ".researchclaw/state.json").read_bytes()
+    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+    opens = 0
+    original_open = evidence_registration._open_manifest_descriptor
+    original_read = evidence_registration.os.read
+    grew = False
+
+    def count_open(root, relative_path):
+        nonlocal opens
+        opens += 1
+        return original_open(root, relative_path)
+
+    def grow_during_read(descriptor, size):
+        nonlocal grew
+        chunk = original_read(descriptor, size)
+        if chunk and not grew:
+            grew = True
+            with manifest.open("ab") as handle:
+                handle.write(b"x" * (1024 * 1024 + 1))
+        return chunk
+
+    monkeypatch.setattr(
+        evidence_registration, "_open_manifest_descriptor", count_open
+    )
+    monkeypatch.setattr(evidence_registration.os, "read", grow_during_read)
+
+    with pytest.raises(ValueError, match="^evidence_object_integrity_failure$"):
+        build_handoff(ResearchProject.open(project.root))
+
+    assert opens == 1
+    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
+    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before

@@ -59,6 +59,19 @@ _MANIFEST_SCAN_LIMIT = 4096
 _MANIFEST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\.json\Z")
 
 
+class EvidenceIntegrityError(ValueError):
+    """Fail-closed evidence inventory error with one supported recovery route."""
+
+    def __init__(self) -> None:
+        super().__init__("evidence_object_integrity_failure")
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "error": "evidence_object_integrity_failure",
+            "recommended_action": "audit_legacy_evidence",
+        }
+
+
 def _load_native_rename_noreplace():
     library = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
@@ -1685,37 +1698,56 @@ def _load_result_quarantine(project: ResearchProject) -> dict[str, object] | Non
         raise ValueError("result_quarantine_interrupted") from error
 
 
-def _result_referenced_by_valid_manifest(project: ResearchProject, store: EvidenceStore) -> bool:
+def _validated_manifest_candidates(
+    project: ResearchProject, store: EvidenceStore
+) -> tuple[object, ...]:
+    """Return closed manifest snapshots, distinguishing absence from corruption."""
     from .evidence_registration import (
         EVIDENCE_PENDING_PATH,
         _read_manifest_snapshot,
-        _revalidate_manifest_path,
         _validate_manifest_bindings,
         _verify_manifest_objects,
     )
 
     if os.path.lexists(project.root / EVIDENCE_PENDING_PATH):
-        return True
-    directory = store._open_directory(store.manifests_root)
+        raise EvidenceIntegrityError
     try:
-        names = _bounded_directory_names(
-            directory,
-            limit=_MANIFEST_SCAN_LIMIT,
-            error_message="evidence manifest scan limit exceeded",
-        )
-    finally:
-        os.close(directory)
+        directory = store._open_directory(store.manifests_root)
+        try:
+            names = _bounded_directory_names(
+                directory,
+                limit=_MANIFEST_SCAN_LIMIT,
+                error_message="evidence manifest scan limit exceeded",
+            )
+        finally:
+            os.close(directory)
+    except (OSError, TypeError, ValueError) as error:
+        raise EvidenceIntegrityError from error
+    if any(_MANIFEST_NAME.fullmatch(name) is None for name in names):
+        raise EvidenceIntegrityError
+    # Registration v1 permits one current manifest.  More than one candidate is
+    # ambiguous at the destructive quarantine boundary, even if one parses.
+    if len(names) > 1:
+        raise EvidenceIntegrityError
+    snapshots = []
     for name in names:
-        if _MANIFEST_NAME.fullmatch(name) is None:
-            continue
         manifest_path = f".researchclaw/evidence/manifests/{name}"
         try:
             snapshot = _read_manifest_snapshot(project.root, manifest_path)
             _validate_manifest_bindings(project, manifest_path, snapshot.payload)
             _verify_manifest_objects(project, snapshot.payload)
-            _revalidate_manifest_path(project.root, snapshot)
-        except ValueError:
-            continue
+        except (OSError, TypeError, ValueError) as error:
+            raise EvidenceIntegrityError from error
+        state_reference = project.state.artifacts.get(manifest_path)
+        if state_reference is not None and state_reference != snapshot.artifact:
+            raise EvidenceIntegrityError
+        snapshots.append(snapshot)
+    return tuple(snapshots)
+
+
+def _result_referenced_by_valid_manifest(project: ResearchProject, store: EvidenceStore) -> bool:
+    snapshots = _validated_manifest_candidates(project, store)
+    for snapshot in snapshots:
         entries = snapshot.payload.get("objects")
         if isinstance(entries, list) and any(
             isinstance(entry, Mapping)

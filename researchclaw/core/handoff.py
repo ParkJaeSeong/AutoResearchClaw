@@ -72,10 +72,15 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None:
-    immutable_grounded = _immutable_evidence_grounded(root, state)
-    immutable_sources = (
-        _immutable_evidence_source_paths(root, state) if immutable_grounded else frozenset()
+def _first_invalid_artifact_stage(
+    root: Path,
+    state: ProjectState,
+    evidence_context: tuple[bool, frozenset[str]] | None = None,
+) -> int | None:
+    immutable_grounded, immutable_sources = (
+        evidence_context
+        if evidence_context is not None
+        else _immutable_evidence_context(root, state)
     )
     ordered_artifacts = sorted(
         state.artifacts.items(),
@@ -105,70 +110,61 @@ def _first_invalid_artifact_stage(root: Path, state: ProjectState) -> int | None
     return None
 
 
-def _immutable_evidence_grounded(root: Path, state: ProjectState) -> bool:
+def _immutable_evidence_context(
+    root: Path, state: ProjectState
+) -> tuple[bool, frozenset[str]]:
     manifest_entries = [
         (path, reference)
         for path, reference in state.artifacts.items()
         if path.startswith(".researchclaw/evidence/manifests/")
     ]
     if len(manifest_entries) != 1:
-        return False
+        return False, frozenset()
     manifest_path, reference = manifest_entries[0]
     try:
-        from .evidence_registration import (
-            _verify_manifest_objects,
-            load_evidence_manifest,
-        )
+        from .evidence_store import EvidenceStore, _validated_manifest_candidates
 
-        payload_path = resolve_project_artifact(root, manifest_path)
-        payload = payload_path.read_bytes()
-        if (
-            len(payload) != reference.size
-            or hashlib.sha256(payload).hexdigest() != reference.sha256
-        ):
-            return False
         project = ResearchProject(root=root, state=state)
-        manifest = load_evidence_manifest(root, manifest_path)
-        _verify_manifest_objects(project, manifest)
-    except (OSError, TypeError, ValueError):
-        return False
-    return True
-
-
-def _immutable_evidence_source_paths(
-    root: Path, state: ProjectState
-) -> frozenset[str]:
-    manifest_paths = tuple(
-        path
-        for path in state.artifacts
-        if path.startswith(".researchclaw/evidence/manifests/")
-    )
-    if len(manifest_paths) != 1:
-        return frozenset()
-    try:
-        from .evidence_registration import load_evidence_manifest
-
-        manifest = load_evidence_manifest(root, manifest_paths[0])
+        snapshots = _validated_manifest_candidates(project, EvidenceStore(root))
+        if len(snapshots) != 1 or snapshots[0].artifact != reference:
+            raise ValueError("evidence_object_integrity_failure")
+        manifest = snapshots[0].payload
         objects = manifest.get("objects")
         if not isinstance(objects, list):
-            return frozenset()
+            raise ValueError("evidence_object_integrity_failure")
         sources = {
             entry.get("source_path")
             for entry in objects
             if isinstance(entry, dict) and isinstance(entry.get("source_path"), str)
         }
         if len(sources) != len(objects):
-            return frozenset()
-        return frozenset(sources)
-    except (OSError, TypeError, ValueError):
-        return frozenset()
+            raise ValueError("evidence_object_integrity_failure")
+        return True, frozenset(sources)
+    except ValueError as error:
+        if str(error) == "evidence_object_integrity_failure":
+            raise
+        raise ValueError("evidence_object_integrity_failure") from error
 
 
-def _stage_thirteen_recovery_action(root: Path, state: ProjectState) -> str | None:
+def _immutable_evidence_grounded(root: Path, state: ProjectState) -> bool:
+    return _immutable_evidence_context(root, state)[0]
+
+
+def _immutable_evidence_source_paths(
+    root: Path, state: ProjectState
+) -> frozenset[str]:
+    return _immutable_evidence_context(root, state)[1]
+
+
+def _stage_thirteen_recovery_action(
+    root: Path,
+    state: ProjectState,
+    evidence_context: tuple[bool, frozenset[str]] | None = None,
+) -> str | None:
     """Return the supported Stage-12 action for an ungrounded Stage 13."""
     if state.current_stage != 13 or 12 not in state.completed_stages:
         return None
-    if _immutable_evidence_grounded(root, state):
+    if (evidence_context or _immutable_evidence_context(root, state))[0]:
         return None
     from .research_execution import (
         EXECUTION_CONTRACT_PATH,
@@ -481,9 +477,15 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
     recovered_contract = _recover_stale_stage_twelve_contract(current_project)
     if recovered_contract is not None:
         return recovered_contract
+    evidence_context = (
+        _immutable_evidence_context(current_project.root, state)
+        if state.current_stage == 13 and 12 in state.completed_stages
+        else None
+    )
     stage_thirteen_action = _stage_thirteen_recovery_action(
         current_project.root,
         state,
+        evidence_context,
     )
     if stage_thirteen_action is not None:
         return _rewind_stage_twelve_registration(
@@ -493,7 +495,7 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
     invalid_artifact_stage = None
     if invalid_artifact_stage is None:
         invalid_artifact_stage = _first_invalid_artifact_stage(
-            current_project.root, state
+            current_project.root, state, evidence_context
         )
     invalid_approval_stage = _first_invalid_completed_approval_stage(current_project)
     invalid_stages = [
