@@ -121,7 +121,7 @@ class ProjectFileIdentity:
     sha256: str
 
 
-def _open_project_file_descriptor(root: Path, relative_path: object) -> tuple[int, str]:
+def open_project_file_descriptor(root: Path, relative_path: object) -> tuple[int, str]:
     """Open one regular project file through a no-symlink openat chain."""
     value = validate_relative_path(relative_path, kind="artifact")
     resolve_project_artifact(root, value)
@@ -153,9 +153,14 @@ def _open_project_file_descriptor(root: Path, relative_path: object) -> tuple[in
         os.close(descriptor)
 
 
+# Compatibility for the registration code that already imports the descriptor
+# boundary privately; new storage primitives use the public spelling above.
+_open_project_file_descriptor = open_project_file_descriptor
+
+
 def _project_file_identity(root: Path, relative_path: object) -> ProjectFileIdentity:
     """Hash a regular project file without retaining its contents in memory."""
-    descriptor, _value = _open_project_file_descriptor(root, relative_path)
+    descriptor, _value = open_project_file_descriptor(root, relative_path)
     try:
         initial = os.fstat(descriptor)
         digest = hashlib.sha256()
@@ -189,7 +194,7 @@ def _read_project_file_snapshot(
         or max_bytes < 0
     ):
         raise ValueError("max_bytes must be a non-negative integer")
-    descriptor, value = _open_project_file_descriptor(root, relative_path)
+    descriptor, value = open_project_file_descriptor(root, relative_path)
     try:
         initial = os.fstat(descriptor)
         if max_bytes is not None and initial.st_size > max_bytes:
