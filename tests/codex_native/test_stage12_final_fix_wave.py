@@ -100,6 +100,8 @@ def test_exact_prepared_command_produces_only_bound_result_then_registers(tmp_pa
     assert completed.returncode == 0, completed.stderr
     result_path = project.root / "experiment/results.json"
     assert result_path.is_file()
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result_payload["metrics"]["primary"]["value"] == 0.5
     after = {
         path.relative_to(project.root).as_posix(): hashlib.sha256(
             path.read_bytes()
@@ -112,6 +114,19 @@ def test_exact_prepared_command_produces_only_bound_result_then_registers(tmp_pa
     } == {"experiment/results.json"}
     registered = register_research_result(project, "experiment/results.json")
     assert registered.current_stage == 13
+    manifest = evidence_registration.load_evidence_manifest(
+        project.root, registered.manifest_path
+    )
+    immutable_result = next(
+        entry for entry in manifest["objects"] if entry["role"] == "result"
+    )
+    immutable_bytes = (
+        project.root / immutable_result["object_path"]
+    ).read_bytes()
+    (project.root / "data/input.csv").write_bytes(b"mutable source changed\n")
+    result_path.unlink()
+    assert json.loads(immutable_bytes)["metrics"]["primary"]["value"] == 0.5
+    assert build_handoff(ResearchProject.open(project.root)).current_stage == 13
 
 
 def test_exact_prepared_command_rejects_bound_input_drift_without_output(tmp_path):

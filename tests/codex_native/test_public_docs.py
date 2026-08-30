@@ -12,6 +12,13 @@ SUPPORTED_BOUNDARY = re.compile(
     re.IGNORECASE,
 )
 PUBLIC_BOUNDARY_FILES = (ROOT / "README.md", ROOT / "RESEARCHCLAW_AGENTS.md")
+STAGE_TWELVE_PUBLIC_FILES = (
+    *PUBLIC_BOUNDARY_FILES,
+    SKILL_ROOT / "SKILL.md",
+    SKILL_ROOT / "references" / "computational-package.md",
+    SKILL_ROOT / "references" / "resource-planning.md",
+    SKILL_ROOT / "references" / "approval-policy.md",
+)
 RESOURCE_REFERENCE = SKILL_ROOT / "references" / "resource-planning.md"
 STAGES_REFERENCE = SKILL_ROOT / "references" / "stages.md"
 RESOURCE_PROHIBITIONS_CONTRACT = """`prohibitions` has exactly these boolean fields, all `false`:
@@ -41,7 +48,7 @@ def test_resource_planning_reference_contains_safety_literals():
     assert "experiment/resources.json" in text
     assert "ready_for_execution" in text
     assert "needs_input" in text
-    assert "python experiment/code/main.py --config experiment/code/config.json" in text
+    assert "absolute interpreter" in text.lower()
     assert (
         "Parse the packet's `profile_context.hardware_observation` JSON string "
         "and place the resulting object unchanged in `hardware_observation`."
@@ -96,7 +103,7 @@ def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():
     assert "authors but does not execute" in reference.lower()
     assert "statically validate" in reference.lower()
     assert "execution recheck ROOT --json" in skill
-    assert "Stop. Never run the deferred command in Stage 11." in skill
+    assert "Never run the deferred research argv in Stage 11." in skill
     assert "Stage 12" in skill
     assert "computational" in stages
     assert "policy_evidence" in reference and "unsupported" in reference.lower()
@@ -160,42 +167,23 @@ def test_public_docs_describe_explicit_research_result_registration_boundary():
     readme_handoff_normalized = " ".join(readme_handoff.split())
     reference_handoff_normalized = " ".join(reference_handoff.split())
     skill_workflow_normalized = " ".join(skill_workflow.split())
+    for section in (
+        readme_handoff_normalized,
+        reference_handoff_normalized,
+        skill_workflow_normalized,
+    ):
+        assert "authoritative argv" in section.lower()
+        assert "absolute interpreter" in section.lower()
+        assert "does not execute" in section.lower()
+        assert "experiment/results.json" in section
     assert (
-        "It does not execute that command: the user runs the returned command "
-        "in the project root. The fixed Stage-10 entry point consumes that exact current "
-        "contract, streams and verifies every bound package file and required input, "
-        "runs its bounded generated experiment behavior, and creates only the declared "
-        "`experiment/results.json`. Command stdout and every development result are "
-        "never research evidence. Only that contract-bound result can be registered:"
-        in readme_handoff_normalized
-    )
-    assert (
-        "It does not execute that command. The user runs the returned command "
-        "in the project root. The fixed Stage-10 entry point validates the current "
-        "contract, all bound package files, and every required input before running its "
-        "bounded behavior and writing only `experiment/results.json`. Command stdout "
-        "and any development result are never research evidence, and a development "
-        "result is never registerable as research evidence."
-        in reference_handoff_normalized
-    )
-    assert (
-        "returns the approved command, but does not execute it. The user runs that "
-        "exact command in the project root. The fixed Stage-10 entry point validates "
-        "the current contract, bound package files, and required inputs, then writes "
-        "only `experiment/results.json`; never treat command stdout or a development "
-        "result as research evidence."
-        in skill_workflow_normalized
-    )
-    assert (
-        "Only after the user-run command writes that contract-bound "
+        "Only after the user-run argv writes that contract-bound "
         "`experiment/results.json`"
         in skill_workflow_normalized
     )
-    assert (
-        "It writes the immutable handoff and returns a command, but does not execute "
-        "it; the user runs that exact command in the project root."
-        in " ".join(agent_workflow.split())
-    )
+    agent_normalized = " ".join(agent_workflow.split())
+    assert "authoritative argv" in agent_normalized
+    assert "without changing `PATH`" in agent_normalized
     for section in (
         readme_handoff_normalized,
         reference_handoff_normalized,
@@ -207,3 +195,69 @@ def test_public_docs_describe_explicit_research_result_registration_boundary():
     assert "approval-only unsupported execution boundary" not in readme
     assert "approval-only unsupported execution boundary" not in stages
     assert "Stage 13 refinement remains unsupported" in stages
+
+
+def test_stage_twelve_public_contract_is_explicit_immutable_and_legacy_safe():
+    combined = "\n".join(
+        path.read_text(encoding="utf-8") for path in STAGE_TWELVE_PUBLIC_FILES
+    )
+    normalized = " ".join(combined.split()).lower()
+
+    for required in (
+        "absolute interpreter",
+        "authoritative argv",
+        "register-self-test",
+        "immutable manifest",
+        "--confirm-research-result",
+        "--confirm",
+        "evidence audit",
+        "legacy_untrusted",
+        "audit-only",
+        "disk preflight",
+        "deduplication",
+    ):
+        assert required in normalized
+
+    assert "python experiment/code/main.py" not in combined
+    assert "stage 12 computes metrics" not in normalized
+    assert "delete evidence objects manually" not in normalized
+
+
+def test_stage_twelve_public_contract_documents_order_and_recovery_routes():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    normalized = " ".join(
+        _markdown_section(
+            readme, "Explicit Stage-12 research handoff and registration"
+        ).split()
+    )
+
+    ordered_commands = (
+        "experiment register-self-test ROOT",
+        "researchclaw-codex approve ROOT",
+        "researchclaw-codex execution prepare-run",
+        "researchclaw-codex execution register-result",
+        "researchclaw-codex evidence audit",
+    )
+    offsets = [normalized.index(command) for command in ordered_commands]
+    assert offsets == sorted(offsets)
+
+    for recovery_case in (
+        "Environment drift",
+        "Existing result",
+        "Stale contract",
+        "Insufficient disk",
+        "Interrupted registration",
+        "Legacy Stage 13 evidence",
+        "Published partial quarantine temp",
+    ):
+        assert recovery_case in readme
+
+    assert "fresh inode" in readme
+    assert "complete read-only candidate" in readme
+    assert "manual/operator action" in readme
+    assert (
+        "`register-result --json` preserves the public keys `readiness`, "
+        "`approval_eligible`, `result_path`, `result_sha256`, `current_stage`, "
+        "and `next_action`" in normalized
+    )
+    assert "Errors keep their existing category string" in normalized

@@ -65,10 +65,15 @@ Set `commands` to exactly:
 
 ```json
 {
-  "dry_run": "python experiment/code/main.py --config experiment/code/config.json --dry-run",
-  "smoke_test": "python -m pytest experiment/code/tests/test_smoke.py -q"
+  "dry_run": "<verified-absolute-interpreter> experiment/code/main.py --config experiment/code/config.json --dry-run",
+  "smoke_test": "<verified-absolute-interpreter> -m pytest experiment/code/tests/test_smoke.py -q"
 }
 ```
+
+These are human-readable package descriptions, not execution authority. The
+Stage-12 contract stores an authoritative argv JSON array and binds its first
+item to a verified absolute interpreter. Never replace it with a `python`
+alias or reconstruct it from a display string.
 
 ## Configuration and code
 
@@ -133,7 +138,7 @@ result.
 
 The same fixed entry point is the bounded Stage 12 runner when invoked without
 `--dry-run`. Stage 10 never invokes that path. After `prepare-run`, the user runs
-the exact returned command outside ResearchClaw; the entry point recomputes and
+the exact returned authoritative argv outside ResearchClaw; the entry point recomputes and
 checks the execution contract and result template, streams and verifies package
 and input bindings, enforces the declared prohibitions and resource budget, and
 exclusively creates `experiment/results.json`.

@@ -60,10 +60,10 @@ declares exactly these inputs:
 
 Parse the packet's `profile_context.hardware_observation` JSON string and place
 the resulting object unchanged in `hardware_observation`. Do not fabricate a
-GPU fact. The packet also declares the fixed deferred command
-`python experiment/code/main.py --config experiment/code/config.json` and fixed
-result path `experiment/results.json`; they are descriptions of a future
-execution, not commands to run here.
+GPU fact. The packet also declares a fixed deferred entry-point description
+and result path `experiment/results.json`; they describe future execution and
+are not commands to run here. Only a later authoritative argv array beginning
+with a verified absolute interpreter may be executed by the user.
 
 After a valid plan, Stage 11 advances the durable project to the Stage 12
 approval boundary. Show the plan, readiness, warnings, and prerequisites to
@@ -195,9 +195,11 @@ count is at most `1`. Its values are derived, not estimated independently:
 
 ### Fixed fields and derived status
 
-`deferred_command` is exactly
-`python experiment/code/main.py --config experiment/code/config.json`, and
-`result_path` is exactly `experiment/results.json`.
+`deferred_command` is a non-authoritative display description of the entry
+point and config, and `result_path` is exactly `experiment/results.json`.
+Stage 12 creates a separate authoritative argv array whose first item is the
+verified absolute interpreter. Never execute the display description or
+substitute a `python` alias.
 
 `prohibitions` has exactly these boolean fields, all `false`:
 
@@ -229,22 +231,33 @@ refreshes only passive hardware, input facts, drift warnings,
 `unmet_prerequisites`, and `readiness`; it rejects changed immutable planning
 fields. Recheck must not add, remove, or change an input path, task, budget, or
 deferred command. A passive `execution recheck` cannot erase a current human
-rejection. Report its JSON readiness and then stop. Do not execute
-`python experiment/code/main.py --config experiment/code/config.json`; do not
+rejection. Report its JSON readiness and then stop. Do not execute the
+deferred display description; do not
 write `experiment/results.json`; do not prepare or run a Stage-12 experiment.
 
 ## Explicit research handoff and registration
 
-After a ready plan has the user's explicit Stage-12 approval, a separate
-explicit command may prepare the immutable execution handoff:
+Before approval, the user explicitly runs the declared known-answer self-test
+with the verified absolute interpreter and exact argument array, then
+registers the report:
+
+```text
+researchclaw-codex experiment register-self-test ROOT --report experiment/self_test_report.json --confirm-self-test --json
+```
+
+Only a current registered report is approval-eligible. Present it and the plan
+so the user can review and decide; ResearchClaw never supplies the decision.
+After approval, a separate explicit command may prepare the immutable
+execution handoff:
 
 ```text
 researchclaw-codex execution prepare-run ROOT --json
 ```
 
-It writes `experiment/execution_contract.json` and returns the approved
-command. It does not execute that command. The user runs the returned command
-in the project root. The fixed Stage-10 entry point validates the current
+It writes `experiment/execution_contract.json` and returns an authoritative
+argv array beginning with the verified absolute interpreter. A quoted command
+is a display string only. It does not execute that argv. The user runs it
+exactly in the project root. The fixed Stage-10 entry point validates the current
 contract, all bound package files, and every required input before running its
 bounded behavior and writing only `experiment/results.json`. Command stdout
 and any development result are never research evidence, and a development
@@ -258,6 +271,17 @@ researchclaw-codex execution register-result ROOT --result experiment/results.js
 ```
 
 `--confirm-research-result` is required. Registration validates the contract
-binding and result schema before it changes durable state. A successful
-registration advances to Stage 13; Stage 13 refinement remains separate and
-is not executed or implemented by this Stage-12 interface.
+binding and result schema, performs descriptor-based disk preflight and
+content-hash deduplication, then publishes immutable objects and a closed
+immutable manifest. Only those objects ground Stage 13; mutable working files
+do not. A successful registration advances to Stage 13; Stage 13 refinement
+remains separate and is not executed or implemented by this interface.
+
+Legacy generic contracts, mutable results, and ungrounded Stage-13 artifacts
+are `legacy_untrusted`: audit-only and non-registerable. Use
+`researchclaw-codex evidence audit ROOT --json`; never silently migrate them.
+Quarantine actions require `--confirm`. Evidence objects are never operator-deleted.
+A previously published partial quarantine temp is preserved and never written
+again; use a fresh inode when capacity permits or fail closed for explicit
+manual/operator action. A complete read-only candidate may be verified and
+published without mutation.

@@ -147,24 +147,70 @@ evidence.
 
 ## Explicit Stage-12 research handoff and registration
 
-After the user has explicitly approved a ready Stage-12 research plan, prepare
-the durable handoff:
+Stage 12 is a non-executing trust boundary. ResearchClaw validates and records
+evidence; it does not compute research metrics. Use this order:
+
+1. Read `experiment/package_contract.json`. Run its known-answer self-test
+   outside ResearchClaw with the current verified **absolute interpreter** and
+   the declared self-test argument suffix. The argument array is authoritative;
+   a quoted command shown for people is only a display string.
+2. Register the externally written report explicitly:
+
+   ```bash
+   researchclaw-codex experiment register-self-test ROOT \
+     --report experiment/self_test_report.json --confirm-self-test --json
+   ```
+
+   Success JSON has exactly `path`, `sha256`, and `size`. Registration verifies
+   the exact known-answer metric value and package, fixture, and environment
+   identities; it does not rerun the self-test.
+3. Show the ready plan and registered self-test to the user. The user must
+   review the execution approval and decide explicitly:
+
+   ```bash
+   researchclaw-codex approve ROOT \
+     --decision approve|reject --note "User-reviewed execution decision" --json
+   ```
+
+4. Only after approval, prepare the durable handoff:
 
 ```bash
 researchclaw-codex execution prepare-run ROOT --json
 ```
 
-This writes `experiment/execution_contract.json` and returns the approved
-command. It does not execute that command: the user runs the returned command
-in the project root. The fixed Stage-10 entry point consumes that exact current
-contract, streams and verifies every bound package file and required input,
-runs its bounded generated experiment behavior, and creates only the declared
-`experiment/results.json`. Command stdout and every development result are
-never research evidence. Only that contract-bound result can be registered:
+This writes `experiment/execution_contract.json`. JSON mode returns an `argv`
+array whose first element is the verified absolute interpreter path. That
+**authoritative argv** array, not a shell alias or the non-JSON quoted display
+string, is the execution contract. ResearchClaw does not execute it. The user
+runs the array exactly, without changing `PATH`, from the project root. The
+entry point verifies every binding and exclusively creates
+`experiment/results.json`; stdout and development results are not evidence.
+
+5. Register only that contract-bound result:
 
 ```bash
 researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
 ```
+
+Registration performs a descriptor-based disk preflight, reuses already
+published content by hash (deduplication), streams every accepted source into
+the content-addressed object store, and publishes a closed **immutable
+manifest**. State, event, and manifest recovery form one transaction. Stage 13
+is grounded only in the manifest and immutable objects, never in mutable
+working-tree inputs or `experiment/results.json`. Successful JSON reports the
+registered result identity and Stage-13 transition.
+
+For compatibility, `register-result --json` preserves the public keys
+`readiness`, `approval_eligible`, `result_path`, `result_sha256`,
+`current_stage`, and `next_action`; immutable-manifest details are obtained
+with `evidence audit`. `prepare-run --json` returns exactly `readiness`,
+`approval_eligible`, `argv`, `environment_fingerprint`, `result_path`,
+`contract_path`, `contract_sha256`, `bindings`, `inputs`, and
+`result_template`. Errors keep their existing category string on stderr as
+`error: CATEGORY` and exit with status 2, including
+`execution_environment_changed`, `execution_contract_stale`,
+`research_result_file_invalid`, and
+`research_result_registration_recovery_invalid`.
 
 If recovery identifies an invalid unregistered result, the confirmed
 `execution quarantine-result` command copies the exact descriptor-validated
@@ -196,6 +242,32 @@ listed path, and reports when manual filesystem/operator action is required.
 Unknown or crash-abandoned copy candidates are likewise inventoried and left
 untouched. This policy prefers unrelated-byte safety over automatic capacity
 recovery.
+
+A previously published partial quarantine temp is never resumed or written.
+Recovery preserves that inode and starts with a fresh inode when capacity
+permits; otherwise it fails closed and reports explicit manual/operator action.
+A complete read-only candidate may be verified and published without mutation.
+This is a mandatory release contract; the Stage-12 evidence release gate must
+prove it before publication.
+
+### Stage-12 recovery routes
+
+| Condition | Safe action |
+| --- | --- |
+| Environment drift | Keep Stage 12 unchanged; rerun the known-answer self-test with the verified current environment, register it, obtain a new approval, and prepare again. |
+| Existing result | Run `execution quarantine-result ROOT --reason invalid_result --confirm --json`, inspect the retained copy, then use the separately confirmed cleanup route before a rerun. |
+| Stale contract | Keep Stage 12; run `execution prepare-run ROOT --json` to replace only the stale contract after current bindings validate. |
+| Insufficient disk | Make no evidence mutation; inspect `evidence quarantine-inventory ROOT --json` and arrange operator-managed capacity. Evidence objects are never operator-deleted. |
+| Interrupted registration | Run `status`, `resume`, or the same registration command; recovery verifies the pending immutable transaction and either completes it or restores Stage 12. |
+| Legacy Stage 13 evidence | Run `researchclaw-codex evidence audit ROOT --json`; `classification: "legacy_untrusted"` is audit-only and cannot be registered or silently migrated. Return to Stage 10 package validation for new trusted evidence. |
+| Published partial quarantine temp | Preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
+
+`evidence audit` returns exactly `project_id`, `classification`, and
+`registration`. `classification` is `immutable_registered` only when the
+closed manifest and its objects ground the current registration; otherwise it
+is `legacy_untrusted` and `registration` is `null`. Legacy generic execution
+contracts, mutable results, and Stage-13 artifact references are audit-only,
+non-registerable evidence. Automatic migration is intentionally unsupported.
 
 Successful registration records the validated result and advances the project
 to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
