@@ -200,6 +200,8 @@ def _validate_pending_event_schema(
     if (
         not isinstance(value, dict)
         or set(value) != event_fields
+        or not isinstance(value.get("schema_version"), int)
+        or isinstance(value.get("schema_version"), bool)
         or value.get("schema_version") != 1
         or value.get("type") != event_type
         or not isinstance(value.get("timestamp"), str)
@@ -257,6 +259,8 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     if (
         not isinstance(raw, dict)
         or set(raw) != required
+        or not isinstance(raw.get("schema_version"), int)
+        or isinstance(raw.get("schema_version"), bool)
         or raw.get("schema_version") != 1
     ):
         raise ValueError("evidence_registration_interrupted")
@@ -716,11 +720,23 @@ def _revalidate_manifest_path(project_root: Path, snapshot: _ManifestSnapshot) -
         )
         try:
             current = os.fstat(descriptor)
+            if (
+                current.st_size != snapshot.artifact.size
+                or current.st_size > _MANIFEST_MAX_BYTES
+            ):
+                raise ValueError("evidence_object_integrity_failure")
             digest = hashlib.sha256()
             size = 0
-            while chunk := os.read(descriptor, 64 * 1024):
+            remaining = snapshot.artifact.size + 1
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
                 digest.update(chunk)
                 size += len(chunk)
+                remaining -= len(chunk)
+                if size > snapshot.artifact.size:
+                    raise ValueError("evidence_object_integrity_failure")
             final = os.fstat(descriptor)
         finally:
             os.close(descriptor)
@@ -777,7 +793,10 @@ def _validate_manifest_bindings(
 ) -> None:
     registration_id = manifest.get("registration_id")
     if (
-        not isinstance(registration_id, str)
+        not isinstance(manifest.get("schema_version"), int)
+        or isinstance(manifest.get("schema_version"), bool)
+        or manifest.get("schema_version") != 1
+        or not isinstance(registration_id, str)
         or manifest_path != f".researchclaw/evidence/manifests/{registration_id}.json"
         or manifest.get("project_id") != project.state.project_id
     ):

@@ -514,6 +514,33 @@ def test_manifest_ancestor_symlink_race_after_snapshot_fails_closed(
         register_research_result(project, "experiment/results.json")
 
 
+def test_manifest_revalidation_never_chases_a_growing_eof(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+    status = register_research_result(project, "experiment/results.json")
+    snapshot = evidence_registration._read_manifest_snapshot(
+        project.root, status.manifest_path
+    )
+    path = project.root / status.manifest_path
+    original_read = os.read
+    calls = 0
+
+    def grow_before_each_read(descriptor, count):
+        nonlocal calls
+        calls += 1
+        if calls > 3:
+            raise AssertionError("revalidation followed a moving EOF")
+        with path.open("ab") as handle:
+            handle.write(b"x" * 4096)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return original_read(descriptor, count)
+
+    monkeypatch.setattr(os, "read", grow_before_each_read)
+    with pytest.raises(ValueError, match="evidence_object_integrity_failure"):
+        evidence_registration._revalidate_manifest_path(project.root, snapshot)
+    assert calls <= 2
+
+
 def test_registered_status_rejects_valid_json_manifest_rewrite(tmp_path):
     project, _result = _valid_result(tmp_path / "project")
     status = register_research_result(project, "experiment/results.json")
@@ -595,6 +622,8 @@ def test_pending_semantic_tampering_fails_closed(tmp_path, monkeypatch, tamper):
         ("rollback_event", "nested_extra"),
         ("event", "missing_timestamp"),
         ("rollback_event", "wrong_payload_type"),
+        ("event", "boolean_schema_version"),
+        ("rollback_event", "boolean_schema_version"),
     ),
 )
 def test_pending_events_have_closed_exact_schemas(
@@ -619,9 +648,30 @@ def test_pending_events_have_closed_exact_schemas(
         event["payload"]["extra"] = "must not be dropped"
     elif mutation == "missing_timestamp":
         del event["timestamp"]
+    elif mutation == "boolean_schema_version":
+        event["schema_version"] = True
     else:
         event["payload"] = []
     pending[f"{event_name}_sha256"] = evidence_registration._hash(event)
+    path.write_text(json.dumps(pending, sort_keys=True), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="evidence_registration_interrupted"):
+        recover_pending_evidence_registration(project)
+
+
+def test_pending_journal_schema_version_rejects_boolean(tmp_path, monkeypatch):
+    project, _result = _valid_result(tmp_path / "project")
+
+    def interrupt(_manifest):
+        raise OSError("leave pending")
+
+    monkeypatch.setattr(evidence_registration, "_after_manifest_published", interrupt)
+    with pytest.raises(OSError, match="leave pending"):
+        register_research_result(project, "experiment/results.json")
+    monkeypatch.undo()
+    path = project.root / EVIDENCE_PENDING_PATH
+    pending = json.loads(path.read_text(encoding="utf-8"))
+    pending["schema_version"] = True
     path.write_text(json.dumps(pending, sort_keys=True), encoding="utf-8")
 
     with pytest.raises(ValueError, match="evidence_registration_interrupted"):
