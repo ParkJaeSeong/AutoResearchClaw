@@ -492,41 +492,59 @@ def run_experiment(config: dict[str, object]) -> dict[str, object]:
     return {"mae": mean_absolute_error(targets, predictions)}
 
 
+def execution_environment_descriptor_identity(descriptor: int) -> dict[str, int | str]:
+    identity = os.fstat(descriptor)
+    if identity.st_mode & 0o170000 != 0o100000 or not identity.st_mode & 0o111:
+        raise ValueError("execution environment unavailable")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while chunk := os.read(descriptor, 1048576):
+        digest.update(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return {
+        "device": identity.st_dev,
+        "inode": identity.st_ino,
+        "size": identity.st_size,
+        "mtime_ns": identity.st_mtime_ns,
+        "sha256": digest.hexdigest(),
+    }
+
+
 def execution_environment_fingerprint(required_distributions: list[str]) -> str:
     interpreter = Path(sys.executable).resolve(strict=True)
-    dependencies = {name: version(name) for name in required_distributions}
     descriptor = os.open(
         interpreter,
         os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
     )
     try:
-        identity = os.fstat(descriptor)
-        if identity.st_mode & 0o170000 != 0o100000 or not identity.st_mode & 0o111:
-            raise ValueError("execution environment unavailable")
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1048576):
-            digest.update(chunk)
-        os.lseek(descriptor, 0, os.SEEK_SET)
+        identity = execution_environment_descriptor_identity(descriptor)
+        dependencies = {name: version(name) for name in required_distributions}
+        implementation = sys.implementation.name.strip().lower()
+        release = python_version().strip()
+        full_version = sys.version.strip()
+        build = list(python_build())
+        system = sys.platform.strip().lower()
+        architecture = machine().strip().lower()
+        if execution_environment_descriptor_identity(descriptor) != identity:
+            raise ValueError("execution environment changed")
     finally:
         os.close(descriptor)
-    interpreter_sha256 = digest.hexdigest()
     payload = {
         "schema_version": 1,
         "interpreter": str(interpreter),
         "interpreter_identity": {
-            "device": identity.st_dev,
-            "inode": identity.st_ino,
-            "size": identity.st_size,
-            "mtime_ns": identity.st_mtime_ns,
-            "sha256": interpreter_sha256,
+            "device": identity["device"],
+            "inode": identity["inode"],
+            "size": identity["size"],
+            "mtime_ns": identity["mtime_ns"],
+            "sha256": identity["sha256"],
         },
-        "python_implementation": sys.implementation.name.strip().lower(),
-        "python_version": python_version().strip(),
-        "python_full_version": sys.version.strip(),
-        "python_build": list(python_build()),
-        "platform": sys.platform.strip().lower(),
-        "machine": machine().strip().lower(),
+        "python_implementation": implementation,
+        "python_version": release,
+        "python_full_version": full_version,
+        "python_build": build,
+        "platform": system,
+        "machine": architecture,
         "dependencies": dict(sorted(dependencies.items())),
     }
     canonical = json.dumps(

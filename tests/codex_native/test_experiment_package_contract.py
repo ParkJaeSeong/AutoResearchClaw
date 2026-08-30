@@ -102,6 +102,37 @@ def test_package_contract_binds_metric_to_known_answer_implementation(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "flags",
+    (
+        "os.O_WRONLY | os.O_CREAT | os.O_TRUNC",
+        "collector_flags",
+    ),
+)
+def test_self_test_collector_rejects_writable_or_dynamic_os_open_flags(tmp_path, flags):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    main_path = project.root / "experiment/code/main.py"
+    source = main_path.read_text(encoding="utf-8")
+    if flags == "collector_flags":
+        source = source.replace(
+            "    descriptor = os.open(\n",
+            "    collector_flags = os.O_RDONLY\n    descriptor = os.open(\n",
+        )
+        source = source.replace(
+            "        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,\n",
+            "        collector_flags,\n",
+        )
+    else:
+        source = source.replace(
+            "        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,\n",
+            f"        {flags},\n",
+        )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="exclusive canonical artifact writers"):
+        validate_experiment_package_contract(project)
+
+
+@pytest.mark.parametrize(
     ("mutate", "error"),
     [
         (

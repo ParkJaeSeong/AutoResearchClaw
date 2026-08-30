@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 from .computational_package import validate_python_capability_safety
 from .execution_environment import (
+    ExecutionEnvironment,
     inspect_execution_environment,
     normalize_required_distributions,
 )
@@ -646,7 +647,10 @@ def _open_call_may_write(call: ast.Call, aliases: Mapping[str, str]) -> bool:
 
 
 def _call_may_mutate_filesystem(
-    call: ast.Call, aliases: Mapping[str, str]
+    call: ast.Call,
+    aliases: Mapping[str, str],
+    *,
+    scope_nodes: list[ast.AST] = (),
 ) -> bool:
     name = _dotted_name(call.func, aliases)
     operation = call.func.attr if isinstance(call.func, ast.Attribute) else name
@@ -658,12 +662,81 @@ def _call_may_mutate_filesystem(
     ):
         return True
     if name == "os.open":
-        return False
+        return not _is_readonly_current_interpreter_open(call, scope_nodes)
     if operation == "open":
         return _open_call_may_write(call, aliases)
     return name in {"json.dump", "dump"} or (
         name in {"print", "builtins.print"}
         and any(keyword.arg == "file" for keyword in call.keywords)
+    )
+
+
+def _is_current_interpreter_path(node: ast.AST) -> bool:
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "resolve"
+        and len(node.args) == 0
+        and len(node.keywords) == 1
+        and node.keywords[0].arg == "strict"
+        and isinstance(node.keywords[0].value, ast.Constant)
+        and node.keywords[0].value.value is True
+    ):
+        return False
+    path_call = node.func.value
+    return (
+        isinstance(path_call, ast.Call)
+        and isinstance(path_call.func, ast.Name)
+        and path_call.func.id == "Path"
+        and len(path_call.args) == 1
+        and isinstance(path_call.args[0], ast.Attribute)
+        and isinstance(path_call.args[0].value, ast.Name)
+        and path_call.args[0].value.id == "sys"
+        and path_call.args[0].attr == "executable"
+    )
+
+
+def _readonly_os_open_flags(node: ast.AST) -> frozenset[str] | None:
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left = _readonly_os_open_flags(node.left)
+        right = _readonly_os_open_flags(node.right)
+        if left is None or right is None or left & right:
+            return None
+        return left | right
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        and node.attr in {"O_RDONLY", "O_CLOEXEC", "O_NOFOLLOW"}
+    ):
+        return frozenset({node.attr})
+    return None
+
+
+def _is_readonly_current_interpreter_open(
+    call: ast.Call, scope_nodes: list[ast.AST]
+) -> bool:
+    if len(call.args) != 2 or call.keywords:
+        return False
+    path, flags = call.args
+    if isinstance(path, ast.Name) and path.id == "interpreter":
+        interpreter_assignments = [
+            node.value
+            for node in scope_nodes
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and any(
+                isinstance(target, ast.Name) and target.id == "interpreter"
+                for target in _assignment_targets(node)
+            )
+        ]
+        if len(interpreter_assignments) != 1 or not _is_current_interpreter_path(
+            interpreter_assignments[0]
+        ):
+            return False
+    elif not _is_current_interpreter_path(path):
+        return False
+    return _readonly_os_open_flags(flags) == frozenset(
+        {"O_RDONLY", "O_CLOEXEC", "O_NOFOLLOW"}
     )
 
 
@@ -778,7 +851,10 @@ def _validate_exclusive_artifact_writers(
     mutation_calls = [
         node
         for node in reachable_nodes
-        if isinstance(node, ast.Call) and _call_may_mutate_filesystem(node, aliases)
+        if isinstance(node, ast.Call)
+        and _call_may_mutate_filesystem(
+            node, aliases, scope_nodes=reachable_nodes
+        )
     ]
     report_writes = [
         node for node in mutation_calls if _is_self_test_report_write(node)
@@ -1186,7 +1262,10 @@ def _validate_package_file_identities(value: object, expected: list[dict[str, st
 
 
 def validate_registered_self_test(
-    project: ResearchProject, package: ValidatedExperimentPackage
+    project: ResearchProject,
+    package: ValidatedExperimentPackage,
+    *,
+    environment: ExecutionEnvironment | None = None,
 ) -> ArtifactRef:
     """Validate an externally produced self-test report without recording it."""
     current = validate_experiment_package_contract(project)
@@ -1234,9 +1313,10 @@ def validate_registered_self_test(
     fingerprint = report["environment_fingerprint"]
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
         raise ValueError("environment fingerprint must be an opaque lowercase SHA-256")
-    environment = inspect_execution_environment(
-        Path(sys.executable).resolve(strict=True), package.required_distributions
-    )
+    if environment is None:
+        environment = inspect_execution_environment(
+            Path(sys.executable).resolve(strict=True), package.required_distributions
+        )
     if fingerprint != environment.fingerprint:
         raise ValueError("self_test environment fingerprint does not match")
     _metrics, expected = _validate_metrics(
@@ -1702,12 +1782,16 @@ def _complete_pending_self_test_registration(
     return pending.artifact
 
 
-def _current_registered_self_test(project: ResearchProject) -> ArtifactRef:
+def _current_registered_self_test(
+    project: ResearchProject, *, environment: ExecutionEnvironment | None = None
+) -> ArtifactRef:
     try:
         if os.path.lexists(_self_test_registration_pending_path(project)):
             raise ValueError("self-test registration is incomplete")
         package = validate_experiment_package_contract(project)
-        artifact = validate_registered_self_test(project, package)
+        artifact = validate_registered_self_test(
+            project, package, environment=environment
+        )
         registered = project.state.artifacts.get(SELF_TEST_REPORT_PATH)
         if registered != artifact:
             raise ValueError("self-test report is not registered")

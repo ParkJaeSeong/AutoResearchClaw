@@ -11,12 +11,13 @@ from pathlib import Path
 import re
 import stat
 import subprocess
-import sys
+import tempfile
 from types import MappingProxyType
 
 
 _DISTRIBUTION_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _PROBE_TIMEOUT_SECONDS = 10
+_SNAPSHOT_PREFIX = ".researchclaw-execution-"
 _PROBE_SOURCE = """
 import importlib.metadata
 import json
@@ -166,26 +167,91 @@ def _descriptor_execution_path(descriptor: int) -> str:
     return str(path)
 
 
-def _current_process_probe(required_distributions: tuple[str, ...]) -> dict[str, object]:
-    import importlib.metadata
-    import platform
-    import sys
+def _snapshot_directory() -> Path:
+    return Path(tempfile.gettempdir())
 
+
+def _snapshot_descriptor(verified: _VerifiedInterpreter) -> Path:
+    """Copy one verified descriptor to a private executable on its filesystem."""
+    descriptor: int | None = None
+    snapshot_path: Path | None = None
     try:
-        dependencies = {
-            name: importlib.metadata.version(name) for name in required_distributions
-        }
-    except Exception as error:
+        descriptor, raw_path = tempfile.mkstemp(
+            prefix=_SNAPSHOT_PREFIX,
+            dir=_snapshot_directory(),
+        )
+        snapshot_path = Path(raw_path)
+        if os.fstat(descriptor).st_dev != verified.identity["device"]:
+            raise ValueError("execution_environment_unavailable")
+        if _descriptor_identity(verified.descriptor) != verified.identity:
+            raise ValueError("execution_environment_unavailable")
+        os.lseek(verified.descriptor, 0, os.SEEK_SET)
+        with os.fdopen(os.dup(descriptor), "wb", closefd=True) as snapshot_file:
+            while chunk := os.read(verified.descriptor, 1024 * 1024):
+                snapshot_file.write(chunk)
+            snapshot_file.flush()
+        os.fsync(descriptor)
+        os.fchmod(descriptor, 0o700)
+        os.close(descriptor)
+        descriptor = None
+        snapshot_descriptor = os.open(
+            snapshot_path,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | os.O_NOFOLLOW,
+        )
+        try:
+            snapshot_identity = _descriptor_identity(snapshot_descriptor)
+        finally:
+            os.close(snapshot_descriptor)
+        if (
+            snapshot_identity["size"] != verified.identity["size"]
+            or snapshot_identity["sha256"] != verified.identity["sha256"]
+        ):
+            raise ValueError("execution_environment_unavailable")
+        return snapshot_path
+    except (OSError, ValueError) as error:
+        if descriptor is not None:
+            os.close(descriptor)
+        if snapshot_path is not None:
+            snapshot_path.unlink(missing_ok=True)
         raise ValueError("execution_environment_unavailable") from error
-    return {
-        "python_implementation": sys.implementation.name.strip().lower(),
-        "python_version": platform.python_version().strip(),
-        "python_full_version": sys.version.strip(),
-        "python_build": list(platform.python_build()),
-        "platform": sys.platform.strip().lower(),
-        "machine": platform.machine().strip().lower(),
-        "dependencies": dependencies,
-    }
+
+
+def _probe_command(
+    executable: str, required_distributions: tuple[str, ...], *, pass_fds: tuple[int, ...]
+) -> dict[str, object]:
+    completed = subprocess.run(
+        [
+            executable,
+            "-I",
+            "-c",
+            _PROBE_SOURCE,
+            json.dumps(required_distributions, separators=(",", ":")),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=_PROBE_TIMEOUT_SECONDS,
+        pass_fds=pass_fds,
+    )
+    if completed.returncode != 0:
+        raise ValueError("execution_environment_unavailable")
+    value = json.loads(completed.stdout)
+    if not isinstance(value, dict):
+        raise ValueError("execution_environment_unavailable")
+    return value
+
+
+def _probe_snapshot(
+    verified: _VerifiedInterpreter, required_distributions: tuple[str, ...]
+) -> dict[str, object]:
+    snapshot = _snapshot_descriptor(verified)
+    try:
+        return _probe_command(str(snapshot), required_distributions, pass_fds=())
+    finally:
+        try:
+            snapshot.unlink()
+        except OSError as error:
+            raise ValueError("execution_environment_unavailable") from error
 
 
 def _probe_execution_environment(
@@ -193,25 +259,14 @@ def _probe_execution_environment(
 ) -> dict[str, object]:
     try:
         _before_descriptor_probe(verified)
-        if verified.path.samefile(Path(sys.executable).resolve(strict=True)):
-            return _current_process_probe(required_distributions)
-        completed = subprocess.run(
-            [
+        try:
+            value = _probe_command(
                 _descriptor_execution_path(verified.descriptor),
-                "-I",
-                "-c",
-                _PROBE_SOURCE,
-                json.dumps(required_distributions, separators=(",", ":")),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=_PROBE_TIMEOUT_SECONDS,
-            pass_fds=(verified.descriptor,),
-        )
-        if completed.returncode != 0:
-            raise ValueError("execution_environment_unavailable")
-        value = json.loads(completed.stdout)
+                required_distributions,
+                pass_fds=(verified.descriptor,),
+            )
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            value = _probe_snapshot(verified, required_distributions)
     except (
         OSError,
         ValueError,

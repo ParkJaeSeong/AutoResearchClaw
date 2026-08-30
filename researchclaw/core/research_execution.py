@@ -519,15 +519,6 @@ def _build_execution_contract(
     except (OSError, ValueError) as error:
         raise ValueError("execution_approval_invalid") from error
     try:
-        _current_registered_self_test(project)
-    except (OSError, ValueError) as error:
-        if str(error) in {
-            "execution_environment_changed",
-            "execution_environment_unavailable",
-        }:
-            raise ValueError(str(error)) from error
-        raise ValueError("execution_approval_invalid") from error
-    try:
         environment = inspect_execution_environment(
             Path(sys.executable).resolve(strict=True),
             package.required_distributions,
@@ -536,6 +527,15 @@ def _build_execution_contract(
         if str(error) == "execution_environment_unavailable":
             raise ValueError("execution_environment_unavailable") from error
         raise ValueError("execution_environment_changed") from error
+    try:
+        _current_registered_self_test(project, environment=environment)
+    except (OSError, ValueError) as error:
+        if str(error) in {
+            "execution_environment_changed",
+            "execution_environment_unavailable",
+        }:
+            raise ValueError(str(error)) from error
+        raise ValueError("execution_approval_invalid") from error
     argv = [environment.interpreter, package.entry_point, *package.execution_argv]
 
     required_bindings = {
