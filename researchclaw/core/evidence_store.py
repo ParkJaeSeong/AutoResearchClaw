@@ -54,6 +54,7 @@ _RESULT_QUARANTINE_ROTATION_LIMIT = 8
 _RESULT_QUARANTINE_ENTRY_LIMIT = 256
 _RESULT_QUARANTINE_BYTE_LIMIT = 1024 * 1024 * 1024
 _RESULT_QUARANTINE_CAPACITY_RESERVE = 16 * 1024 * 1024
+_MAX_ACCOUNTED_BYTES = (1 << 63) - 1
 _MANIFEST_SCAN_LIMIT = 4096
 _MANIFEST_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\.json\Z")
 
@@ -285,6 +286,14 @@ def _after_result_quarantine_temp_write() -> None:
 
 def _after_result_quarantine_temp_fsync() -> None:
     """Test seam after temp durability and before publication."""
+
+
+def _before_result_quarantine_growth_probe() -> None:
+    """Test seam before the single-byte source growth probe."""
+
+
+def _after_result_quarantine_temp_reopen_validation() -> None:
+    """Test seam after owned-temp descriptor identity validation."""
 
 
 def _after_result_quarantine_publish() -> None:
@@ -1802,45 +1811,53 @@ def _recover_result_quarantine_locked(
                 ) != expected_identity or source_stat.st_nlink != 1:
                     raise ValueError("result quarantine source changed")
                 _before_result_quarantine_move()
-                while temporary is None:
+                if pending["phase"] == "temp_owned":
                     try:
                         temporary = os.open(
                             temporary_name,
-                            os.O_RDWR | os.O_CREAT | os.O_EXCL
-                            | getattr(os, "O_NOFOLLOW", 0),
-                            # Only this newly O_EXCL-created descriptor is writable.
-                            # Reopen recovery preserves any existing candidate and
-                            # rotates to another name instead of resuming in place.
-                            0o600,
+                            os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                            | getattr(os, "O_NONBLOCK", 0),
                             dir_fd=copies_directory,
                         )
-                        _after_result_quarantine_temp_open()
-                        created_stat = os.fstat(temporary)
-                        pending["temporary_device"] = created_stat.st_dev
-                        pending["temporary_inode"] = created_stat.st_ino
-                        pending["phase"] = "temp_owned"
-                        _persist_result_quarantine(project, pending)
-                        _after_result_quarantine_temp_created()
-                    except FileExistsError:
-                        rotations = int(pending["temporary_rotations"])
-                        if rotations >= _RESULT_QUARANTINE_ROTATION_LIMIT:
-                            raise ResultQuarantineCapacityError(
-                                "temporary rotation limit exceeded",
-                                result_quarantine_inventory(project),
+                    except OSError as error:
+                        raise ValueError("result quarantine temporary collision") from error
+                else:
+                    while temporary is None:
+                        try:
+                            temporary = os.open(
+                                temporary_name,
+                                os.O_RDWR | os.O_CREAT | os.O_EXCL
+                                | getattr(os, "O_NOFOLLOW", 0),
+                                0o600,
+                                dir_fd=copies_directory,
                             )
-                        _require_result_quarantine_capacity(
-                            result_quarantine_inventory(project),
-                            additional_entries=1,
-                            additional_retained_bytes=0,
-                            required_free_bytes=int(pending["size"]),
-                        )
-                        temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
-                        pending["temporary_name"] = temporary_name
-                        pending["temporary_rotations"] = rotations + 1
-                        pending["temporary_device"] = 0
-                        pending["temporary_inode"] = 0
-                        pending["phase"] = "temp_named"
-                        _persist_result_quarantine(project, pending)
+                            _after_result_quarantine_temp_open()
+                            created_stat = os.fstat(temporary)
+                            pending["temporary_device"] = created_stat.st_dev
+                            pending["temporary_inode"] = created_stat.st_ino
+                            pending["phase"] = "temp_owned"
+                            _persist_result_quarantine(project, pending)
+                            _after_result_quarantine_temp_created()
+                        except FileExistsError:
+                            rotations = int(pending["temporary_rotations"])
+                            if rotations >= _RESULT_QUARANTINE_ROTATION_LIMIT:
+                                raise ResultQuarantineCapacityError(
+                                    "temporary rotation limit exceeded",
+                                    result_quarantine_inventory(project),
+                                )
+                            _require_result_quarantine_capacity(
+                                result_quarantine_inventory(project),
+                                additional_entries=1,
+                                additional_retained_bytes=0,
+                                required_free_bytes=int(pending["size"]),
+                            )
+                            temporary_name = f".copy-{secrets.token_hex(16)}.tmp"
+                            pending["temporary_name"] = temporary_name
+                            pending["temporary_rotations"] = rotations + 1
+                            pending["temporary_device"] = 0
+                            pending["temporary_inode"] = 0
+                            pending["phase"] = "temp_named"
+                            _persist_result_quarantine(project, pending)
                 temporary_stat = os.fstat(temporary)
                 if (
                     not stat.S_ISREG(temporary_stat.st_mode)
@@ -1850,9 +1867,22 @@ def _recover_result_quarantine_locked(
                     or temporary_stat.st_ino != pending["temporary_inode"]
                 ):
                     raise ValueError("result quarantine temporary collision")
+                _after_result_quarantine_temp_reopen_validation()
+                _require_result_quarantine_recovery_capacity(
+                    result_quarantine_inventory(project),
+                    expected_size=int(pending["size"]),
+                    existing_size=temporary_stat.st_size,
+                )
                 digest = hashlib.sha256()
                 observed = 0
-                while chunk := os.read(source_descriptor, _CHUNK_SIZE):
+                expected_size = int(pending["size"])
+                while observed < expected_size:
+                    chunk = os.read(
+                        source_descriptor,
+                        min(_CHUNK_SIZE, expected_size - observed),
+                    )
+                    if not chunk:
+                        raise ValueError("result quarantine source changed")
                     digest.update(chunk)
                     observed += len(chunk)
                     if observed <= temporary_stat.st_size:
@@ -1866,6 +1896,9 @@ def _recover_result_quarantine_locked(
                             if existing != chunk[:already]:
                                 raise ValueError("result quarantine temporary collision")
                         _write_all(temporary, chunk[already:])
+                _before_result_quarantine_growth_probe()
+                if os.read(source_descriptor, 1):
+                    raise ValueError("result quarantine source changed")
                 _after_result_quarantine_temp_write()
                 os.fsync(temporary)
                 _after_result_quarantine_temp_fsync()
@@ -1875,6 +1908,10 @@ def _recover_result_quarantine_locked(
                     observed != pending["size"]
                     or digest.hexdigest() != pending["sha256"]
                     or final_temporary.st_size != observed
+                    or final_temporary.st_dev != pending["temporary_device"]
+                    or final_temporary.st_ino != pending["temporary_inode"]
+                    or not stat.S_ISREG(final_temporary.st_mode)
+                    or final_temporary.st_nlink != 1
                     or (
                         source_stat.st_dev,
                         source_stat.st_ino,
@@ -1891,6 +1928,18 @@ def _recover_result_quarantine_locked(
                     )
                 ):
                     raise ValueError("result quarantine source changed")
+                current_temporary = os.stat(
+                    temporary_name,
+                    dir_fd=copies_directory,
+                    follow_symlinks=False,
+                )
+                if (
+                    current_temporary.st_dev != final_temporary.st_dev
+                    or current_temporary.st_ino != final_temporary.st_ino
+                    or current_temporary.st_nlink != 1
+                    or not stat.S_ISREG(current_temporary.st_mode)
+                ):
+                    raise ValueError("result quarantine temporary collision")
             finally:
                 if temporary is not None:
                     os.close(temporary)
@@ -2023,6 +2072,7 @@ def result_quarantine_inventory(project: ResearchProject) -> ResultQuarantineInv
     total_bytes = 0
     entry_count = 0
     available_bytes = 0
+    capacity_measured = False
     truncated = False
     for directory, prefix, paths in (
         (store.results_quarantine_root, ".researchclaw/evidence/quarantine/results", results),
@@ -2030,9 +2080,22 @@ def result_quarantine_inventory(project: ResearchProject) -> ResultQuarantineInv
     ):
         descriptor = store._open_directory(directory)
         try:
-            if not available_bytes:
+            if not capacity_measured:
                 file_system = os.fstatvfs(descriptor)
-                available_bytes = file_system.f_bavail * file_system.f_frsize
+                blocks = file_system.f_bavail
+                fragment_size = file_system.f_frsize
+                if (
+                    not isinstance(blocks, int)
+                    or isinstance(blocks, bool)
+                    or blocks < 0
+                    or not isinstance(fragment_size, int)
+                    or isinstance(fragment_size, bool)
+                    or fragment_size <= 0
+                    or (blocks and fragment_size > _MAX_ACCOUNTED_BYTES // blocks)
+                ):
+                    raise ValueError("result quarantine capacity metadata is invalid")
+                available_bytes = blocks * fragment_size
+                capacity_measured = True
             with os.scandir(descriptor) as entries:
                 for entry in entries:
                     entry_count += 1
@@ -2049,6 +2112,13 @@ def result_quarantine_inventory(project: ResearchProject) -> ResultQuarantineInv
                     if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_nlink != 1:
                         unsafe.append(path)
                     else:
+                        if (
+                            file_stat.st_size < 0
+                            or total_bytes > _MAX_ACCOUNTED_BYTES - file_stat.st_size
+                        ):
+                            raise ValueError(
+                                "result quarantine retained byte count overflow"
+                            )
                         total_bytes += file_stat.st_size
                     if prefix.endswith("/copies") and not (
                         entry.name == owned_name
@@ -2065,6 +2135,7 @@ def result_quarantine_inventory(project: ResearchProject) -> ResultQuarantineInv
         or abandoned
         or entry_count >= _RESULT_QUARANTINE_ENTRY_LIMIT
         or total_bytes >= _RESULT_QUARANTINE_BYTE_LIMIT
+        or available_bytes < _RESULT_QUARANTINE_CAPACITY_RESERVE
     )
     return ResultQuarantineInventory(
         tuple(sorted(results)), tuple(sorted(copies)), tuple(sorted(abandoned)),
@@ -2083,6 +2154,21 @@ def _require_result_quarantine_capacity(
     additional_retained_bytes: int,
     required_free_bytes: int,
 ) -> None:
+    for value in (additional_entries, additional_retained_bytes, required_free_bytes):
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            or value > _MAX_ACCOUNTED_BYTES
+        ):
+            raise ValueError("result quarantine capacity arithmetic is invalid")
+    if (
+        inventory.entry_count > _MAX_ACCOUNTED_BYTES - additional_entries
+        or inventory.total_bytes > _MAX_ACCOUNTED_BYTES - additional_retained_bytes
+        or required_free_bytes
+        > _MAX_ACCOUNTED_BYTES - _RESULT_QUARANTINE_CAPACITY_RESERVE
+    ):
+        raise ValueError("result quarantine capacity arithmetic overflow")
     if (
         inventory.unsafe_paths
         or inventory.entry_count + additional_entries > inventory.entry_limit
@@ -2092,6 +2178,36 @@ def _require_result_quarantine_capacity(
     ):
         raise ResultQuarantineCapacityError(
             "capacity or unsafe entry",
+            inventory,
+        )
+
+
+def _require_result_quarantine_recovery_capacity(
+    inventory: ResultQuarantineInventory,
+    *,
+    expected_size: int,
+    existing_size: int,
+) -> None:
+    for value in (expected_size, existing_size):
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < 0
+            or value > _MAX_ACCOUNTED_BYTES
+        ):
+            raise ValueError("result quarantine recovery size is invalid")
+    if existing_size > expected_size:
+        raise ValueError("result quarantine temporary collision")
+    remaining = expected_size - existing_size
+    if (
+        inventory.unsafe_paths
+        or inventory.truncated
+        or inventory.entry_count > inventory.entry_limit
+        or inventory.total_bytes > inventory.byte_limit - remaining
+        or inventory.available_bytes < remaining
+    ):
+        raise ResultQuarantineCapacityError(
+            "committed recovery capacity or unsafe entry",
             inventory,
         )
 
