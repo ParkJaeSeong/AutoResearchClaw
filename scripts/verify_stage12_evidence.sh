@@ -1,11 +1,70 @@
 #!/bin/sh
 set -eu
 
-validate_python() {
+new_probe_nonce() {
+    nonce_path=$(mktemp "${TMPDIR:-/tmp}/stage12-python-nonce.XXXXXX")
+    nonce_name=${nonce_path##*/}
+    rm -f "$nonce_path"
+    printf '%s-%s\n' "$nonce_name" "$$"
+}
+
+probe_python() {
     candidate=$1
     [ -x "$candidate" ] || return 1
-    "$candidate" -c 'import sys, pytest; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
-        >/dev/null 2>&1
+    nonce=$(new_probe_nonce) || return 1
+    probe_output=$(mktemp "${TMPDIR:-/tmp}/stage12-python-probe.XXXXXX") || return 1
+    if ! (
+        ulimit -f 8
+        "$candidate" -c 'import sys, pytest
+nonce = sys.argv[1]
+if sys.version_info < (3, 11) or not sys.executable or not pytest.__version__ or not pytest.__file__:
+    raise SystemExit(2)
+fields = ("RC_STAGE12_PYTHON_V1", nonce, str(sys.version_info.major), str(sys.version_info.minor), sys.executable, pytest.__version__, pytest.__file__)
+if any((not value) or "\t" in value or "\n" in value or "\r" in value for value in fields):
+    raise SystemExit(3)
+print("\t".join(fields))' "$nonce" >"$probe_output" 2>/dev/null
+    ); then
+        rm -f "$probe_output"
+        return 1
+    fi
+    output_size=$(wc -c <"$probe_output")
+    output_lines=$(wc -l <"$probe_output")
+    if [ "$output_size" -gt 4096 ] || [ "$output_lines" -ne 1 ]; then
+        rm -f "$probe_output"
+        return 1
+    fi
+    tab=$(printf '\t')
+    IFS="$tab" read -r tag echoed_nonce major minor canonical pytest_version pytest_module extra <"$probe_output" || {
+        rm -f "$probe_output"
+        return 1
+    }
+    rm -f "$probe_output"
+    case "$major:$minor" in
+        *[!0-9:]*|:*|*:) return 1 ;;
+    esac
+    if [ "$tag" != "RC_STAGE12_PYTHON_V1" ] \
+        || [ "$echoed_nonce" != "$nonce" ] \
+        || [ -n "$extra" ] \
+        || [ -z "$pytest_version" ] \
+        || [ -z "$pytest_module" ] \
+        || [ "$major" -lt 3 ] \
+        || { [ "$major" -eq 3 ] && [ "$minor" -lt 11 ]; }; then
+        return 1
+    fi
+    case "$canonical" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    [ -x "$canonical" ] || return 1
+    printf '%s\n' "$canonical"
+}
+
+validate_python() {
+    candidate=$1
+    canonical=$(probe_python "$candidate") || return 1
+    confirmed=$(probe_python "$canonical") || return 1
+    [ "$confirmed" = "$canonical" ] || return 1
+    printf '%s\n' "$canonical"
 }
 
 resolve_command() {
@@ -22,8 +81,8 @@ select_python() {
                 return 1
             } ;;
         esac
-        if validate_python "$explicit"; then
-            printf '%s\n' "$explicit"
+        if canonical=$(validate_python "$explicit"); then
+            printf '%s\n' "$canonical"
             return 0
         fi
         echo "PYTHON_BIN must be Python >=3.11 with pytest importable: $PYTHON_BIN" >&2
@@ -31,8 +90,8 @@ select_python() {
     fi
 
     for project_candidate in .venv/bin/python venv/bin/python; do
-        if validate_python "$project_candidate"; then
-            printf '%s\n' "$project_candidate"
+        if canonical=$(validate_python "$project_candidate"); then
+            printf '%s\n' "$canonical"
             return 0
         fi
     done
@@ -51,8 +110,8 @@ select_python() {
                                     *' '*|*"	"*|'') ;;
                                     *)
                                         env_candidate=$(resolve_command "$env_name" || true)
-                                        if [ -n "$env_candidate" ] && validate_python "$env_candidate"; then
-                                            printf '%s\n' "$env_candidate"
+                                        if [ -n "$env_candidate" ] && canonical=$(validate_python "$env_candidate"); then
+                                            printf '%s\n' "$canonical"
                                             return 0
                                         fi
                                         ;;
@@ -61,8 +120,8 @@ select_python() {
                         esac
                         ;;
                     *)
-                        if validate_python "$interpreter"; then
-                            printf '%s\n' "$interpreter"
+                        if canonical=$(validate_python "$interpreter"); then
+                            printf '%s\n' "$canonical"
                             return 0
                         fi
                         ;;
@@ -73,8 +132,8 @@ select_python() {
 
     for command_name in python3 python; do
         candidate=$(resolve_command "$command_name" || true)
-        if [ -n "$candidate" ] && validate_python "$candidate"; then
-            printf '%s\n' "$candidate"
+        if [ -n "$candidate" ] && canonical=$(validate_python "$candidate"); then
+            printf '%s\n' "$canonical"
             return 0
         fi
     done
