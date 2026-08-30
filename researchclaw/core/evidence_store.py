@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import ctypes
 from dataclasses import asdict, dataclass
+import errno
 import hashlib
 import hmac
 import json
@@ -12,6 +14,7 @@ from pathlib import Path
 import re
 import secrets
 import stat
+import sys
 from typing import Any
 
 from .execution_gate import open_project_file_descriptor
@@ -26,16 +29,99 @@ _MINIMUM_CAPACITY_RESERVE = 16 * 1024 * 1024
 _MAX_GC_ENTRIES = 4096
 _MAX_GC_CONTEXT_FILES = 4096
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+_TEMPORARY_NAME = re.compile(r"\.publish-[A-Za-z0-9._-]+\.tmp\Z")
+_QUARANTINE_ENTRY = re.compile(r"\.gc-([0-9a-f]{32})\.(data|json)\Z")
 _REGISTRATION_ID = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\Z")
 _OBJECT_PREFIX = ".researchclaw/evidence/objects/"
 _MANIFEST_PREFIX = ".researchclaw/evidence/manifests/"
 _TEMPORARY_PREFIX = ".publish-"
 _TEMPORARY_SUFFIX = ".tmp"
 _QUARANTINE_PREFIX = ".gc-"
+_QUARANTINE_DATA_SUFFIX = ".data"
+_QUARANTINE_METADATA_SUFFIX = ".json"
+
+
+def _load_native_rename_noreplace():
+    library = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        try:
+            operation = library.renameatx_np
+        except AttributeError:
+            return None
+        flag = 0x00000004  # RENAME_EXCL
+    elif sys.platform.startswith("linux"):
+        try:
+            operation = library.renameat2
+        except AttributeError:
+            return None
+        flag = 0x00000001  # RENAME_NOREPLACE
+    else:
+        return None
+    operation.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    operation.restype = ctypes.c_int
+    return operation, flag
+
+
+_NATIVE_RENAME_NOREPLACE = _load_native_rename_noreplace()
+
+
+def _validate_dirfd_basename(name: str) -> None:
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in {".", ".."}
+        or "/" in name
+        or "\\" in name
+        or "\x00" in name
+    ):
+        raise ValueError("unsafe evidence store basename")
+
+
+def _native_rename_noreplace(
+    source_descriptor: int,
+    source_name: str,
+    destination_descriptor: int,
+    destination_name: str,
+) -> None:
+    _validate_dirfd_basename(source_name)
+    _validate_dirfd_basename(destination_name)
+    native = _NATIVE_RENAME_NOREPLACE
+    if native is None:
+        raise ValueError("native no-replace rename unavailable")
+    operation, flag = native
+    ctypes.set_errno(0)
+    result = operation(
+        source_descriptor,
+        os.fsencode(source_name),
+        destination_descriptor,
+        os.fsencode(destination_name),
+        flag,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno() or errno.EIO
+        raise OSError(error_number, os.strerror(error_number), destination_name)
 
 
 def _is_temporary_name(name: str) -> bool:
-    return name.startswith(_TEMPORARY_PREFIX) and name.endswith(_TEMPORARY_SUFFIX)
+    if _TEMPORARY_NAME.fullmatch(name) is None:
+        return False
+    payload = name[len(_TEMPORARY_PREFIX) : -len(_TEMPORARY_SUFFIX)]
+    return payload not in {".", ".."}
+
+
+def _validate_gc_original_name(name: object) -> str:
+    if not isinstance(name, str) or (
+        _SHA256.fullmatch(name) is None and not _is_temporary_name(name)
+    ):
+        raise ValueError("invalid evidence GC original name")
+    _validate_dirfd_basename(name)
+    return name
 
 
 @dataclass(frozen=True)
@@ -178,7 +264,19 @@ def _before_gc_quarantine_verify(
 def _before_gc_quarantine_delete(
     _snapshot: _FileSnapshot, _quarantine_name: str
 ) -> None:
-    """Test seam after moved-inode verification and before private deletion."""
+    """Test seam after moved-inode verification and before held-FD truncation."""
+
+
+def _after_gc_quarantine_destination_fsync(
+    _snapshot: _FileSnapshot, _quarantine_name: str
+) -> None:
+    """Test seam after the move destination is durable, before source fsync."""
+
+
+def _after_gc_quarantine_truncate(
+    _snapshot: _FileSnapshot, _quarantine_name: str
+) -> None:
+    """Test seam after the held candidate inode is durably truncated."""
 
 
 def _before_capacity_measure(_directory_descriptor: int) -> None:
@@ -746,7 +844,9 @@ class EvidenceStore:
                         dir_fd=directory_descriptor,
                     )
                     try:
-                        file_stat = os.fstat(descriptor)
+                        digest, _size, file_stat = _descriptor_digest(descriptor)
+                        if file_stat.st_nlink != 1:
+                            raise ValueError("evidence temporary has unsafe link topology")
                         if not stat.S_ISREG(file_stat.st_mode):
                             raise ValueError("evidence temporary is not regular")
                     finally:
@@ -756,7 +856,7 @@ class EvidenceStore:
                             name=name,
                             path=relative_path,
                             file_stat=file_stat,
-                            sha256=None,
+                            sha256=digest,
                         )
                     )
         finally:
@@ -807,71 +907,145 @@ class EvidenceStore:
 
     @staticmethod
     def _quarantine_name(original_name: str) -> str:
-        return (
-            f"{_QUARANTINE_PREFIX}{secrets.token_hex(16)}-"
-            f"{original_name.encode('utf-8').hex()}"
-        )
+        _validate_gc_original_name(original_name)
+        return f"{_QUARANTINE_PREFIX}{secrets.token_hex(16)}{_QUARANTINE_DATA_SUFFIX}"
 
     @staticmethod
-    def _quarantine_original(name: str) -> str:
-        if not name.startswith(_QUARANTINE_PREFIX):
-            raise ValueError("evidence GC quarantine contains an unknown entry")
-        token, separator, encoded = name.removeprefix(_QUARANTINE_PREFIX).partition("-")
+    def _quarantine_metadata_name(data_name: str) -> str:
+        match = _QUARANTINE_ENTRY.fullmatch(data_name)
+        if match is None or match.group(2) != "data":
+            raise ValueError("invalid evidence GC quarantine data name")
+        return f"{_QUARANTINE_PREFIX}{match.group(1)}{_QUARANTINE_METADATA_SUFFIX}"
+
+    @staticmethod
+    def _snapshot_from_quarantine_record(value: object) -> _FileSnapshot:
+        if not isinstance(value, dict) or set(value) != {
+            "schema_version",
+            "original_name",
+            "snapshot",
+        }:
+            raise ValueError("invalid evidence GC quarantine journal")
+        if value.get("schema_version") != 1:
+            raise ValueError("invalid evidence GC quarantine journal")
+        original_name = _validate_gc_original_name(value.get("original_name"))
+        snapshot_value = value.get("snapshot")
+        field_names = {
+            "name",
+            "path",
+            "device",
+            "inode",
+            "mode",
+            "nlink",
+            "size",
+            "mtime_ns",
+            "ctime_ns",
+            "sha256",
+        }
+        if not isinstance(snapshot_value, dict) or set(snapshot_value) != field_names:
+            raise ValueError("invalid evidence GC quarantine journal")
         if (
-            not separator
-            or len(token) != 32
-            or any(character not in "0123456789abcdef" for character in token)
+            snapshot_value.get("name") != original_name
+            or snapshot_value.get("path") != f"{_OBJECT_PREFIX}{original_name}"
         ):
-            raise ValueError("evidence GC quarantine contains an unknown entry")
+            raise ValueError("invalid evidence GC quarantine journal")
+        integer_fields = (
+            "device",
+            "inode",
+            "mode",
+            "nlink",
+            "size",
+            "mtime_ns",
+            "ctime_ns",
+        )
+        if any(
+            not isinstance(snapshot_value.get(field), int)
+            or isinstance(snapshot_value.get(field), bool)
+            or snapshot_value[field] < 0
+            for field in integer_fields
+        ):
+            raise ValueError("invalid evidence GC quarantine journal")
+        digest = snapshot_value.get("sha256")
+        if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:
+            raise ValueError("invalid evidence GC quarantine journal")
+        if (
+            not stat.S_ISREG(snapshot_value["mode"])
+            or snapshot_value["nlink"] != 1
+        ):
+            raise ValueError("invalid evidence GC quarantine journal")
+        return _FileSnapshot(
+            name=original_name,
+            path=snapshot_value["path"],
+            device=snapshot_value["device"],
+            inode=snapshot_value["inode"],
+            mode=snapshot_value["mode"],
+            nlink=snapshot_value["nlink"],
+            size=snapshot_value["size"],
+            mtime_ns=snapshot_value["mtime_ns"],
+            ctime_ns=snapshot_value["ctime_ns"],
+            sha256=digest,
+        )
+
+    def _write_quarantine_record(
+        self,
+        quarantine_descriptor: int,
+        metadata_name: str,
+        snapshot: _FileSnapshot,
+    ) -> None:
+        encoded = _canonical_json(
+            {
+                "schema_version": 1,
+                "original_name": snapshot.name,
+                "snapshot": asdict(snapshot),
+            }
+        )
+        descriptor = os.open(
+            metadata_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=quarantine_descriptor,
+        )
         try:
-            original = bytes.fromhex(encoded).decode("utf-8")
-        except (UnicodeError, ValueError) as error:
-            raise ValueError(
-                "evidence GC quarantine contains an unknown entry"
-            ) from error
-        if _SHA256.fullmatch(original) is None and not _is_temporary_name(original):
-            raise ValueError("evidence GC quarantine contains an unknown entry")
-        return original
+            _write_all(descriptor, encoded)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(quarantine_descriptor)
+
+    @staticmethod
+    def _durable_rename_noreplace(
+        source_descriptor: int,
+        source_name: str,
+        destination_descriptor: int,
+        destination_name: str,
+    ) -> None:
+        _native_rename_noreplace(
+            source_descriptor,
+            source_name,
+            destination_descriptor,
+            destination_name,
+        )
+        os.fsync(destination_descriptor)
+        os.fsync(source_descriptor)
 
     def _restore_quarantined(
         self,
         objects_descriptor: int,
         quarantine_descriptor: int,
-        quarantine_name: str,
+        data_name: str,
         original_name: str,
     ) -> bool:
         try:
-            os.link(
-                quarantine_name,
+            self._durable_rename_noreplace(
+                quarantine_descriptor,
+                data_name,
+                objects_descriptor,
                 original_name,
-                src_dir_fd=quarantine_descriptor,
-                dst_dir_fd=objects_descriptor,
-                follow_symlinks=False,
             )
         except FileExistsError:
-            quarantine_stat = os.stat(
-                quarantine_name,
-                dir_fd=quarantine_descriptor,
-                follow_symlinks=False,
-            )
-            original_stat = os.stat(
-                original_name,
-                dir_fd=objects_descriptor,
-                follow_symlinks=False,
-            )
-            if (
-                stat.S_ISREG(quarantine_stat.st_mode)
-                and stat.S_ISREG(original_stat.st_mode)
-                and quarantine_stat.st_dev == original_stat.st_dev
-                and quarantine_stat.st_ino == original_stat.st_ino
-            ):
-                os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
-                os.fsync(quarantine_descriptor)
-                return True
             return False
-        os.fsync(objects_descriptor)
-        os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
-        os.fsync(quarantine_descriptor)
         return True
 
     def _recover_quarantine(self) -> None:
@@ -885,29 +1059,75 @@ class EvidenceStore:
             names = _bounded_directory_names(
                 quarantine_descriptor,
                 limit=_MAX_GC_ENTRIES,
-                error_message="evidence GC quarantine entry limit exceeded",
+                error_message=(
+                    "evidence GC quarantine tombstone/record entry limit exceeded"
+                ),
             )
-            for name in sorted(names):
-                original_name = self._quarantine_original(name)
+            records: dict[str, dict[str, str]] = {}
+            for name in names:
+                match = _QUARANTINE_ENTRY.fullmatch(name)
+                if match is None:
+                    raise ValueError("evidence GC quarantine contains an unknown entry")
+                records.setdefault(match.group(1), {})[match.group(2)] = name
+            for record in records.values():
+                metadata_name = record.get("json")
+                data_name = record.get("data")
+                if metadata_name is None:
+                    raise ValueError("evidence GC quarantine data has no journal")
+                value, _identity = self._read_json_file(
+                    quarantine_descriptor,
+                    metadata_name,
+                    f".researchclaw/evidence/gc-quarantine/{metadata_name}",
+                )
+                snapshot = self._snapshot_from_quarantine_record(value)
+                if data_name is None:
+                    try:
+                        os.stat(
+                            snapshot.name,
+                            dir_fd=objects_descriptor,
+                            follow_symlinks=False,
+                        )
+                    except FileNotFoundError as error:
+                        raise ValueError(
+                            "evidence GC quarantine journal has no data or original"
+                        ) from error
+                    continue
                 descriptor = os.open(
-                    name,
-                    os.O_RDONLY
+                    data_name,
+                    os.O_RDWR
                     | getattr(os, "O_NOFOLLOW", 0)
                     | getattr(os, "O_NONBLOCK", 0),
                     dir_fd=quarantine_descriptor,
                 )
+                restorable = False
+                matches = False
                 try:
-                    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    file_stat = os.fstat(descriptor)
+                    if not stat.S_ISREG(file_stat.st_mode):
                         raise ValueError("evidence GC quarantine entry is not regular")
+                    if file_stat.st_size == 0:
+                        continue
+                    restorable = True
+                    digest, size, file_stat = _descriptor_digest(descriptor)
+                    matches = (
+                        digest == snapshot.sha256
+                        and size == snapshot.size
+                        and self._quarantined_snapshot_matches(file_stat, snapshot)
+                    )
                 finally:
                     os.close(descriptor)
-                if not self._restore_quarantined(
+                if not restorable:
+                    raise ValueError("evidence GC quarantine recovery is unsafe")
+                restored = self._restore_quarantined(
                     objects_descriptor,
                     quarantine_descriptor,
-                    name,
-                    original_name,
-                ):
+                    data_name,
+                    snapshot.name,
+                )
+                if not restored:
                     raise ValueError("evidence GC quarantine recovery is blocked")
+                if not matches:
+                    raise ValueError("evidence GC quarantine identity mismatch")
         finally:
             os.close(quarantine_descriptor)
             os.close(objects_descriptor)
@@ -931,75 +1151,97 @@ class EvidenceStore:
         quarantine_descriptor: int,
         snapshot: _FileSnapshot,
     ) -> None:
+        data_name = self._quarantine_name(snapshot.name)
+        metadata_name = self._quarantine_metadata_name(data_name)
+        self._write_quarantine_record(
+            quarantine_descriptor, metadata_name, snapshot
+        )
         _before_gc_candidate_quarantine(snapshot)
-        quarantine_name = self._quarantine_name(snapshot.name)
         try:
-            os.stat(
-                quarantine_name,
-                dir_fd=quarantine_descriptor,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            pass
-        else:
-            raise ValueError("evidence GC quarantine name collision")
-        try:
-            os.rename(
+            _native_rename_noreplace(
+                objects_descriptor,
                 snapshot.name,
-                quarantine_name,
-                src_dir_fd=objects_descriptor,
-                dst_dir_fd=quarantine_descriptor,
+                quarantine_descriptor,
+                data_name,
             )
         except FileNotFoundError as error:
             raise ValueError("evidence GC plan is stale") from error
-        os.fsync(objects_descriptor)
         os.fsync(quarantine_descriptor)
-        _before_gc_quarantine_verify(snapshot, quarantine_name)
+        _after_gc_quarantine_destination_fsync(snapshot, data_name)
+        os.fsync(objects_descriptor)
+        _before_gc_quarantine_verify(snapshot, data_name)
         descriptor: int | None = None
         verification_error: BaseException | None = None
         restorable = False
         matches = False
+        verified_stat: os.stat_result | None = None
         try:
             descriptor = os.open(
-                quarantine_name,
-                os.O_RDONLY
+                data_name,
+                os.O_RDWR
                 | getattr(os, "O_NOFOLLOW", 0)
                 | getattr(os, "O_NONBLOCK", 0),
                 dir_fd=quarantine_descriptor,
             )
             file_stat = os.fstat(descriptor)
             restorable = stat.S_ISREG(file_stat.st_mode)
-            if snapshot.sha256 is None:
-                matches = (
-                    restorable
-                    and self._quarantined_snapshot_matches(file_stat, snapshot)
-                )
-            else:
-                digest, size, file_stat = _descriptor_digest(descriptor)
-                matches = (
-                    digest == snapshot.sha256
-                    and size == snapshot.size
-                    and self._quarantined_snapshot_matches(file_stat, snapshot)
-                )
+            digest, size, verified_stat = _descriptor_digest(descriptor)
+            matches = (
+                digest == snapshot.sha256
+                and size == snapshot.size
+                and self._quarantined_snapshot_matches(verified_stat, snapshot)
+            )
         except (OSError, ValueError) as error:
             verification_error = error
-        finally:
+        if not matches:
             if descriptor is not None:
                 os.close(descriptor)
-        if not matches:
+                descriptor = None
             if restorable:
                 self._restore_quarantined(
                     objects_descriptor,
                     quarantine_descriptor,
-                    quarantine_name,
+                    data_name,
                     snapshot.name,
                 )
             if verification_error is not None:
                 raise verification_error
             raise ValueError("evidence GC plan is stale")
-        _before_gc_quarantine_delete(snapshot, quarantine_name)
-        os.unlink(quarantine_name, dir_fd=quarantine_descriptor)
-        os.fsync(quarantine_descriptor)
+        assert descriptor is not None
+        assert verified_stat is not None
+        try:
+            _before_gc_quarantine_delete(snapshot, data_name)
+            final_digest, final_size, final_verified_stat = _descriptor_digest(
+                descriptor
+            )
+            if (
+                final_digest != snapshot.sha256
+                or final_size != snapshot.size
+                or not self._quarantined_snapshot_matches(
+                    final_verified_stat, snapshot
+                )
+            ):
+                raise ValueError("evidence GC held inode changed before reclaim")
+            os.ftruncate(descriptor, 0)
+            os.fsync(descriptor)
+            _after_gc_quarantine_truncate(snapshot, data_name)
+            tombstone_stat = os.fstat(descriptor)
+            try:
+                current_path_stat = os.stat(
+                    data_name,
+                    dir_fd=quarantine_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError as error:
+                raise ValueError("evidence GC quarantine pathname changed") from error
+            if (
+                current_path_stat.st_dev != tombstone_stat.st_dev
+                or current_path_stat.st_ino != tombstone_stat.st_ino
+                or not stat.S_ISREG(current_path_stat.st_mode)
+            ):
+                raise ValueError("evidence GC quarantine pathname changed")
+        finally:
+            os.close(descriptor)
 
     def collect(
         self, plan: EvidenceGcPlan, confirm_token: str

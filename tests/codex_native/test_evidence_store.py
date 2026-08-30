@@ -36,6 +36,44 @@ def _store(tmp_path: Path) -> tuple[Path, EvidenceStore]:
     return project, EvidenceStore(project)
 
 
+def _write_quarantine_record(
+    store: EvidenceStore,
+    *,
+    token: str,
+    original_name: str,
+    payload: bytes = b"recovery payload",
+) -> tuple[Path, Path]:
+    """Create an untrusted recovery record without production encoding helpers."""
+    data = store.quarantine_root / f".gc-{token}.data"
+    metadata = store.quarantine_root / f".gc-{token}.json"
+    data.write_bytes(payload)
+    observed = data.stat()
+    metadata.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "original_name": original_name,
+                "snapshot": {
+                    "name": original_name,
+                    "path": f".researchclaw/evidence/objects/{original_name}",
+                    "device": observed.st_dev,
+                    "inode": observed.st_ino,
+                    "mode": observed.st_mode,
+                    "nlink": observed.st_nlink,
+                    "size": len(payload),
+                    "mtime_ns": observed.st_mtime_ns,
+                    "ctime_ns": observed.st_ctime_ns,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                },
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    return metadata, data
+
+
 def test_publish_streams_and_reuses_identical_object(tmp_path):
     """Reopening or duplicating an immutable object would break deduplication."""
     project, store = _store(tmp_path)
@@ -487,6 +525,306 @@ def test_gc_rejects_object_replaced_after_dry_run(tmp_path):
     assert path.exists()
 
 
+@pytest.mark.parametrize(
+    "original_name",
+    [
+        "../outside",
+        "/absolute",
+        r"..\outside",
+        ".publish-../outside.tmp",
+        ".publish-..\\outside.tmp",
+        ".publish-\x00outside.tmp",
+        ".publish-\u2044outside.tmp",
+        ".publish-\u2215outside.tmp",
+        ".publish-\uff0foutside.tmp",
+    ],
+)
+def test_gc_recovery_rejects_untrusted_original_names_before_dirfd_use(
+    tmp_path, monkeypatch, original_name
+):
+    """Journal-controlled separators or dot segments must never reach renameat."""
+    project, store = _store(tmp_path)
+    outside = project / "outside"
+    outside.write_bytes(b"unrelated")
+    _write_quarantine_record(
+        store,
+        token="1" * 32,
+        original_name=original_name,
+    )
+
+    monkeypatch.setattr(
+        evidence_store,
+        "_native_rename_noreplace",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("unsafe rename input")),
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="original name"):
+        store.plan_gc()
+
+    assert outside.read_bytes() == b"unrelated"
+
+
+def test_native_rename_noreplace_preserves_an_existing_destination(tmp_path):
+    """The quarantine primitive must never overwrite a destination on collision."""
+    source_directory = tmp_path / "source"
+    destination_directory = tmp_path / "destination"
+    source_directory.mkdir()
+    destination_directory.mkdir()
+    (source_directory / "candidate").write_bytes(b"candidate")
+    (destination_directory / "occupied").write_bytes(b"occupied")
+    source_descriptor = os.open(source_directory, os.O_RDONLY)
+    destination_descriptor = os.open(destination_directory, os.O_RDONLY)
+    try:
+        with pytest.raises(FileExistsError):
+            evidence_store._native_rename_noreplace(
+                source_descriptor,
+                "candidate",
+                destination_descriptor,
+                "occupied",
+            )
+    finally:
+        os.close(destination_descriptor)
+        os.close(source_descriptor)
+
+    assert (source_directory / "candidate").read_bytes() == b"candidate"
+    assert (destination_directory / "occupied").read_bytes() == b"occupied"
+
+
+def test_gc_fails_safely_when_native_noreplace_rename_is_unavailable(
+    tmp_path, monkeypatch
+):
+    """GC cannot emulate no-replace with a racy existence check and plain rename."""
+    project, store = _store(tmp_path)
+    target = store.publish(_source(project, "target.bin", b"approved"))
+    plan = store.plan_gc()
+    monkeypatch.setattr(
+        evidence_store, "_NATIVE_RENAME_NOREPLACE", None, raising=False
+    )
+
+    with pytest.raises(ValueError, match="native no-replace rename unavailable"):
+        store.collect(plan, plan.confirmation_token)
+
+    assert (project / target.path).read_bytes() == b"approved"
+
+
+def test_gc_native_destination_collision_preserves_both_files(
+    tmp_path, monkeypatch
+):
+    """A destination created at the rename boundary must not be overwritten."""
+    project, store = _store(tmp_path)
+    target = store.publish(_source(project, "target.bin", b"approved"))
+    plan = store.plan_gc()
+    original_rename = evidence_store._native_rename_noreplace
+    collision_payload = b"existing quarantine data"
+
+    def collide(source_fd, source_name, destination_fd, destination_name):
+        descriptor = os.open(
+            destination_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=destination_fd,
+        )
+        try:
+            os.write(descriptor, collision_payload)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        return original_rename(
+            source_fd, source_name, destination_fd, destination_name
+        )
+
+    monkeypatch.setattr(evidence_store, "_native_rename_noreplace", collide)
+
+    with pytest.raises(FileExistsError):
+        store.collect(plan, plan.confirmation_token)
+
+    assert (project / target.path).read_bytes() == b"approved"
+    assert any(
+        path.read_bytes() == collision_payload
+        for path in store.quarantine_root.glob("*.data")
+    )
+
+
+def test_gc_fsyncs_quarantine_before_source_and_recovers_that_crash(
+    tmp_path, monkeypatch
+):
+    """A crash after durable destination creation must remain safely recoverable."""
+    project, store = _store(tmp_path)
+    target = store.publish(_source(project, "target.bin", b"approved"))
+    plan = store.plan_gc()
+    path = project / target.path
+    fsync_order = []
+    moved = False
+    original_rename = evidence_store._native_rename_noreplace
+    original_fsync = evidence_store.os.fsync
+
+    def observe_rename(source_fd, source_name, destination_fd, destination_name):
+        nonlocal moved
+        result = original_rename(
+            source_fd, source_name, destination_fd, destination_name
+        )
+        moved = True
+        return result
+
+    def observe_fsync(descriptor):
+        if moved and stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_stat = os.fstat(descriptor)
+            if directory_stat.st_ino == store.quarantine_root.stat().st_ino:
+                fsync_order.append("quarantine")
+            elif directory_stat.st_ino == store.objects_root.stat().st_ino:
+                fsync_order.append("objects")
+        return original_fsync(descriptor)
+
+    monkeypatch.setattr(evidence_store, "_native_rename_noreplace", observe_rename)
+    monkeypatch.setattr(evidence_store.os, "fsync", observe_fsync)
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_gc_quarantine_destination_fsync",
+        lambda *_args: (_ for _ in ()).throw(OSError("destination durable crash")),
+        raising=False,
+    )
+
+    with pytest.raises(OSError, match="destination durable crash"):
+        store.collect(plan, plan.confirmation_token)
+
+    assert fsync_order == ["quarantine"]
+    assert not path.exists()
+    assert any(path.read_bytes() == b"approved" for path in store.quarantine_root.glob("*.data"))
+
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_gc_quarantine_destination_fsync",
+        lambda *_args: None,
+        raising=False,
+    )
+    retry = store.plan_gc()
+    assert path.read_bytes() == b"approved"
+    assert retry.objects == (target,)
+    assert store.plan_gc().objects == (target,)
+
+
+def test_gc_truncates_only_the_held_verified_inode_on_path_substitution(
+    tmp_path, monkeypatch
+):
+    """A replacement at the quarantine pathname must never be deleted or truncated."""
+    project, store = _store(tmp_path)
+    store.publish(_source(project, "target.bin", b"approved bytes"))
+    plan = store.plan_gc()
+    replacement = b"unrelated replacement"
+    moved_approved: Path | None = None
+
+    def substitute(_snapshot, quarantine_name):
+        nonlocal moved_approved
+        quarantine_path = store.quarantine_root / quarantine_name
+        moved_approved = store.quarantine_root / f"{quarantine_name}.substituted"
+        quarantine_path.rename(moved_approved)
+        quarantine_path.write_bytes(replacement)
+
+    original_unlink = evidence_store.os.unlink
+
+    def forbid_quarantine_unlink(name, *args, **kwargs):
+        if str(name).startswith(".gc-"):
+            raise AssertionError("quarantine pathname unlink")
+        return original_unlink(name, *args, **kwargs)
+
+    monkeypatch.setattr(
+        evidence_store, "_before_gc_quarantine_delete", substitute
+    )
+    monkeypatch.setattr(evidence_store.os, "unlink", forbid_quarantine_unlink)
+
+    with pytest.raises(ValueError, match="quarantine.*changed"):
+        store.collect(plan, plan.confirmation_token)
+
+    assert moved_approved is not None
+    assert moved_approved.read_bytes() == b""
+    assert any(
+        path.read_bytes() == replacement
+        for path in store.quarantine_root.glob("*.data")
+    )
+
+
+def test_gc_reclaims_approved_bytes_but_keeps_repeatable_tombstones(tmp_path):
+    """Successful GC reclaims content through the FD while retaining bounded recovery state."""
+    project, store = _store(tmp_path)
+    target = store.publish(_source(project, "target.bin", b"x" * (1024 * 1024)))
+    plan = store.plan_gc()
+
+    assert store.collect(plan, plan.confirmation_token) == (target,)
+
+    data_entries = tuple(store.quarantine_root.glob("*.data"))
+    metadata_entries = tuple(store.quarantine_root.glob("*.json"))
+    assert len(data_entries) == 1
+    assert data_entries[0].stat().st_size == 0
+    assert len(metadata_entries) == 1
+    assert store.plan_gc().objects == ()
+    assert store.plan_gc().objects == ()
+    assert data_entries[0].stat().st_size == 0
+
+
+def test_gc_recovers_repeatedly_after_a_crash_after_truncate(
+    tmp_path, monkeypatch
+):
+    """A durable zero-byte tombstone must not be restored as an active object."""
+    project, store = _store(tmp_path)
+    target = store.publish(_source(project, "target.bin", b"approved"))
+    plan = store.plan_gc()
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_gc_quarantine_truncate",
+        lambda *_args: (_ for _ in ()).throw(OSError("post-truncate crash")),
+        raising=False,
+    )
+
+    with pytest.raises(OSError, match="post-truncate crash"):
+        store.collect(plan, plan.confirmation_token)
+
+    data_entries = tuple(store.quarantine_root.glob("*.data"))
+    assert len(data_entries) == 1
+    assert data_entries[0].stat().st_size == 0
+    assert not (project / target.path).exists()
+
+    monkeypatch.setattr(
+        evidence_store,
+        "_after_gc_quarantine_truncate",
+        lambda *_args: None,
+        raising=False,
+    )
+    assert store.plan_gc().objects == ()
+    assert store.plan_gc().objects == ()
+    assert data_entries[0].stat().st_size == 0
+
+
+def test_gc_temp_plan_hash_rejects_same_inode_same_size_restored_mtime_mutation(
+    tmp_path, monkeypatch
+):
+    """Temporary candidates require content identity, not only inode/size/mtime."""
+    _project, store = _store(tmp_path)
+    temporary = store.objects_root / ".publish-abandoned.tmp"
+    temporary.write_bytes(b"AAAA")
+    plan = store.plan_gc()
+
+    def mutate(snapshot):
+        with temporary.open("r+b") as handle:
+            handle.write(b"BBBB")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.utime(
+            temporary,
+            ns=(snapshot.mtime_ns, snapshot.mtime_ns),
+            follow_symlinks=False,
+        )
+
+    monkeypatch.setattr(
+        evidence_store, "_before_gc_candidate_quarantine", mutate
+    )
+
+    with pytest.raises(ValueError, match="stale"):
+        store.collect(plan, plan.confirmation_token)
+
+    assert temporary.read_bytes() == b"BBBB"
+
+
 def test_gc_quarantine_does_not_delete_a_replacement_after_final_scan(
     tmp_path, monkeypatch
 ):
@@ -510,7 +848,8 @@ def test_gc_quarantine_does_not_delete_a_replacement_after_final_scan(
 
     assert path.read_bytes() == b"unapproved"
     assert approved_backup.read_bytes() == b"approved"
-    assert tuple(store.quarantine_root.iterdir()) == ()
+    assert tuple(store.quarantine_root.glob("*.data")) == ()
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
 
 
 def test_gc_preserves_mismatched_quarantine_when_original_name_is_occupied(
@@ -541,9 +880,10 @@ def test_gc_preserves_mismatched_quarantine_when_original_name_is_occupied(
         store.collect(plan, plan.confirmation_token)
 
     assert path.read_bytes() == b"unapproved-two"
-    quarantined = tuple(store.quarantine_root.iterdir())
+    quarantined = tuple(store.quarantine_root.glob("*.data"))
     assert len(quarantined) == 1
     assert quarantined[0].read_bytes() == b"unapproved-one"
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
 
 
 def test_gc_quarantine_rejects_a_hardlink_added_after_final_scan(
@@ -579,9 +919,7 @@ def test_gc_quarantine_never_overwrites_an_existing_private_entry(
     plan = store.plan_gc()
     token = "0" * 32
     monkeypatch.setattr(evidence_store.secrets, "token_hex", lambda _size: token)
-    collision_name = (
-        f".gc-{token}-{target.sha256.encode('utf-8').hex()}"
-    )
+    collision_name = store._quarantine_name(target.sha256)
     collision = store.quarantine_root / collision_name
 
     def occupy_quarantine(_snapshot):
@@ -591,7 +929,7 @@ def test_gc_quarantine_never_overwrites_an_existing_private_entry(
         evidence_store, "_before_gc_candidate_quarantine", occupy_quarantine
     )
 
-    with pytest.raises(ValueError, match="quarantine name"):
+    with pytest.raises(FileExistsError):
         store.collect(plan, plan.confirmation_token)
 
     assert (project / target.path).read_bytes() == b"approved"
@@ -624,7 +962,8 @@ def test_gc_restores_regular_quarantine_when_verification_errors(
         store.collect(plan, plan.confirmation_token)
 
     assert path.read_bytes() == b"approved"
-    assert tuple(store.quarantine_root.iterdir()) == ()
+    assert tuple(store.quarantine_root.glob("*.data")) == ()
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
 
 
 def test_gc_recovers_a_crash_quarantine_before_retry(tmp_path, monkeypatch):
@@ -644,7 +983,8 @@ def test_gc_recovers_a_crash_quarantine_before_retry(tmp_path, monkeypatch):
         store.collect(plan, plan.confirmation_token)
 
     assert not path.exists()
-    assert len(tuple(store.quarantine_root.iterdir())) == 1
+    assert len(tuple(store.quarantine_root.glob("*.data"))) == 1
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
 
     monkeypatch.setattr(
         evidence_store,
@@ -654,14 +994,15 @@ def test_gc_recovers_a_crash_quarantine_before_retry(tmp_path, monkeypatch):
     )
     retry = store.plan_gc()
     assert path.read_bytes() == b"approved"
-    assert tuple(store.quarantine_root.iterdir()) == ()
+    assert tuple(store.quarantine_root.glob("*.data")) == ()
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
     assert retry.objects == (target,)
 
 
-def test_gc_retry_recovers_a_crash_between_restore_link_and_cleanup(
+def test_gc_recovery_never_pathname_unlinks_quarantine_records(
     tmp_path, monkeypatch
 ):
-    """Recovery must recognize its own same-inode partial restoration on retry."""
+    """Recovery moves full data atomically and leaves journal tombstones in place."""
     project, store = _store(tmp_path)
     target = store.publish(_source(project, "target.bin", b"approved"))
     plan = store.plan_gc()
@@ -674,29 +1015,18 @@ def test_gc_retry_recovers_a_crash_between_restore_link_and_cleanup(
     )
     with pytest.raises(OSError, match="first crash"):
         store.collect(plan, plan.confirmation_token)
-    monkeypatch.setattr(
-        evidence_store,
-        "_before_gc_quarantine_delete",
-        lambda _snapshot, _name: None,
-    )
-
     original_unlink = evidence_store.os.unlink
 
-    def crash_restore_unlink(name, *args, **kwargs):
+    def forbid_quarantine_unlink(name, *args, **kwargs):
         if str(name).startswith(".gc-"):
-            raise OSError("restore cleanup crash")
+            raise AssertionError("quarantine pathname unlink")
         return original_unlink(name, *args, **kwargs)
 
-    monkeypatch.setattr(evidence_store.os, "unlink", crash_restore_unlink)
-    with pytest.raises(OSError, match="restore cleanup crash"):
-        store.plan_gc()
-    quarantined = tuple(store.quarantine_root.iterdir())
-    assert len(quarantined) == 1
-    assert path.stat().st_ino == quarantined[0].stat().st_ino
-
-    monkeypatch.setattr(evidence_store.os, "unlink", original_unlink)
+    monkeypatch.setattr(evidence_store.os, "unlink", forbid_quarantine_unlink)
     retry = store.plan_gc()
-    assert tuple(store.quarantine_root.iterdir()) == ()
+    assert path.read_bytes() == b"approved"
+    assert tuple(store.quarantine_root.glob("*.data")) == ()
+    assert len(tuple(store.quarantine_root.glob("*.json"))) == 1
     assert retry.objects == (target,)
 
 
@@ -808,7 +1138,7 @@ def test_gc_quarantine_is_private_and_bounded(tmp_path):
         name = store._quarantine_name(".publish-abandoned.tmp")
         (store.quarantine_root / name).touch()
 
-    with pytest.raises(ValueError, match="quarantine entry limit"):
+    with pytest.raises(ValueError, match="quarantine .*entry limit"):
         store.plan_gc()
 
 
