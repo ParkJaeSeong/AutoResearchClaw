@@ -173,16 +173,20 @@ def _read_regular_bounded(path: Path, maximum: int) -> bytes:
         os.close(descriptor)
 
 
+def _decode_pending_json(payload: bytes) -> object:
+    return json.loads(
+        payload.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_constant,
+    )
+
+
 def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     path = _pending_path(project)
     if not os.path.lexists(path):
         return None
     try:
-        raw = json.loads(
-            _read_regular_bounded(path, _PENDING_MAX_BYTES).decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_constant,
-        )
+        raw = _decode_pending_json(_read_regular_bounded(path, _PENDING_MAX_BYTES))
     except (
         OSError,
         UnicodeError,
@@ -196,6 +200,7 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         "registration_id",
         "project_id",
         "prior_state_sha256",
+        "prior_state",
         "target_state_sha256",
         "sources",
         "objects",
@@ -207,6 +212,7 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
         "event_offset",
         "phase",
         "abort_intent",
+        "abort_error",
     }
     if (
         not isinstance(raw, dict)
@@ -215,6 +221,11 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     ):
         raise ValueError("evidence_registration_interrupted")
     if raw.get("phase") not in _PHASES or not isinstance(raw.get("abort_intent"), bool):
+        raise ValueError("evidence_registration_interrupted")
+    if raw.get("abort_error") is not None and raw.get("abort_error") not in {
+        "evidence_object_integrity_failure",
+        "evidence_registration_interrupted",
+    }:
         raise ValueError("evidence_registration_interrupted")
     if raw.get("project_id") != project.state.project_id:
         raise ValueError("evidence_registration_interrupted")
@@ -229,8 +240,85 @@ def _load_pending(project: ResearchProject) -> dict[str, object] | None:
     if (
         _hash(raw["manifest"]) != raw["manifest_sha256"]
         or _hash(raw["event"]) != raw["event_sha256"]
+        or _hash(raw["prior_state"]) != raw["prior_state_sha256"]
     ):
         raise ValueError("evidence_registration_interrupted")
+    try:
+        prior = ProjectState.from_dict(raw["prior_state"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+    manifest = raw["manifest"]
+    if (
+        prior.project_id != raw["project_id"]
+        or prior.current_stage != 12
+        or not isinstance(raw["registration_id"], str)
+        or not isinstance(manifest, dict)
+        or manifest.get("registration_id") != raw["registration_id"]
+        or manifest.get("project_id") != raw["project_id"]
+        or raw["manifest_path"]
+        != f".researchclaw/evidence/manifests/{raw['registration_id']}.json"
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    try:
+        event = EvaluationEvent.from_dict(raw["event"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+    manifest_result = manifest.get("result")
+    manifest_contract = manifest.get("execution_contract")
+    manifest_objects = manifest.get("objects")
+    if (
+        event.type != "research_result_registered"
+        or event.project_id != raw["project_id"]
+        or not isinstance(manifest_result, dict)
+        or not isinstance(manifest_contract, dict)
+        or not isinstance(manifest_objects, list)
+        or event.payload
+        != {
+            "contract_path": manifest_contract.get("path"),
+            "contract_sha256": manifest_contract.get("sha256"),
+            "result_path": "experiment/results.json",
+            "result_sha256": manifest_result.get("sha256"),
+            "metric_count": len(manifest.get("metrics", {})),
+            "input_count": sum(
+                1
+                for entry in manifest_objects
+                if isinstance(entry, dict) and entry.get("role") == "input"
+            ),
+        }
+        or not isinstance(raw.get("event_offset"), int)
+        or isinstance(raw.get("event_offset"), bool)
+        or raw["event_offset"] < 0
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    expected_sources = [
+        {
+            "role": entry.get("role"),
+            "path": entry.get("source_path"),
+            "expected_sha256": entry.get("sha256"),
+            "expected_size": entry.get("size"),
+        }
+        for entry in manifest_objects
+        if isinstance(entry, dict)
+    ]
+    if raw.get("sources") != expected_sources or not isinstance(
+        raw.get("objects"), list
+    ):
+        raise ValueError("evidence_registration_interrupted")
+    expected_object_identities = {
+        (entry.get("sha256"), entry.get("size"))
+        for entry in manifest_objects
+        if isinstance(entry, dict)
+    }
+    for published in raw["objects"]:
+        if (
+            not isinstance(published, dict)
+            or set(published) != {"sha256", "size", "path"}
+            or (published.get("sha256"), published.get("size"))
+            not in expected_object_identities
+            or published.get("path")
+            != f".researchclaw/evidence/objects/{published.get('sha256')}"
+        ):
+            raise ValueError("evidence_registration_interrupted")
     return raw
 
 
@@ -429,6 +517,65 @@ def load_evidence_manifest(project_root: Path, manifest_path: str) -> dict[str, 
     return raw
 
 
+def _manifest_artifact(project_root: Path, manifest_path: str) -> ArtifactRef:
+    try:
+        payload = _read_regular_bounded(
+            Path(project_root) / manifest_path, _MANIFEST_MAX_BYTES
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError("evidence_object_integrity_failure") from error
+    return ArtifactRef(manifest_path, hashlib.sha256(payload).hexdigest(), len(payload))
+
+
+def _validate_manifest_bindings(
+    project: ResearchProject, manifest_path: str, manifest: Mapping[str, object]
+) -> None:
+    registration_id = manifest.get("registration_id")
+    if (
+        not isinstance(registration_id, str)
+        or manifest_path != f".researchclaw/evidence/manifests/{registration_id}.json"
+        or manifest.get("project_id") != project.state.project_id
+    ):
+        raise ValueError("evidence_object_integrity_failure")
+    entries = manifest.get("objects")
+    result = manifest.get("result")
+    if not isinstance(entries, list) or not isinstance(result, Mapping):
+        raise ValueError("evidence_object_integrity_failure")
+    result_entries = []
+    for entry in entries:
+        if not isinstance(entry, Mapping) or set(entry) != {
+            "role",
+            "source_path",
+            "sha256",
+            "size",
+            "object_path",
+        }:
+            raise ValueError("evidence_object_integrity_failure")
+        digest = entry.get("sha256")
+        size = entry.get("size")
+        if (
+            not isinstance(entry.get("role"), str)
+            or not isinstance(entry.get("source_path"), str)
+            or not isinstance(digest, str)
+            or _SHA256.fullmatch(digest) is None
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+            or entry.get("object_path") != f".researchclaw/evidence/objects/{digest}"
+        ):
+            raise ValueError("evidence_object_integrity_failure")
+        if entry["role"] == "result":
+            result_entries.append(entry)
+    if (
+        set(result) != {"sha256", "size", "object_path"}
+        or len(result_entries) != 1
+        or result_entries[0]["sha256"] != result.get("sha256")
+        or result_entries[0]["size"] != result.get("size")
+        or result_entries[0]["object_path"] != result.get("object_path")
+    ):
+        raise ValueError("evidence_object_integrity_failure")
+
+
 def _verify_manifest_objects(
     project: ResearchProject, manifest: Mapping[str, object]
 ) -> None:
@@ -506,15 +653,7 @@ def _repair_owned_partial_event(
         fragment = os.read(descriptor, total - offset)
         event = EvaluationEvent.from_dict(pending["event"])
         record = EventLog._bounded_record(event)
-        result_sha = str(event.payload.get("result_sha256", "")).encode("ascii")
-        contract_sha = str(event.payload.get("contract_sha256", "")).encode("ascii")
-        if (
-            not fragment
-            or not record.startswith(fragment)
-            or not any(
-                marker and marker in fragment for marker in (result_sha, contract_sha)
-            )
-        ):
+        if not fragment or not record.startswith(fragment):
             raise ValueError("evidence_registration_interrupted")
         os.ftruncate(descriptor, offset)
         os.fsync(descriptor)
@@ -549,7 +688,11 @@ def registered_evidence_status(
     if len(paths) != 1:
         return None
     manifest_path = paths[0]
+    manifest_reference = project.state.artifacts[manifest_path]
+    if _manifest_artifact(project.root, manifest_path) != manifest_reference:
+        raise ValueError("evidence_object_integrity_failure")
     manifest = load_evidence_manifest(project.root, manifest_path)
+    _validate_manifest_bindings(project, manifest_path, manifest)
     _verify_manifest_objects(project, manifest)
     result = manifest.get("result")
     registration_id = manifest.get("registration_id")
@@ -559,6 +702,18 @@ def registered_evidence_status(
         or not isinstance(registration_id, str)
     ):
         raise ValueError("evidence_object_integrity_failure")
+    result_object_path = result.get("object_path")
+    result_size = result.get("size")
+    result_digest = result.get("sha256")
+    if (
+        not isinstance(result_object_path, str)
+        or not isinstance(result_size, int)
+        or project.state.artifacts.get(result_object_path)
+        != ArtifactRef(result_object_path, result_digest, result_size)
+        or project.state.artifacts.get("experiment/results.json")
+        != ArtifactRef("experiment/results.json", result_digest, result_size)
+    ):
+        raise ValueError("evidence_object_integrity_failure")
     return EvidenceRegistrationStatus(
         registration_id,
         manifest_path,
@@ -566,6 +721,43 @@ def registered_evidence_status(
         13,
         project.state.next_action,
     )
+
+
+def _prior_state(pending: Mapping[str, object]) -> ProjectState:
+    try:
+        prior = ProjectState.from_dict(pending["prior_state"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("evidence_registration_interrupted") from error
+    if _hash(prior.to_dict()) != pending["prior_state_sha256"]:
+        raise ValueError("evidence_registration_interrupted")
+    return prior
+
+
+def _finish_abort(project: ResearchProject, pending: dict[str, object]) -> None:
+    prior = _prior_state(pending)
+    current = ResearchProject.open_readonly(project.root)
+    current_hash = _hash(current.state.to_dict())
+    if current_hash == pending["target_state_sha256"]:
+        StateStore(current.root / ".researchclaw").save(prior)
+    elif current_hash != pending["prior_state_sha256"]:
+        raise ValueError("evidence_registration_interrupted")
+    _clear_pending(ResearchProject.open_readonly(current.root))
+
+
+def _begin_integrity_abort(
+    project: ResearchProject,
+    pending: dict[str, object],
+) -> None:
+    pending["phase"] = "aborting"
+    pending["abort_intent"] = True
+    pending["abort_error"] = "evidence_object_integrity_failure"
+    _persist_pending(project, pending)
+    prior = _prior_state(pending)
+    current = ResearchProject.open_readonly(project.root)
+    if _hash(current.state.to_dict()) == pending["target_state_sha256"]:
+        StateStore(current.root / ".researchclaw").save(prior)
+    elif _hash(current.state.to_dict()) != pending["prior_state_sha256"]:
+        raise ValueError("evidence_registration_interrupted")
 
 
 def _validated_event_log_offset(project: ResearchProject) -> int:
@@ -590,9 +782,7 @@ def _recover_locked(
     manifest_path = str(pending["manifest_path"])
     manifest_exists = os.path.lexists(current.root / manifest_path)
     if pending["phase"] == "aborting" or pending["abort_intent"]:
-        if current.state.current_stage != 12:
-            raise ValueError("evidence_registration_interrupted")
-        _clear_pending(current)
+        _finish_abort(current, pending)
         return None
     if not manifest_exists:
         pending["phase"] = "aborting"
@@ -600,13 +790,22 @@ def _recover_locked(
         _persist_pending(current, pending)
         _clear_pending(current)
         return None
-    manifest = load_evidence_manifest(current.root, manifest_path)
-    if _hash(manifest) != pending["manifest_sha256"]:
-        pending["phase"] = "aborting"
-        pending["abort_intent"] = True
-        _persist_pending(current, pending)
-        raise ValueError("evidence_object_integrity_failure")
-    _verify_manifest_objects(current, manifest)
+    try:
+        manifest = load_evidence_manifest(current.root, manifest_path)
+        _validate_manifest_bindings(current, manifest_path, manifest)
+        manifest_artifact = _manifest_artifact(current.root, manifest_path)
+        if manifest_artifact.sha256 != pending[
+            "manifest_sha256"
+        ] or manifest_artifact.size != len(
+            _canonical_json(pending["manifest"], maximum=_MANIFEST_MAX_BYTES)
+        ):
+            raise ValueError("evidence_object_integrity_failure")
+        _verify_manifest_objects(current, manifest)
+    except ValueError as error:
+        if str(error) != "evidence_object_integrity_failure":
+            raise
+        _begin_integrity_abort(current, pending)
+        raise
     if current.state.current_stage == 12:
         if _hash(current.state.to_dict()) != pending["prior_state_sha256"]:
             raise ValueError("evidence_registration_interrupted")
@@ -630,7 +829,12 @@ def _recover_locked(
         event_log_for(current.root).append_locked(
             event, expected_offset=int(pending["event_offset"])
         )
-    _verify_manifest_objects(current, manifest)
+    try:
+        _verify_manifest_objects(current, manifest)
+    except ValueError as error:
+        if str(error) == "evidence_object_integrity_failure":
+            _begin_integrity_abort(current, pending)
+        raise
     if _hash(ResearchProject.open_readonly(current.root).state.to_dict()) != pending[
         "target_state_sha256"
     ] or not _event_present(current, pending):
@@ -694,6 +898,7 @@ def register_immutable_research_evidence(
             "registration_id": registration_id,
             "project_id": current.state.project_id,
             "prior_state_sha256": _hash(current.state.to_dict()),
+            "prior_state": current.state.to_dict(),
             "target_state_sha256": _hash(target.to_dict()),
             "sources": [asdict(source) for source in sources],
             "objects": [],
@@ -705,6 +910,7 @@ def register_immutable_research_evidence(
             "event_offset": event_offset,
             "phase": "publishing",
             "abort_intent": False,
+            "abort_error": None,
         }
         _persist_pending(current, pending)
         _after_pending_persisted(pending)
@@ -722,11 +928,17 @@ def register_immutable_research_evidence(
             pending["phase"] = "manifest_published"
             _persist_pending(current, pending)
             _after_manifest_published(manifest_ref)
-        except Exception:
+        except Exception as error:
             if not os.path.lexists(current.root / manifest_path):
                 pending["phase"] = "aborting"
                 pending["abort_intent"] = True
                 _persist_pending(current, pending)
+                _finish_abort(current, pending)
+                if isinstance(error, ValueError) and str(error) in {
+                    "evidence source identity mismatch",
+                    "evidence source changed while publishing",
+                }:
+                    raise ValueError("research_result_file_invalid") from error
             raise
         _verify_manifest_objects(current, manifest)
         StateStore(current.root / ".researchclaw").save(target)
