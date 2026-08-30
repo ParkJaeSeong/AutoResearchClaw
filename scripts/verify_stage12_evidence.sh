@@ -1,15 +1,92 @@
 #!/bin/sh
 set -eu
 
-cd "$(dirname "$0")/.."
+validate_python() {
+    candidate=$1
+    [ -x "$candidate" ] || return 1
+    "$candidate" -c 'import sys, pytest; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' \
+        >/dev/null 2>&1
+}
 
-if [ -z "${PYTHON_BIN:-}" ]; then
-    pytest_path=$(command -v pytest)
-    pytest_shebang=$(sed -n '1s/^#!//p' "$pytest_path")
-    case "$pytest_shebang" in
-        /*) PYTHON_BIN=$pytest_shebang ;;
-        *) PYTHON_BIN=$(command -v python3) ;;
-    esac
+resolve_command() {
+    command -v "$1" 2>/dev/null || return 1
+}
+
+select_python() {
+    if [ -n "${PYTHON_BIN:-}" ]; then
+        explicit=$PYTHON_BIN
+        case "$explicit" in
+            */*) ;;
+            *) explicit=$(resolve_command "$explicit") || {
+                echo "PYTHON_BIN is not an executable Python command: $PYTHON_BIN" >&2
+                return 1
+            } ;;
+        esac
+        if validate_python "$explicit"; then
+            printf '%s\n' "$explicit"
+            return 0
+        fi
+        echo "PYTHON_BIN must be Python >=3.11 with pytest importable: $PYTHON_BIN" >&2
+        return 1
+    fi
+
+    for project_candidate in .venv/bin/python venv/bin/python; do
+        if validate_python "$project_candidate"; then
+            printf '%s\n' "$project_candidate"
+            return 0
+        fi
+    done
+
+    pytest_path=$(resolve_command pytest || true)
+    if [ -n "$pytest_path" ] && IFS= read -r shebang <"$pytest_path"; then
+        case "$shebang" in
+            '#!'/*)
+                interpreter=${shebang#\#!}
+                case "$interpreter" in
+                    *' '*|*"	"*)
+                        case "$interpreter" in
+                            '/usr/bin/env '*)
+                                env_name=${interpreter#'/usr/bin/env '}
+                                case "$env_name" in
+                                    *' '*|*"	"*|'') ;;
+                                    *)
+                                        env_candidate=$(resolve_command "$env_name" || true)
+                                        if [ -n "$env_candidate" ] && validate_python "$env_candidate"; then
+                                            printf '%s\n' "$env_candidate"
+                                            return 0
+                                        fi
+                                        ;;
+                                esac
+                                ;;
+                        esac
+                        ;;
+                    *)
+                        if validate_python "$interpreter"; then
+                            printf '%s\n' "$interpreter"
+                            return 0
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
+    fi
+
+    for command_name in python3 python; do
+        candidate=$(resolve_command "$command_name" || true)
+        if [ -n "$candidate" ] && validate_python "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    echo "no Python >=3.11 interpreter with pytest importable was found" >&2
+    return 1
+}
+
+cd "$(dirname "$0")/.."
+PYTHON_BIN=$(select_python)
+if [ "${1:-}" = "--print-python" ]; then
+    printf '%s\n' "$PYTHON_BIN"
+    exit 0
 fi
 
 run_mandatory_pytest() {
