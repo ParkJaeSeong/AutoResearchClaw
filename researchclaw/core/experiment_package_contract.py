@@ -7,7 +7,6 @@ import hashlib
 import json
 import math
 import re
-import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -35,7 +34,8 @@ _EXECUTION_KEYS = {"argv_suffix"}
 _EXPECTED_METRIC_KEYS = {"name", "expected", "tolerance"}
 _REPORT_KEYS = {
     "schema_version", "package_contract", "fixture", "environment_fingerprint",
-    "package_manifest", "entry_point", "metrics", "passed", "development_only",
+    "package_manifest", "entry_point", "package_files", "metrics", "passed",
+    "development_only",
 }
 _IDENTITY_KEYS = {"path", "sha256"}
 _REPORT_METRIC_KEYS = {"name", "actual", "expected", "tolerance"}
@@ -47,37 +47,6 @@ class ValidatedExperimentPackage:
     metric_entrypoints: Mapping[str, str]
     self_test_argv: tuple[str, ...]
     execution_argv: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class _ValidatedPackageIdentity:
-    package_manifest_sha256: str
-    entry_point_sha256: str
-
-
-_PACKAGE_IDENTITIES: dict[
-    int, tuple[weakref.ReferenceType[ValidatedExperimentPackage], _ValidatedPackageIdentity]
-] = {}
-
-
-def _remember_package_identity(
-    package: ValidatedExperimentPackage, identity: _ValidatedPackageIdentity
-) -> None:
-    package_id = id(package)
-
-    def _forget(reference: weakref.ReferenceType[ValidatedExperimentPackage]) -> None:
-        current = _PACKAGE_IDENTITIES.get(package_id)
-        if current is not None and current[0] is reference:
-            _PACKAGE_IDENTITIES.pop(package_id, None)
-
-    _PACKAGE_IDENTITIES[package_id] = (weakref.ref(package, _forget), identity)
-
-
-def _package_identity_for(package: ValidatedExperimentPackage) -> _ValidatedPackageIdentity:
-    remembered = _PACKAGE_IDENTITIES.get(id(package))
-    if remembered is None or remembered[0]() is not package:
-        raise ValueError("package identity snapshot is unavailable")
-    return remembered[1]
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -248,25 +217,46 @@ def _local_call_name(node: ast.Call, aliases: Mapping[str, str]) -> str | None:
     return aliases.get(node.func.id, node.func.id)
 
 
-def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> str | None:
-    """Resolve a simple callable alias from definitions reached before its call."""
+def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> tuple[ast.AST, ...]:
+    return tuple(node.targets) if isinstance(node, ast.Assign) else (node.target,)
+
+
+def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> tuple[str | None, bool]:
+    """Resolve a local callable alias using only source-order-reachable definitions."""
     if not isinstance(call.func, ast.Name):
-        return None
-    definitions: list[ast.AST] = []
-    for node in ast.walk(function):
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
-        if (
-            any(isinstance(target, ast.Name) and target.id == call.func.id for target in targets)
-            and getattr(node, "lineno", 0) < getattr(call, "lineno", 0)
-        ):
-            definitions.append(node.value)
-    if not definitions:
-        return None
-    if len(definitions) != 1 or not isinstance(definitions[0], ast.Name):
-        raise ValueError("callable alias is ambiguous or reassigned")
-    return definitions[0].id
+        return None, False
+
+    assignments = sorted(
+        [
+            node for node in ast.walk(function)
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+        ],
+        key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
+    )
+
+    def resolve(name: str, before: tuple[int, int], seen: set[str]) -> tuple[str, bool]:
+        definitions = [
+            node for node in assignments
+            if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)) < before
+            and any(
+                isinstance(target, ast.Name) and target.id == name
+                for target in _assignment_targets(node)
+            )
+        ]
+        if not definitions:
+            return name, bool(seen)
+        if len(definitions) != 1 or not isinstance(definitions[0].value, ast.Name):
+            raise ValueError("callable alias is ambiguous or reassigned")
+        if name in seen:
+            raise ValueError("callable alias is cyclic or ambiguous")
+        definition = definitions[0]
+        return resolve(
+            definition.value.id,
+            (getattr(definition, "lineno", 0), getattr(definition, "col_offset", 0)),
+            {*seen, name},
+        )
+
+    return resolve(call.func.id, (getattr(call, "lineno", 0), getattr(call, "col_offset", 0)), set())
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -309,9 +299,11 @@ def _reachable_metric_nodes(
         nodes.extend(ast.walk(current))
         for node in ast.walk(current):
             if isinstance(node, ast.Call):
-                target_name = _local_alias_target(current, node) or _local_call_name(
-                    node, function_aliases
-                )
+                target_name, local_alias = _local_alias_target(current, node)
+                if target_name is None or not local_alias:
+                    target_name = _local_call_name(node, function_aliases)
+                elif local_alias and target_name not in functions and target_name != "dict":
+                    raise ValueError("callable alias is unresolved or ambiguous")
                 target = functions.get(target_name or "")
                 if target is not None:
                     queued.append(target)
@@ -356,9 +348,14 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
                         and value.value is True
                     ):
                         return True
+            if not isinstance(node, ast.Call):
+                continue
+            local_target, local_alias = _local_alias_target(function, node)
+            target_name = (
+                local_target if local_alias else _local_call_name(node, function_aliases)
+            )
             if (
-                isinstance(node, ast.Call)
-                and _local_call_name(node, function_aliases) == "dict"
+                target_name == "dict"
                 and any(
                     keyword.arg == "evidence_eligible"
                     and isinstance(keyword.value, ast.Constant)
@@ -370,10 +367,21 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
     return False
 
 
-def _is_self_test_condition(node: ast.AST) -> bool:
+def _is_positive_self_test_condition(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "args"
+        and node.attr == "self_test"
+    )
+
+
+def _mentions_self_test(node: ast.AST) -> bool:
     return any(
-        (isinstance(candidate, ast.Attribute) and candidate.attr == "self_test")
-        or (isinstance(candidate, ast.Name) and candidate.id == "self_test")
+        isinstance(candidate, ast.Attribute)
+        and isinstance(candidate.value, ast.Name)
+        and candidate.value.id == "args"
+        and candidate.attr == "self_test"
         for candidate in ast.walk(node)
     )
 
@@ -405,18 +413,22 @@ def _dict_fields(node: ast.Dict) -> dict[str, ast.AST]:
     }
 
 
-def _self_test_report_payload_name(call: ast.Call) -> str | None:
+def _is_self_test_report_write(call: ast.Call) -> bool:
     if not isinstance(call.func, ast.Attribute) or call.func.attr != "write_text":
-        return None
+        return False
     target = call.func.value
-    if not (
+    return (
         isinstance(target, ast.Call)
         and isinstance(target.func, ast.Name)
         and target.func.id == "Path"
         and len(target.args) == 1
         and isinstance(target.args[0], ast.Constant)
         and target.args[0].value == SELF_TEST_REPORT_PATH
-    ):
+    )
+
+
+def _self_test_report_payload_name(call: ast.Call) -> str | None:
+    if not _is_self_test_report_write(call):
         return None
     if not call.args:
         return None
@@ -436,6 +448,30 @@ def _self_test_report_payload_name(call: ast.Call) -> str | None:
     return serializer.args[0].id
 
 
+def _mapping_is_mutated_before_write(nodes: list[ast.AST], write: ast.Call) -> bool:
+    write_position = (getattr(write, "lineno", 0), getattr(write, "col_offset", 0))
+    for node in nodes:
+        position = (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
+        if position >= write_position:
+            continue
+        if isinstance(node, ast.AugAssign) and (
+            isinstance(node.target, (ast.Name, ast.Subscript))
+            or isinstance(node.op, ast.BitOr)
+        ):
+            return True
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and any(
+            isinstance(target, ast.Subscript) for target in _assignment_targets(node)
+        ):
+            return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
+        ):
+            return True
+    return False
+
+
 def _validate_self_test_adapter(
     tree: ast.Module, metric_entrypoints: Mapping[str, str]
 ) -> None:
@@ -443,11 +479,17 @@ def _validate_self_test_adapter(
     main = _top_level_functions(tree).get("main")
     if main is None:
         raise ValueError("self-test adapter requires a top-level main function")
+    functions = _top_level_functions(tree)
+    function_aliases = _function_aliases(tree, functions)
     branches = [
         node for node in ast.walk(main)
-        if isinstance(node, ast.If) and _is_self_test_condition(node.test)
+        if isinstance(node, ast.If) and _is_positive_self_test_condition(node.test)
     ]
-    if len(branches) != 1:
+    mentioned_branches = [
+        node for node in ast.walk(main)
+        if isinstance(node, ast.If) and _mentions_self_test(node.test)
+    ]
+    if len(branches) != 1 or len(mentioned_branches) != 1:
         raise ValueError("self-test adapter must have one unambiguous --self-test branch")
     nodes = [item for statement in branches[0].body for item in ast.walk(statement)]
     if any(
@@ -455,16 +497,18 @@ def _validate_self_test_adapter(
         for node in nodes
     ):
         raise ValueError("self-test adapter must not use ambiguous provenance branches")
+    all_nodes = _reachable_metric_nodes(main, functions, function_aliases)
     writes = [
         (node, _self_test_report_payload_name(node))
-        for node in nodes
-        if isinstance(node, ast.Call)
+        for node in all_nodes
+        if isinstance(node, ast.Call) and _is_self_test_report_write(node)
     ]
-    writes = [(node, name) for node, name in writes if name is not None]
-    if len(writes) != 1:
+    if len(writes) != 1 or writes[0][0] not in nodes or writes[0][1] is None:
         raise ValueError("self-test adapter must write exactly one self-test report")
     write, report_name = writes[0]
     assert report_name is not None
+    if _mapping_is_mutated_before_write(nodes, write):
+        raise ValueError("self-test adapter rejects mutable report provenance")
     write_line = getattr(write, "lineno", 0)
     assignments = sorted(
         [
@@ -599,7 +643,7 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     entry_point = contract["entry_point"]
     if not isinstance(entry_point, str):
         raise ValueError("entry_point must be text")
-    source, tree, manifest_sha256, entry_point_sha256 = _package_main_source(
+    source, tree, _manifest_sha256, _entry_point_sha256 = _package_main_source(
         project.root, entry_point
     )
     config_path, _config = _required_path(project.root, contract["config_path"], "config_path")
@@ -645,20 +689,12 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     _validate_self_test_adapter(tree, metrics)
     if validate_python_capability_safety(entry_point, source):
         raise ValueError("entry_point has a prohibited static capability")
-    package = ValidatedExperimentPackage(
+    return ValidatedExperimentPackage(
         contract_sha256=hashlib.sha256(contract_bytes).hexdigest(),
         metric_entrypoints=MappingProxyType(metrics),
         self_test_argv=self_test_argv,
         execution_argv=execution_argv,
     )
-    _remember_package_identity(
-        package,
-        _ValidatedPackageIdentity(
-            package_manifest_sha256=manifest_sha256,
-            entry_point_sha256=entry_point_sha256,
-        ),
-    )
-    return package
 
 
 def _validate_identity(value: object, path: str, sha256: str, label: str) -> None:
@@ -667,13 +703,52 @@ def _validate_identity(value: object, path: str, sha256: str, label: str) -> Non
         raise ValueError(f"{label} does not match the current package identity")
 
 
+def _current_package_file_identities(root: Path) -> list[dict[str, str]]:
+    """Return the complete, current closed file identity set declared by the manifest."""
+    manifest, _manifest_bytes = _read_json_object(root, _PACKAGE_MANIFEST_PATH)
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        raise ValueError("package manifest files must be a list")
+    identities: list[dict[str, str]] = []
+    for entry in files:
+        if not isinstance(entry, dict) or set(entry) - {"path", "role", "sha256"}:
+            raise ValueError("package manifest file identity is invalid")
+        path = entry.get("path")
+        sha256 = entry.get("sha256")
+        if (
+            not isinstance(path, str)
+            or not isinstance(sha256, str)
+            or _SHA256.fullmatch(sha256) is None
+        ):
+            raise ValueError("package manifest file identity is invalid")
+        identities.append({"path": path, "sha256": sha256})
+    return identities
+
+
+def _validate_package_file_identities(value: object, expected: list[dict[str, str]]) -> None:
+    if not isinstance(value, list):
+        raise ValueError("package_files must be a list")
+    reported: list[dict[str, str]] = []
+    for entry in value:
+        identity = _require_closed(entry, _IDENTITY_KEYS, "package file identity")
+        path, sha256 = identity["path"], identity["sha256"]
+        if (
+            not isinstance(path, str)
+            or not isinstance(sha256, str)
+            or _SHA256.fullmatch(sha256) is None
+        ):
+            raise ValueError("package file identity is invalid")
+        reported.append({"path": path, "sha256": sha256})
+    if reported != expected:
+        raise ValueError("package_files does not match the current package identity")
+
+
 def validate_registered_self_test(
     project: ResearchProject, package: ValidatedExperimentPackage
 ) -> ArtifactRef:
     """Validate an externally produced self-test report without recording it."""
-    expected_identity = _package_identity_for(package)
     current = validate_experiment_package_contract(project)
-    if current != package or _package_identity_for(current) != expected_identity:
+    if current != package:
         raise ValueError("package changed since self-test validation")
     contract, _contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
     self_test = _require_closed(contract["self_test"], SELF_TEST_KEYS, "self_test")
@@ -695,14 +770,21 @@ def validate_registered_self_test(
     _validate_identity(
         report["package_manifest"],
         _PACKAGE_MANIFEST_PATH,
-        expected_identity.package_manifest_sha256,
+        hashlib.sha256(
+            resolve_project_artifact(project.root, _PACKAGE_MANIFEST_PATH).read_bytes()
+        ).hexdigest(),
         "package_manifest",
     )
     _validate_identity(
         report["entry_point"],
         contract["entry_point"],
-        expected_identity.entry_point_sha256,
+        hashlib.sha256(
+            resolve_project_artifact(project.root, contract["entry_point"]).read_bytes()
+        ).hexdigest(),
         "entry_point",
+    )
+    _validate_package_file_identities(
+        report["package_files"], _current_package_file_identities(project.root)
     )
     _validate_identity(
         report["fixture"], fixture_path, hashlib.sha256(fixture.read_bytes()).hexdigest(), "fixture"

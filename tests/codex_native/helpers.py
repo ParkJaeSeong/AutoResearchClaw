@@ -492,6 +492,12 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         manifest_digest = hashlib.sha256(Path("experiment/package_manifest.json").read_bytes())
         entry_point_digest = hashlib.sha256(Path("experiment/code/main.py").read_bytes())
         fixture_digest = hashlib.sha256(fixture_path.read_bytes())
+        package_files = [
+            {"path": entry["path"], "sha256": entry["sha256"]}
+            for entry in json.loads(
+                Path("experiment/package_manifest.json").read_text(encoding="utf-8")
+            )["files"]
+        ]
         report = {
             "schema_version": 1,
             "package_contract": {
@@ -506,6 +512,7 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
                 "path": "experiment/code/main.py",
                 "sha256": entry_point_digest.hexdigest(),
             },
+            "package_files": package_files,
             "fixture": {
                 "path": str(fixture_path),
                 "sha256": fixture_digest.hexdigest(),

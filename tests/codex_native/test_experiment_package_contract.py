@@ -59,6 +59,12 @@ def _write_self_test_report(project, package, **overrides):
                 (project.root / "experiment/code/main.py").read_bytes()
             ).hexdigest(),
         },
+        "package_files": [
+            {"path": entry["path"], "sha256": entry["sha256"]}
+            for entry in json.loads(
+                (project.root / "experiment/package_manifest.json").read_text(encoding="utf-8")
+            )["files"]
+        ],
         "fixture": {
             "path": "experiment/self_test_fixture.json",
             "sha256": hashlib.sha256(fixture_path.read_bytes()).hexdigest(),
@@ -240,7 +246,7 @@ def test_registered_self_test_rejects_a_manifest_bound_metric_change(tmp_path):
         ),
     )
 
-    with pytest.raises(ValueError, match="package changed"):
+    with pytest.raises(ValueError, match="package_manifest|package changed"):
         validate_registered_self_test(project, package)
 
 
@@ -502,3 +508,177 @@ def test_package_contract_rejects_ambiguous_self_test_provenance_branch(tmp_path
 
     with pytest.raises(ValueError, match="self-test adapter"):
         validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_multi_hop_local_size_proxy_alias(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        "    first = size_proxy\n    second = first\n    return second()\n",
+    ) + '''
+
+def size_proxy() -> float:
+    probe = Path("experiment/self_test_fixture.json")
+    return float(probe.stat().st_size)
+'''
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="size proxy|callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_multi_hop_local_dict_fallback_alias(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + '''
+
+def placeholder_fallback() -> dict[str, object]:
+    first = dict
+    second = first
+    return second(mae=0.5, evidence_eligible=True)
+''',
+    )
+
+    with pytest.raises(ValueError, match="fallback|callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_cyclic_or_unresolved_local_callable_alias(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        "    first = second\n    second = first\n    return first()\n",
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_inverted_self_test_predicate(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(project, source.replace("if args.self_test:", "if not args.self_test:"))
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_an_additional_ambiguous_self_test_predicate(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '    result = run_experiment(config)\n',
+        '    if not args.self_test:\n'
+        '        pass\n'
+        '    result = run_experiment(config)\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_a_later_self_test_report_overwrite(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '    result = run_experiment(config)\n',
+        '    result = run_experiment(config)\n'
+        '    Path("experiment/self_test_report.json").write_text(\n'
+        '        json.dumps({"metrics": []}) + "\\n", encoding="utf-8"\n'
+        '    )\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_report_mapping_mutation_before_write(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '        report = {\n',
+        '        report = {\n',
+    ).replace(
+        '        Path("experiment/self_test_report.json").write_text',
+        '        result.update({"mae": 0.5})\n'
+        '        Path("experiment/self_test_report.json").write_text',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_registered_self_test_accepts_reconstructed_fresh_package(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    original = validate_experiment_package_contract(project)
+    reconstructed = ValidatedExperimentPackage(
+        contract_sha256=original.contract_sha256,
+        metric_entrypoints=original.metric_entrypoints,
+        self_test_argv=original.self_test_argv,
+        execution_argv=original.execution_argv,
+    )
+    _write_self_test_report(project, reconstructed)
+
+    assert validate_registered_self_test(project, reconstructed).path == SELF_TEST_REPORT_PATH
+
+
+def test_registered_self_test_has_no_process_global_identity_registry():
+    from researchclaw.core import experiment_package_contract
+
+    assert not hasattr(experiment_package_contract, "_PACKAGE_IDENTITIES")
+
+
+def test_registered_self_test_rejects_a_forged_public_package(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    forged = ValidatedExperimentPackage(
+        contract_sha256="0" * 64,
+        metric_entrypoints=package.metric_entrypoints,
+        self_test_argv=package.self_test_argv,
+        execution_argv=package.execution_argv,
+    )
+    _write_self_test_report(project, package)
+
+    with pytest.raises(ValueError, match="package changed"):
+        validate_registered_self_test(project, forged)
+
+
+def test_registered_self_test_requires_the_complete_manifest_file_identity_set(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    _write_self_test_report(project, package, package_files=[])
+
+    with pytest.raises(ValueError, match="package_files"):
+        validate_registered_self_test(project, package)
+
+
+def test_registered_self_test_rejects_package_drift_after_reconstruction(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+    reconstructed = ValidatedExperimentPackage(
+        package.contract_sha256,
+        package.metric_entrypoints,
+        package.self_test_argv,
+        package.execution_argv,
+    )
+    _write_self_test_report(project, reconstructed)
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source.replace(
+            "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+            "    return 0.0\n",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="package_manifest|package changed"):
+        validate_registered_self_test(project, reconstructed)
