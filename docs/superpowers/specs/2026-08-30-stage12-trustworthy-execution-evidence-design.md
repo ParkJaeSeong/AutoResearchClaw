@@ -67,8 +67,11 @@ cannot prepare execution.
 
 ### Package validator
 
-The validator checks the package without claiming scientific success. It
-verifies:
+The validator checks the package without claiming scientific success. Because
+ResearchClaw does not execute generated code, the user runs the exact
+known-answer self-test command explicitly and registers its closed report.
+Only a current registered self-test report makes the execution approval gate
+eligible. Static validation plus that bound report verifies:
 
 - the declared entry point and metric implementations exist;
 - the dry-run fixture produces its known expected values;
@@ -80,8 +83,10 @@ verifies:
 - the real execution path cannot silently fall back to development or
   placeholder behavior.
 
-Passing dry-run validation makes a package eligible for approval. It does not
-make its future result evidence eligible.
+Passing the registered known-answer self-test makes a package eligible for
+approval. It does not make its future result evidence eligible. Any later
+change to the package, fixture, interpreter, or dependencies invalidates the
+self-test report.
 
 ### Stage 12 contract preparer
 
