@@ -9,6 +9,7 @@ import pytest
 from researchclaw.core.experiment_package_contract import (
     EXPERIMENT_PACKAGE_CONTRACT_PATH,
     SELF_TEST_REPORT_PATH,
+    ValidatedExperimentPackage,
     validate_experiment_package_contract,
     validate_registered_self_test,
 )
@@ -48,11 +49,15 @@ def _write_self_test_report(project, package, **overrides):
         },
         "package_manifest": {
             "path": "experiment/package_manifest.json",
-            "sha256": package.package_manifest_sha256,
+            "sha256": hashlib.sha256(
+                (project.root / "experiment/package_manifest.json").read_bytes()
+            ).hexdigest(),
         },
         "entry_point": {
             "path": "experiment/code/main.py",
-            "sha256": package.entry_point_sha256,
+            "sha256": hashlib.sha256(
+                (project.root / "experiment/code/main.py").read_bytes()
+            ).hexdigest(),
         },
         "fixture": {
             "path": "experiment/self_test_fixture.json",
@@ -373,3 +378,127 @@ def test_known_answer_entrypoint_writes_only_its_mode_specific_output(tmp_path):
     assert execution.returncode == 0
     assert (project.root / "experiment/results.json").is_file()
     assert not (project.root / SELF_TEST_REPORT_PATH).exists()
+
+
+def test_validated_experiment_package_keeps_the_exact_public_field_contract():
+    assert tuple(ValidatedExperimentPackage.__dataclass_fields__) == (
+        "contract_sha256",
+        "metric_entrypoints",
+        "self_test_argv",
+        "execution_argv",
+    )
+
+
+def test_package_contract_rejects_a_local_alias_before_later_reassignment(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    replacement = '''    size_alias = size_proxy
+    value = size_alias()
+    size_alias = safe_metric
+    return value
+'''
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        replacement,
+    ) + '''
+
+def size_proxy() -> float:
+    probe = Path("experiment/self_test_fixture.json")
+    return float(probe.stat()[6])
+
+
+def safe_metric() -> float:
+    return 0.5
+'''
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="size proxy|callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_a_reassigned_local_callable_alias(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    replacement = '''    size_alias = size_proxy
+    size_alias = safe_metric
+    return size_alias()
+'''
+    source = source.replace(
+        "    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)\n",
+        replacement,
+    ) + '''
+
+def size_proxy() -> float:
+    return 0.0
+
+
+def safe_metric() -> float:
+    return 0.5
+'''
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_a_dict_alias_evidence_fallback(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    _replace_main(
+        project,
+        source
+        + '''
+dict_alias = dict
+
+
+def placeholder_fallback() -> dict[str, object]:
+    return dict_alias(mae=0.5, evidence_eligible=True)
+''',
+    )
+
+    with pytest.raises(ValueError, match="fallback|callable alias"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_a_dead_decoy_metric_record(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '        report = {\n',
+        '        decoy = {"name": "mae", "actual": result["mae"]}\n'
+        '        report = {\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_metric_provenance_overwritten_before_report_write(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '        report = {\n',
+        '        actual_value = result["mae"]\n'
+        '        actual_value = 0.5\n'
+        '        report = {\n',
+    ).replace('"actual": result["mae"]', '"actual": actual_value')
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)
+
+
+def test_package_contract_rejects_ambiguous_self_test_provenance_branch(tmp_path):
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    source = (project.root / "experiment/code/main.py").read_text(encoding="utf-8")
+    source = source.replace(
+        '        report = {\n',
+        '        if config:\n'
+        '            result["mae"] = result["mae"]\n'
+        '        report = {\n',
+    )
+    _replace_main(project, source)
+
+    with pytest.raises(ValueError, match="self-test adapter"):
+        validate_experiment_package_contract(project)

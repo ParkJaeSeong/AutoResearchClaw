@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import re
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -43,11 +44,40 @@ _REPORT_METRIC_KEYS = {"name", "actual", "expected", "tolerance"}
 @dataclass(frozen=True)
 class ValidatedExperimentPackage:
     contract_sha256: str
-    package_manifest_sha256: str
-    entry_point_sha256: str
     metric_entrypoints: Mapping[str, str]
     self_test_argv: tuple[str, ...]
     execution_argv: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _ValidatedPackageIdentity:
+    package_manifest_sha256: str
+    entry_point_sha256: str
+
+
+_PACKAGE_IDENTITIES: dict[
+    int, tuple[weakref.ReferenceType[ValidatedExperimentPackage], _ValidatedPackageIdentity]
+] = {}
+
+
+def _remember_package_identity(
+    package: ValidatedExperimentPackage, identity: _ValidatedPackageIdentity
+) -> None:
+    package_id = id(package)
+
+    def _forget(reference: weakref.ReferenceType[ValidatedExperimentPackage]) -> None:
+        current = _PACKAGE_IDENTITIES.get(package_id)
+        if current is not None and current[0] is reference:
+            _PACKAGE_IDENTITIES.pop(package_id, None)
+
+    _PACKAGE_IDENTITIES[package_id] = (weakref.ref(package, _forget), identity)
+
+
+def _package_identity_for(package: ValidatedExperimentPackage) -> _ValidatedPackageIdentity:
+    remembered = _PACKAGE_IDENTITIES.get(id(package))
+    if remembered is None or remembered[0]() is not package:
+        raise ValueError("package identity snapshot is unavailable")
+    return remembered[1]
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -207,7 +237,7 @@ def _function_aliases(
         )
         value_name = node.value.id
         resolved = aliases.get(value_name, value_name)
-        if resolved in functions:
+        if resolved in functions or resolved == "dict":
             aliases.update({target: resolved for target in target_names})
     return aliases
 
@@ -216,6 +246,27 @@ def _local_call_name(node: ast.Call, aliases: Mapping[str, str]) -> str | None:
     if not isinstance(node.func, ast.Name):
         return None
     return aliases.get(node.func.id, node.func.id)
+
+
+def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> str | None:
+    """Resolve a simple callable alias from definitions reached before its call."""
+    if not isinstance(call.func, ast.Name):
+        return None
+    definitions: list[ast.AST] = []
+    for node in ast.walk(function):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+        if (
+            any(isinstance(target, ast.Name) and target.id == call.func.id for target in targets)
+            and getattr(node, "lineno", 0) < getattr(call, "lineno", 0)
+        ):
+            definitions.append(node.value)
+    if not definitions:
+        return None
+    if len(definitions) != 1 or not isinstance(definitions[0], ast.Name):
+        raise ValueError("callable alias is ambiguous or reassigned")
+    return definitions[0].id
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -258,7 +309,10 @@ def _reachable_metric_nodes(
         nodes.extend(ast.walk(current))
         for node in ast.walk(current):
             if isinstance(node, ast.Call):
-                target = functions.get(_local_call_name(node, function_aliases) or "")
+                target_name = _local_alias_target(current, node) or _local_call_name(
+                    node, function_aliases
+                )
+                target = functions.get(target_name or "")
                 if target is not None:
                     queued.append(target)
     return nodes
@@ -304,8 +358,7 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
                         return True
             if (
                 isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "dict"
+                and _local_call_name(node, function_aliases) == "dict"
                 and any(
                     keyword.arg == "evidence_eligible"
                     and isinstance(keyword.value, ast.Constant)
@@ -325,93 +378,165 @@ def _is_self_test_condition(node: ast.AST) -> bool:
     )
 
 
-def _metric_source(expression: ast.AST, bindings: Mapping[str, str]) -> str | None:
+def _metric_source(
+    expression: ast.AST,
+    scalars: Mapping[str, str | None],
+    mappings: Mapping[str, str | None],
+) -> str | None:
     if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Name):
-        return bindings.get(expression.func.id, expression.func.id)
+        return expression.func.id
     if isinstance(expression, ast.Name):
-        return bindings.get(expression.id)
+        return scalars.get(expression.id)
     if (
         isinstance(expression, ast.Subscript)
         and isinstance(expression.value, ast.Name)
         and isinstance(expression.slice, ast.Constant)
         and isinstance(expression.slice.value, str)
     ):
-        return bindings.get(f"{expression.value.id}:{expression.slice.value}")
+        return mappings.get(f"{expression.value.id}:{expression.slice.value}")
     return None
+
+
+def _dict_fields(node: ast.Dict) -> dict[str, ast.AST]:
+    return {
+        key.value: value
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and isinstance(key.value, str)
+    }
+
+
+def _self_test_report_payload_name(call: ast.Call) -> str | None:
+    if not isinstance(call.func, ast.Attribute) or call.func.attr != "write_text":
+        return None
+    target = call.func.value
+    if not (
+        isinstance(target, ast.Call)
+        and isinstance(target.func, ast.Name)
+        and target.func.id == "Path"
+        and len(target.args) == 1
+        and isinstance(target.args[0], ast.Constant)
+        and target.args[0].value == SELF_TEST_REPORT_PATH
+    ):
+        return None
+    if not call.args:
+        return None
+    payload = call.args[0]
+    serializer = payload.left if isinstance(payload, ast.BinOp) and isinstance(payload.op, ast.Add) else payload
+    if not isinstance(serializer, ast.Call):
+        return None
+    if not (
+        isinstance(serializer.func, ast.Attribute)
+        and isinstance(serializer.func.value, ast.Name)
+        and serializer.func.value.id == "json"
+        and serializer.func.attr == "dumps"
+        and serializer.args
+        and isinstance(serializer.args[0], ast.Name)
+    ):
+        return None
+    return serializer.args[0].id
 
 
 def _validate_self_test_adapter(
     tree: ast.Module, metric_entrypoints: Mapping[str, str]
 ) -> None:
-    """Require self-test result records to carry values from declared metrics."""
-    functions = _top_level_functions(tree)
-    main = functions.get("main")
+    """Prove that the written self-test report carries declared metric values."""
+    main = _top_level_functions(tree).get("main")
     if main is None:
         raise ValueError("self-test adapter requires a top-level main function")
-    aliases = _function_aliases(tree, functions)
     branches = [
         node for node in ast.walk(main)
         if isinstance(node, ast.If) and _is_self_test_condition(node.test)
     ]
-    if not branches:
-        raise ValueError("self-test adapter must branch on --self-test")
-    nodes: list[ast.AST] = []
-    for branch in branches:
-        nodes.extend(
-            item
-            for statement in branch.body
-            for item in ast.walk(statement)
+    if len(branches) != 1:
+        raise ValueError("self-test adapter must have one unambiguous --self-test branch")
+    nodes = [item for statement in branches[0].body for item in ast.walk(statement)]
+    if any(
+        isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try))
+        for node in nodes
+    ):
+        raise ValueError("self-test adapter must not use ambiguous provenance branches")
+    writes = [
+        (node, _self_test_report_payload_name(node))
+        for node in nodes
+        if isinstance(node, ast.Call)
+    ]
+    writes = [(node, name) for node, name in writes if name is not None]
+    if len(writes) != 1:
+        raise ValueError("self-test adapter must write exactly one self-test report")
+    write, report_name = writes[0]
+    assert report_name is not None
+    write_line = getattr(write, "lineno", 0)
+    assignments = sorted(
+        [
+            node for node in nodes
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and getattr(node, "lineno", 0) < write_line
+        ],
+        key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
+    )
+    report_definitions = [
+        node for node in assignments
+        if any(
+            isinstance(target, ast.Name) and target.id == report_name
+            for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
         )
-    for node in list(nodes):
-        if not isinstance(node, ast.Call):
-            continue
-        target = functions.get(_local_call_name(node, aliases) or "")
-        if target is not None:
-            nodes.extend(_reachable_metric_nodes(target, functions, aliases))
+    ]
+    if len(report_definitions) != 1 or not isinstance(report_definitions[0].value, ast.Dict):
+        raise ValueError("self-test adapter report object is ambiguous")
 
-    bindings: dict[str, str] = dict(aliases)
-    for node in sorted(nodes, key=lambda item: getattr(item, "lineno", -1)):
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        names = [target.id for target in targets if isinstance(target, ast.Name)]
-        source = _metric_source(node.value, bindings)
-        if source is not None:
-            bindings.update({name: source for name in names})
-        if isinstance(node.value, ast.Dict):
-            for key, value in zip(node.value.keys, node.value.values, strict=True):
-                if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
-                    continue
-                value_source = _metric_source(value, bindings)
-                if value_source is not None:
-                    bindings.update(
-                        {f"{name}:{key.value}": value_source for name in names}
-                    )
+    scalars: dict[str, str | None] = {}
+    mappings: dict[str, str | None] = {}
+    for node in assignments:
+        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
+        source = _metric_source(node.value, scalars, mappings)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                scalars[target.id] = source
+                if isinstance(node.value, ast.Dict):
+                    for key, value in _dict_fields(node.value).items():
+                        mappings[f"{target.id}:{key}"] = _metric_source(
+                            value, scalars, mappings
+                        )
+            elif (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Name)
+                and isinstance(target.slice, ast.Constant)
+                and isinstance(target.slice.value, str)
+            ):
+                mappings[f"{target.value.id}:{target.slice.value}"] = source
 
+    report_fields = _dict_fields(report_definitions[0].value)
+    records = report_fields.get("metrics")
+    if not isinstance(records, ast.List):
+        raise ValueError("self-test adapter report must contain literal metric records")
+    selected_records = [node for node in records.elts if isinstance(node, ast.Dict)]
+    if len(selected_records) != len(metric_entrypoints):
+        raise ValueError("self-test adapter report metric set is ambiguous")
     for metric_name, implementation in metric_entrypoints.items():
         function_name = implementation.partition(":")[2]
-        found = False
-        for node in nodes:
-            if not isinstance(node, ast.Dict):
-                continue
-            fields = {
-                key.value: value
-                for key, value in zip(node.keys, node.values, strict=True)
-                if isinstance(key, ast.Constant) and isinstance(key.value, str)
-            }
-            if (
-                not isinstance(fields.get("name"), ast.Constant)
-                or fields["name"].value != metric_name
-                or "actual" not in fields
-            ):
-                continue
-            if _metric_source(fields["actual"], bindings) == function_name:
-                found = True
-                break
-        if not found:
+        matching = [
+            record for record in selected_records
+            if _dict_fields(record).get("name")
+            and isinstance(_dict_fields(record)["name"], ast.Constant)
+            and _dict_fields(record)["name"].value == metric_name
+        ]
+        if len(matching) != 1 or _metric_source(
+            _dict_fields(matching[0]).get("actual", ast.Constant(None)), scalars, mappings
+        ) != function_name:
             raise ValueError(
-                "self-test adapter must construct each actual metric from its declared implementation"
+                "self-test adapter must construct each written actual metric from its declared implementation"
             )
+
+    for node in nodes:
+        if not isinstance(node, ast.Dict) or node in selected_records:
+            continue
+        fields = _dict_fields(node)
+        if (
+            isinstance(fields.get("name"), ast.Constant)
+            and fields["name"].value in metric_entrypoints
+            and "actual" in fields
+        ):
+            raise ValueError("self-test adapter rejects unused metric records")
 
 
 def _validate_metrics(
@@ -520,14 +645,20 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     _validate_self_test_adapter(tree, metrics)
     if validate_python_capability_safety(entry_point, source):
         raise ValueError("entry_point has a prohibited static capability")
-    return ValidatedExperimentPackage(
+    package = ValidatedExperimentPackage(
         contract_sha256=hashlib.sha256(contract_bytes).hexdigest(),
-        package_manifest_sha256=manifest_sha256,
-        entry_point_sha256=entry_point_sha256,
         metric_entrypoints=MappingProxyType(metrics),
         self_test_argv=self_test_argv,
         execution_argv=execution_argv,
     )
+    _remember_package_identity(
+        package,
+        _ValidatedPackageIdentity(
+            package_manifest_sha256=manifest_sha256,
+            entry_point_sha256=entry_point_sha256,
+        ),
+    )
+    return package
 
 
 def _validate_identity(value: object, path: str, sha256: str, label: str) -> None:
@@ -540,8 +671,9 @@ def validate_registered_self_test(
     project: ResearchProject, package: ValidatedExperimentPackage
 ) -> ArtifactRef:
     """Validate an externally produced self-test report without recording it."""
+    expected_identity = _package_identity_for(package)
     current = validate_experiment_package_contract(project)
-    if current != package:
+    if current != package or _package_identity_for(current) != expected_identity:
         raise ValueError("package changed since self-test validation")
     contract, _contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
     self_test = _require_closed(contract["self_test"], SELF_TEST_KEYS, "self_test")
@@ -563,13 +695,13 @@ def validate_registered_self_test(
     _validate_identity(
         report["package_manifest"],
         _PACKAGE_MANIFEST_PATH,
-        package.package_manifest_sha256,
+        expected_identity.package_manifest_sha256,
         "package_manifest",
     )
     _validate_identity(
         report["entry_point"],
         contract["entry_point"],
-        package.entry_point_sha256,
+        expected_identity.entry_point_sha256,
         "entry_point",
     )
     _validate_identity(
