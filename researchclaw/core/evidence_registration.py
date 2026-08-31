@@ -1007,12 +1007,15 @@ def _validate_manifest_bindings(
 
 
 def _verify_manifest_objects(
-    project: ResearchProject, manifest: Mapping[str, object]
+    project: ResearchProject,
+    manifest: Mapping[str, object],
+    *,
+    store: EvidenceStore | None = None,
 ) -> None:
     entries = manifest.get("objects")
     if not isinstance(entries, list):
         raise ValueError("evidence_object_integrity_failure")
-    store = EvidenceStore(project.root)
+    store = EvidenceStore(project.root) if store is None else store
     directory = store._open_directory(store.objects_root)
     try:
         for entry in entries:
@@ -1125,7 +1128,7 @@ def _status(pending: Mapping[str, object]) -> EvidenceRegistrationStatus:
 
 
 def registered_evidence_status(
-    project: ResearchProject
+    project: ResearchProject, *, store: EvidenceStore | None = None
 ) -> EvidenceRegistrationStatus | None:
     """Return the single verified immutable registration already grounding Stage 13."""
     if project.state.current_stage != 13 or 12 not in project.state.completed_stages:
@@ -1145,7 +1148,7 @@ def registered_evidence_status(
     _revalidate_manifest_path(project.root, snapshot)
     manifest = snapshot.payload
     _validate_manifest_bindings(project, manifest_path, manifest)
-    _verify_manifest_objects(project, manifest)
+    _verify_manifest_objects(project, manifest, store=store)
     result = manifest.get("result")
     registration_id = manifest.get("registration_id")
     if (

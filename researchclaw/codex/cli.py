@@ -318,8 +318,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     _validated_manifest_candidates,
                 )
 
-                _validated_manifest_candidates(project, EvidenceStore(project.root))
-                status = registered_evidence_status(project)
+                store = EvidenceStore(project.root, create=False)
+                _validated_manifest_candidates(project, store)
+                status = registered_evidence_status(project, store=store)
                 payload = {
                     "project_id": project.state.project_id,
                     "classification": (

@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import subprocess
+import stat
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
@@ -554,6 +555,33 @@ def _registered_stage_thirteen_project(root):
     return ResearchProject.open(project.root), registered.manifest_path
 
 
+def _tree_snapshot(root):
+    snapshot = {}
+    for path in sorted((root, *root.rglob("*")), key=lambda item: str(item)):
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        metadata = path.lstat()
+        content_sha256 = None
+        link_target = None
+        if stat.S_ISREG(metadata.st_mode):
+            content_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif stat.S_ISLNK(metadata.st_mode):
+            link_target = os.readlink(path)
+        snapshot[relative] = (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_uid,
+            metadata.st_gid,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+            content_sha256,
+            link_target,
+        )
+    return snapshot
+
+
 @pytest.mark.parametrize(
     "candidate_kind",
     ("current_corrupt", "noncurrent_corrupt", "symlink", "oversized", "duplicate"),
@@ -606,6 +634,41 @@ def test_quarantine_fails_closed_for_every_invalid_manifest_candidate(
     assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
     assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
     assert (project.root / "experiment/results.json").is_file()
+
+
+def test_evidence_audit_legacy_project_does_not_create_missing_store_directories(
+    tmp_path, capsys
+):
+    project = ResearchProject.create(
+        tmp_path / "legacy", topic="legacy", profile="materials_ai"
+    )
+    evidence_root = project.root / ".researchclaw/evidence"
+    assert not evidence_root.exists()
+    tree_before = _tree_snapshot(project.root)
+
+    assert cli_main(["evidence", "audit", str(project.root), "--json"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "classification": "legacy_untrusted",
+        "project_id": project.state.project_id,
+        "registration": None,
+    }
+    assert not evidence_root.exists()
+    assert _tree_snapshot(project.root) == tree_before
+
+
+def test_evidence_audit_valid_registration_is_exactly_read_only(tmp_path, capsys):
+    project, _manifest_path = _registered_stage_thirteen_project(
+        tmp_path / "registered"
+    )
+    tree_before = _tree_snapshot(project.root)
+
+    assert cli_main(["evidence", "audit", str(project.root), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["classification"] == "immutable_registered"
+    assert payload["registration"] is not None
+    assert _tree_snapshot(project.root) == tree_before
 
 
 def test_stage_thirteen_status_caps_manifest_before_any_path_read_bytes(
@@ -770,8 +833,7 @@ def test_evidence_audit_reports_corrupt_registration_as_actionable_json_without_
             manifest.symlink_to(external)
         else:
             manifest.with_name("noncurrent.json").symlink_to(external)
-    state_before = (project.root / ".researchclaw/state.json").read_bytes()
-    events_before = (project.root / "evaluation/events.jsonl").read_bytes()
+    tree_before = _tree_snapshot(project.root)
 
     assert cli_main(["evidence", "audit", str(project.root), "--json"]) == 2
 
@@ -789,5 +851,4 @@ def test_evidence_audit_reports_corrupt_registration_as_actionable_json_without_
         ),
         "registration": None,
     }
-    assert (project.root / ".researchclaw/state.json").read_bytes() == state_before
-    assert (project.root / "evaluation/events.jsonl").read_bytes() == events_before
+    assert _tree_snapshot(project.root) == tree_before

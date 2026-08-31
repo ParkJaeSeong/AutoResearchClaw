@@ -546,7 +546,9 @@ def _bounded_directory_names(
 class EvidenceStore:
     """Immutable content-addressed storage contained within one project."""
 
-    def __init__(self, project_root: Path) -> None:
+    def __init__(self, project_root: Path, *, create: bool = True) -> None:
+        if not isinstance(create, bool):
+            raise TypeError("evidence store create mode must be boolean")
         try:
             root = Path(project_root).resolve(strict=True)
         except (OSError, RuntimeError) as error:
@@ -560,7 +562,8 @@ class EvidenceStore:
         self.quarantine_root = self.evidence_root / "gc-quarantine"
         self.results_quarantine_root = self.evidence_root / "quarantine/results"
         self.copy_quarantine_root = self.evidence_root / "quarantine/copies"
-        self._ensure_directories()
+        if create:
+            self._ensure_directories()
 
     def _ensure_directories(self) -> None:
         for relative_parts in (
@@ -1722,6 +1725,15 @@ def _validated_manifest_candidates(
             )
         finally:
             os.close(directory)
+    except FileNotFoundError as error:
+        state_manifests = {
+            path
+            for path in project.state.artifacts
+            if path.startswith(_MANIFEST_PREFIX)
+        }
+        if state_manifests:
+            raise EvidenceIntegrityError from error
+        return ()
     except (OSError, TypeError, ValueError) as error:
         raise EvidenceIntegrityError from error
     if any(_MANIFEST_NAME.fullmatch(name) is None for name in names):
@@ -1736,7 +1748,7 @@ def _validated_manifest_candidates(
         try:
             snapshot = _read_manifest_snapshot(project.root, manifest_path)
             _validate_manifest_bindings(project, manifest_path, snapshot.payload)
-            _verify_manifest_objects(project, snapshot.payload)
+            _verify_manifest_objects(project, snapshot.payload, store=store)
             _revalidate_manifest_path(project.root, snapshot)
         except (OSError, TypeError, ValueError) as error:
             raise EvidenceIntegrityError from error
