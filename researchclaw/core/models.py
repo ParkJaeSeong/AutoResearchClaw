@@ -23,13 +23,27 @@ _NEXT_ACTIONS = frozenset(
         "report_validation_design_milestone_only",
         "report_computational_package_milestone_only",
         "report_resource_plan_milestone_only",
+        "prepare_experiment_self_test",
+        "register_experiment_self_test",
         "approve_experiment_execution",
         "report_missing_execution_inputs",
+        "prepare_run",
+        "register_research_result",
+        "quarantine_result",
+        "cleanup_quarantined_result",
+        "validate_experiment_package",
+        "audit_legacy_evidence",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})
 _RETRY_STATES = frozenset(
-    {"retry_available", "retry_limit_reached", "approval_invalidated", "artifact_invalidated"}
+    {
+        "retry_available",
+        "retry_limit_reached",
+        "approval_invalidated",
+        "artifact_invalidated",
+        "stage_twelve_registration_recovery",
+    }
 )
 
 

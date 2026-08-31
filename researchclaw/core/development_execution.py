@@ -25,6 +25,7 @@ from .execution_gate import (
 from .paths import validate_relative_path
 from .persistence import _fsync_directory
 from .project import ResearchProject
+from .transactions import project_mutation
 
 
 _ALLOWED_SPLIT_ROLES = ("train", "validation", "calibration", "test")
@@ -480,6 +481,7 @@ def _expected_dataset_counts(
     return expected
 
 
+@project_mutation
 def validate_development_result(
     project: ResearchProject,
     result_path: str,
@@ -611,6 +613,7 @@ def _append_execution_failure(
     )
 
 
+@project_mutation
 def run_development_experiment(
     project: ResearchProject,
     input_manifest_path: str,

@@ -61,68 +61,95 @@ _PYTHON_PATHS = (
 )
 _REQUIREMENTS_PATH = "experiment/code/requirements.txt"
 _README_PATH = "experiment/code/README.md"
-_CANONICAL_MAIN = (
-    "import argparse\n"
-    "import json\n"
-    "from pathlib import Path\n"
-    "from typing import Any\n\n"
-    "def load_config(config_path: Path) -> dict[str, Any]:\n"
-    "    if config_path.is_absolute():\n"
-    "        raise ValueError('config path must be project-relative')\n"
-    "    with config_path.open(encoding='utf-8') as handle:\n"
-    "        config = json.load(handle)\n"
-    "    if not isinstance(config, dict):\n"
-    "        raise ValueError('config must be an object')\n"
-    "    return config\n\n"
-    "def validate_inputs(config: dict[str, Any]) -> None:\n"
-    "    project_root = Path('.').resolve()\n"
-    "    contract = config['input_contract']\n"
-    "    required_paths = contract['required_paths']\n"
-    "    required_fields = contract['required_fields']\n"
-    "    if not required_paths or not required_fields:\n"
-    "        raise ValueError('input contract must be non-empty')\n"
-    "    for raw_path in required_paths:\n"
-    "        candidate = Path(raw_path)\n"
-    "        if candidate.is_absolute() or '..' in candidate.parts:\n"
-    "            raise ValueError('input path must be project-relative')\n"
-    "        cursor = Path()\n"
-    "        for part in candidate.parts:\n"
-    "            cursor /= part\n"
-    "            if cursor.is_symlink():\n"
-    "                raise ValueError('input path must not traverse symlinks')\n"
-    "        if not candidate.is_file():\n"
-    "            raise FileNotFoundError(raw_path)\n\n"
-    "        resolved = candidate.resolve(strict=True)\n"
-    "        if project_root not in resolved.parents:\n"
-    "            raise ValueError('input path must remain within the project root')\n"
-    "        with resolved.open(encoding='utf-8') as handle:\n"
-    "            record = json.load(handle)\n"
-    "        if not isinstance(record, dict) or any(\n"
-    "            field not in record for field in required_fields\n"
-    "        ):\n"
-    "            raise ValueError('input schema does not match contract')\n\n"
-    "def build_plan(config: dict[str, Any]) -> dict[str, Any]:\n"
-    "    return {\n"
-    "        'split_strategy': config['split_strategy'],\n"
-    "        'metrics': config['metrics'],\n"
-    "        'baselines': config['baselines'],\n"
-    "        'seeds': config['seeds'],\n"
-    "    }\n\n"
-    "def main(argv: list[str] | None = None) -> dict[str, Any]:\n"
-    "    parser = argparse.ArgumentParser()\n"
-    "    parser.add_argument('--config', required=True)\n"
-    "    parser.add_argument('--dry-run', action='store_true')\n"
-    "    args = parser.parse_args(argv)\n"
-    "    config = load_config(Path(args.config))\n"
-    "    validate_inputs(config)\n"
-    "    plan = build_plan(config)\n"
-    "    if args.dry_run:\n"
-    "        print(json.dumps(plan, sort_keys=True))\n"
-    "        return plan\n"
-    "    raise RuntimeError('execution is deferred to stage 12')\n\n"
-    "if __name__ == '__main__':\n"
-    "    main()\n"
-)
+_CANONICAL_MAIN = """import argparse
+import json
+import time
+from pathlib import Path
+from typing import Any
+
+MAX_JSON_BYTES = 1048576
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if not isinstance(key, str) or key in value:
+            raise ValueError('JSON keys must be unique strings')
+        value[key] = item
+    return value
+
+def _safe_path(raw_path: str) -> Path:
+    candidate = Path(raw_path)
+    if candidate.is_absolute() or not candidate.parts or '..' in candidate.parts:
+        raise ValueError('path must be project-relative')
+    cursor = Path()
+    for part in candidate.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise ValueError('path must not traverse symlinks')
+    resolved = candidate.resolve(strict=True)
+    project_root = Path('.').resolve()
+    if project_root not in resolved.parents or not resolved.is_file():
+        raise ValueError('path must identify a regular project file')
+    return resolved
+
+def _read_json(path: Path) -> tuple[dict[str, Any], bytes]:
+    safe = _safe_path(str(path))
+    with safe.open('rb') as handle:
+        payload = handle.read(MAX_JSON_BYTES + 1)
+    if len(payload) > MAX_JSON_BYTES:
+        raise ValueError('JSON file exceeds the execution bound')
+    value = json.loads(payload.decode('utf-8'), object_pairs_hook=_reject_duplicate_keys)
+    if not isinstance(value, dict):
+        raise ValueError('JSON file must contain an object')
+    return value, payload
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    config, _payload = _read_json(config_path)
+    return config
+
+def validate_inputs(config: dict[str, Any]) -> None:
+    contract = config['input_contract']
+    required_paths = contract['required_paths']
+    required_fields = contract['required_fields']
+    if not required_paths or not required_fields:
+        raise ValueError('input contract must be non-empty')
+    for raw_path in required_paths:
+        record, _payload = _read_json(Path(raw_path))
+        if any(field not in record for field in required_fields):
+            raise ValueError('input schema does not match contract')
+
+def build_plan(config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        'split_strategy': config['split_strategy'],
+        'metrics': config['metrics'],
+        'baselines': config['baselines'],
+        'seeds': config['seeds'],
+    }
+
+def run_experiment(config: dict[str, Any]) -> dict[str, Any]:
+    raise RuntimeError('experiment implementation missing')
+
+def main(argv: list[str] | None = None) -> dict[str, Any]:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', required=True)
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args(argv)
+    config_path = Path(args.config)
+    config = load_config(config_path)
+    plan = build_plan(config)
+    if args.dry_run:
+        validate_inputs(config)
+        print(json.dumps(plan, sort_keys=True))
+        return plan
+    validate_inputs(config)
+    started = time.monotonic()
+    result = run_experiment(config)
+    _elapsed_seconds = time.monotonic() - started
+    return result
+
+if __name__ == '__main__':
+    main()
+"""
 _CANONICAL_SMOKE = (
     "from pathlib import Path\n\n"
     "from experiment.code.main import build_plan, load_config, main, validate_inputs\n\n"
@@ -171,11 +198,17 @@ _TRACEABILITY_SOURCES = {
 _ALLOWED_IMPORT_EXPORTS = {
     "__future__": frozenset({"annotations"}),
     "argparse": frozenset({"ArgumentParser"}),
+    "hashlib": frozenset({"sha256"}),
+    "importlib.metadata": frozenset({"version"}),
     "json": frozenset({"dump", "dumps", "load", "loads"}),
+    "os": frozenset(),
     "pathlib": frozenset(
         {"Path", "PurePath", "PurePosixPath", "PureWindowsPath"}
     ),
+    "platform": frozenset({"machine", "python_build", "python_version"}),
+    "sys": frozenset(),
     "typing": frozenset({"Any"}),
+    "time": frozenset({"monotonic"}),
     "experiment.code.main": frozenset(
         {"build_plan", "load_config", "main", "validate_inputs"}
     ),
@@ -183,6 +216,8 @@ _ALLOWED_IMPORT_EXPORTS = {
 _ALLOWED_IMPORTED_CALLS = frozenset(
     {
         "argparse.ArgumentParser",
+        "hashlib.sha256",
+        "importlib.metadata.version",
         "experiment.code.main.build_plan",
         "experiment.code.main.load_config",
         "experiment.code.main.main",
@@ -191,10 +226,34 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "json.dumps",
         "json.load",
         "json.loads",
+        "os.close",
+        "os.fstat",
+        "os.lseek",
+        "os.open",
+        "os.read",
         "pathlib.Path",
         "pathlib.PurePath",
         "pathlib.PurePosixPath",
         "pathlib.PureWindowsPath",
+        "platform.machine",
+        "platform.python_build",
+        "platform.python_version",
+        "time.monotonic",
+    }
+)
+_CURRENT_PROCESS_ATTESTATION_CALLS = frozenset(
+    {
+        "ctypes.CDLL",
+        "ctypes.byref",
+        "ctypes.c_uint32",
+        "ctypes.create_string_buffer",
+        "ctypes.CDLL()._NSGetExecutablePath",
+        "ctypes.CDLL().proc_pidpath",
+        "libproc.proc_pidpath",
+        "libsystem._NSGetExecutablePath",
+        "os.fsdecode",
+        "os.getpid",
+        "os.readlink",
     }
 )
 _ALLOWED_DISTRIBUTIONS = frozenset({"pytest"})
@@ -213,9 +272,11 @@ _ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
 _ALLOWED_BUILTIN_CALLS = frozenset(
     {
         "FileNotFoundError",
+        "FileExistsError",
         "RuntimeError",
         "TypeError",
         "ValueError",
+        "abs",
         "all",
         "any",
         "bool",
@@ -246,13 +307,16 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "close",
         "decode",
         "encode",
+        "exists",
         "get",
         "is_absolute",
         "is_dir",
         "is_file",
         "is_symlink",
+        "hexdigest",
         "items",
         "keys",
+        "lower",
         "open",
         "parse_args",
         "read",
@@ -260,6 +324,9 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "read_text",
         "resolve",
         "sort",
+        "stat",
+        "strip",
+        "update",
         "values",
         "write",
         "write_bytes",
@@ -702,6 +769,11 @@ def _call_is_dynamic_dispatch(
     node: ast.Call,
     aliases: Mapping[str, str],
 ) -> bool:
+    if (
+        isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"lower", "strip"}
+    ):
+        return False
     current = node.func
     while isinstance(current, ast.Attribute):
         current = current.value
@@ -1244,7 +1316,18 @@ def _path_bindings(nodes: list[ast.AST]) -> dict[str, ast.AST]:
             for item in node.items:
                 if isinstance(item.optional_vars, ast.Name):
                     candidates.setdefault(item.optional_vars.id, []).append(item.context_expr)
-    return {name: values[0] for name, values in candidates.items() if len(values) == 1}
+    bindings: dict[str, ast.AST] = {}
+    for name, values in candidates.items():
+        # Reachable-function expansion may include the same syntax node through
+        # more than one call path.  Treat repeated references to that node as
+        # one binding while continuing to reject genuinely reassigned names.
+        unique_values: list[ast.AST] = []
+        for value in values:
+            if not any(value is existing for existing in unique_values):
+                unique_values.append(value)
+        if len(unique_values) == 1:
+            bindings[name] = unique_values[0]
+    return bindings
 
 
 def _mutation_path_expressions(node: ast.Call, aliases: Mapping[str, str]) -> tuple[ast.AST, ...]:
@@ -1400,6 +1483,79 @@ def _add_callable_aliases(tree: ast.AST, aliases: dict[str, str]) -> None:
                 aliases[name] = resolved or name
 
 
+def validate_python_capability_safety(
+    path: str,
+    source: str,
+    *,
+    allow_current_process_attestation: bool = False,
+) -> tuple[ComputationalPackageIssue, ...]:
+    """Return generic static capability violations for one generated Python file.
+
+    Package-specific validators may impose stricter artifact-write rules while
+    sharing this import, call-provenance, and absolute-path safety baseline.
+    """
+    try:
+        tree = ast.parse(source, filename=path)
+    except SyntaxError:
+        return ()
+    aliases = _import_aliases(tree)
+    _add_callable_aliases(tree, aliases)
+    callables = _LexicalCallables(tree)
+    forbidden = False
+    unsafe_path = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            forbidden = forbidden or any(
+                not _allowed_import(alias.name)
+                and not (
+                    allow_current_process_attestation and alias.name == "ctypes"
+                )
+                for alias in node.names
+            )
+        elif isinstance(node, ast.ImportFrom):
+            forbidden = forbidden or (
+                node.module is None
+                or node.level != 0
+                or not _allowed_import_from(node.module, node.names)
+            )
+        elif isinstance(node, ast.Call):
+            call_name = _resolved_call_name(node.func, aliases)
+            attestation_call = (
+                allow_current_process_attestation
+                and call_name in _CURRENT_PROCESS_ATTESTATION_CALLS
+            )
+            forbidden = forbidden or _forbidden_call(
+                call_name
+            ) or _call_is_dynamic_dispatch(node, aliases) or not (
+                attestation_call
+                or _call_has_allowed_provenance(node, aliases, callables)
+            )
+            unsafe_path = unsafe_path or (
+                _call_uses_absolute_path(node, aliases)
+                and not (
+                    attestation_call
+                    and call_name == "os.readlink"
+                    and len(node.args) == 1
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value == "/proc/self/exe"
+                    and not node.keywords
+                )
+            )
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
+    issues: list[ComputationalPackageIssue] = []
+    if forbidden:
+        _issue(
+            issues,
+            "forbidden_capability",
+            path,
+            "generated Python uses a prohibited capability",
+        )
+    if unsafe_path:
+        _issue(issues, "unsafe_path", path, "generated Python contains an absolute literal path")
+    return tuple(issues)
+
+
 def _validate_python_capabilities(
     outputs: Mapping[str, str], issues: list[ComputationalPackageIssue]
 ) -> None:
@@ -1414,34 +1570,17 @@ def _validate_python_capabilities(
 
         aliases = _import_aliases(tree)
         _add_callable_aliases(tree, aliases)
-        callables = _LexicalCallables(tree)
+        issues.extend(validate_python_capability_safety(path, source))
         forbidden = False
-        unsafe_path = False
         fake_result_assignment = False
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                forbidden = forbidden or any(not _allowed_import(alias.name) for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                forbidden = forbidden or (
-                    node.module is None
-                    or node.level != 0
-                    or not _allowed_import_from(node.module, node.names)
-                )
-            elif isinstance(node, ast.Call):
-                forbidden = forbidden or _forbidden_call(
-                    _resolved_call_name(node.func, aliases)
-                ) or _call_is_dynamic_dispatch(node, aliases) or not _call_has_allowed_provenance(
-                    node, aliases, callables
-                )
-                unsafe_path = unsafe_path or _call_uses_absolute_path(node, aliases)
-            elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
                 fake_result_assignment = fake_result_assignment or any(
                     _FAKE_RESULT_NAME.search(name) is not None
                     for target in targets
                     for name in _assignment_names(target)
                 )
-                unsafe_path = unsafe_path or _assignment_uses_absolute_path(node)
 
         if fake_result_assignment and not (
             path == "experiment/code/tests/test_smoke.py"
@@ -1469,8 +1608,6 @@ def _validate_python_capabilities(
                 path,
                 "generated Python uses a prohibited capability or synthetic-result fallback",
             )
-        if unsafe_path:
-            _issue(issues, "unsafe_path", path, "generated Python contains an absolute literal path")
 
 
 def _validate_requirements(
@@ -1965,7 +2102,10 @@ def _validate_python_contracts(
                 main_literals = _node_literals(main_direct_nodes)
                 valid = (
                     any(name in {"json.load", "json.loads"} for name in load_calls)
-                    and any(name.split(".")[-1] in {"open", "read_text"} for name in load_calls)
+                    and any(
+                        name.split(".")[-1] in {"open", "read_bytes", "read_text"}
+                        for name in load_calls
+                    )
                     and {"input_contract", "required_paths", "required_fields"}
                     <= validate_literals
                     and any(
@@ -1973,11 +2113,21 @@ def _validate_python_contracts(
                         for name in validate_calls
                     )
                     and any(
-                        name.split(".")[-1] in {"open", "read_text"}
+                        name.split(".")[-1] in {"open", "read_bytes", "read_text"}
                         for name in validate_calls
                     )
                     and any(
                         isinstance(node, ast.Raise)
+                        for node in validate_nodes
+                    )
+                    and any(
+                        isinstance(node, ast.comprehension)
+                        and _dotted_name(node.iter) == "required_fields"
+                        for node in validate_nodes
+                    )
+                    and any(
+                        isinstance(node, ast.Compare)
+                        and any(isinstance(operator, ast.NotIn) for operator in node.ops)
                         for node in validate_nodes
                     )
                     and {"split_strategy", "metrics", "baselines", "seeds"}

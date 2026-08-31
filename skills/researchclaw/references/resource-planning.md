@@ -60,18 +60,21 @@ declares exactly these inputs:
 
 Parse the packet's `profile_context.hardware_observation` JSON string and place
 the resulting object unchanged in `hardware_observation`. Do not fabricate a
-GPU fact. The packet also declares the fixed deferred command
-`python experiment/code/main.py --config experiment/code/config.json` and fixed
-result path `experiment/results.json`; they are descriptions of a future
-execution, not commands to run here.
+GPU fact. The packet also declares a fixed deferred entry-point description
+and result path `experiment/results.json`; they describe future execution and
+are not commands to run here. Only a later authoritative argv array beginning
+with a verified absolute interpreter may be executed by the user.
 
 After a valid plan, Stage 11 advances the durable project to the Stage 12
 approval boundary. Show the plan, readiness, warnings, and prerequisites to
-the user. Stage 12 is approval-only and non-executing. An explicit `approve`
-or `reject` decision is required. Approval records a hash-bound decision only;
-it never executes the experiment, deferred command, or generated code. A
-rejection remains locked; it requires a later explicit re-decision (`approve`)
-after reconsideration. Never decide or re-decide on the user's behalf.
+the user. Stage 12 begins with the approval boundary and remains non-executing
+for ResearchClaw. An explicit `approve` or `reject` decision is required.
+Approval records a hash-bound decision only; it never executes the experiment,
+deferred command, or generated code. After approval, the separate explicit
+handoff below can prepare a user-run command and later register only its
+contract-bound result. A rejection remains locked; it requires a later
+explicit re-decision (`approve`) after reconsideration. Never decide or
+re-decide on the user's behalf.
 
 ## Closed `experiment/resources.json` schema
 
@@ -192,9 +195,11 @@ count is at most `1`. Its values are derived, not estimated independently:
 
 ### Fixed fields and derived status
 
-`deferred_command` is exactly
-`python experiment/code/main.py --config experiment/code/config.json`, and
-`result_path` is exactly `experiment/results.json`.
+`deferred_command` is a non-authoritative display description of the entry
+point and config, and `result_path` is exactly `experiment/results.json`.
+Stage 12 creates a separate authoritative argv array whose first item is the
+verified absolute interpreter. Never execute the display description or
+substitute a `python` alias.
 
 `prohibitions` has exactly these boolean fields, all `false`:
 
@@ -226,6 +231,65 @@ refreshes only passive hardware, input facts, drift warnings,
 `unmet_prerequisites`, and `readiness`; it rejects changed immutable planning
 fields. Recheck must not add, remove, or change an input path, task, budget, or
 deferred command. A passive `execution recheck` cannot erase a current human
-rejection. Report its JSON readiness and then stop. Do not execute
-`python experiment/code/main.py --config experiment/code/config.json`; do not
+rejection. Report its JSON readiness and then stop. Do not execute the
+deferred display description; do not
 write `experiment/results.json`; do not prepare or run a Stage-12 experiment.
+
+## Explicit research handoff and registration
+
+Before approval, obtain the complete self-test argv without undocumented
+interpreter knowledge:
+
+```text
+researchclaw-codex experiment prepare-self-test ROOT --json
+```
+
+The user runs its returned authoritative `argv`, whose first item is the
+verified absolute interpreter, then uses its `registration_argv` to register
+the report:
+
+```text
+researchclaw-codex experiment register-self-test ROOT --report experiment/self_test_report.json --confirm-self-test --json
+```
+
+Only a current registered report is approval-eligible. Present it and the plan
+so the user can review and decide; ResearchClaw never supplies the decision.
+After approval, a separate explicit command may prepare the immutable
+execution handoff:
+
+```text
+researchclaw-codex execution prepare-run ROOT --json
+```
+
+It writes `experiment/execution_contract.json` and returns an authoritative
+argv array beginning with the verified absolute interpreter. A quoted command
+is a display string only. It does not execute that argv. The user runs it
+exactly in the project root. The fixed Stage-10 entry point validates the current
+contract, all bound package files, and every required input before running its
+bounded behavior and writing only `experiment/results.json`. Command stdout
+and any development result are never research evidence, and a development
+result is never registerable as research evidence.
+
+Only the result path bound by that contract, `experiment/results.json`, can be
+registered after the user-run command completes:
+
+```text
+researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
+```
+
+`--confirm-research-result` is required. Registration validates the contract
+binding and result schema, performs descriptor-based disk preflight and
+content-hash deduplication, then publishes immutable objects and a closed
+immutable manifest. Only those objects ground Stage 13; mutable working files
+do not. A successful registration advances to Stage 13; Stage 13 refinement
+remains separate and is not executed or implemented by this interface.
+
+Legacy generic contracts, mutable results, and ungrounded Stage-13 artifacts
+are `legacy_untrusted`: audit-only and non-registerable. Use
+`researchclaw-codex evidence audit ROOT --json`; never silently migrate them.
+Quarantine actions require `--confirm`. Evidence objects are never operator-deleted.
+Recovery preserves a published partial quarantine temp and
+never writes it again; it uses a fresh inode when capacity permits or fails
+closed for explicit manual/operator action. A complete read-only candidate may
+be verified and published without mutation. The adversarial release gate
+verifies this guarantee.

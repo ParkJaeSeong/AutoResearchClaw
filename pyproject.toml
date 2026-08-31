@@ -41,6 +41,41 @@ researchclaw-codex = "researchclaw.codex.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["researchclaw", "sibyl", "arc"]
 
+[tool.pytest.ini_options]
+addopts = "-m 'not large_evidence'"
+markers = [
+    "large_evidence: opt-in 1 GiB immutable evidence streaming benchmark",
+]
+
+[tool.ruff]
+# The Codex-native release gate owns core/codex and its native tests.  The
+# retained upstream autonomous implementation has a pre-existing lint backlog
+# and is outside this fork's current execution boundary.
+extend-exclude = [
+    "researchclaw/agents",
+    "researchclaw/calendar",
+    "researchclaw/cli.py",
+    "researchclaw/copilot",
+    "researchclaw/dashboard",
+    "researchclaw/domains",
+    "researchclaw/evolution.py",
+    "researchclaw/experiment",
+    "researchclaw/hitl",
+    "researchclaw/knowledge",
+    "researchclaw/literature",
+    "researchclaw/llm",
+    "researchclaw/memory",
+    "researchclaw/metaclaw_bridge",
+    "researchclaw/overleaf",
+    "researchclaw/pipeline",
+    "researchclaw/server",
+    "researchclaw/servers",
+    "researchclaw/templates",
+    "researchclaw/trends",
+    "researchclaw/web",
+    "researchclaw/wizard",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

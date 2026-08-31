@@ -16,6 +16,7 @@ from .paths import resolve_project_artifact
 from .profiles import load_profile
 from .project import ResearchProject
 from .resource_planning import observe_local_hardware
+from .transactions import project_mutation
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _SUSPICIOUS_LEGACY_STAGE_TEN_PATH_FAMILIES = (
@@ -185,6 +186,7 @@ def _legacy_stage_ten_baseline_blockers(
     return tuple(sorted(blockers))
 
 
+@project_mutation
 def prepare_task_packet(
     project: ResearchProject, *, establish_legacy_baseline: bool = False
 ) -> TaskPacket:

@@ -30,6 +30,7 @@ from .resource_planning import (
     validate_stage_eleven,
 )
 from .task_packets import TaskPacket, build_task_packet
+from .transactions import project_mutation
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 
@@ -351,6 +352,7 @@ def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, 
     return packet, contract
 
 
+@project_mutation
 def validate_current_stage(project: ResearchProject) -> ValidationReport:
     """Validate the current task packet's outputs and persist its resulting state."""
     current_project = ResearchProject.open(project.root)

@@ -1,7 +1,7 @@
 # Codex-Native Stage 12 Research Result Registration Design
 
 **Date:** 2026-08-29  
-**Status:** Approved design  
+**Status:** Superseded for future implementation by `2026-08-30-stage12-trustworthy-execution-evidence-design.md`
 **Scope:** Explicit research execution handoff, result registration, and Stage 12 completion
 
 ## Purpose
@@ -123,7 +123,14 @@ Required invariants:
 - Runtime values are finite, non-negative, and do not exceed the approved execution budget.
 - The result is a project-relative regular file and is not `experiment/dev_results.json`.
 
-The current Stage 10 code generator predates the execution contract. Therefore `prepare-run` also emits a bounded result-template section in its JSON response and execution contract. The user or executing program must use that template to include the contract identity. Future Stage 10 work may generate this integration directly, but registration does not weaken its contract for legacy packages.
+The fixed Stage 10 generator integrates this contract directly. Its exact
+non-dry command loads the canonical current execution contract, recomputes its
+identity and result template, streams and verifies every bound package file and
+required input, enforces the approved budget and prohibitions, runs only the
+generated bounded experiment behavior, and exclusively creates the declared
+`experiment/results.json`. `prepare-run` remains non-executing and continues to
+return the same bounded template for inspection. Registration never weakens
+the contract for a legacy or manually supplied result.
 
 ## Registration and State Transition
 
@@ -145,6 +152,13 @@ Validation failure leaves state, approval records, result contents, resources, a
 ## Compatibility and Stage 13 Boundary
 
 Stage 13 will depend on the registered artifact, not merely on the existence of `experiment/results.json`. Its implementation must verify the state artifact SHA-256 before reading results.
+
+If Stage-13 grounding later fails, durable normalization rewinds to Stage 12
+using only an implemented action: a valid unregistered result is sent to
+`register_research_result`, a missing or stale contract/result is sent to
+`prepare_run`, and an invalid approval is sent to
+`approve_experiment_execution`. Stage 12 never advertises the unsupported
+generic `validate_stage` action for this recovery boundary.
 
 The core contracts already define Stage 13 as `iterative_refine`, taking `experiment/results.json` and producing `experiment/iterations.jsonl`. Support for preparing and validating Stage 13 remains a separate change. This Stage 12 work may extend the supported-stage boundary only far enough to represent a completed Stage 12 and a ready Stage 13 state; it must not claim Stage 13 implementation is complete.
 
@@ -186,7 +200,26 @@ Implementation follows test-driven development and covers:
 - bounded event payloads;
 - existing development execution and all Codex-native regression tests.
 
-An integration test will prepare a real Stage 12 project, create a small contract-bound fixture result without running a costly experiment, register it, and verify that state moves to Stage 13 while all upstream artifacts remain byte-identical.
+An integration test prepares a real Stage 12 project, invokes the exact
+returned command outside ResearchClaw, proves that only
+`experiment/results.json` changed, registers it, and verifies that state moves
+to Stage 13 while all upstream artifacts remain byte-identical.
+
+Registration, ordinary state/artifact mutation, validation, and event append
+share one project transaction lock. A durable pending registration excludes
+unrelated mutations with the stable `project_transaction_pending` category.
+Initial registration, committing recovery, and Stage-13 grounding use the same
+strict side-effect-free validator. Recovery compensates to canonical Stage 12
+when approval, contract, input, provenance, flags, schema, split, leakage,
+metric, or runtime evidence drifts.
+
+Contract, result, event-record, and pending-transaction JSON have byte caps
+enforced before decoding or durable write. Required-input and package-file
+identities use no-symlink, openat-based streaming stat/SHA-256 reads; event-log
+prefix validation streams bounded records rather than retaining the whole log.
+An interrupted ResearchClaw-owned contract preparation is distinguished by a
+small durable journal and may be resumed only after current approval and
+bindings revalidate.
 
 ## Non-Goals
 

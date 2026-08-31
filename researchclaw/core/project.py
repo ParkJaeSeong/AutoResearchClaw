@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import os
 from pathlib import Path
+import shlex
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -40,12 +42,18 @@ class ResearchProject:
             topic=topic,
             profile=profile,
         )
-        StateStore(metadata_root).save(state)
         from .events import EvaluationEvent, event_log_for
+        from .transactions import project_transaction
 
-        event_log_for(root).append(
-            EvaluationEvent.create("project_created", state.project_id, {"topic": topic, "profile": profile})
-        )
+        with project_transaction(root):
+            StateStore(metadata_root).save(state)
+            event_log_for(root).append(
+                EvaluationEvent.create(
+                    "project_created",
+                    state.project_id,
+                    {"topic": topic, "profile": profile},
+                )
+            )
         return cls(root=root, state=state)
 
     @classmethod
@@ -173,21 +181,58 @@ class ResearchProject:
         from .resource_planning import validated_execution_readiness
 
         current_project = normalize_durable_project(self)
-        readiness, prerequisites, approval_eligible = validated_execution_readiness(
-            current_project
-        )
+        if (
+            current_project.state.current_stage == 13
+            and 12 in current_project.state.completed_stages
+        ):
+            readiness, prerequisites, approval_eligible = None, (), False
+        else:
+            readiness, prerequisites, approval_eligible = (
+                validated_execution_readiness(current_project)
+            )
         approval_eligible = (
             approval_eligible
             and current_project.state.current_stage == 12
             and current_project.state.status is StageStatus.AWAITING_APPROVAL
             and current_project.state.next_action == "approve_experiment_execution"
         )
-        return {
+        if approval_eligible:
+            try:
+                from .experiment_package_contract import _current_registered_self_test
+
+                _current_registered_self_test(current_project)
+            except (OSError, ValueError):
+                approval_eligible = False
+        payload = {
             **current_project.state.to_dict(),
             "execution_readiness": readiness,
             "unmet_prerequisites": list(prerequisites),
             "approval_eligible": approval_eligible,
         }
+        if current_project.state.next_action == "prepare_experiment_self_test":
+            payload["next_command"] = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "prepare-self-test",
+                    str(current_project.root.resolve()),
+                    "--json",
+                )
+            )
+        elif current_project.state.next_action == "register_experiment_self_test":
+            payload["next_command"] = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "experiment",
+                    "register-self-test",
+                    str(current_project.root.resolve()),
+                    "--report",
+                    "experiment/self_test_report.json",
+                    "--confirm-self-test",
+                    "--json",
+                )
+            )
+        return payload
 
     def persist_state(self, state: ProjectState) -> "ResearchProject":
         """Persist a replacement state and return the refreshed project value."""
@@ -198,17 +243,24 @@ class ResearchProject:
         """Reconstruct a durable handoff after reopening project files."""
         from .events import EvaluationEvent, event_log_for
         from .handoff import build_handoff
+        from .transactions import project_transaction
 
-        handoff = build_handoff(self)
-        event_log_for(self.root).append(
-            EvaluationEvent.create(
-                "resume",
-                handoff.project_id,
-                {
-                    "current_stage": handoff.current_stage,
-                    "status": handoff.status,
-                    "next_action": handoff.next_action,
-                },
+        with project_transaction(self.root, allow_pending=True):
+            handoff = build_handoff(self)
+            from .experiment_package_contract import (
+                _self_test_registration_pending_path,
             )
-        )
+
+            if not os.path.lexists(_self_test_registration_pending_path(self)):
+                event_log_for(self.root).append(
+                    EvaluationEvent.create(
+                        "resume",
+                        handoff.project_id,
+                        {
+                            "current_stage": handoff.current_stage,
+                            "status": handoff.status,
+                            "next_action": handoff.next_action,
+                        },
+                    )
+                )
         return handoff

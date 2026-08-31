@@ -1,10 +1,22 @@
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+from unittest.mock import patch
 
 from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
+from researchclaw.core.execution_gate import recheck_execution_readiness
+from researchclaw.core.experiment_package_contract import (
+    SELF_TEST_REPORT_PATH,
+    register_experiment_self_test,
+    validate_experiment_package_contract,
+)
+from researchclaw.core.models import ArtifactRef, StageStatus
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.resource_planning import (
     hardware_drift_warnings,
@@ -446,6 +458,593 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
     }
 
 
+def build_known_answer_experiment_package(root: Path) -> ResearchProject:
+    """Build the closed Stage-10 package used by evidence-contract tests."""
+    project = ResearchProject.create(root, "known-answer package", "materials_ai")
+    fixture_path = project.root / "experiment/self_test_fixture.json"
+    fixture_payload = {
+        "targets": [1.0, 2.0, 3.0, 4.0],
+        "predictions": [1.5, 1.5, 2.5, 4.5],
+    }
+    fixture_path.parent.mkdir(parents=True, exist_ok=True)
+    fixture_path.write_text(
+        json.dumps(fixture_payload, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    main_path = project.root / "experiment/code/main.py"
+    main_path.parent.mkdir(parents=True, exist_ok=True)
+    main_source = '''import argparse
+import ctypes
+import hashlib
+from importlib.metadata import version
+import json
+import os
+from pathlib import Path
+from platform import machine, python_build, python_version
+import sys
+
+
+def mean_absolute_error(targets: list[float], predictions: list[float]) -> float:
+    return sum(abs(a - b) for a, b in zip(targets, predictions, strict=True)) / len(targets)
+
+
+def run_experiment(config: dict[str, object]) -> dict[str, object]:
+    targets = [1.0, 2.0, 3.0, 4.0]
+    predictions = [1.5, 1.5, 2.5, 4.5]
+    return {"mae": mean_absolute_error(targets, predictions)}
+
+
+def execution_environment_descriptor_identity(descriptor: int) -> dict[str, int | str]:
+    identity = os.fstat(descriptor)
+    if identity.st_mode & 0o170000 != 0o100000 or not identity.st_mode & 0o111:
+        raise ValueError("execution environment unavailable")
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    digest = hashlib.sha256()
+    while chunk := os.read(descriptor, 1048576):
+        digest.update(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    return {
+        "device": identity.st_dev,
+        "inode": identity.st_ino,
+        "size": identity.st_size,
+        "mtime_ns": identity.st_mtime_ns,
+        "sha256": digest.hexdigest(),
+    }
+
+
+def execution_environment_process_image() -> Path:
+    if sys.platform == "darwin":
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        proc_buffer = ctypes.create_string_buffer(4096)
+        proc_length = libproc.proc_pidpath(os.getpid(), proc_buffer, len(proc_buffer))
+        if proc_length <= 0 or proc_length >= len(proc_buffer):
+            raise ValueError("execution environment unavailable")
+        libsystem = ctypes.CDLL(None, use_errno=True)
+        size = ctypes.c_uint32(0)
+        if libsystem._NSGetExecutablePath(None, ctypes.byref(size)) != -1 or size.value <= 1:
+            raise ValueError("execution environment unavailable")
+        dyld_buffer = ctypes.create_string_buffer(size.value)
+        if libsystem._NSGetExecutablePath(dyld_buffer, ctypes.byref(size)) != 0:
+            raise ValueError("execution environment unavailable")
+        proc_path = Path(os.fsdecode(proc_buffer.value)).resolve(strict=True)
+        dyld_path = Path(os.fsdecode(dyld_buffer.value)).resolve(strict=True)
+        if proc_path != dyld_path:
+            raise ValueError("execution environment unavailable")
+        return proc_path
+    if sys.platform == "linux":
+        return Path(os.readlink("/proc/self/exe")).resolve(strict=True)
+    raise ValueError("execution environment unavailable")
+
+
+def execution_environment_framework_root(path: Path) -> Path | None:
+    expected_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    for index in range(len(path.parts) - 2):
+        if path.parts[index:index + 3] == (
+            "Python.framework",
+            "Versions",
+            expected_version,
+        ):
+            return Path(*path.parts[:index + 3])
+    return None
+
+
+def execution_environment_runtime_paths() -> tuple[Path, Path, Path, bool]:
+    interpreter = Path(sys.executable).resolve(strict=True)
+    base_interpreter = Path(sys._base_executable).resolve(strict=True)
+    process_image = execution_environment_process_image()
+    is_venv = sys.prefix != sys.base_prefix
+    if is_venv:
+        prefix = Path(sys.prefix).resolve(strict=True)
+        configuration = prefix / "pyvenv.cfg"
+        if configuration.resolve(strict=True) != configuration or not configuration.is_file():
+            raise ValueError("execution environment unavailable")
+        if interpreter.parent != prefix / "bin":
+            raise ValueError("execution environment unavailable")
+    elif interpreter != base_interpreter:
+        raise ValueError("execution environment unavailable")
+    if sys.platform == "darwin":
+        framework_root = execution_environment_framework_root(base_interpreter)
+        image_framework_root = execution_environment_framework_root(process_image)
+        if framework_root is None or image_framework_root is None:
+            if base_interpreter != process_image:
+                raise ValueError("execution environment unavailable")
+        elif (
+            framework_root != image_framework_root
+            or base_interpreter.parent != framework_root / "bin"
+            or base_interpreter.name
+            != f"python{sys.version_info.major}.{sys.version_info.minor}"
+            or process_image
+            != framework_root / "Resources/Python.app/Contents/MacOS/Python"
+        ):
+            raise ValueError("execution environment unavailable")
+    elif sys.platform == "linux":
+        expected_process_image = interpreter if is_venv else base_interpreter
+        if expected_process_image != process_image:
+            raise ValueError("execution environment unavailable")
+    else:
+        raise ValueError("execution environment unavailable")
+    return interpreter, process_image, base_interpreter, is_venv
+
+
+def execution_environment_fingerprint(
+    required_distributions: list[str], expected_interpreter: str | None = None
+) -> str:
+    interpreter, process_image, base_interpreter, is_venv = (
+        execution_environment_runtime_paths()
+    )
+    if expected_interpreter is not None and expected_interpreter != str(interpreter):
+        raise ValueError("execution environment changed")
+    interpreter_descriptor = os.open(
+        interpreter,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    process_descriptor = os.open(
+        process_image,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    base_descriptor = os.open(
+        base_interpreter,
+        os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+    )
+    try:
+        interpreter_identity = execution_environment_descriptor_identity(
+            interpreter_descriptor
+        )
+        process_identity = execution_environment_descriptor_identity(process_descriptor)
+        base_identity = execution_environment_descriptor_identity(base_descriptor)
+        if is_venv and (
+            interpreter_identity["size"] != base_identity["size"]
+            or interpreter_identity["sha256"] != base_identity["sha256"]
+        ):
+            raise ValueError("execution environment unavailable")
+        dependencies = {name: version(name) for name in required_distributions}
+        implementation = sys.implementation.name.strip().lower()
+        release = python_version().strip()
+        full_version = sys.version.strip()
+        build = list(python_build())
+        system = sys.platform.strip().lower()
+        architecture = machine().strip().lower()
+        if execution_environment_runtime_paths() != (
+            interpreter,
+            process_image,
+            base_interpreter,
+            is_venv,
+        ):
+            raise ValueError("execution environment changed")
+        if (
+            execution_environment_descriptor_identity(interpreter_descriptor)
+            != interpreter_identity
+            or execution_environment_descriptor_identity(process_descriptor)
+            != process_identity
+            or execution_environment_descriptor_identity(base_descriptor) != base_identity
+        ):
+            raise ValueError("execution environment changed")
+        final_interpreter_descriptor = None
+        final_process_descriptor = None
+        try:
+            if (
+                interpreter.resolve(strict=True) != interpreter
+                or process_image.resolve(strict=True) != process_image
+            ):
+                raise ValueError("execution environment changed")
+            interpreter_path_identity = interpreter.stat()
+            process_path_identity = process_image.stat()
+            if (
+                interpreter_path_identity.st_mode & 0o170000 != 0o100000
+                or not interpreter_path_identity.st_mode & 0o111
+                or process_path_identity.st_mode & 0o170000 != 0o100000
+                or not process_path_identity.st_mode & 0o111
+            ):
+                raise ValueError("execution environment changed")
+            final_interpreter_descriptor = os.open(
+                interpreter,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            final_process_descriptor = os.open(
+                process_image,
+                os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            )
+            final_interpreter_identity = execution_environment_descriptor_identity(
+                final_interpreter_descriptor
+            )
+            final_process_identity = execution_environment_descriptor_identity(
+                final_process_descriptor
+            )
+            if (
+                interpreter_path_identity.st_dev
+                != final_interpreter_identity["device"]
+                or interpreter_path_identity.st_ino
+                != final_interpreter_identity["inode"]
+                or process_path_identity.st_dev != final_process_identity["device"]
+                or process_path_identity.st_ino != final_process_identity["inode"]
+                or final_interpreter_identity != interpreter_identity
+                or final_process_identity != process_identity
+            ):
+                raise ValueError("execution environment changed")
+        except (OSError, ValueError) as error:
+            raise ValueError("execution environment changed") from error
+        finally:
+            if final_interpreter_descriptor is not None:
+                os.close(final_interpreter_descriptor)
+            if final_process_descriptor is not None:
+                os.close(final_process_descriptor)
+    finally:
+        os.close(interpreter_descriptor)
+        os.close(process_descriptor)
+        os.close(base_descriptor)
+    payload = {
+        "schema_version": 1,
+        "interpreter": str(interpreter),
+        "interpreter_identity": {
+            "device": interpreter_identity["device"],
+            "inode": interpreter_identity["inode"],
+            "size": interpreter_identity["size"],
+            "mtime_ns": interpreter_identity["mtime_ns"],
+            "sha256": interpreter_identity["sha256"],
+        },
+        "process_image": str(process_image),
+        "process_image_identity": {
+            "device": process_identity["device"],
+            "inode": process_identity["inode"],
+            "size": process_identity["size"],
+            "mtime_ns": process_identity["mtime_ns"],
+            "sha256": process_identity["sha256"],
+        },
+        "python_implementation": implementation,
+        "python_version": release,
+        "python_full_version": full_version,
+        "python_build": build,
+        "platform": system,
+        "machine": architecture,
+        "dependencies": dict(sorted(dependencies.items())),
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    fingerprint_digest = hashlib.sha256(canonical.encode("utf-8"))
+    return fingerprint_digest.hexdigest()
+
+
+def main(argv: list[str] | None = None) -> dict[str, object]:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args(argv)
+    config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+    if args.self_test:
+        fixture_path = Path("experiment/self_test_fixture.json")
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        result = {"mae": mean_absolute_error(fixture["targets"], fixture["predictions"])}
+        contract_digest = hashlib.sha256(Path("experiment/package_contract.json").read_bytes())
+        manifest_digest = hashlib.sha256(Path("experiment/package_manifest.json").read_bytes())
+        entry_point_digest = hashlib.sha256(Path("experiment/code/main.py").read_bytes())
+        fixture_digest = hashlib.sha256(fixture_path.read_bytes())
+        package_contract = json.loads(
+            Path("experiment/package_contract.json").read_text(encoding="utf-8")
+        )
+        package_files = [
+            {"path": entry["path"], "sha256": entry["sha256"]}
+            for entry in json.loads(
+                Path("experiment/package_manifest.json").read_text(encoding="utf-8")
+            )["files"]
+        ]
+        report = {
+            "schema_version": 1,
+            "package_contract": {
+                "path": "experiment/package_contract.json",
+                "sha256": contract_digest.hexdigest(),
+            },
+            "package_manifest": {
+                "path": "experiment/package_manifest.json",
+                "sha256": manifest_digest.hexdigest(),
+            },
+            "entry_point": {
+                "path": "experiment/code/main.py",
+                "sha256": entry_point_digest.hexdigest(),
+            },
+            "package_files": package_files,
+            "fixture": {
+                "path": str(fixture_path),
+                "sha256": fixture_digest.hexdigest(),
+            },
+            "environment_fingerprint": execution_environment_fingerprint(
+                package_contract["dependencies"]
+            ),
+            "metrics": [{"name": "mae", "actual": result["mae"], "expected": 0.5, "tolerance": 0.0}],
+            "passed": True,
+            "development_only": True,
+        }
+        Path("experiment/self_test_report.json").write_text(json.dumps(report, sort_keys=True) + "\\n", encoding="utf-8")
+        return report
+    execution_path = Path("experiment/execution_contract.json")
+    if execution_path.exists():
+        execution_contract = json.loads(execution_path.read_text(encoding="utf-8"))
+        package_contract = json.loads(
+            Path("experiment/package_contract.json").read_text(encoding="utf-8")
+        )
+        if execution_contract["environment_fingerprint"] != execution_environment_fingerprint(
+            package_contract["dependencies"], execution_contract["argv"][0]
+        ):
+            raise ValueError("execution environment changed")
+    result = run_experiment(config)
+    Path("experiment/results.json").write_text(json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")
+    return result
+
+
+if __name__ == "__main__":
+    main()
+'''
+    main_path.write_text(main_source, encoding="utf-8")
+    config_path = project.root / "experiment/code/config.json"
+    config_path.write_text("{}\n", encoding="utf-8")
+    self_test_config_path = project.root / "experiment/code/self_test_config.json"
+    self_test_config_path.write_text("{}\n", encoding="utf-8")
+    manifest_path = project.root / "experiment/package_manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "files": [
+                    {
+                        "path": "experiment/code/main.py",
+                        "sha256": hashlib.sha256(main_source.encode("utf-8")).hexdigest(),
+                    },
+                    {
+                        "path": "experiment/code/config.json",
+                        "sha256": hashlib.sha256(b"{}\n").hexdigest(),
+                    },
+                    {
+                        "path": "experiment/code/self_test_config.json",
+                        "sha256": hashlib.sha256(
+                            b"{}\n"
+                        ).hexdigest(),
+                    },
+                ]
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    contract = {
+        "schema_version": 1,
+        "entry_point": "experiment/code/main.py",
+        "config_path": "experiment/code/config.json",
+        "result_path": "experiment/results.json",
+        "metrics": [
+            {
+                "name": "mae",
+                "unit": "absolute_error",
+                "implementation": "experiment.code.main:mean_absolute_error",
+            }
+        ],
+        "self_test": {
+            "argv_suffix": [
+                "--config",
+                "experiment/code/self_test_config.json",
+                "--self-test",
+            ],
+            "fixture_path": "experiment/self_test_fixture.json",
+            "expected_metrics": [
+                {"name": "mae", "expected": 0.5, "tolerance": 0.0}
+            ],
+        },
+        "execution": {"argv_suffix": ["--config", "experiment/code/config.json"]},
+        "dependencies": [],
+        "prohibitions": {},
+    }
+    (project.root / "experiment/package_contract.json").write_text(
+        json.dumps(contract, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    return ResearchProject.open(root)
+
+
+def build_self_test_registration_project(root: Path) -> ResearchProject:
+    """Promote the closed known-answer package to the Stage-12 registration gate."""
+    project = build_known_answer_experiment_package(root)
+    project.persist_state(
+        replace(
+            project.state,
+            current_stage=12,
+            status=StageStatus.AWAITING_APPROVAL,
+            completed_stages=tuple(range(1, 12)),
+            next_action="approve_experiment_execution",
+        )
+    )
+    return ResearchProject.open(root)
+
+
+def _current_artifact(root: Path, relative_path: str) -> ArtifactRef:
+    path = root / relative_path
+    payload = path.read_bytes()
+    return ArtifactRef(
+        path=relative_path,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        size=len(payload),
+    )
+
+
+def _install_known_answer_stage_twelve_package(project: ResearchProject) -> ResearchProject:
+    source = build_known_answer_experiment_package(
+        project.root.parent / f".{project.root.name}-known-answer-source"
+    )
+    copied_paths = (
+        "experiment/code/main.py",
+        "experiment/code/self_test_config.json",
+        "experiment/package_contract.json",
+        "experiment/self_test_fixture.json",
+    )
+    for relative_path in copied_paths:
+        target = project.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source.root / relative_path, target)
+
+    main_path = project.root / "experiment/code/main.py"
+    main_source = main_path.read_text(encoding="utf-8")
+    generic_result_write = (
+        "    result = run_experiment(config)\n"
+        "    Path(\"experiment/results.json\").write_text(json.dumps(result, sort_keys=True) + \"\\n\", encoding=\"utf-8\")\n"
+        "    return result\n"
+    )
+    contract_bound_result_write = '''    execution_path = Path("experiment/execution_contract.json")
+    execution_bytes = execution_path.read_bytes()
+    execution_contract = json.loads(execution_bytes.decode("utf-8"))
+    bindings = execution_contract["bindings"]
+    for binding in [
+        bindings["design"], bindings["package_manifest"], bindings["config"],
+        bindings["resources"], *bindings["package_files"],
+    ]:
+        payload = Path(binding["path"]).read_bytes()
+        binding_digest = hashlib.sha256(payload)
+        if binding_digest.hexdigest() != binding["sha256"]:
+            raise ValueError("execution binding changed")
+    for declared in execution_contract["inputs"]:
+        payload = Path(declared["path"]).read_bytes()
+        input_digest = hashlib.sha256(payload)
+        if (
+            len(payload) != declared["size_bytes"]
+            or input_digest.hexdigest() != declared["sha256"]
+        ):
+            raise ValueError("execution input changed")
+    resources = json.loads(Path(bindings["resources"]["path"]).read_text(encoding="utf-8"))
+    maximum_seconds = resources["budget"]["total_estimated_duration_seconds"]
+    experiment_result = run_experiment(config)
+    metric = config["metrics"][0]
+    execution_digest = hashlib.sha256(execution_bytes)
+    result = {
+        "schema_version": 1,
+        "project_id": execution_contract["project_id"],
+        "execution_contract": {
+            "path": str(execution_path),
+            "contract_id": execution_contract["contract_id"],
+            "sha256": execution_digest.hexdigest(),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {
+            "primary": {
+                "name": metric["name"],
+                "value": float(experiment_result["mae"]),
+                "unit": metric["unit"],
+            }
+        },
+        "split_summary": {
+            "isolation_key": config["split_strategy"]["isolation_key"],
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "bindings": bindings,
+            "inputs": execution_contract["inputs"],
+        },
+        "runtime": {
+            "elapsed_seconds": min(1.0, float(maximum_seconds)),
+            "maximum_seconds": maximum_seconds,
+        },
+    }
+    Path("experiment/results.json").write_text(
+        json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\\n",
+        encoding="utf-8",
+    )
+    return result
+'''
+    assert generic_result_write in main_source
+    main_path.write_text(
+        main_source.replace(generic_result_write, contract_bound_result_write),
+        encoding="utf-8",
+    )
+
+    manifest_path = project.root / "experiment/package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    main_ref = _current_artifact(project.root, "experiment/code/main.py")
+    for entry in manifest["files"]:
+        if entry["path"] == main_ref.path:
+            entry["sha256"] = main_ref.sha256
+            break
+    self_test_config_ref = _current_artifact(
+        project.root, "experiment/code/self_test_config.json"
+    )
+    manifest["files"].append(
+        {
+            "path": self_test_config_ref.path,
+            "role": "self_test_configuration",
+            "sha256": self_test_config_ref.sha256,
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+    resources_path = project.root / "experiment/resources.json"
+    resources = json.loads(resources_path.read_text(encoding="utf-8"))
+    resources["bindings"]["package_manifest"]["sha256"] = hashlib.sha256(
+        manifest_path.read_bytes()
+    ).hexdigest()
+    resources_path.write_text(
+        json.dumps(resources, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    updated = ResearchProject.open(project.root)
+    tracked = {
+        relative_path: _current_artifact(project.root, relative_path)
+        for relative_path in (
+            "experiment/code/main.py",
+            "experiment/package_manifest.json",
+            "experiment/resources.json",
+        )
+    }
+    updated.persist_state(
+        replace(updated.state, artifacts={**updated.state.artifacts, **tracked})
+    )
+    return ResearchProject.open(project.root)
+
+
+def register_stage_twelve_known_answer_self_test(
+    project: ResearchProject,
+) -> ArtifactRef:
+    """Explicitly run the test package's known answer, then register its report."""
+    package = validate_experiment_package_contract(project)
+    completed = subprocess.run(
+        [sys.executable, "experiment/code/main.py", *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return register_experiment_self_test(
+        ResearchProject.open(project.root), SELF_TEST_REPORT_PATH
+    )
+
+
 def set_stage_ten_required_paths(root: Path, required_paths: list[str]) -> None:
     """Keep the Stage-10 config and manifest fixture hashes aligned."""
     config_path = root / "experiment/code/config.json"
@@ -552,13 +1151,28 @@ def build_stage_twelve_project(
     root: Path,
     *,
     readiness: str = "ready_for_execution",
+    include_execution_marker: bool = False,
+    register_self_test: bool = True,
 ) -> tuple[ResearchProject, Path]:
     """Build a real Stage-12 boundary with an optional missing declared input."""
     project = build_completed_validation_design_project(root)
     write_valid_fixture_artifacts(project.root, 10)
+    marker_scaffold = (
+        _write_marker_execution_fixture(project.root)
+        if include_execution_marker
+        else None
+    )
     set_stage_ten_required_paths(project.root, ["data/input.csv"])
     declared_input = project.root / "data/input.csv"
-    assert validate_current_stage(ResearchProject.open(project.root)).valid is True
+    if marker_scaffold is None:
+        report = validate_current_stage(ResearchProject.open(project.root))
+    else:
+        with patch(
+            "researchclaw.core.computational_package.canonical_computational_scaffold",
+            return_value=marker_scaffold,
+        ):
+            report = validate_current_stage(ResearchProject.open(project.root))
+    assert report.valid is True
     project = ResearchProject.open(project.root)
     if readiness == "ready_for_execution":
         declared_input.parent.mkdir(parents=True)
@@ -634,4 +1248,113 @@ def build_stage_twelve_project(
     resources = project.root / "experiment/resources.json"
     resources.write_text(json.dumps(plan, sort_keys=True) + "\n", encoding="utf-8")
     assert validate_current_stage(project).valid is True
-    return ResearchProject.open(project.root), declared_input
+    project = _install_known_answer_stage_twelve_package(
+        ResearchProject.open(project.root)
+    )
+    if register_self_test:
+        register_stage_twelve_known_answer_self_test(project)
+        project = ResearchProject.open(project.root)
+    return project, declared_input
+
+
+def build_approved_stage_twelve_project(
+    root: Path, *, include_execution_marker: bool = False
+) -> ResearchProject:
+    """Build a current explicit-execution approval without writing its record directly."""
+    project, declared_input = build_stage_twelve_project(
+        root,
+        readiness="ready_for_execution",
+        include_execution_marker=include_execution_marker,
+    )
+    declared_input.parent.mkdir(parents=True, exist_ok=True)
+    declared_input.write_bytes(b"approved research input\n")
+    recheck_execution_readiness(project)
+    project = ResearchProject.open(root)
+    approve_current_gate(project, "approve", "Explicit execution approved")
+    return ResearchProject.open(root)
+
+
+def load_execution_contract(root: Path) -> dict[str, object]:
+    """Load the canonical execution contract written by preparation."""
+    return json.loads(
+        (root / "experiment/execution_contract.json").read_text(encoding="utf-8")
+    )
+
+
+def write_contract_bound_research_result(
+    project: ResearchProject,
+    contract: dict[str, object],
+    **overrides: object,
+) -> Path:
+    """Write a canonical result bound to the supplied execution contract."""
+    contract_path = project.root / "experiment/execution_contract.json"
+    resource_plan = json.loads(
+        (project.root / "experiment/resources.json").read_text(encoding="utf-8")
+    )
+    maximum_seconds = resource_plan["budget"]["total_estimated_duration_seconds"]
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "execution_contract": {
+            "path": "experiment/execution_contract.json",
+            "contract_id": contract["contract_id"],
+            "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {
+            "primary": {"name": "mae_cycles", "value": 2.5, "unit": "cycles"}
+        },
+        "split_summary": {
+            "isolation_key": "cell_id",
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "bindings": contract["bindings"],
+            "inputs": contract["inputs"],
+        },
+        "runtime": {
+            "elapsed_seconds": min(1.0, float(maximum_seconds)),
+            "maximum_seconds": maximum_seconds,
+        },
+    }
+    payload.update(overrides)
+    result_path = project.root / "experiment/results.json"
+    result_path.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    return result_path
+
+
+def _write_marker_execution_fixture(root: Path) -> dict[str, str]:
+    """Inject a test-only canonical Stage-10 scaffold before its normal validation."""
+    main_path = root / "experiment/code/main.py"
+    marker_main = main_path.read_text(encoding="utf-8").replace(
+        "if __name__ == '__main__':\n    main()\n",
+        "if __name__ == '__main__':\n"
+        "    Path('project-code-executed').write_text('executed', encoding='utf-8')\n"
+        "    main()\n",
+    )
+    main_path.write_text(marker_main, encoding="utf-8")
+    manifest_path = root / "experiment/package_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for entry in manifest["files"]:
+        if entry["path"] == "experiment/code/main.py":
+            entry["sha256"] = hashlib.sha256(marker_main.encode("utf-8")).hexdigest()
+            break
+    manifest_path.write_text(
+        json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8"
+    )
+    scaffold = canonical_computational_scaffold()
+    scaffold["experiment/code/main.py"] = marker_main
+    return scaffold

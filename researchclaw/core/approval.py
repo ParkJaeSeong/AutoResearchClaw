@@ -15,6 +15,7 @@ from .models import ProjectState, StageStatus
 from .paths import resolve_project_artifact
 from .persistence import atomic_write_json
 from .project import ResearchProject
+from .transactions import project_mutation
 
 _HASH_CHUNK_SIZE = 1024 * 1024
 _SCHEMA_VERSION = 1
@@ -114,6 +115,7 @@ def load_approval_record(root: Path, stage_id: int) -> ApprovalRecord | None:
         return None
 
 
+@project_mutation
 def approve_current_gate(project: ResearchProject, decision: str, note: str) -> ApprovalRecord:
     """Persist an approval decision after confirming validated artifacts are unchanged."""
     if decision not in _ALLOWED_DECISIONS:
@@ -125,6 +127,8 @@ def approve_current_gate(project: ResearchProject, decision: str, note: str) -> 
 
         current_project = normalize_durable_project(current_project)
     state = current_project.state
+    if state.next_action == "validate_experiment_package":
+        raise ValueError("experiment_self_test_required")
     if state.status is not StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is not awaiting approval")
 
@@ -211,11 +215,22 @@ def _approve_stage_twelve(
     )
 
     state = project.state
+    self_test_artifact = None
+    if decision == "approve":
+        from .experiment_package_contract import _current_registered_self_test
+
+        self_test_artifact = _current_registered_self_test(project)
     prior_record = load_approval_record(project.root, 12)
     current_rejection = (
         prior_record is not None
         and prior_record.decision == "reject"
         and approval_matches_state(project.root, state, prior_record)
+    )
+    registration_recovery = (
+        state.next_action == "approve_experiment_execution"
+        and isinstance(state.last_error, dict)
+        and state.last_error.get("retry_state")
+        == "stage_twelve_registration_recovery"
     )
     if state.next_action != "approve_experiment_execution" and not (
         state.next_action == "report_missing_execution_inputs"
@@ -225,12 +240,15 @@ def _approve_stage_twelve(
     status = _recheck_execution_readiness(
         project,
         allow_rejected_decision=current_rejection,
+        allow_preexisting_result=registration_recovery,
     )
     if not status.approval_eligible or status.readiness != "ready_for_execution":
         raise ValueError("execution prerequisites are not ready for approval")
 
     refreshed_project = ResearchProject.open(project.root)
     artifact_hashes = stage_twelve_artifact_hashes(refreshed_project)
+    if self_test_artifact is not None:
+        artifact_hashes[self_test_artifact.path] = self_test_artifact.sha256
     record = ApprovalRecord(
         schema_version=_SCHEMA_VERSION,
         project_id=refreshed_project.state.project_id,
@@ -250,11 +268,19 @@ def _approve_stage_twelve(
             current_stage=12,
             status=StageStatus.READY,
             completed_stages=refreshed_project.state.completed_stages,
-            next_action="report_resource_plan_milestone_only",
+            next_action=(
+                "register_research_result"
+                if registration_recovery
+                else "report_resource_plan_milestone_only"
+            ),
             execution_policy=refreshed_project.state.execution_policy,
             artifacts=refreshed_project.state.artifacts,
             retry_counts=refreshed_project.state.retry_counts,
-            last_error=refreshed_project.state.last_error,
+            last_error=(
+                state.last_error
+                if registration_recovery
+                else refreshed_project.state.last_error
+            ),
             stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
         )
     else:
@@ -270,7 +296,11 @@ def _approve_stage_twelve(
             execution_policy=refreshed_project.state.execution_policy,
             artifacts=refreshed_project.state.artifacts,
             retry_counts=refreshed_project.state.retry_counts,
-            last_error=refreshed_project.state.last_error,
+            last_error=(
+                state.last_error
+                if registration_recovery
+                else refreshed_project.state.last_error
+            ),
             stage_10_snapshot=refreshed_project.state.stage_10_snapshot,
         )
     refreshed_project.persist_state(updated_state)
@@ -300,6 +330,13 @@ def approval_matches_state(root: Path, state: ProjectState, record: ApprovalReco
             from .execution_gate import _stage_twelve_artifact_hashes
 
             expected_hashes = _stage_twelve_artifact_hashes(root, state)
+            if record.decision == "approve":
+                from .experiment_package_contract import _current_registered_self_test
+
+                self_test = _current_registered_self_test(
+                    ResearchProject(root=root, state=state)
+                )
+                expected_hashes[self_test.path] = self_test.sha256
             return record.artifact_hashes == expected_hashes
         contract = get_contract(record.stage_id)
         if not contract.requires_approval or set(record.artifact_hashes) != set(contract.required_outputs):
