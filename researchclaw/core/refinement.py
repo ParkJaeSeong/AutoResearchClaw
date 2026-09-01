@@ -1965,6 +1965,7 @@ def register_refinement_assessment(
         role = CouncilRole(role_value)
     except (TypeError, ValueError) as error:
         raise ValueError("refinement_assessment_role_invalid") from error
+    wants_retry = "retry" in source_payload
     binding, binding_bytes, create_binding = _select_assessment_round(
         current, session, source_payload
     )
@@ -1977,8 +1978,10 @@ def register_refinement_assessment(
             session=session,
             binding=binding,
             role=role,
-            retry="retry" in source_payload,
+            retry=wants_retry,
         )
+        if wants_retry:
+            raise ValueError("refinement_retry_order_invalid")
         _write_registered_record(
             current,
             _round_binding_path(binding.round_id),
@@ -1992,13 +1995,12 @@ def register_refinement_assessment(
         session,
         binding,
         role=role,
-        retry="retry" in source_payload,
+        retry=wants_retry,
         source_payload=source_payload,
         source_bytes=source_bytes,
     )
     history = _assessment_history(current, session, binding)
     initial, retry = history[role]
-    wants_retry = "retry" in source_payload
     if initial is None:
         if wants_retry:
             raise ValueError("refinement_retry_order_invalid")

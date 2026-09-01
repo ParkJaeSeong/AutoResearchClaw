@@ -510,6 +510,48 @@ def test_completed_round_allocates_round_two_only_for_new_registered_candidate_e
     ).read_bytes() == round_one
 
 
+def test_rejected_first_retry_does_not_poison_new_round_binding(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(project, write_valid_decision(project))
+    first_candidate = register_future_candidate_result(
+        project, candidate_id="candidate-001"
+    )
+    retry = valid_assessment_record(
+        project,
+        role="domain",
+        artifacts=[_packet_artifact(project), first_candidate],
+    )
+    retry["producer"] = "domain-retry-agent"
+    retry["retry"] = {
+        "failed_producer": "domain-agent",
+        "replacement_producer": "domain-retry-agent",
+        "authorized_by": "coordinator-agent",
+    }
+    before = ResearchProject.open(project.root).state
+
+    with pytest.raises(ValueError, match="refinement_retry_order_invalid"):
+        register_refinement_assessment(
+            project,
+            write_record(project, "submissions/first-record-retry.json", retry),
+        )
+
+    round_two = project.root / "refinement/deliberations/round-002"
+    assert not round_two.exists()
+    assert ResearchProject.open(project.root).state == before
+
+    second_candidate = register_future_candidate_result(
+        project, candidate_id="candidate-002"
+    )
+    evaluated = [_packet_artifact(project), second_candidate]
+    status = register_one_assessment(project, role="domain", artifacts=evaluated)
+
+    assert status.phase == "awaiting_independent_assessments"
+    binding = json.loads((round_two / "round.json").read_text())
+    assert binding["evaluated_artifacts"] == evaluated
+
+
 def test_round_binding_detects_evaluated_candidate_result_byte_drift(tmp_path):
     project = prepared_refinement_project(tmp_path / "project")
     register_all_assessments(project)
