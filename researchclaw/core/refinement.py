@@ -2230,7 +2230,9 @@ def _secure_snapshot(
     maximum_bytes: int | None = None,
     read_payload: bool = False,
     error_code: str,
+    size_error_code: str | None = None,
 ) -> tuple[_FileSnapshot, bytes]:
+    size_error_code = size_error_code or error_code
     try:
         relative_path = validate_relative_path(
             relative_path, kind="refinement candidate"
@@ -2258,15 +2260,23 @@ def _secure_snapshot(
         if (
             not stat.S_ISREG(initial.st_mode)
             or initial.st_nlink != 1
-            or (maximum_bytes is not None and initial.st_size > maximum_bytes)
         ):
             raise ValueError(error_code)
+        if maximum_bytes is not None and initial.st_size > maximum_bytes:
+            raise ValueError(size_error_code)
         digest = hashlib.sha256()
         chunks: list[bytes] = []
+        total_size = 0
         while True:
-            chunk = os.read(descriptor, 64 * 1024)
+            read_size = 64 * 1024
+            if maximum_bytes is not None:
+                read_size = min(read_size, maximum_bytes - total_size + 1)
+            chunk = os.read(descriptor, read_size)
             if not chunk:
                 break
+            total_size += len(chunk)
+            if maximum_bytes is not None and total_size > maximum_bytes:
+                raise ValueError(size_error_code)
             if read_payload:
                 chunks.append(chunk)
             digest.update(chunk)
@@ -2747,6 +2757,7 @@ def register_refinement_candidate(
         maximum_bytes=_MAX_RECORD_BYTES,
         read_payload=True,
         error_code="refinement_candidate_identity_changed",
+        size_error_code="refinement_candidate_schema_invalid",
     )
     if len(manifest_bytes) > _MAX_RECORD_BYTES:
         raise ValueError("refinement_candidate_schema_invalid")
@@ -2797,6 +2808,7 @@ def register_refinement_candidate(
         maximum_bytes=_MAX_RECORD_BYTES,
         read_payload=True,
         error_code="refinement_candidate_identity_changed",
+        size_error_code="refinement_candidate_schema_invalid",
     )
     if (
         candidate_after != candidate_before

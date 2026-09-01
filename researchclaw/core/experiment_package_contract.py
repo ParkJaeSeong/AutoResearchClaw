@@ -33,6 +33,7 @@ SELF_TEST_REPORT_PATH = "experiment/self_test_report.json"
 _PACKAGE_MANIFEST_PATH = "experiment/package_manifest.json"
 _MAX_JSON_BYTES = 1024 * 1024
 _MAX_FIXTURE_JSON_BYTES = 64 * 1024
+_MAX_CANDIDATE_PACKAGE_FILE_BYTES = 16 * 1024 * 1024
 _SELF_TEST_REGISTRATION_PENDING_PATH = (
     ".researchclaw/experiment-self-test-registration.pending.json"
 )
@@ -134,13 +135,20 @@ def _read_json_object(
     *,
     maximum_bytes: int = _MAX_JSON_BYTES,
     label: str = "JSON artifact",
+    candidate_rooted: bool = False,
 ) -> tuple[dict[str, Any], bytes]:
     path = resolve_project_artifact(root, relative_path)
     if not path.is_file():
         raise ValueError(f"required artifact is missing: {relative_path}")
     if path.stat().st_size > maximum_bytes:
         raise ValueError(f"{label} exceeds the bound: {relative_path}")
-    payload = path.read_bytes()
+    payload = (
+        _read_candidate_package_bytes(
+            root, relative_path, maximum_bytes=maximum_bytes
+        )
+        if candidate_rooted
+        else path.read_bytes()
+    )
     try:
         value = json.loads(
             payload.decode("utf-8"),
@@ -207,17 +215,89 @@ def _argv_config_path(argv: tuple[str, ...], label: str) -> str:
     return argv[position + 1]
 
 
+def _read_candidate_package_bytes(
+    root: Path, relative_path: str, *, maximum_bytes: int
+) -> bytes:
+    """Read one candidate-rooted file with a stable bounded descriptor identity."""
+    path = resolve_project_artifact(root, relative_path)
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        )
+    except OSError as error:
+        raise ValueError(
+            f"candidate package file is unavailable: {relative_path}"
+        ) from error
+    try:
+        initial = os.fstat(descriptor)
+        if not stat.S_ISREG(initial.st_mode) or initial.st_nlink != 1:
+            raise ValueError(
+                f"candidate package file must be a single-link regular file: {relative_path}"
+            )
+        if initial.st_size > maximum_bytes:
+            raise ValueError(
+                f"candidate package file exceeds the bound: {relative_path}"
+            )
+        chunks: list[bytes] = []
+        total_size = 0
+        while True:
+            chunk = os.read(
+                descriptor, min(64 * 1024, maximum_bytes - total_size + 1)
+            )
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > maximum_bytes:
+                raise ValueError(
+                    f"candidate package file exceeds the bound: {relative_path}"
+                )
+            chunks.append(chunk)
+        final = os.fstat(descriptor)
+        identity = (
+            initial.st_dev,
+            initial.st_ino,
+            initial.st_mode,
+            initial.st_nlink,
+            initial.st_size,
+            initial.st_mtime_ns,
+            initial.st_ctime_ns,
+        )
+        if total_size != initial.st_size or identity != (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_nlink,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        ):
+            raise ValueError(
+                f"candidate package file changed during validation: {relative_path}"
+            )
+        return b"".join(chunks)
+    except OSError as error:
+        raise ValueError(
+            f"candidate package file changed during validation: {relative_path}"
+        ) from error
+    finally:
+        os.close(descriptor)
+
+
 def _package_main_source(
     root: Path,
     entry_point: object,
     *,
     manifest_path: str = _PACKAGE_MANIFEST_PATH,
     code_root: str = "experiment/code/",
+    candidate_rooted: bool = False,
 ) -> tuple[str, ast.Module, str, str]:
     entry_path, path = _required_path(root, entry_point, "entry_point")
     if not entry_path.startswith(code_root) or not entry_path.endswith(".py"):
         raise ValueError("entry_point must be a package-manifest Python file")
-    manifest, manifest_bytes = _read_json_object(root, manifest_path)
+    manifest, manifest_bytes = _read_json_object(
+        root, manifest_path, candidate_rooted=candidate_rooted
+    )
     files = manifest.get("files")
     if not isinstance(files, list):
         raise ValueError("package manifest files must be a list")
@@ -238,7 +318,16 @@ def _package_main_source(
         _path, declared_file = _required_path(
             root, relative_path, "package manifest file"
         )
-        if hashlib.sha256(declared_file.read_bytes()).hexdigest() != declared_sha256:
+        declared_bytes = (
+            _read_candidate_package_bytes(
+                root,
+                relative_path,
+                maximum_bytes=_MAX_CANDIDATE_PACKAGE_FILE_BYTES,
+            )
+            if candidate_rooted
+            else declared_file.read_bytes()
+        )
+        if hashlib.sha256(declared_bytes).hexdigest() != declared_sha256:
             raise ValueError(
                 "package manifest identity does not match its declared file"
             )
@@ -250,7 +339,15 @@ def _package_main_source(
     if len(entries) != 1 or set(entries[0]) - {"path", "role", "sha256"}:
         raise ValueError("entry_point must be declared once by the package manifest")
     expected_hash = entries[0].get("sha256")
-    source_bytes = path.read_bytes()
+    source_bytes = (
+        _read_candidate_package_bytes(
+            root,
+            entry_path,
+            maximum_bytes=_MAX_CANDIDATE_PACKAGE_FILE_BYTES,
+        )
+        if candidate_rooted
+        else path.read_bytes()
+    )
     if (
         not isinstance(expected_hash, str)
         or hashlib.sha256(source_bytes).hexdigest() != expected_hash
@@ -1497,7 +1594,9 @@ def validate_experiment_package_contract_at(
         if baseline_layout
         else "package_metadata/self_test_report.json"
     )
-    contract, contract_bytes = _read_json_object(package_root, contract_path)
+    contract, contract_bytes = _read_json_object(
+        package_root, contract_path, candidate_rooted=not baseline_layout
+    )
     _require_closed(contract, PACKAGE_KEYS, "package contract")
     if not _schema_version_one(contract["schema_version"]):
         raise ValueError("package contract schema_version must equal 1")
@@ -1509,6 +1608,7 @@ def validate_experiment_package_contract_at(
         entry_point,
         manifest_path=manifest_path,
         code_root=code_root,
+        candidate_rooted=not baseline_layout,
     )
     _validate_current_process_attestation(tree)
     _reject_module_scope_lambdas(tree)
@@ -1541,6 +1641,7 @@ def validate_experiment_package_contract_at(
         fixture_path,
         maximum_bytes=_MAX_FIXTURE_JSON_BYTES,
         label="fixture",
+        candidate_rooted=not baseline_layout,
     )
     if not fixture_value:
         raise ValueError("self_test fixture must be non-empty")

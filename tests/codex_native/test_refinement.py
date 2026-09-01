@@ -4,6 +4,7 @@ import json
 import pytest
 
 import researchclaw.core.refinement as refinement
+import researchclaw.core.experiment_package_contract as package_contract
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
@@ -1455,3 +1456,67 @@ def test_bounded_snapshot_rejects_oversize_before_reading_file_bytes(
         )
 
     assert reads == 0
+
+
+def test_bounded_snapshot_stops_at_cap_when_file_grows_during_read(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "growing.json"
+    path.write_bytes(b"x" * 8)
+    requested_sizes = []
+    original_read = refinement.os.read
+    grew = False
+
+    def grow_before_read(descriptor, size):
+        nonlocal grew
+        requested_sizes.append(size)
+        if not grew:
+            grew = True
+            with path.open("ab") as stream:
+                stream.write(b"y" * 16)
+        return original_read(descriptor, size)
+
+    monkeypatch.setattr(refinement.os, "read", grow_before_read)
+
+    with pytest.raises(ValueError, match="bounded_snapshot_grew"):
+        refinement._secure_snapshot(
+            tmp_path,
+            path.name,
+            maximum_bytes=16,
+            read_payload=True,
+            error_code="bounded_snapshot_grew",
+        )
+
+    assert requested_sizes == [17]
+
+
+def test_rooted_candidate_reader_rejects_entry_point_growth_during_read(
+    tmp_path, monkeypatch
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    candidate_root = manifest.parent.parent
+    entry_point = candidate_root / "code/model.py"
+    target_identity = (entry_point.stat().st_dev, entry_point.stat().st_ino)
+    original_read = package_contract.os.read
+    grew = False
+
+    def grow_entry_point(descriptor, size):
+        nonlocal grew
+        descriptor_stat = package_contract.os.fstat(descriptor)
+        if not grew and (descriptor_stat.st_dev, descriptor_stat.st_ino) == target_identity:
+            grew = True
+            with entry_point.open("ab") as stream:
+                stream.write(b"\n# concurrent growth\n")
+        return original_read(descriptor, size)
+
+    monkeypatch.setattr(package_contract.os, "read", grow_entry_point)
+
+    with pytest.raises(ValueError, match="candidate package file changed"):
+        package_contract.validate_experiment_package_contract_at(
+            project,
+            package_root=candidate_root,
+            contract_path="package_metadata/package_contract.json",
+        )
+
+    assert grew is True
