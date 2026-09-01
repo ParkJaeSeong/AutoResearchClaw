@@ -591,8 +591,10 @@ def load_refinement_session(project: ResearchProject) -> RefinementSessionStatus
     """Load and fully revalidate the durable preparation records without mutation."""
     current = ResearchProject.open_readonly(project.root)
     baseline = _baseline(current)
-    session, session_bytes, _packet, packet_bytes = _existing_payloads(current)
-    if session is None or session_bytes is None or packet_bytes is None:
+    session, session_bytes, packet, packet_bytes = _existing_payloads(current)
+    if session is None and packet is None:
+        raise ValueError("refinement_baseline_unavailable")
+    if session is None or session_bytes is None or packet is None or packet_bytes is None:
         raise ValueError("refinement_integrity_failure")
     envelope_raw = session.get("envelope")
     if not isinstance(envelope_raw, Mapping):

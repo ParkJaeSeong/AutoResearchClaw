@@ -51,6 +51,13 @@ def test_prepare_session_rejects_legacy_result(tmp_path):
         )
 
 
+def test_load_session_reports_baseline_unavailable_when_session_files_are_absent(tmp_path):
+    project = build_stage_thirteen_project(tmp_path / "project")
+
+    with pytest.raises(ValueError, match="refinement_baseline_unavailable"):
+        load_refinement_session(project)
+
+
 def test_prepare_session_is_idempotent_only_for_the_same_grounding(tmp_path):
     project = build_stage_thirteen_project(tmp_path / "project")
     initial = prepare_refinement_session(project, valid_envelope())
