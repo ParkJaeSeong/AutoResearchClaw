@@ -557,7 +557,10 @@ def execution_environment_runtime_paths() -> tuple[Path, Path, Path, bool]:
         configuration = prefix / "pyvenv.cfg"
         if configuration.resolve(strict=True) != configuration or not configuration.is_file():
             raise ValueError("execution environment unavailable")
-        if interpreter.parent != prefix / "bin":
+        if (
+            not Path(sys.executable).is_absolute()
+            or Path(sys.executable).parent != prefix / "bin"
+        ):
             raise ValueError("execution environment unavailable")
     elif interpreter != base_interpreter:
         raise ValueError("execution environment unavailable")

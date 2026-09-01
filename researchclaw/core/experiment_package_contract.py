@@ -2143,7 +2143,7 @@ def prepare_experiment_self_test(
     except (OSError, ValueError) as error:
         raise ValueError("experiment_package_invalid") from error
     return SelfTestPreparationStatus(
-        argv=(environment.interpreter, package.entry_point, *package.self_test_argv),
+        argv=(environment.launcher, package.entry_point, *package.self_test_argv),
         environment_fingerprint=environment.fingerprint,
         package_contract_sha256=package.contract_sha256,
         report_path=SELF_TEST_REPORT_PATH,

@@ -540,7 +540,7 @@ def _build_execution_contract(
         }:
             raise ValueError(str(error)) from error
         raise ValueError("execution_approval_invalid") from error
-    argv = [environment.interpreter, package.entry_point, *package.execution_argv]
+    argv = [environment.launcher, package.entry_point, *package.execution_argv]
 
     required_bindings = {
         "design": "experiment/design.json",

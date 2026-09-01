@@ -25,6 +25,7 @@ _MACOS_PROC_PATH_BUFFER_BYTES = 4096
 class ExecutionEnvironment:
     """A closed description of the interpreter that will execute a package."""
 
+    launcher: str
     interpreter: str
     python_implementation: str
     python_version: str
@@ -236,28 +237,40 @@ def _macos_framework_root(path: Path) -> Path | None:
     return Path(*path.parts[: matches[0] + 3])
 
 
-def _current_venv_prefix(interpreter: Path) -> Path | None:
+def _current_venv_prefix(interpreter: Path, launcher: Path) -> Path | None:
     if sys.prefix == sys.base_prefix:
         return None
     prefix = Path(sys.prefix).resolve(strict=True)
     configuration = prefix / "pyvenv.cfg"
     configuration_status = os.lstat(configuration)
+    launcher_status = os.lstat(launcher)
     if (
         configuration.resolve(strict=True) != configuration
         or not stat.S_ISREG(configuration_status.st_mode)
-        or interpreter.parent != prefix / "bin"
+        or not launcher.is_absolute()
+        or launcher != Path(os.path.abspath(launcher))
+        or launcher.parent != prefix / "bin"
+        or not (
+            stat.S_ISLNK(launcher_status.st_mode)
+            or (
+                stat.S_ISREG(launcher_status.st_mode)
+                and launcher_status.st_mode & 0o111
+            )
+        )
+        or launcher.resolve(strict=True) != interpreter
     ):
         raise ValueError("execution_environment_unavailable")
     return prefix
 
 
 def _current_runtime_paths() -> _CurrentRuntimePaths:
-    interpreter = _canonical_runtime_executable(sys.executable)
+    launcher = Path(sys.executable)
+    interpreter = _canonical_runtime_executable(launcher)
     base_interpreter = _canonical_runtime_executable(
         getattr(sys, "_base_executable", sys.executable)
     )
     process_image = _attested_process_image()
-    venv_prefix = _current_venv_prefix(interpreter)
+    venv_prefix = _current_venv_prefix(interpreter, launcher)
     if venv_prefix is None and interpreter != base_interpreter:
         raise ValueError("execution_environment_unavailable")
 
@@ -390,6 +403,11 @@ def inspect_execution_environment(
             dependencies=dependencies,
         )
         return ExecutionEnvironment(
+            launcher=(
+                str(Path(sys.executable))
+                if paths.venv_prefix is not None
+                else str(paths.interpreter)
+            ),
             interpreter=str(paths.interpreter),
             python_implementation=str(payload["python_implementation"]),
             python_version=str(payload["python_version"]),

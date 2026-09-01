@@ -152,6 +152,42 @@ def test_generated_self_test_matches_a_venv_interpreter_contract(tmp_path):
     assert report["environment_fingerprint"] == inspection.stdout.strip()
 
 
+def test_generated_self_test_matches_a_symlink_venv_interpreter_contract(tmp_path):
+    environment_root = tmp_path / "environment"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(environment_root)
+    interpreter = environment_root / "bin/python"
+    project = build_known_answer_experiment_package(tmp_path / "project")
+    package = validate_experiment_package_contract(project)
+
+    completed = subprocess.run(
+        [str(interpreter), package.entry_point, *package.self_test_argv],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    inspection = subprocess.run(
+        [
+            str(interpreter),
+            "-c",
+            "from pathlib import Path; import json, sys; "
+            "from researchclaw.core.execution_environment import inspect_execution_environment; "
+            "environment = inspect_execution_environment(Path(sys.executable).resolve(strict=True), ()); "
+            "print(json.dumps({'fingerprint': environment.fingerprint, 'launcher': environment.launcher}))",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert inspection.returncode == 0, inspection.stderr
+    report = json.loads((project.root / SELF_TEST_REPORT_PATH).read_text())
+    observed = json.loads(inspection.stdout)
+    assert observed["launcher"] == str(interpreter)
+    assert report["environment_fingerprint"] == observed["fingerprint"]
+
+
 def test_inspection_rejects_repointed_sys_executable(tmp_path, monkeypatch):
     requested = _resolved_interpreter()
     alternate = tmp_path / "python"
