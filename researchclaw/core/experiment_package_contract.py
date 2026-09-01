@@ -39,30 +39,16 @@ _SELF_TEST_REGISTRATION_PENDING_PATH = (
 _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES = 16 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PACKAGE_KEYS = {
-    "schema_version",
-    "entry_point",
-    "config_path",
-    "result_path",
-    "metrics",
-    "self_test",
-    "execution",
-    "dependencies",
-    "prohibitions",
+    "schema_version", "entry_point", "config_path", "result_path",
+    "metrics", "self_test", "execution", "dependencies", "prohibitions",
 }
 METRIC_KEYS = {"name", "unit", "implementation"}
 SELF_TEST_KEYS = {"argv_suffix", "fixture_path", "expected_metrics"}
 _EXECUTION_KEYS = {"argv_suffix"}
 _EXPECTED_METRIC_KEYS = {"name", "expected", "tolerance"}
 _REPORT_KEYS = {
-    "schema_version",
-    "package_contract",
-    "fixture",
-    "environment_fingerprint",
-    "package_manifest",
-    "entry_point",
-    "package_files",
-    "metrics",
-    "passed",
+    "schema_version", "package_contract", "fixture", "environment_fingerprint",
+    "package_manifest", "entry_point", "package_files", "metrics", "passed",
     "development_only",
 }
 _IDENTITY_KEYS = {"path", "sha256"}
@@ -164,9 +150,7 @@ def _read_json_object(
             ),
         )
     except ValueError as error:
-        if str(error).startswith(
-            ("non-finite JSON number:", "JSON keys must be unique")
-        ):
+        if str(error).startswith(("non-finite JSON number:", "JSON keys must be unique")):
             raise
         raise ValueError(f"invalid JSON object: {relative_path}") from error
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -189,11 +173,7 @@ def _require_closed(value: object, keys: set[str], label: str) -> dict[str, Any]
 
 
 def _finite_number(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _schema_version_one(value: object) -> bool:
@@ -210,10 +190,8 @@ def _required_path(root: Path, value: object, label: str) -> tuple[str, Path]:
 
 
 def _argv_suffix(value: object, label: str) -> tuple[str, ...]:
-    if (
-        not isinstance(value, list)
-        or not value
-        or any(not isinstance(item, str) or not item for item in value)
+    if not isinstance(value, list) or not value or any(
+        not isinstance(item, str) or not item for item in value
     ):
         raise ValueError(f"{label} argv_suffix must be a non-empty string list")
     return tuple(value)
@@ -341,9 +319,7 @@ def _function_aliases(
         target_names = (
             [target.id for target in node.targets if isinstance(target, ast.Name)]
             if isinstance(node, ast.Assign)
-            else [node.target.id]
-            if isinstance(node.target, ast.Name)
-            else []
+            else [node.target.id] if isinstance(node.target, ast.Name) else []
         )
         if any(target in alias_targets for target in target_names):
             raise ValueError("callable alias is ambiguous or reassigned")
@@ -351,9 +327,10 @@ def _function_aliases(
             continue
         value_name = node.value.id
         resolved = aliases.get(value_name, value_name)
-        if resolved in functions and getattr(
-            functions[resolved], "lineno", 0
-        ) >= getattr(node, "lineno", 0):
+        if (
+            resolved in functions
+            and getattr(functions[resolved], "lineno", 0) >= getattr(node, "lineno", 0)
+        ):
             raise ValueError("callable alias is defined before its target")
         if resolved in functions or resolved == "dict":
             aliases.update({target: resolved for target in target_names})
@@ -371,17 +348,14 @@ def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> tuple[ast.AST, ...]
     return tuple(node.targets) if isinstance(node, ast.Assign) else (node.target,)
 
 
-def _local_alias_target(
-    function: ast.FunctionDef, call: ast.Call
-) -> tuple[str | None, bool]:
+def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> tuple[str | None, bool]:
     """Resolve a local callable alias using only source-order-reachable definitions."""
     if not isinstance(call.func, ast.Name):
         return None, False
 
     assignments = sorted(
         [
-            node
-            for node in _lexical_scope_nodes(function)
+            node for node in _lexical_scope_nodes(function)
             if isinstance(node, (ast.Assign, ast.AnnAssign))
         ],
         key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
@@ -416,11 +390,7 @@ def _local_alias_target(
             {*seen, name},
         )
 
-    return resolve(
-        call.func.id,
-        (getattr(call, "lineno", 0), getattr(call, "col_offset", 0)),
-        set(),
-    )
+    return resolve(call.func.id, (getattr(call, "lineno", 0), getattr(call, "col_offset", 0)), set())
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -431,9 +401,7 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
                 aliases[imported.asname or imported.name.split(".")[0]] = imported.name
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             for imported in node.names:
-                aliases[
-                    imported.asname or imported.name
-                ] = f"{node.module}.{imported.name}"
+                aliases[imported.asname or imported.name] = f"{node.module}.{imported.name}"
     return aliases
 
 
@@ -574,11 +542,14 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
                 target_name = _resolved_local_call_name(
                     reachable, node, functions, function_aliases
                 )
-                if target_name == "dict" and any(
-                    keyword.arg == "evidence_eligible"
-                    and isinstance(keyword.value, ast.Constant)
-                    and keyword.value.value is True
-                    for keyword in node.keywords
+                if (
+                    target_name == "dict"
+                    and any(
+                        keyword.arg == "evidence_eligible"
+                        and isinstance(keyword.value, ast.Constant)
+                        and keyword.value.value is True
+                        for keyword in node.keywords
+                    )
                 ):
                     return True
     return False
@@ -724,7 +695,8 @@ def _call_may_mutate_filesystem(
     if operation in _MUTATING_METHODS:
         return True
     if name in _MUTATING_CALLS or (
-        name is not None and (name.startswith("shutil.copy") or name == "shutil.move")
+        name is not None
+        and (name.startswith("shutil.copy") or name == "shutil.move")
     ):
         return True
     if name == "os.open":
@@ -865,8 +837,7 @@ def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
         ):
             return True
         if isinstance(node, ast.Import) and any(
-            imported.asname == "os"
-            or (
+            imported.asname == "os" or (
                 imported.name != "os"
                 and _import_binding(imported, from_import=False) == "os"
             )
@@ -880,9 +851,7 @@ def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
             return True
         if isinstance(node, ast.ExceptHandler) and node.name == "os":
             return True
-        if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
-        ) and any(
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and any(
             argument.arg == "os"
             for argument in [
                 *node.args.posonlyargs,
@@ -1245,8 +1214,7 @@ def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr
-            in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
+            and node.func.attr in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
             and (
                 not isinstance(node.func.value, ast.Name)
                 or node.func.value.id in literal_mapping_names
@@ -1433,33 +1401,20 @@ def _validate_metrics(
     for metric in metrics_value:
         item = _require_closed(metric, METRIC_KEYS, "metric")
         name, unit, implementation = item["name"], item["unit"], item["implementation"]
-        if (
-            not isinstance(name, str)
-            or not name
-            or not isinstance(unit, str)
-            or not unit
-        ):
+        if not isinstance(name, str) or not name or not isinstance(unit, str) or not unit:
             raise ValueError("metric name and unit must be non-empty strings")
         if name in metrics:
             raise ValueError("metric names must be unique")
-        if not isinstance(implementation, str) or not implementation.startswith(
-            f"{module}:"
-        ):
-            raise ValueError(
-                "metric implementation must bind to the package entry_point"
-            )
+        if not isinstance(implementation, str) or not implementation.startswith(f"{module}:"):
+            raise ValueError("metric implementation must bind to the package entry_point")
         function_name = implementation.partition(":")[2]
         function = functions.get(function_name)
         if function is None:
-            raise ValueError(
-                "metric implementation must resolve to a top-level function"
-            )
+            raise ValueError("metric implementation must resolve to a top-level function")
         if _has_size_proxy(
             _reachable_metric_nodes(function, functions, function_aliases), aliases
         ):
-            raise ValueError(
-                "metric implementation must not use an input or file size proxy"
-            )
+            raise ValueError("metric implementation must not use an input or file size proxy")
         metrics[name] = implementation
     expected: dict[str, tuple[float, float]] = {}
     for metric in expected_value:
@@ -1655,9 +1610,7 @@ def _current_package_file_identities(root: Path) -> list[dict[str, str]]:
     return identities
 
 
-def _validate_package_file_identities(
-    value: object, expected: list[dict[str, str]]
-) -> None:
+def _validate_package_file_identities(value: object, expected: list[dict[str, str]]) -> None:
     if not isinstance(value, list):
         raise ValueError("package_files must be a list")
     reported: list[dict[str, str]] = []
@@ -1685,13 +1638,9 @@ def validate_registered_self_test(
     current = validate_experiment_package_contract(project)
     if current != package:
         raise ValueError("package changed since self-test validation")
-    contract, _contract_bytes = _read_json_object(
-        project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH
-    )
+    contract, _contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
     self_test = _require_closed(contract["self_test"], SELF_TEST_KEYS, "self_test")
-    fixture_path, fixture = _required_path(
-        project.root, self_test["fixture_path"], "self_test fixture"
-    )
+    fixture_path, fixture = _required_path(project.root, self_test["fixture_path"], "self_test fixture")
     report, report_bytes = _read_json_object(project.root, SELF_TEST_REPORT_PATH)
     _require_closed(report, _REPORT_KEYS, "self_test report")
     if not _schema_version_one(report["schema_version"]):
@@ -1726,10 +1675,7 @@ def validate_registered_self_test(
         report["package_files"], _current_package_file_identities(project.root)
     )
     _validate_identity(
-        report["fixture"],
-        fixture_path,
-        hashlib.sha256(fixture.read_bytes()).hexdigest(),
-        "fixture",
+        report["fixture"], fixture_path, hashlib.sha256(fixture.read_bytes()).hexdigest(), "fixture"
     )
     fingerprint = report["environment_fingerprint"]
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
@@ -1741,10 +1687,7 @@ def validate_registered_self_test(
     if fingerprint != environment.fingerprint:
         raise ValueError("self_test environment fingerprint does not match")
     _metrics, expected = _validate_metrics(
-        contract["metrics"],
-        self_test["expected_metrics"],
-        contract["entry_point"],
-        _package_main_source(project.root, contract["entry_point"])[1],
+        contract["metrics"], self_test["expected_metrics"], contract["entry_point"], _package_main_source(project.root, contract["entry_point"])[1]
     )
     report_metrics = report["metrics"]
     if not isinstance(report_metrics, list):
@@ -1756,10 +1699,7 @@ def validate_registered_self_test(
         if not isinstance(name, str) or name in actual_names:
             raise ValueError("self_test report metric names must be unique")
         actual_names.add(name)
-        if not all(
-            _finite_number(metric[field])
-            for field in ("actual", "expected", "tolerance")
-        ):
+        if not all(_finite_number(metric[field]) for field in ("actual", "expected", "tolerance")):
             raise ValueError("self_test report metrics must be finite")
         if name not in expected:
             continue
@@ -1826,7 +1766,9 @@ def _read_self_test_registration_pending(project: ResearchProject) -> bytes:
     path = _self_test_registration_pending_path(project)
     descriptor = os.open(
         path,
-        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        os.O_RDONLY
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0),
     )
     try:
         file_stat = os.fstat(descriptor)
@@ -2015,7 +1957,9 @@ def _complete_self_test_event_log_identity(
             return 0, hashlib.sha256(b"").hexdigest()
         descriptor = os.open(
             path,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
         )
         try:
             file_stat = os.fstat(descriptor)
@@ -2048,7 +1992,9 @@ def _self_test_registration_event_tail(
     try:
         descriptor = os.open(
             path,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
         )
         try:
             file_stat = os.fstat(descriptor)
@@ -2058,7 +2004,9 @@ def _self_test_registration_event_tail(
                 or total_size < pending.event_log_size
                 or total_size - pending.event_log_size > MAX_EVENT_RECORD_BYTES
             ):
-                raise ValueError("experiment_self_test_registration_recovery_invalid")
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
             digest = hashlib.sha256()
             remaining = pending.event_log_size
             while remaining:
@@ -2070,10 +2018,14 @@ def _self_test_registration_event_tail(
                 digest.update(chunk)
                 remaining -= len(chunk)
             if digest.hexdigest() != pending.event_log_prefix_sha256:
-                raise ValueError("experiment_self_test_registration_recovery_invalid")
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
             tail = os.read(descriptor, MAX_EVENT_RECORD_BYTES + 1)
             if len(tail) > MAX_EVENT_RECORD_BYTES or os.read(descriptor, 1):
-                raise ValueError("experiment_self_test_registration_recovery_invalid")
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
             return tail
         finally:
             os.close(descriptor)
@@ -2117,8 +2069,12 @@ def _complete_pending_self_test_registration(
         if tail:
             ownership_marker = pending.artifact.sha256.encode("ascii")
             if not record.startswith(tail) or ownership_marker not in tail:
-                raise ValueError("experiment_self_test_registration_recovery_invalid")
-            _truncate_self_test_registration_event_tail(project, pending.event_log_size)
+                raise ValueError(
+                    "experiment_self_test_registration_recovery_invalid"
+                )
+            _truncate_self_test_registration_event_tail(
+                project, pending.event_log_size
+            )
         event_log_for(project.root).append_locked(
             pending.event,
             expected_offset=pending.event_log_size,
@@ -2138,7 +2094,9 @@ def _complete_pending_self_test_registration(
             },
         )
         if _state_sha256(target_state) != pending.target_state_sha256:
-            raise ValueError("experiment_self_test_registration_recovery_invalid")
+            raise ValueError(
+                "experiment_self_test_registration_recovery_invalid"
+            )
         current = current.persist_state(target_state)
     elif (
         pending.target_next_action == "approve_experiment_execution"
@@ -2162,7 +2120,9 @@ def _complete_pending_self_test_registration(
             },
         )
         if _state_sha256(target_state) != pending.target_state_sha256:
-            raise ValueError("experiment_self_test_registration_recovery_invalid")
+            raise ValueError(
+                "experiment_self_test_registration_recovery_invalid"
+            )
         current = current.persist_state(target_state)
     elif (
         current.state.next_action
@@ -2331,7 +2291,9 @@ def register_experiment_self_test(
         return completed
 
     try:
-        already_grounded = _self_test_registration_event_is_grounded(current, artifact)
+        already_grounded = _self_test_registration_event_is_grounded(
+            current, artifact
+        )
     except (OSError, ValueError) as error:
         raise ValueError(
             "experiment_self_test_registration_recovery_invalid"
@@ -2359,8 +2321,8 @@ def register_experiment_self_test(
         next_action=target_next_action,
         artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
     )
-    event_log_size, event_log_prefix_sha256 = _complete_self_test_event_log_identity(
-        current
+    event_log_size, event_log_prefix_sha256 = (
+        _complete_self_test_event_log_identity(current)
     )
     event = EvaluationEvent.create(
         "experiment_self_test_registered",

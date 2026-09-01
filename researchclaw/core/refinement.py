@@ -32,7 +32,7 @@ from .deliberation import (
 )
 from .evidence_registration import load_evidence_manifest, registered_evidence_status
 from .experiment_package_contract import validate_experiment_package_contract_at
-from .models import ArtifactRef
+from .models import ArtifactRef, ProjectState
 from .paths import resolve_project_artifact, validate_relative_path
 from .persistence import _fsync_directory
 from .project import ResearchProject
@@ -121,7 +121,7 @@ class CandidateStatus:
 @dataclass(frozen=True)
 class _FileSnapshot:
     reference: ArtifactRef
-    stat_identity: tuple[int, int, int, int, int, int]
+    stat_identity: tuple[int, int, int, int, int, int, int]
     component_identity: tuple[tuple[str, int, int, int], ...]
 
 
@@ -2197,10 +2197,19 @@ def _candidate_manifest_relative_path(
     candidate = Path(manifest_path)
     root = project.root.resolve(strict=True)
     if candidate.is_absolute():
-        try:
-            relative = candidate.relative_to(root).as_posix()
-        except ValueError as error:
-            raise ValueError("refinement_candidate_path_invalid") from error
+        relative = None
+        for boundary in range(1, len(candidate.parts) + 1):
+            try:
+                prefix = Path(*candidate.parts[:boundary]).resolve(strict=True)
+            except (OSError, RuntimeError):
+                break
+            if prefix == root:
+                suffix = candidate.parts[boundary:]
+                if suffix:
+                    relative = Path(*suffix).as_posix()
+                break
+        if relative is None:
+            raise ValueError("refinement_candidate_path_invalid")
     else:
         relative = candidate.as_posix()
     match = _CANDIDATE_MANIFEST.fullmatch(relative)
@@ -2218,6 +2227,8 @@ def _secure_snapshot(
     relative_path: str,
     *,
     expected: ArtifactRef | None = None,
+    maximum_bytes: int | None = None,
+    read_payload: bool = False,
     error_code: str,
 ) -> tuple[_FileSnapshot, bytes]:
     try:
@@ -2244,7 +2255,11 @@ def _secure_snapshot(
         raise ValueError(error_code) from error
     try:
         initial = os.fstat(descriptor)
-        if not stat.S_ISREG(initial.st_mode):
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or initial.st_nlink != 1
+            or (maximum_bytes is not None and initial.st_size > maximum_bytes)
+        ):
             raise ValueError(error_code)
         digest = hashlib.sha256()
         chunks: list[bytes] = []
@@ -2252,14 +2267,16 @@ def _secure_snapshot(
             chunk = os.read(descriptor, 64 * 1024)
             if not chunk:
                 break
-            chunks.append(chunk)
+            if read_payload:
+                chunks.append(chunk)
             digest.update(chunk)
-        payload = b"".join(chunks)
+        payload = b"".join(chunks) if read_payload else b""
         final = os.fstat(descriptor)
         identity = (
             initial.st_dev,
             initial.st_ino,
             initial.st_mode,
+            initial.st_nlink,
             initial.st_size,
             initial.st_mtime_ns,
             initial.st_ctime_ns,
@@ -2268,12 +2285,13 @@ def _secure_snapshot(
             final.st_dev,
             final.st_ino,
             final.st_mode,
+            final.st_nlink,
             final.st_size,
             final.st_mtime_ns,
             final.st_ctime_ns,
         ):
             raise ValueError(error_code)
-        reference = ArtifactRef(relative_path, digest.hexdigest(), len(payload))
+        reference = ArtifactRef(relative_path, digest.hexdigest(), initial.st_size)
         if expected is not None and reference != expected:
             raise ValueError(error_code)
         return (
@@ -2316,6 +2334,26 @@ def _baseline_registration_snapshot(
     return tuple(snapshots)
 
 
+def _same_published_baseline_snapshot(
+    before: tuple[_FileSnapshot, ...], after: tuple[_FileSnapshot, ...]
+) -> bool:
+    """Ignore only the shared .researchclaw directory ctime changed by state write."""
+    def stable_components(snapshot: _FileSnapshot):
+        return tuple(
+            (name, device, inode, None if index == 0 and name == ".researchclaw" else ctime)
+            for index, (name, device, inode, ctime) in enumerate(
+                snapshot.component_identity
+            )
+        )
+
+    return len(before) == len(after) and all(
+        left.reference == right.reference
+        and left.stat_identity == right.stat_identity
+        and stable_components(left) == stable_components(right)
+        for left, right in zip(before, after, strict=True)
+    )
+
+
 def _baseline_artifact_bytes(
     project: ResearchProject, baseline: _Baseline, source_path: str
 ) -> bytes:
@@ -2332,6 +2370,8 @@ def _baseline_artifact_bytes(
         project.root,
         expected.path,
         expected=expected,
+        maximum_bytes=_MAX_RECORD_BYTES,
+        read_payload=True,
         error_code="refinement_candidate_baseline_changed",
     )
     return payload
@@ -2402,7 +2442,12 @@ def _require_closed_candidate_tree(
                     raise ValueError("refinement_candidate_identity_changed")
             for name in file_names:
                 child = directory_path / name
-                if child.is_symlink() or not child.is_file():
+                metadata = child.stat(follow_symlinks=False)
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_nlink != 1
+                ):
                     raise ValueError("refinement_candidate_identity_changed")
                 found.add(child.relative_to(root.parent.parent.parent).as_posix())
     except OSError as error:
@@ -2610,6 +2655,58 @@ def _candidate_sequence_valid(
     return number == len(registered) + 1
 
 
+def _publish_candidate_state(project: ResearchProject, state: ProjectState) -> None:
+    """One replaceable publication seam; post-publication verification owns commit."""
+    project.persist_state(state)
+
+
+def _verify_published_candidate_snapshot(
+    project: ResearchProject,
+    *,
+    expected_state: ProjectState,
+    baseline: _Baseline,
+    baseline_snapshot: tuple[_FileSnapshot, ...],
+    candidate_root: Path,
+    manifest_path: str,
+    manifest_snapshot: _FileSnapshot,
+    references: tuple[ArtifactRef, ...],
+    candidate_snapshot: tuple[_FileSnapshot, ...],
+) -> None:
+    published = ResearchProject.open(project.root)
+    if published.state != expected_state:
+        raise ValueError("refinement_candidate_binding_invalid")
+    if not _same_published_baseline_snapshot(
+        baseline_snapshot, _baseline_registration_snapshot(published, baseline)
+    ):
+        raise ValueError("refinement_candidate_baseline_changed")
+    current_candidate = tuple(
+        _secure_snapshot(
+            published.root,
+            reference.path,
+            expected=reference,
+            error_code="refinement_candidate_identity_changed",
+        )[0]
+        for reference in references
+    )
+    current_manifest = _secure_snapshot(
+        published.root,
+        manifest_path,
+        expected=manifest_snapshot.reference,
+        maximum_bytes=_MAX_RECORD_BYTES,
+        error_code="refinement_candidate_identity_changed",
+    )[0]
+    if (
+        current_candidate != candidate_snapshot
+        or current_manifest != manifest_snapshot
+    ):
+        raise ValueError("refinement_candidate_identity_changed")
+    _require_closed_candidate_tree(
+        candidate_root,
+        manifest_path=manifest_path,
+        references=references,
+    )
+
+
 @project_mutation
 def register_refinement_candidate(
     project: ResearchProject, manifest_path: str | Path
@@ -2647,6 +2744,8 @@ def register_refinement_candidate(
     manifest_snapshot, manifest_bytes = _secure_snapshot(
         current.root,
         relative_manifest,
+        maximum_bytes=_MAX_RECORD_BYTES,
+        read_payload=True,
         error_code="refinement_candidate_identity_changed",
     )
     if len(manifest_bytes) > _MAX_RECORD_BYTES:
@@ -2695,6 +2794,8 @@ def register_refinement_candidate(
         current.root,
         relative_manifest,
         expected=manifest_snapshot.reference,
+        maximum_bytes=_MAX_RECORD_BYTES,
+        read_payload=True,
         error_code="refinement_candidate_identity_changed",
     )
     if (
@@ -2718,13 +2819,29 @@ def register_refinement_candidate(
         existing = refreshed.state.artifacts.get(path)
         if existing not in {None, reference}:
             raise ValueError("refinement_candidate_identity_changed")
-    refreshed.persist_state(
-        replace(
-            refreshed.state,
-            next_action="prepare_refinement_run",
-            artifacts={**refreshed.state.artifacts, **published},
-        )
+    published_state = replace(
+        refreshed.state,
+        next_action="prepare_refinement_run",
+        artifacts={**refreshed.state.artifacts, **published},
     )
+    try:
+        _publish_candidate_state(refreshed, published_state)
+        _verify_published_candidate_snapshot(
+            refreshed,
+            expected_state=published_state,
+            baseline=baseline,
+            baseline_snapshot=baseline_before,
+            candidate_root=candidate_root,
+            manifest_path=relative_manifest,
+            manifest_snapshot=manifest_snapshot,
+            references=references,
+            candidate_snapshot=candidate_before,
+        )
+    except Exception:
+        rollback = ResearchProject.open(refreshed.root)
+        if rollback.state != starting_state:
+            rollback.persist_state(starting_state)
+        raise
     return CandidateStatus(
         candidate_id=candidate_id,
         manifest_path=relative_manifest,

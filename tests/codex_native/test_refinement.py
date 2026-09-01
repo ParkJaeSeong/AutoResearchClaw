@@ -1357,3 +1357,101 @@ def test_candidate_baseline_aba_during_package_validation_is_rejected(
         refinement.register_refinement_candidate(project, manifest)
 
     assert ResearchProject.open(project.root).state == before
+
+
+@pytest.mark.parametrize(
+    ("target_kind", "error"),
+    (
+        ("candidate", "refinement_candidate_identity_changed"),
+        ("manifest", "refinement_candidate_identity_changed"),
+        ("baseline", "refinement_candidate_baseline_changed"),
+    ),
+)
+def test_candidate_publication_rolls_back_when_identity_changes_before_publish(
+    tmp_path, monkeypatch, target_kind, error
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    if target_kind == "candidate":
+        target = manifest.parent.parent / "code/model.py"
+    elif target_kind == "manifest":
+        target = manifest
+    else:
+        evidence_manifest = next(
+            path
+            for path in project.state.artifacts
+            if path.startswith(".researchclaw/evidence/manifests/")
+        )
+        evidence = json.loads(
+            (project.root / evidence_manifest).read_text(encoding="utf-8")
+        )
+        target = project.root / evidence["objects"][0]["object_path"]
+
+    def mutate_then_publish(current, state):
+        target.write_bytes(target.read_bytes() + b"publication race")
+        current.persist_state(state)
+
+    monkeypatch.setattr(
+        refinement, "_publish_candidate_state", mutate_then_publish, raising=False
+    )
+
+    with pytest.raises(ValueError, match=error):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_rejects_an_outside_project_hardlink_without_publication(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    source = manifest.parent.parent / "code/model.py"
+    outside = tmp_path / "outside-model.py"
+    outside.hardlink_to(source)
+
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_accepts_absolute_manifest_below_a_symlinked_external_ancestor(
+    tmp_path,
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    alias = tmp_path / "external-alias"
+    alias.symlink_to(tmp_path, target_is_directory=True)
+    aliased_manifest = alias / project.root.name / manifest.relative_to(project.root)
+
+    status = refinement.register_refinement_candidate(project, aliased_manifest)
+
+    assert status.manifest_path == manifest.relative_to(project.root).as_posix()
+
+
+def test_bounded_snapshot_rejects_oversize_before_reading_file_bytes(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "oversize.json"
+    path.write_bytes(b"x" * 17)
+    reads = 0
+    original_read = refinement.os.read
+
+    def count_reads(descriptor, size):
+        nonlocal reads
+        reads += 1
+        return original_read(descriptor, size)
+
+    monkeypatch.setattr(refinement.os, "read", count_reads)
+
+    with pytest.raises(ValueError, match="bounded_snapshot_rejected"):
+        refinement._secure_snapshot(
+            tmp_path,
+            path.name,
+            maximum_bytes=16,
+            read_payload=True,
+            error_code="bounded_snapshot_rejected",
+        )
+
+    assert reads == 0
