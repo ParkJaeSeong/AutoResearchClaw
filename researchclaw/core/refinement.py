@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 
 from .contracts import (
     REFINEMENT_STAGE_ID,
@@ -95,7 +96,7 @@ def _read_bounded_json(path: Path) -> tuple[dict[str, object], bytes]:
         raise ValueError("refinement_integrity_failure") from error
     try:
         initial = os.fstat(descriptor)
-        if not os.path.isfile(path) or initial.st_size > _MAX_RECORD_BYTES:
+        if not stat.S_ISREG(initial.st_mode) or initial.st_size > _MAX_RECORD_BYTES:
             raise ValueError("refinement_integrity_failure")
         chunks: list[bytes] = []
         remaining = _MAX_RECORD_BYTES + 1
@@ -110,8 +111,22 @@ def _read_bounded_json(path: Path) -> tuple[dict[str, object], bytes]:
         if (
             len(payload) > _MAX_RECORD_BYTES
             or len(payload) != initial.st_size
-            or (initial.st_dev, initial.st_ino, initial.st_size, initial.st_mtime_ns, initial.st_ctime_ns)
-            != (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns, final.st_ctime_ns)
+            or (
+                initial.st_dev,
+                initial.st_ino,
+                initial.st_mode,
+                initial.st_size,
+                initial.st_mtime_ns,
+                initial.st_ctime_ns,
+            )
+            != (
+                final.st_dev,
+                final.st_ino,
+                final.st_mode,
+                final.st_size,
+                final.st_mtime_ns,
+                final.st_ctime_ns,
+            )
         ):
             raise ValueError("refinement_integrity_failure")
     except OSError as error:
@@ -412,18 +427,23 @@ def _created_at(value: object) -> str:
     return value
 
 
-def _existing_payloads(project: ResearchProject) -> tuple[dict[str, object] | None, bytes | None, bytes | None]:
+def _existing_payloads(
+    project: ResearchProject,
+) -> tuple[dict[str, object] | None, bytes | None, dict[str, object] | None, bytes | None]:
     session_path = resolve_project_artifact(project.root, SESSION_PATH)
     packet_path = resolve_project_artifact(project.root, EVIDENCE_PACKET_PATH)
     session_exists = os.path.lexists(session_path)
     packet_exists = os.path.lexists(packet_path)
-    if session_exists != packet_exists:
+    if session_exists and not packet_exists:
         raise ValueError("refinement_integrity_failure")
     if not session_exists:
-        return None, None, None
+        if not packet_exists:
+            return None, None, None, None
+        packet, packet_bytes = _read_bounded_json(packet_path)
+        return None, None, packet, packet_bytes
     session, session_bytes = _read_bounded_json(session_path)
-    _packet, packet_bytes = _read_bounded_json(packet_path)
-    return session, session_bytes, packet_bytes
+    packet, packet_bytes = _read_bounded_json(packet_path)
+    return session, session_bytes, packet, packet_bytes
 
 
 def _status(session: Mapping[str, object]) -> RefinementSessionStatus:
@@ -507,9 +527,17 @@ def _prepare(project: ResearchProject, envelope_payload: object) -> RefinementSe
     baseline = _baseline(current)
     envelope, producer = _parse_envelope(envelope_payload, input_paths=baseline.input_paths)
     session_id = _session_id(current.state.project_id, baseline, envelope, producer)
-    existing_session, existing_session_bytes, existing_packet_bytes = _existing_payloads(current)
+    (
+        existing_session,
+        existing_session_bytes,
+        existing_packet,
+        existing_packet_bytes,
+    ) = _existing_payloads(current)
     if existing_session is None:
-        created_at = datetime.now(timezone.utc).isoformat()
+        if existing_packet is None:
+            created_at = datetime.now(timezone.utc).isoformat()
+        else:
+            created_at = _created_at(existing_packet.get("created_at"))
     else:
         created_at = _created_at(existing_session.get("created_at"))
     packet_payload = _packet_payload(
@@ -534,6 +562,13 @@ def _prepare(project: ResearchProject, envelope_payload: object) -> RefinementSe
     if existing_session is not None:
         if existing_session_bytes != session_bytes or existing_packet_bytes != packet_bytes:
             raise ValueError("refinement_integrity_failure")
+    elif existing_packet is not None:
+        if existing_packet_bytes != packet_bytes:
+            raise ValueError("refinement_integrity_failure")
+        try:
+            _write_exclusive(resolve_project_artifact(current.root, SESSION_PATH), session_bytes)
+        except FileExistsError as error:
+            raise ValueError("refinement_integrity_failure") from error
     else:
         try:
             _write_exclusive(resolve_project_artifact(current.root, EVIDENCE_PACKET_PATH), packet_bytes)
@@ -556,9 +591,9 @@ def load_refinement_session(project: ResearchProject) -> RefinementSessionStatus
     """Load and fully revalidate the durable preparation records without mutation."""
     current = ResearchProject.open_readonly(project.root)
     baseline = _baseline(current)
-    session, session_bytes, packet_bytes = _existing_payloads(current)
+    session, session_bytes, _packet, packet_bytes = _existing_payloads(current)
     if session is None or session_bytes is None or packet_bytes is None:
-        raise ValueError("refinement_baseline_unavailable")
+        raise ValueError("refinement_integrity_failure")
     envelope_raw = session.get("envelope")
     if not isinstance(envelope_raw, Mapping):
         raise ValueError("refinement_integrity_failure")

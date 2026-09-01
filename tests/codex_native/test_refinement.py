@@ -110,3 +110,46 @@ def test_prepare_session_adopts_only_exact_files_after_state_interruption(
     status = prepare_refinement_session(project, valid_envelope())
 
     assert load_refinement_session(project) == status
+
+
+def test_prepare_session_recovers_an_exact_packet_only_interruption(
+    tmp_path, monkeypatch
+):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    original = refinement._write_exclusive
+
+    def interrupt_after_packet(path, payload):
+        original(path, payload)
+        if path.name == "evidence_packet.json":
+            raise RuntimeError("packet-only interruption")
+
+    monkeypatch.setattr(refinement, "_write_exclusive", interrupt_after_packet)
+    with pytest.raises(RuntimeError, match="packet-only interruption"):
+        prepare_refinement_session(project, valid_envelope())
+
+    monkeypatch.setattr(refinement, "_write_exclusive", original)
+    status = prepare_refinement_session(project, valid_envelope())
+
+    assert load_refinement_session(project) == status
+
+
+def test_prepare_session_rejects_a_non_owned_packet_only_partial(tmp_path):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    packet = project.root / "refinement/evidence_packet.json"
+    packet.parent.mkdir()
+    packet.write_text('{"created_at":"2026-09-01T00:00:00+00:00"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="refinement_integrity_failure"):
+        prepare_refinement_session(project, valid_envelope())
+
+
+def test_bounded_record_read_is_descriptor_backed(tmp_path, monkeypatch):
+    path = tmp_path / "record.json"
+    path.write_text("{}", encoding="utf-8")
+
+    def fail_pathname_probe(*_args):
+        raise AssertionError("pathname probe")
+
+    monkeypatch.setattr(refinement.os.path, "isfile", fail_pathname_probe)
+
+    assert refinement._read_bounded_json(path) == ({}, b"{}")
