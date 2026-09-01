@@ -17,6 +17,7 @@ from tests.codex_native.helpers import (
     build_stage_thirteen_project,
     build_ungrounded_stage_thirteen_project,
     immutable_stage_twelve_snapshot,
+    write_refinement_candidate,
 )
 
 
@@ -1136,3 +1137,223 @@ def test_submission_schema_version_rejects_bool(tmp_path):
         register_refinement_assessment(
             project, write_record(project, "submissions/bool-schema.json", payload)
         )
+
+
+def refinement_project_with_refine_decision(path):
+    project = prepared_refinement_project(path)
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(project, write_valid_decision(project))
+    return ResearchProject.open(project.root)
+
+
+def test_candidate_must_bind_council_change_request(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project, decision_sha256="0" * 64)
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+
+def test_candidate_cannot_bind_outside_candidate_root(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(
+        project, files=["../../experiment/results.json"]
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_path_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+
+def _rewrite_candidate_manifest(path, mutate):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    mutate(payload)
+    path.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+
+
+def test_candidate_registration_publishes_one_closed_immutable_identity(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    baseline_before = immutable_stage_twelve_snapshot(project)
+    manifest = write_refinement_candidate(project)
+
+    status = refinement.register_refinement_candidate(project, manifest)
+
+    reopened = ResearchProject.open(project.root)
+    assert status.candidate_id == "candidate-001"
+    assert status.entry_point == "code/model.py"
+    assert status.next_action == "prepare_refinement_run"
+    assert reopened.state.next_action == "prepare_refinement_run"
+    assert (
+        reopened.state.artifacts[status.manifest_path].sha256 == status.manifest_sha256
+    )
+    assert {reference.path for reference in status.files} < set(
+        reopened.state.artifacts
+    )
+    assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+
+
+def test_candidate_registration_is_byte_identically_idempotent(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    first = refinement.register_refinement_candidate(project, manifest)
+
+    second = refinement.register_refinement_candidate(
+        ResearchProject.open(project.root), manifest
+    )
+
+    assert second == first
+
+
+def test_candidate_manifest_is_closed_before_any_state_is_published(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    unknown = manifest.parent.parent / "tests/undeclared.json"
+    unknown.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="refinement_candidate_manifest_open"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_requires_the_distinct_implementation_producer(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    _rewrite_candidate_manifest(
+        manifest, lambda payload: payload.__setitem__("producer", "domain-agent")
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_producer_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_rejects_symlink_components_before_publication(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    code = manifest.parent.parent / "code"
+    target = manifest.parent.parent / "real-code"
+    code.rename(target)
+    code.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(
+        ValueError,
+        match="refinement_candidate_(path|identity)_invalid|refinement_candidate_identity_changed",
+    ):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_replacement_during_package_validation_is_rejected(
+    tmp_path, monkeypatch
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    source = manifest.parent.parent / "code/model.py"
+    original_validator = refinement.validate_experiment_package_contract_at
+
+    def replace_after_validation(*args, **kwargs):
+        result = original_validator(*args, **kwargs)
+        source.write_bytes(source.read_bytes() + b"\n# replaced\n")
+        return result
+
+    monkeypatch.setattr(
+        refinement, "validate_experiment_package_contract_at", replace_after_validation
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_retarget_during_package_validation_is_rejected(
+    tmp_path, monkeypatch
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    code = manifest.parent.parent / "code"
+    target = manifest.parent.parent / "retargeted-code"
+    original_validator = refinement.validate_experiment_package_contract_at
+
+    def retarget_after_validation(*args, **kwargs):
+        result = original_validator(*args, **kwargs)
+        code.rename(target)
+        code.symlink_to(target, target_is_directory=True)
+        return result
+
+    monkeypatch.setattr(
+        refinement, "validate_experiment_package_contract_at", retarget_after_validation
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_aba_restore_during_package_validation_is_rejected(
+    tmp_path, monkeypatch
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    source = manifest.parent.parent / "code/model.py"
+    original = source.read_bytes()
+    original_validator = refinement.validate_experiment_package_contract_at
+
+    def restore_after_validation(*args, **kwargs):
+        result = original_validator(*args, **kwargs)
+        source.write_bytes(b"replacement")
+        source.write_bytes(original)
+        return result
+
+    monkeypatch.setattr(
+        refinement, "validate_experiment_package_contract_at", restore_after_validation
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_candidate_baseline_aba_during_package_validation_is_rejected(
+    tmp_path, monkeypatch
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    evidence_manifest = next(
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    evidence = json.loads(
+        (project.root / evidence_manifest).read_text(encoding="utf-8")
+    )
+    baseline_object = project.root / evidence["objects"][0]["object_path"]
+    original = baseline_object.read_bytes()
+    original_validator = refinement.validate_experiment_package_contract_at
+
+    def restore_baseline_after_validation(*args, **kwargs):
+        result = original_validator(*args, **kwargs)
+        baseline_object.write_bytes(b"replacement")
+        baseline_object.write_bytes(original)
+        return result
+
+    monkeypatch.setattr(
+        refinement,
+        "validate_experiment_package_contract_at",
+        restore_baseline_after_validation,
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_baseline_changed"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before

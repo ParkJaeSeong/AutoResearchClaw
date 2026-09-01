@@ -290,7 +290,10 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
                         {
                             "category": "public_dataset",
                             "scope": "battery lifetime datasets with source metadata",
-                            "inclusion_criteria": ["stable source identifier", "documented preprocessing"],
+                            "inclusion_criteria": [
+                                "stable source identifier",
+                                "documented preprocessing",
+                            ],
                             "exclusion_criteria": ["untraceable derived data"],
                             "collection_method": "reproducible registry search",
                         }
@@ -305,9 +308,16 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
                             "unit": "percentage_points",
                         }
                     ],
-                    "success_criteria": ["Coverage error decreases by at least 5 percentage points."],
-                    "failure_criteria": ["Coverage error decreases by less than 5 percentage points."],
-                    "bias_controls": ["blind source labels during scoring", "publish exclusion reasons"],
+                    "success_criteria": [
+                        "Coverage error decreases by at least 5 percentage points."
+                    ],
+                    "failure_criteria": [
+                        "Coverage error decreases by less than 5 percentage points."
+                    ],
+                    "bias_controls": [
+                        "blind source labels during scoring",
+                        "publish exclusion reasons",
+                    ],
                     "resources": {
                         "people": ["materials domain reviewer", "data analyst"],
                         "data": ["public battery datasets"],
@@ -328,8 +338,16 @@ def write_valid_fixture_artifacts(root: Path, stage_id: int) -> None:
                         }
                     ],
                     "method": {
-                        "data_sources": ["literature", "public datasets", "official policy documents"],
-                        "stakeholder_groups": ["research institutes", "SMEs", "policy planners"],
+                        "data_sources": [
+                            "literature",
+                            "public datasets",
+                            "official policy documents",
+                        ],
+                        "stakeholder_groups": [
+                            "research institutes",
+                            "SMEs",
+                            "policy planners",
+                        ],
                         "candidate_selection": "predefined eligibility criteria",
                         "scoring_model": "weighted multi-criteria scoring with disclosed weights",
                         "sensitivity_analysis": "vary each weight by plus or minus 20 percent",
@@ -417,8 +435,7 @@ def _computational_package_fixture(root: Path) -> dict[str, str]:
             "split summary, and provenance. Network, external LLM, nested-agent, and "
             "Stage-10 execution are prohibited.\n"
         ),
-        "experiment/code/config.json": json.dumps(config, separators=(",", ":"))
-        + "\n",
+        "experiment/code/config.json": json.dumps(config, separators=(",", ":")) + "\n",
         **canonical_computational_scaffold(),
     }
     manifest = {
@@ -476,7 +493,7 @@ def build_known_answer_experiment_package(root: Path) -> ResearchProject:
     )
     main_path = project.root / "experiment/code/main.py"
     main_path.parent.mkdir(parents=True, exist_ok=True)
-    main_source = '''import argparse
+    main_source = """import argparse
 import ctypes
 import hashlib
 from importlib.metadata import version
@@ -806,7 +823,7 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
 
 if __name__ == "__main__":
     main()
-'''
+"""
     main_path.write_text(main_source, encoding="utf-8")
     config_path = project.root / "experiment/code/config.json"
     config_path.write_text("{}\n", encoding="utf-8")
@@ -819,7 +836,9 @@ if __name__ == "__main__":
                 "files": [
                     {
                         "path": "experiment/code/main.py",
-                        "sha256": hashlib.sha256(main_source.encode("utf-8")).hexdigest(),
+                        "sha256": hashlib.sha256(
+                            main_source.encode("utf-8")
+                        ).hexdigest(),
                     },
                     {
                         "path": "experiment/code/config.json",
@@ -827,9 +846,7 @@ if __name__ == "__main__":
                     },
                     {
                         "path": "experiment/code/self_test_config.json",
-                        "sha256": hashlib.sha256(
-                            b"{}\n"
-                        ).hexdigest(),
+                        "sha256": hashlib.sha256(b"{}\n").hexdigest(),
                     },
                 ]
             },
@@ -857,9 +874,7 @@ if __name__ == "__main__":
                 "--self-test",
             ],
             "fixture_path": "experiment/self_test_fixture.json",
-            "expected_metrics": [
-                {"name": "mae", "expected": 0.5, "tolerance": 0.0}
-            ],
+            "expected_metrics": [{"name": "mae", "expected": 0.5, "tolerance": 0.0}],
         },
         "execution": {"argv_suffix": ["--config", "experiment/code/config.json"]},
         "dependencies": [],
@@ -896,7 +911,9 @@ def _current_artifact(root: Path, relative_path: str) -> ArtifactRef:
     )
 
 
-def _install_known_answer_stage_twelve_package(project: ResearchProject) -> ResearchProject:
+def _install_known_answer_stage_twelve_package(
+    project: ResearchProject
+) -> ResearchProject:
     source = build_known_answer_experiment_package(
         project.root.parent / f".{project.root.name}-known-answer-source"
     )
@@ -915,10 +932,10 @@ def _install_known_answer_stage_twelve_package(project: ResearchProject) -> Rese
     main_source = main_path.read_text(encoding="utf-8")
     generic_result_write = (
         "    result = run_experiment(config)\n"
-        "    Path(\"experiment/results.json\").write_text(json.dumps(result, sort_keys=True) + \"\\n\", encoding=\"utf-8\")\n"
+        '    Path("experiment/results.json").write_text(json.dumps(result, sort_keys=True) + "\\n", encoding="utf-8")\n'
         "    return result\n"
     )
-    contract_bound_result_write = '''    execution_path = Path("experiment/execution_contract.json")
+    contract_bound_result_write = """    execution_path = Path("experiment/execution_contract.json")
     execution_bytes = execution_path.read_bytes()
     execution_contract = json.loads(execution_bytes.decode("utf-8"))
     bindings = execution_contract["bindings"]
@@ -987,7 +1004,7 @@ def _install_known_answer_stage_twelve_package(project: ResearchProject) -> Rese
         encoding="utf-8",
     )
     return result
-'''
+"""
     assert generic_result_write in main_source
     main_path.write_text(
         main_source.replace(generic_result_write, contract_bound_result_write),
@@ -1011,7 +1028,9 @@ def _install_known_answer_stage_twelve_package(project: ResearchProject) -> Rese
             "sha256": self_test_config_ref.sha256,
         }
     )
-    manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     resources_path = project.root / "experiment/resources.json"
     resources = json.loads(resources_path.read_text(encoding="utf-8"))
@@ -1249,9 +1268,7 @@ def build_stage_twelve_project(
     plan["tasks"][1]["depends_on"] = ["prepare_inputs"]
     plan["budget"]["total_estimated_duration_seconds"] = 2
     if readiness == "needs_input":
-        plan["unmet_prerequisites"] = [
-            "Provide required input file at data/input.csv."
-        ]
+        plan["unmet_prerequisites"] = ["Provide required input file at data/input.csv."]
     elif readiness != "ready_for_execution":
         raise ValueError(f"unsupported test readiness: {readiness}")
 
@@ -1309,7 +1326,9 @@ def build_ungrounded_stage_thirteen_project(root: Path) -> ResearchProject:
     return ResearchProject.open(project.root)
 
 
-def immutable_stage_twelve_snapshot(project: ResearchProject) -> tuple[tuple[str, bytes], ...]:
+def immutable_stage_twelve_snapshot(
+    project: ResearchProject
+) -> tuple[tuple[str, bytes], ...]:
     """Return the immutable baseline registration and object bytes for comparison."""
     manifest_paths = sorted(
         path
@@ -1328,6 +1347,188 @@ def immutable_stage_twelve_snapshot(project: ResearchProject) -> tuple[tuple[str
         (path, (project.root / path).read_bytes())
         for path in sorted(set(snapshot_paths))
     )
+
+
+def write_refinement_candidate(
+    project: ResearchProject,
+    *,
+    decision_sha256: str | None = None,
+    files: list[str] | None = None,
+) -> Path:
+    """Write a complete isolated candidate package and its registration manifest."""
+    candidate_id = "candidate-001"
+    relative_root = f"refinement/candidates/{candidate_id}"
+    candidate_root = project.root / relative_root
+    for category in ("code", "config", "tests", "package_metadata"):
+        (candidate_root / category).mkdir(parents=True, exist_ok=True)
+
+    source_project = build_known_answer_experiment_package(
+        project.root.parent / f".{project.root.name}-candidate-package-source"
+    )
+    source = (source_project.root / "experiment/code/main.py").read_text(
+        encoding="utf-8"
+    )
+    source = source.replace("experiment.code.main", "code.model")
+    source = source.replace(
+        "experiment/code/self_test_config.json", "tests/self_test_config.json"
+    )
+    source = source.replace(
+        "experiment/self_test_fixture.json", "tests/self_test_fixture.json"
+    )
+    source = source.replace(
+        "experiment/self_test_report.json", "package_metadata/self_test_report.json"
+    )
+    source = source.replace("experiment/code/config.json", "config/config.json")
+    source = source.replace("experiment/results.json", "results.json")
+    (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
+
+    def evidence_bytes(source_path: str) -> bytes:
+        manifest_path = next(
+            path
+            for path in project.state.artifacts
+            if path.startswith(".researchclaw/evidence/manifests/")
+        )
+        evidence = json.loads(
+            (project.root / manifest_path).read_text(encoding="utf-8")
+        )
+        object_path = next(
+            item["object_path"]
+            for item in evidence["objects"]
+            if item["source_path"] == source_path
+        )
+        return (project.root / object_path).read_bytes()
+
+    baseline_config_bytes = evidence_bytes("experiment/code/config.json")
+    baseline_contract_bytes = evidence_bytes("experiment/package_contract.json")
+    baseline_manifest_bytes = evidence_bytes("experiment/package_manifest.json")
+    (candidate_root / "config/config.json").write_bytes(baseline_config_bytes)
+    (candidate_root / "tests/self_test_config.json").write_bytes(b"{}\n")
+    (candidate_root / "tests/self_test_fixture.json").write_bytes(
+        (source_project.root / "experiment/self_test_fixture.json").read_bytes()
+    )
+
+    baseline_contract = json.loads(baseline_contract_bytes)
+    contract = {
+        **baseline_contract,
+        "entry_point": "code/model.py",
+        "config_path": "config/config.json",
+        "result_path": "results.json",
+        "metrics": [
+            {
+                **metric,
+                "implementation": metric["implementation"].replace(
+                    "experiment.code.main:", "code.model:"
+                ),
+            }
+            for metric in baseline_contract["metrics"]
+        ],
+        "self_test": {
+            **baseline_contract["self_test"],
+            "argv_suffix": [
+                "--config",
+                "tests/self_test_config.json",
+                "--self-test",
+            ],
+            "fixture_path": "tests/self_test_fixture.json",
+        },
+        "execution": {"argv_suffix": ["--config", "config/config.json"]},
+    }
+    contract_path = candidate_root / "package_metadata/package_contract.json"
+    contract_path.write_text(
+        json.dumps(contract, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    local_package_files = (
+        "code/model.py",
+        "config/config.json",
+        "tests/self_test_config.json",
+    )
+    package_manifest = {
+        "files": [
+            {
+                "path": path,
+                "sha256": hashlib.sha256(
+                    (candidate_root / path).read_bytes()
+                ).hexdigest(),
+            }
+            for path in local_package_files
+        ]
+    }
+    package_manifest_path = candidate_root / "package_metadata/package_manifest.json"
+    package_manifest_path.write_text(
+        json.dumps(package_manifest, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    decision_path = "refinement/deliberations/round-001/decision.json"
+    decision_payload = (project.root / decision_path).read_bytes()
+    baseline_manifest_path = next(
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    candidate_file_paths = [
+        f"{relative_root}/{path}"
+        for path in (
+            "code/model.py",
+            "config/config.json",
+            "tests/self_test_config.json",
+            "tests/self_test_fixture.json",
+            "package_metadata/package_contract.json",
+            "package_metadata/package_manifest.json",
+        )
+    ]
+    file_entries = [
+        {
+            "path": path,
+            "sha256": hashlib.sha256((project.root / path).read_bytes()).hexdigest(),
+            "size": (project.root / path).stat().st_size,
+        }
+        for path in candidate_file_paths
+    ]
+    if files is not None:
+        file_entries[0]["path"] = files[0]
+
+    baseline_config = json.loads(baseline_config_bytes)
+    manifest = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "session_id": json.loads(
+            (project.root / "refinement/session.json").read_text(encoding="utf-8")
+        )["session_id"],
+        "candidate_id": candidate_id,
+        "producer": "implementation-agent",
+        "created_at": "2026-09-01T00:00:00+00:00",
+        "decision": {
+            "path": decision_path,
+            "sha256": decision_sha256 or hashlib.sha256(decision_payload).hexdigest(),
+            "size": len(decision_payload),
+        },
+        "change_request": {"paths": [f"{relative_root}/code/model.py"]},
+        "baseline_manifest": {
+            "path": baseline_manifest_path,
+            "sha256": project.state.artifacts[baseline_manifest_path].sha256,
+            "size": project.state.artifacts[baseline_manifest_path].size,
+        },
+        "baseline_package": {
+            "contract_sha256": hashlib.sha256(baseline_contract_bytes).hexdigest(),
+            "manifest_sha256": hashlib.sha256(baseline_manifest_bytes).hexdigest(),
+            "config_sha256": hashlib.sha256(baseline_config_bytes).hexdigest(),
+        },
+        "unchanged_declarations": {
+            "input_paths": ["data/input.csv"],
+            "input_contract": baseline_config["input_contract"],
+            "split_strategy": baseline_config["split_strategy"],
+            "metrics": baseline_contract["metrics"],
+        },
+        "package_contract": "package_metadata/package_contract.json",
+        "entry_point": "code/model.py",
+        "files": file_entries,
+    }
+    manifest_path = candidate_root / "package_metadata/manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    return manifest_path
 
 
 def load_execution_contract(root: Path) -> dict[str, object]:
@@ -1359,9 +1560,7 @@ def write_contract_bound_research_result(
         "development_only": False,
         "evidence_eligible": True,
         "status": "completed",
-        "metrics": {
-            "primary": {"name": "mae_cycles", "value": 2.5, "unit": "cycles"}
-        },
+        "metrics": {"primary": {"name": "mae_cycles", "value": 2.5, "unit": "cycles"}},
         "split_summary": {
             "isolation_key": "cell_id",
             "roles": {

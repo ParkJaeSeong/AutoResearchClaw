@@ -39,16 +39,30 @@ _SELF_TEST_REGISTRATION_PENDING_PATH = (
 _MAX_SELF_TEST_REGISTRATION_PENDING_BYTES = 16 * 1024
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 PACKAGE_KEYS = {
-    "schema_version", "entry_point", "config_path", "result_path",
-    "metrics", "self_test", "execution", "dependencies", "prohibitions",
+    "schema_version",
+    "entry_point",
+    "config_path",
+    "result_path",
+    "metrics",
+    "self_test",
+    "execution",
+    "dependencies",
+    "prohibitions",
 }
 METRIC_KEYS = {"name", "unit", "implementation"}
 SELF_TEST_KEYS = {"argv_suffix", "fixture_path", "expected_metrics"}
 _EXECUTION_KEYS = {"argv_suffix"}
 _EXPECTED_METRIC_KEYS = {"name", "expected", "tolerance"}
 _REPORT_KEYS = {
-    "schema_version", "package_contract", "fixture", "environment_fingerprint",
-    "package_manifest", "entry_point", "package_files", "metrics", "passed",
+    "schema_version",
+    "package_contract",
+    "fixture",
+    "environment_fingerprint",
+    "package_manifest",
+    "entry_point",
+    "package_files",
+    "metrics",
+    "passed",
     "development_only",
 }
 _IDENTITY_KEYS = {"path", "sha256"}
@@ -150,7 +164,9 @@ def _read_json_object(
             ),
         )
     except ValueError as error:
-        if str(error).startswith(("non-finite JSON number:", "JSON keys must be unique")):
+        if str(error).startswith(
+            ("non-finite JSON number:", "JSON keys must be unique")
+        ):
             raise
         raise ValueError(f"invalid JSON object: {relative_path}") from error
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -173,7 +189,11 @@ def _require_closed(value: object, keys: set[str], label: str) -> dict[str, Any]
 
 
 def _finite_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _schema_version_one(value: object) -> bool:
@@ -190,8 +210,10 @@ def _required_path(root: Path, value: object, label: str) -> tuple[str, Path]:
 
 
 def _argv_suffix(value: object, label: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or not value or any(
-        not isinstance(item, str) or not item for item in value
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or not item for item in value)
     ):
         raise ValueError(f"{label} argv_suffix must be a non-empty string list")
     return tuple(value)
@@ -208,12 +230,16 @@ def _argv_config_path(argv: tuple[str, ...], label: str) -> str:
 
 
 def _package_main_source(
-    root: Path, entry_point: object
+    root: Path,
+    entry_point: object,
+    *,
+    manifest_path: str = _PACKAGE_MANIFEST_PATH,
+    code_root: str = "experiment/code/",
 ) -> tuple[str, ast.Module, str, str]:
     entry_path, path = _required_path(root, entry_point, "entry_point")
-    if not entry_path.startswith("experiment/code/") or not entry_path.endswith(".py"):
+    if not entry_path.startswith(code_root) or not entry_path.endswith(".py"):
         raise ValueError("entry_point must be a package-manifest Python file")
-    manifest, manifest_bytes = _read_json_object(root, _PACKAGE_MANIFEST_PATH)
+    manifest, manifest_bytes = _read_json_object(root, manifest_path)
     files = manifest.get("files")
     if not isinstance(files, list):
         raise ValueError("package manifest files must be a list")
@@ -231,15 +257,26 @@ def _package_main_source(
         ):
             raise ValueError("package manifest file identity is invalid")
         declared_paths.add(relative_path)
-        _path, declared_file = _required_path(root, relative_path, "package manifest file")
+        _path, declared_file = _required_path(
+            root, relative_path, "package manifest file"
+        )
         if hashlib.sha256(declared_file.read_bytes()).hexdigest() != declared_sha256:
-            raise ValueError("package manifest identity does not match its declared file")
-    entries = [item for item in files if isinstance(item, dict) and item.get("path") == entry_path]
+            raise ValueError(
+                "package manifest identity does not match its declared file"
+            )
+    entries = [
+        item
+        for item in files
+        if isinstance(item, dict) and item.get("path") == entry_path
+    ]
     if len(entries) != 1 or set(entries[0]) - {"path", "role", "sha256"}:
         raise ValueError("entry_point must be declared once by the package manifest")
     expected_hash = entries[0].get("sha256")
     source_bytes = path.read_bytes()
-    if not isinstance(expected_hash, str) or hashlib.sha256(source_bytes).hexdigest() != expected_hash:
+    if (
+        not isinstance(expected_hash, str)
+        or hashlib.sha256(source_bytes).hexdigest() != expected_hash
+    ):
         raise ValueError("package manifest identity does not match entry_point")
     try:
         source = source_bytes.decode("utf-8")
@@ -304,7 +341,9 @@ def _function_aliases(
         target_names = (
             [target.id for target in node.targets if isinstance(target, ast.Name)]
             if isinstance(node, ast.Assign)
-            else [node.target.id] if isinstance(node.target, ast.Name) else []
+            else [node.target.id]
+            if isinstance(node.target, ast.Name)
+            else []
         )
         if any(target in alias_targets for target in target_names):
             raise ValueError("callable alias is ambiguous or reassigned")
@@ -312,10 +351,9 @@ def _function_aliases(
             continue
         value_name = node.value.id
         resolved = aliases.get(value_name, value_name)
-        if (
-            resolved in functions
-            and getattr(functions[resolved], "lineno", 0) >= getattr(node, "lineno", 0)
-        ):
+        if resolved in functions and getattr(
+            functions[resolved], "lineno", 0
+        ) >= getattr(node, "lineno", 0):
             raise ValueError("callable alias is defined before its target")
         if resolved in functions or resolved == "dict":
             aliases.update({target: resolved for target in target_names})
@@ -333,14 +371,17 @@ def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> tuple[ast.AST, ...]
     return tuple(node.targets) if isinstance(node, ast.Assign) else (node.target,)
 
 
-def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> tuple[str | None, bool]:
+def _local_alias_target(
+    function: ast.FunctionDef, call: ast.Call
+) -> tuple[str | None, bool]:
     """Resolve a local callable alias using only source-order-reachable definitions."""
     if not isinstance(call.func, ast.Name):
         return None, False
 
     assignments = sorted(
         [
-            node for node in _lexical_scope_nodes(function)
+            node
+            for node in _lexical_scope_nodes(function)
             if isinstance(node, (ast.Assign, ast.AnnAssign))
         ],
         key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
@@ -375,7 +416,11 @@ def _local_alias_target(function: ast.FunctionDef, call: ast.Call) -> tuple[str 
             {*seen, name},
         )
 
-    return resolve(call.func.id, (getattr(call, "lineno", 0), getattr(call, "col_offset", 0)), set())
+    return resolve(
+        call.func.id,
+        (getattr(call, "lineno", 0), getattr(call, "col_offset", 0)),
+        set(),
+    )
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -386,7 +431,9 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
                 aliases[imported.asname or imported.name.split(".")[0]] = imported.name
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             for imported in node.names:
-                aliases[imported.asname or imported.name] = f"{node.module}.{imported.name}"
+                aliases[
+                    imported.asname or imported.name
+                ] = f"{node.module}.{imported.name}"
     return aliases
 
 
@@ -527,14 +574,11 @@ def _has_evidence_eligible_fallback(tree: ast.Module) -> bool:
                 target_name = _resolved_local_call_name(
                     reachable, node, functions, function_aliases
                 )
-                if (
-                    target_name == "dict"
-                    and any(
-                        keyword.arg == "evidence_eligible"
-                        and isinstance(keyword.value, ast.Constant)
-                        and keyword.value.value is True
-                        for keyword in node.keywords
-                    )
+                if target_name == "dict" and any(
+                    keyword.arg == "evidence_eligible"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value is True
+                    for keyword in node.keywords
                 ):
                     return True
     return False
@@ -600,8 +644,10 @@ def _is_literal_path_text_write(call: ast.Call, path: str) -> bool:
     )
 
 
-def _is_self_test_report_write(call: ast.Call) -> bool:
-    return _is_literal_path_text_write(call, SELF_TEST_REPORT_PATH)
+def _is_self_test_report_write(
+    call: ast.Call, report_path: str = SELF_TEST_REPORT_PATH
+) -> bool:
+    return _is_literal_path_text_write(call, report_path)
 
 
 _MUTATING_METHODS = {
@@ -678,8 +724,7 @@ def _call_may_mutate_filesystem(
     if operation in _MUTATING_METHODS:
         return True
     if name in _MUTATING_CALLS or (
-        name is not None
-        and (name.startswith("shutil.copy") or name == "shutil.move")
+        name is not None and (name.startswith("shutil.copy") or name == "shutil.move")
     ):
         return True
     if name == "os.open":
@@ -820,7 +865,8 @@ def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
         ):
             return True
         if isinstance(node, ast.Import) and any(
-            imported.asname == "os" or (
+            imported.asname == "os"
+            or (
                 imported.name != "os"
                 and _import_binding(imported, from_import=False) == "os"
             )
@@ -834,7 +880,9 @@ def _nodes_rebind_os_capabilities(nodes: list[ast.AST]) -> bool:
             return True
         if isinstance(node, ast.ExceptHandler) and node.name == "os":
             return True
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and any(
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+        ) and any(
             argument.arg == "os"
             for argument in [
                 *node.args.posonlyargs,
@@ -1111,6 +1159,9 @@ def _validate_exclusive_artifact_writers(
     reachable_functions: list[ast.FunctionDef],
     branch_nodes: list[ast.AST],
     reachable_nodes: list[ast.AST],
+    *,
+    report_path: str = SELF_TEST_REPORT_PATH,
+    result_path: str = "experiment/results.json",
 ) -> None:
     """Require the checked-in adapter's two exclusive literal artifact writers."""
     aliases = _import_aliases(tree)
@@ -1123,12 +1174,12 @@ def _validate_exclusive_artifact_writers(
         )
     ]
     report_writes = [
-        node for node in mutation_calls if _is_self_test_report_write(node)
+        node for node in mutation_calls if _is_self_test_report_write(node, report_path)
     ]
     result_writes = [
         node
         for node in mutation_calls
-        if _is_literal_path_text_write(node, "experiment/results.json")
+        if _is_literal_path_text_write(node, result_path)
     ]
     approved = {*report_writes, *result_writes}
     if (
@@ -1145,13 +1196,19 @@ def _validate_exclusive_artifact_writers(
         )
 
 
-def _self_test_report_payload_name(call: ast.Call) -> str | None:
-    if not _is_self_test_report_write(call):
+def _self_test_report_payload_name(
+    call: ast.Call, report_path: str = SELF_TEST_REPORT_PATH
+) -> str | None:
+    if not _is_self_test_report_write(call, report_path):
         return None
     if not call.args:
         return None
     payload = call.args[0]
-    serializer = payload.left if isinstance(payload, ast.BinOp) and isinstance(payload.op, ast.Add) else payload
+    serializer = (
+        payload.left
+        if isinstance(payload, ast.BinOp) and isinstance(payload.op, ast.Add)
+        else payload
+    )
     if not isinstance(serializer, ast.Call):
         return None
     if not (
@@ -1188,7 +1245,8 @@ def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
+            and node.func.attr
+            in {"update", "setdefault", "clear", "pop", "popitem", "__ior__"}
             and (
                 not isinstance(node.func.value, ast.Name)
                 or node.func.value.id in literal_mapping_names
@@ -1199,7 +1257,11 @@ def _mapping_is_mutated(nodes: list[ast.AST]) -> bool:
 
 
 def _validate_self_test_adapter(
-    tree: ast.Module, metric_entrypoints: Mapping[str, str]
+    tree: ast.Module,
+    metric_entrypoints: Mapping[str, str],
+    *,
+    report_path: str = SELF_TEST_REPORT_PATH,
+    result_path: str = "experiment/results.json",
 ) -> None:
     """Prove that the written self-test report carries declared metric values."""
     if _nodes_rebind_os_capabilities(list(ast.walk(tree))):
@@ -1213,36 +1275,43 @@ def _validate_self_test_adapter(
     function_aliases = _function_aliases(tree, functions)
     main_nodes = _lexical_scope_nodes(main)
     branches = [
-        node for node in main_nodes
+        node
+        for node in main_nodes
         if isinstance(node, ast.If) and _is_positive_self_test_condition(node.test)
     ]
     mentioned_branches = [
-        node for node in main_nodes
+        node
+        for node in main_nodes
         if isinstance(node, ast.If) and _mentions_self_test(node.test)
     ]
     if len(branches) != 1 or len(mentioned_branches) != 1:
-        raise ValueError("self-test adapter must have one unambiguous --self-test branch")
+        raise ValueError(
+            "self-test adapter must have one unambiguous --self-test branch"
+        )
     nodes = [item for statement in branches[0].body for item in ast.walk(statement)]
     if any(
         isinstance(node, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try))
         for node in nodes
     ):
         raise ValueError("self-test adapter must not use ambiguous provenance branches")
-    reachable_functions = _reachable_local_functions(
-        main, functions, function_aliases
-    )
+    reachable_functions = _reachable_local_functions(main, functions, function_aliases)
     all_nodes = [
         node
         for function in reachable_functions
         for node in _lexical_scope_nodes(function)
     ]
     _validate_exclusive_artifact_writers(
-        tree, reachable_functions, nodes, all_nodes
+        tree,
+        reachable_functions,
+        nodes,
+        all_nodes,
+        report_path=report_path,
+        result_path=result_path,
     )
     writes = [
-        (node, _self_test_report_payload_name(node))
+        (node, _self_test_report_payload_name(node, report_path))
         for node in all_nodes
-        if isinstance(node, ast.Call) and _is_self_test_report_write(node)
+        if isinstance(node, ast.Call) and _is_self_test_report_write(node, report_path)
     ]
     if len(writes) != 1 or writes[0][0] not in nodes or writes[0][1] is None:
         raise ValueError("self-test adapter must write exactly one self-test report")
@@ -1252,8 +1321,7 @@ def _validate_self_test_adapter(
     before_write_nodes = [
         node
         for node in nodes
-        if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
-        < write_position
+        if (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)) < write_position
     ]
     called_nodes = _reachable_called_function_nodes(
         main, before_write_nodes, functions, function_aliases
@@ -1263,20 +1331,26 @@ def _validate_self_test_adapter(
     write_line = getattr(write, "lineno", 0)
     assignments = sorted(
         [
-            node for node in nodes
+            node
+            for node in nodes
             if isinstance(node, (ast.Assign, ast.AnnAssign))
             and getattr(node, "lineno", 0) < write_line
         ],
         key=lambda node: (getattr(node, "lineno", 0), getattr(node, "col_offset", 0)),
     )
     report_definitions = [
-        node for node in assignments
+        node
+        for node in assignments
         if any(
             isinstance(target, ast.Name) and target.id == report_name
-            for target in (node.targets if isinstance(node, ast.Assign) else (node.target,))
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else (node.target,)
+            )
         )
     ]
-    if len(report_definitions) != 1 or not isinstance(report_definitions[0].value, ast.Dict):
+    if len(report_definitions) != 1 or not isinstance(
+        report_definitions[0].value, ast.Dict
+    ):
         raise ValueError("self-test adapter report object is ambiguous")
 
     scalars: dict[str, str | None] = {}
@@ -1310,14 +1384,21 @@ def _validate_self_test_adapter(
     for metric_name, implementation in metric_entrypoints.items():
         function_name = implementation.partition(":")[2]
         matching = [
-            record for record in selected_records
+            record
+            for record in selected_records
             if _dict_fields(record).get("name")
             and isinstance(_dict_fields(record)["name"], ast.Constant)
             and _dict_fields(record)["name"].value == metric_name
         ]
-        if len(matching) != 1 or _metric_source(
-            _dict_fields(matching[0]).get("actual", ast.Constant(None)), scalars, mappings
-        ) != function_name:
+        if (
+            len(matching) != 1
+            or _metric_source(
+                _dict_fields(matching[0]).get("actual", ast.Constant(None)),
+                scalars,
+                mappings,
+            )
+            != function_name
+        ):
             raise ValueError(
                 "self-test adapter must construct each written actual metric from its declared implementation"
             )
@@ -1352,20 +1433,33 @@ def _validate_metrics(
     for metric in metrics_value:
         item = _require_closed(metric, METRIC_KEYS, "metric")
         name, unit, implementation = item["name"], item["unit"], item["implementation"]
-        if not isinstance(name, str) or not name or not isinstance(unit, str) or not unit:
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(unit, str)
+            or not unit
+        ):
             raise ValueError("metric name and unit must be non-empty strings")
         if name in metrics:
             raise ValueError("metric names must be unique")
-        if not isinstance(implementation, str) or not implementation.startswith(f"{module}:"):
-            raise ValueError("metric implementation must bind to the package entry_point")
+        if not isinstance(implementation, str) or not implementation.startswith(
+            f"{module}:"
+        ):
+            raise ValueError(
+                "metric implementation must bind to the package entry_point"
+            )
         function_name = implementation.partition(":")[2]
         function = functions.get(function_name)
         if function is None:
-            raise ValueError("metric implementation must resolve to a top-level function")
+            raise ValueError(
+                "metric implementation must resolve to a top-level function"
+            )
         if _has_size_proxy(
             _reachable_metric_nodes(function, functions, function_aliases), aliases
         ):
-            raise ValueError("metric implementation must not use an input or file size proxy")
+            raise ValueError(
+                "metric implementation must not use an input or file size proxy"
+            )
         metrics[name] = implementation
     expected: dict[str, tuple[float, float]] = {}
     for metric in expected_value:
@@ -1413,9 +1507,42 @@ def _reject_module_scope_lambdas(tree: ast.Module) -> None:
     ModuleExecutionVisitor().visit(tree)
 
 
-def validate_experiment_package_contract(project: ResearchProject) -> ValidatedExperimentPackage:
+def validate_experiment_package_contract(
+    project: ResearchProject
+) -> ValidatedExperimentPackage:
     """Validate the non-executing closed package contract for a project."""
-    contract, contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
+    return validate_experiment_package_contract_at(
+        project,
+        package_root=project.root,
+        contract_path=EXPERIMENT_PACKAGE_CONTRACT_PATH,
+    )
+
+
+def validate_experiment_package_contract_at(
+    project: ResearchProject,
+    *,
+    package_root: Path,
+    contract_path: str,
+) -> ValidatedExperimentPackage:
+    """Validate a closed package rooted beneath ``package_root`` without execution."""
+    del (
+        project
+    )  # The rooted contract is intentionally independent of live project files.
+    package_root = Path(package_root)
+    baseline_layout = contract_path == EXPERIMENT_PACKAGE_CONTRACT_PATH
+    manifest_path = (
+        _PACKAGE_MANIFEST_PATH
+        if baseline_layout
+        else "package_metadata/package_manifest.json"
+    )
+    code_root = "experiment/code/" if baseline_layout else "code/"
+    expected_result = "experiment/results.json" if baseline_layout else "results.json"
+    report_path = (
+        SELF_TEST_REPORT_PATH
+        if baseline_layout
+        else "package_metadata/self_test_report.json"
+    )
+    contract, contract_bytes = _read_json_object(package_root, contract_path)
     _require_closed(contract, PACKAGE_KEYS, "package contract")
     if not _schema_version_one(contract["schema_version"]):
         raise ValueError("package contract schema_version must equal 1")
@@ -1423,14 +1550,19 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     if not isinstance(entry_point, str):
         raise ValueError("entry_point must be text")
     source, tree, _manifest_sha256, _entry_point_sha256 = _package_main_source(
-        project.root, entry_point
+        package_root,
+        entry_point,
+        manifest_path=manifest_path,
+        code_root=code_root,
     )
     _validate_current_process_attestation(tree)
     _reject_module_scope_lambdas(tree)
-    config_path, _config = _required_path(project.root, contract["config_path"], "config_path")
+    config_path, _config = _required_path(
+        package_root, contract["config_path"], "config_path"
+    )
     result_path = contract["result_path"]
-    if result_path != "experiment/results.json":
-        raise ValueError("result_path must be experiment/results.json")
+    if result_path != expected_result:
+        raise ValueError(f"result_path must be {expected_result}")
     self_test = _require_closed(contract["self_test"], SELF_TEST_KEYS, "self_test")
     execution = _require_closed(contract["execution"], _EXECUTION_KEYS, "execution")
     self_test_argv = _argv_suffix(self_test["argv_suffix"], "self_test")
@@ -1441,14 +1573,16 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
         raise ValueError("self_test argv_suffix must end with --self-test")
     self_test_config = _argv_config_path(self_test_argv, "self_test")
     execution_config = _argv_config_path(execution_argv, "execution")
-    _required_path(project.root, self_test_config, "self_test input")
+    _required_path(package_root, self_test_config, "self_test input")
     if execution_config != config_path or self_test_config == execution_config:
         raise ValueError("self-test and research inputs must be distinct")
-    fixture_path, fixture = _required_path(project.root, self_test["fixture_path"], "self_test fixture")
+    fixture_path, fixture = _required_path(
+        package_root, self_test["fixture_path"], "self_test fixture"
+    )
     if fixture_path in {config_path, self_test_config} or fixture.stat().st_size == 0:
         raise ValueError("self_test fixture must be a non-empty distinct input")
     fixture_value, _fixture_bytes = _read_json_object(
-        project.root,
+        package_root,
         fixture_path,
         maximum_bytes=_MAX_FIXTURE_JSON_BYTES,
         label="fixture",
@@ -1473,7 +1607,12 @@ def validate_experiment_package_contract(project: ResearchProject) -> ValidatedE
     metrics, _expected = _validate_metrics(
         contract["metrics"], self_test["expected_metrics"], entry_point, tree
     )
-    _validate_self_test_adapter(tree, metrics)
+    _validate_self_test_adapter(
+        tree,
+        metrics,
+        report_path=report_path,
+        result_path=expected_result,
+    )
     if validate_python_capability_safety(
         entry_point, source, allow_current_process_attestation=True
     ):
@@ -1516,7 +1655,9 @@ def _current_package_file_identities(root: Path) -> list[dict[str, str]]:
     return identities
 
 
-def _validate_package_file_identities(value: object, expected: list[dict[str, str]]) -> None:
+def _validate_package_file_identities(
+    value: object, expected: list[dict[str, str]]
+) -> None:
     if not isinstance(value, list):
         raise ValueError("package_files must be a list")
     reported: list[dict[str, str]] = []
@@ -1544,9 +1685,13 @@ def validate_registered_self_test(
     current = validate_experiment_package_contract(project)
     if current != package:
         raise ValueError("package changed since self-test validation")
-    contract, _contract_bytes = _read_json_object(project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH)
+    contract, _contract_bytes = _read_json_object(
+        project.root, EXPERIMENT_PACKAGE_CONTRACT_PATH
+    )
     self_test = _require_closed(contract["self_test"], SELF_TEST_KEYS, "self_test")
-    fixture_path, fixture = _required_path(project.root, self_test["fixture_path"], "self_test fixture")
+    fixture_path, fixture = _required_path(
+        project.root, self_test["fixture_path"], "self_test fixture"
+    )
     report, report_bytes = _read_json_object(project.root, SELF_TEST_REPORT_PATH)
     _require_closed(report, _REPORT_KEYS, "self_test report")
     if not _schema_version_one(report["schema_version"]):
@@ -1581,7 +1726,10 @@ def validate_registered_self_test(
         report["package_files"], _current_package_file_identities(project.root)
     )
     _validate_identity(
-        report["fixture"], fixture_path, hashlib.sha256(fixture.read_bytes()).hexdigest(), "fixture"
+        report["fixture"],
+        fixture_path,
+        hashlib.sha256(fixture.read_bytes()).hexdigest(),
+        "fixture",
     )
     fingerprint = report["environment_fingerprint"]
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
@@ -1593,7 +1741,10 @@ def validate_registered_self_test(
     if fingerprint != environment.fingerprint:
         raise ValueError("self_test environment fingerprint does not match")
     _metrics, expected = _validate_metrics(
-        contract["metrics"], self_test["expected_metrics"], contract["entry_point"], _package_main_source(project.root, contract["entry_point"])[1]
+        contract["metrics"],
+        self_test["expected_metrics"],
+        contract["entry_point"],
+        _package_main_source(project.root, contract["entry_point"])[1],
     )
     report_metrics = report["metrics"]
     if not isinstance(report_metrics, list):
@@ -1605,7 +1756,10 @@ def validate_registered_self_test(
         if not isinstance(name, str) or name in actual_names:
             raise ValueError("self_test report metric names must be unique")
         actual_names.add(name)
-        if not all(_finite_number(metric[field]) for field in ("actual", "expected", "tolerance")):
+        if not all(
+            _finite_number(metric[field])
+            for field in ("actual", "expected", "tolerance")
+        ):
             raise ValueError("self_test report metrics must be finite")
         if name not in expected:
             continue
@@ -1672,9 +1826,7 @@ def _read_self_test_registration_pending(project: ResearchProject) -> bytes:
     path = _self_test_registration_pending_path(project)
     descriptor = os.open(
         path,
-        os.O_RDONLY
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_NONBLOCK", 0),
+        os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
     )
     try:
         file_stat = os.fstat(descriptor)
@@ -1863,9 +2015,7 @@ def _complete_self_test_event_log_identity(
             return 0, hashlib.sha256(b"").hexdigest()
         descriptor = os.open(
             path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
         )
         try:
             file_stat = os.fstat(descriptor)
@@ -1898,9 +2048,7 @@ def _self_test_registration_event_tail(
     try:
         descriptor = os.open(
             path,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_NONBLOCK", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
         )
         try:
             file_stat = os.fstat(descriptor)
@@ -1910,9 +2058,7 @@ def _self_test_registration_event_tail(
                 or total_size < pending.event_log_size
                 or total_size - pending.event_log_size > MAX_EVENT_RECORD_BYTES
             ):
-                raise ValueError(
-                    "experiment_self_test_registration_recovery_invalid"
-                )
+                raise ValueError("experiment_self_test_registration_recovery_invalid")
             digest = hashlib.sha256()
             remaining = pending.event_log_size
             while remaining:
@@ -1924,14 +2070,10 @@ def _self_test_registration_event_tail(
                 digest.update(chunk)
                 remaining -= len(chunk)
             if digest.hexdigest() != pending.event_log_prefix_sha256:
-                raise ValueError(
-                    "experiment_self_test_registration_recovery_invalid"
-                )
+                raise ValueError("experiment_self_test_registration_recovery_invalid")
             tail = os.read(descriptor, MAX_EVENT_RECORD_BYTES + 1)
             if len(tail) > MAX_EVENT_RECORD_BYTES or os.read(descriptor, 1):
-                raise ValueError(
-                    "experiment_self_test_registration_recovery_invalid"
-                )
+                raise ValueError("experiment_self_test_registration_recovery_invalid")
             return tail
         finally:
             os.close(descriptor)
@@ -1975,12 +2117,8 @@ def _complete_pending_self_test_registration(
         if tail:
             ownership_marker = pending.artifact.sha256.encode("ascii")
             if not record.startswith(tail) or ownership_marker not in tail:
-                raise ValueError(
-                    "experiment_self_test_registration_recovery_invalid"
-                )
-            _truncate_self_test_registration_event_tail(
-                project, pending.event_log_size
-            )
+                raise ValueError("experiment_self_test_registration_recovery_invalid")
+            _truncate_self_test_registration_event_tail(project, pending.event_log_size)
         event_log_for(project.root).append_locked(
             pending.event,
             expected_offset=pending.event_log_size,
@@ -2000,9 +2138,7 @@ def _complete_pending_self_test_registration(
             },
         )
         if _state_sha256(target_state) != pending.target_state_sha256:
-            raise ValueError(
-                "experiment_self_test_registration_recovery_invalid"
-            )
+            raise ValueError("experiment_self_test_registration_recovery_invalid")
         current = current.persist_state(target_state)
     elif (
         pending.target_next_action == "approve_experiment_execution"
@@ -2026,9 +2162,7 @@ def _complete_pending_self_test_registration(
             },
         )
         if _state_sha256(target_state) != pending.target_state_sha256:
-            raise ValueError(
-                "experiment_self_test_registration_recovery_invalid"
-            )
+            raise ValueError("experiment_self_test_registration_recovery_invalid")
         current = current.persist_state(target_state)
     elif (
         current.state.next_action
@@ -2197,9 +2331,7 @@ def register_experiment_self_test(
         return completed
 
     try:
-        already_grounded = _self_test_registration_event_is_grounded(
-            current, artifact
-        )
+        already_grounded = _self_test_registration_event_is_grounded(current, artifact)
     except (OSError, ValueError) as error:
         raise ValueError(
             "experiment_self_test_registration_recovery_invalid"
@@ -2227,8 +2359,8 @@ def register_experiment_self_test(
         next_action=target_next_action,
         artifacts={**state.artifacts, SELF_TEST_REPORT_PATH: artifact},
     )
-    event_log_size, event_log_prefix_sha256 = (
-        _complete_self_test_event_log_identity(current)
+    event_log_size, event_log_prefix_sha256 = _complete_self_test_event_log_identity(
+        current
     )
     event = EvaluationEvent.create(
         "experiment_self_test_registered",

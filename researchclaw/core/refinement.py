@@ -31,6 +31,7 @@ from .deliberation import (
     parse_rebuttal,
 )
 from .evidence_registration import load_evidence_manifest, registered_evidence_status
+from .experiment_package_contract import validate_experiment_package_contract_at
 from .models import ArtifactRef
 from .paths import resolve_project_artifact, validate_relative_path
 from .persistence import _fsync_directory
@@ -55,6 +56,26 @@ _CANDIDATE_RESULT_PATH = re.compile(
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
+_CANDIDATE_MANIFEST = re.compile(
+    r"refinement/candidates/(candidate-[0-9]{3})/package_metadata/manifest\.json\Z"
+)
+_CANDIDATE_CATEGORIES = frozenset({"code", "config", "tests", "package_metadata"})
+_CANDIDATE_MANIFEST_FIELDS = {
+    "schema_version",
+    "project_id",
+    "session_id",
+    "candidate_id",
+    "producer",
+    "created_at",
+    "decision",
+    "change_request",
+    "baseline_manifest",
+    "baseline_package",
+    "unchanged_declarations",
+    "package_contract",
+    "entry_point",
+    "files",
+}
 
 
 @dataclass(frozen=True)
@@ -83,6 +104,25 @@ class RefinementSessionStatus:
     runs_used: int
     maximum_runs: int
     next_action: str
+
+
+@dataclass(frozen=True)
+class CandidateStatus:
+    candidate_id: str
+    manifest_path: str
+    manifest_sha256: str
+    decision_sha256: str
+    package_contract_sha256: str
+    entry_point: str
+    files: tuple[ArtifactRef, ...]
+    next_action: str
+
+
+@dataclass(frozen=True)
+class _FileSnapshot:
+    reference: ArtifactRef
+    stat_identity: tuple[int, int, int, int, int, int]
+    component_identity: tuple[tuple[str, int, int, int], ...]
 
 
 @dataclass(frozen=True)
@@ -2149,3 +2189,549 @@ def register_refinement_decision(
         conflict="refinement_decision_conflict",
     )
     return _deliberation_status(ResearchProject.open(current.root))
+
+
+def _candidate_manifest_relative_path(
+    project: ResearchProject, manifest_path: str | Path
+) -> tuple[str, str, Path]:
+    candidate = Path(manifest_path)
+    root = project.root.resolve(strict=True)
+    if candidate.is_absolute():
+        try:
+            relative = candidate.relative_to(root).as_posix()
+        except ValueError as error:
+            raise ValueError("refinement_candidate_path_invalid") from error
+    else:
+        relative = candidate.as_posix()
+    match = _CANDIDATE_MANIFEST.fullmatch(relative)
+    if match is None:
+        raise ValueError("refinement_candidate_path_invalid")
+    try:
+        resolved = resolve_project_artifact(project.root, relative)
+    except ValueError as error:
+        raise ValueError("refinement_candidate_path_invalid") from error
+    return relative, match.group(1), resolved
+
+
+def _secure_snapshot(
+    root: Path,
+    relative_path: str,
+    *,
+    expected: ArtifactRef | None = None,
+    error_code: str,
+) -> tuple[_FileSnapshot, bytes]:
+    try:
+        relative_path = validate_relative_path(
+            relative_path, kind="refinement candidate"
+        )
+        path = resolve_project_artifact(root, relative_path)
+        root_path = root.resolve(strict=True)
+        component_identity: list[tuple[str, int, int, int]] = []
+        cursor = root_path
+        for part in Path(relative_path).parts[:-1]:
+            cursor = cursor / part
+            metadata = cursor.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError(error_code)
+            component_identity.append(
+                (part, metadata.st_dev, metadata.st_ino, metadata.st_ctime_ns)
+            )
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError(error_code) from error
+    try:
+        initial = os.fstat(descriptor)
+        if not stat.S_ISREG(initial.st_mode):
+            raise ValueError(error_code)
+        digest = hashlib.sha256()
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            digest.update(chunk)
+        payload = b"".join(chunks)
+        final = os.fstat(descriptor)
+        identity = (
+            initial.st_dev,
+            initial.st_ino,
+            initial.st_mode,
+            initial.st_size,
+            initial.st_mtime_ns,
+            initial.st_ctime_ns,
+        )
+        if identity != (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        ):
+            raise ValueError(error_code)
+        reference = ArtifactRef(relative_path, digest.hexdigest(), len(payload))
+        if expected is not None and reference != expected:
+            raise ValueError(error_code)
+        return (
+            _FileSnapshot(reference, identity, tuple(component_identity)),
+            payload,
+        )
+    except OSError as error:
+        raise ValueError(error_code) from error
+    finally:
+        os.close(descriptor)
+
+
+def _baseline_registration_snapshot(
+    project: ResearchProject, baseline: _Baseline
+) -> tuple[_FileSnapshot, ...]:
+    paths = [baseline.manifest.path]
+    paths.extend(str(item["object_path"]) for item in baseline.artifacts)
+    snapshots: list[_FileSnapshot] = []
+    for path in sorted(set(paths)):
+        expected = (
+            baseline.manifest
+            if path == baseline.manifest.path
+            else next(
+                ArtifactRef(
+                    str(item["object_path"]),
+                    str(item["sha256"]),
+                    int(item["size"]),
+                )
+                for item in baseline.artifacts
+                if item["object_path"] == path
+            )
+        )
+        snapshot, _ = _secure_snapshot(
+            project.root,
+            path,
+            expected=expected,
+            error_code="refinement_candidate_baseline_changed",
+        )
+        snapshots.append(snapshot)
+    return tuple(snapshots)
+
+
+def _baseline_artifact_bytes(
+    project: ResearchProject, baseline: _Baseline, source_path: str
+) -> bytes:
+    try:
+        item = next(
+            entry for entry in baseline.artifacts if entry["path"] == source_path
+        )
+    except StopIteration as error:
+        raise ValueError("refinement_candidate_binding_invalid") from error
+    expected = ArtifactRef(
+        str(item["object_path"]), str(item["sha256"]), int(item["size"])
+    )
+    _, payload = _secure_snapshot(
+        project.root,
+        expected.path,
+        expected=expected,
+        error_code="refinement_candidate_baseline_changed",
+    )
+    return payload
+
+
+def _candidate_file_references(
+    project: ResearchProject,
+    *,
+    candidate_id: str,
+    manifest_path: str,
+    value: object,
+) -> tuple[tuple[ArtifactRef, ...], tuple[_FileSnapshot, ...]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("refinement_candidate_schema_invalid")
+    prefix = f"refinement/candidates/{candidate_id}/"
+    references: list[ArtifactRef] = []
+    snapshots: list[_FileSnapshot] = []
+    for raw in value:
+        try:
+            reference = _artifact(raw)
+        except ValueError as error:
+            raise ValueError("refinement_candidate_schema_invalid") from error
+        try:
+            normalized = validate_relative_path(
+                reference.path, kind="refinement candidate file"
+            )
+        except ValueError as error:
+            raise ValueError("refinement_candidate_path_invalid") from error
+        if normalized != reference.path or not reference.path.startswith(prefix):
+            raise ValueError("refinement_candidate_path_invalid")
+        local = reference.path.removeprefix(prefix)
+        parts = Path(local).parts
+        if (
+            len(parts) < 2
+            or parts[0] not in _CANDIDATE_CATEGORIES
+            or reference.path == manifest_path
+        ):
+            raise ValueError("refinement_candidate_path_invalid")
+        snapshot, _ = _secure_snapshot(
+            project.root,
+            reference.path,
+            expected=reference,
+            error_code="refinement_candidate_identity_changed",
+        )
+        references.append(reference)
+        snapshots.append(snapshot)
+    if len({reference.path for reference in references}) != len(references):
+        raise ValueError("refinement_candidate_schema_invalid")
+    return (
+        tuple(sorted(references, key=lambda reference: reference.path)),
+        tuple(sorted(snapshots, key=lambda snapshot: snapshot.reference.path)),
+    )
+
+
+def _require_closed_candidate_tree(
+    root: Path, *, manifest_path: str, references: tuple[ArtifactRef, ...]
+) -> None:
+    expected = {reference.path for reference in references} | {manifest_path}
+    found: set[str] = set()
+    try:
+        for directory, directory_names, file_names in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            directory_path = Path(directory)
+            for name in directory_names:
+                child = directory_path / name
+                if child.is_symlink():
+                    raise ValueError("refinement_candidate_identity_changed")
+            for name in file_names:
+                child = directory_path / name
+                if child.is_symlink() or not child.is_file():
+                    raise ValueError("refinement_candidate_identity_changed")
+                found.add(child.relative_to(root.parent.parent.parent).as_posix())
+    except OSError as error:
+        raise ValueError("refinement_candidate_path_invalid") from error
+    if found != expected:
+        raise ValueError("refinement_candidate_manifest_open")
+
+
+def _parse_candidate_manifest(
+    project: ResearchProject,
+    *,
+    manifest_path: str,
+    candidate_id: str,
+    manifest: Mapping[str, object],
+    session: RefinementSessionStatus,
+    baseline: _Baseline,
+) -> tuple[
+    tuple[ArtifactRef, ...],
+    tuple[_FileSnapshot, ...],
+    ArtifactRef,
+    str,
+    str,
+]:
+    if (
+        set(manifest) != _CANDIDATE_MANIFEST_FIELDS
+        or manifest.get("schema_version") != _SCHEMA_VERSION
+        or isinstance(manifest.get("schema_version"), bool)
+        or manifest.get("project_id") != project.state.project_id
+        or manifest.get("session_id") != session.session_id
+        or manifest.get("candidate_id") != candidate_id
+    ):
+        raise ValueError("refinement_candidate_schema_invalid")
+    _created_at(manifest.get("created_at"))
+    authority = _prepared_authority(project)
+    producer = manifest.get("producer")
+    if producer != authority.implementation:
+        raise ValueError("refinement_candidate_producer_invalid")
+
+    round_info = _round_path(project, create=False)
+    if round_info is None:
+        raise ValueError("refinement_candidate_binding_invalid")
+    decision_path = f"{_DELIBERATIONS_PATH}/{round_info[0]}/decision.json"
+    decision_record = _read_registered_record(project, decision_path)
+    if decision_record is None:
+        raise ValueError("refinement_candidate_binding_invalid")
+    decision_ref = _record_ref(decision_path, decision_record[1])
+    try:
+        declared_decision = _artifact(manifest.get("decision"))
+    except ValueError as error:
+        raise ValueError("refinement_candidate_binding_invalid") from error
+    if declared_decision != decision_ref:
+        raise ValueError("refinement_candidate_binding_invalid")
+    vote_producers = {
+        vote.get("producer")
+        for vote in decision_record[0].get("final_votes", [])
+        if isinstance(vote, Mapping)
+    }
+    if producer in vote_producers:
+        raise ValueError("refinement_candidate_producer_invalid")
+    change_request = decision_record[0].get("change_request")
+    if manifest.get("change_request") != change_request:
+        raise ValueError("refinement_candidate_binding_invalid")
+
+    try:
+        declared_baseline = _artifact(manifest.get("baseline_manifest"))
+    except ValueError as error:
+        raise ValueError("refinement_candidate_binding_invalid") from error
+    if declared_baseline != baseline.manifest:
+        raise ValueError("refinement_candidate_binding_invalid")
+
+    references, snapshots = _candidate_file_references(
+        project,
+        candidate_id=candidate_id,
+        manifest_path=manifest_path,
+        value=manifest.get("files"),
+    )
+    reference_paths = {reference.path for reference in references}
+    if not isinstance(change_request, Mapping) or set(change_request) != {"paths"}:
+        raise ValueError("refinement_candidate_binding_invalid")
+    requested_paths = change_request.get("paths")
+    if (
+        not isinstance(requested_paths, list)
+        or not requested_paths
+        or any(path not in reference_paths for path in requested_paths)
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
+
+    baseline_contract_bytes = _baseline_artifact_bytes(
+        project, baseline, "experiment/package_contract.json"
+    )
+    baseline_manifest_bytes = _baseline_artifact_bytes(
+        project, baseline, "experiment/package_manifest.json"
+    )
+    baseline_config_bytes = _baseline_artifact_bytes(
+        project, baseline, "experiment/code/config.json"
+    )
+    baseline_package = manifest.get("baseline_package")
+    expected_package = {
+        "contract_sha256": _sha256(baseline_contract_bytes),
+        "manifest_sha256": _sha256(baseline_manifest_bytes),
+        "config_sha256": _sha256(baseline_config_bytes),
+    }
+    if baseline_package != expected_package:
+        raise ValueError("refinement_candidate_binding_invalid")
+    try:
+        baseline_contract = json.loads(baseline_contract_bytes.decode("utf-8"))
+        baseline_config = json.loads(baseline_config_bytes.decode("utf-8"))
+    except (UnicodeError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError("refinement_candidate_baseline_changed") from error
+    unchanged = manifest.get("unchanged_declarations")
+    expected_unchanged = {
+        "input_paths": list(baseline.input_paths),
+        "input_contract": baseline_config.get("input_contract"),
+        "split_strategy": baseline_config.get("split_strategy"),
+        "metrics": baseline_contract.get("metrics"),
+    }
+    if unchanged != expected_unchanged:
+        raise ValueError("refinement_candidate_binding_invalid")
+
+    package_contract = manifest.get("package_contract")
+    entry_point = manifest.get("entry_point")
+    try:
+        package_contract = validate_relative_path(
+            package_contract, kind="candidate package contract"
+        )
+        entry_point = validate_relative_path(entry_point, kind="candidate entry point")
+    except ValueError as error:
+        raise ValueError("refinement_candidate_path_invalid") from error
+    prefix = f"refinement/candidates/{candidate_id}/"
+    if (
+        f"{prefix}{package_contract}" not in reference_paths
+        or f"{prefix}{entry_point}" not in reference_paths
+        or not package_contract.startswith("package_metadata/")
+        or not entry_point.startswith("code/")
+    ):
+        raise ValueError("refinement_candidate_path_invalid")
+    candidate_root = project.root / prefix
+    try:
+        validated = validate_experiment_package_contract_at(
+            project,
+            package_root=candidate_root,
+            contract_path=package_contract,
+        )
+    except ValueError as error:
+        raise ValueError("refinement_candidate_package_invalid") from error
+    if validated.entry_point != entry_point:
+        raise ValueError("refinement_candidate_binding_invalid")
+    contract_payload, _ = _read_bounded_json(candidate_root / package_contract)
+    candidate_metrics = contract_payload.get("metrics")
+    baseline_metrics = baseline_contract.get("metrics")
+    if not isinstance(candidate_metrics, list) or not isinstance(
+        baseline_metrics, list
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
+    normalized_candidate_metrics = [
+        {
+            **metric,
+            "implementation": (
+                f"experiment.code.main:{metric['implementation'].partition(':')[2]}"
+                if isinstance(metric, Mapping)
+                and isinstance(metric.get("implementation"), str)
+                else None
+            ),
+        }
+        for metric in candidate_metrics
+    ]
+    if normalized_candidate_metrics != baseline_metrics:
+        raise ValueError("refinement_candidate_binding_invalid")
+    config_path = contract_payload.get("config_path")
+    if not isinstance(config_path, str):
+        raise ValueError("refinement_candidate_binding_invalid")
+    candidate_config, _ = _read_bounded_json(candidate_root / config_path)
+    candidate_input_contract = candidate_config.get("input_contract")
+    if (
+        not isinstance(candidate_input_contract, Mapping)
+        or candidate_input_contract != baseline_config.get("input_contract")
+        or candidate_input_contract.get("required_paths") != list(baseline.input_paths)
+        or candidate_config.get("split_strategy")
+        != baseline_config.get("split_strategy")
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
+    return (
+        references,
+        snapshots,
+        decision_ref,
+        validated.contract_sha256,
+        entry_point,
+    )
+
+
+def _candidate_sequence_valid(
+    project: ResearchProject, *, candidate_id: str, manifest_path: str
+) -> bool:
+    registered: list[tuple[int, str]] = []
+    for path in project.state.artifacts:
+        match = _CANDIDATE_MANIFEST.fullmatch(path)
+        if match is not None:
+            registered.append((int(match.group(1).split("-")[1]), path))
+    registered.sort()
+    if [number for number, _ in registered] != list(range(1, len(registered) + 1)):
+        return False
+    number = int(candidate_id.split("-")[1])
+    if any(path == manifest_path for _, path in registered):
+        return number <= len(registered)
+    return number == len(registered) + 1
+
+
+@project_mutation
+def register_refinement_candidate(
+    project: ResearchProject, manifest_path: str | Path
+) -> CandidateStatus:
+    """Register one closed, immutable, decision-bound refinement candidate."""
+    current = ResearchProject.open(project.root)
+    starting_state = current.state
+    relative_manifest, candidate_id, manifest_file = _candidate_manifest_relative_path(
+        current, manifest_path
+    )
+    session = _deliberation_status(current)
+    if (
+        session.phase != "awaiting_candidate"
+        or session.next_action != "register_refinement_candidate"
+    ):
+        raise ValueError("refinement_candidate_order_invalid")
+    session_payload, _, _, _ = _existing_payloads(current)
+    roots = (
+        session_payload.get("envelope", {}).get("allowed_change_roots", [])
+        if isinstance(session_payload, Mapping)
+        and isinstance(session_payload.get("envelope"), Mapping)
+        else []
+    )
+    if not roots or any(
+        not isinstance(root, str)
+        or not root.startswith(f"refinement/candidates/{candidate_id}/")
+        for root in roots
+    ):
+        raise ValueError("refinement_candidate_path_invalid")
+    if not _candidate_sequence_valid(
+        current, candidate_id=candidate_id, manifest_path=relative_manifest
+    ):
+        raise ValueError("refinement_candidate_id_invalid")
+
+    manifest_snapshot, manifest_bytes = _secure_snapshot(
+        current.root,
+        relative_manifest,
+        error_code="refinement_candidate_identity_changed",
+    )
+    if len(manifest_bytes) > _MAX_RECORD_BYTES:
+        raise ValueError("refinement_candidate_schema_invalid")
+    try:
+        manifest, parsed_bytes = _read_bounded_json(manifest_file)
+    except ValueError as error:
+        raise ValueError("refinement_candidate_schema_invalid") from error
+    if parsed_bytes != manifest_bytes:
+        raise ValueError("refinement_candidate_identity_changed")
+    baseline = _baseline(current)
+    baseline_before = _baseline_registration_snapshot(current, baseline)
+    (
+        references,
+        candidate_before,
+        decision_ref,
+        package_contract_sha256,
+        entry_point,
+    ) = _parse_candidate_manifest(
+        current,
+        manifest_path=relative_manifest,
+        candidate_id=candidate_id,
+        manifest=manifest,
+        session=session,
+        baseline=baseline,
+    )
+    candidate_root = current.root / "refinement/candidates" / candidate_id
+    _require_closed_candidate_tree(
+        candidate_root,
+        manifest_path=relative_manifest,
+        references=references,
+    )
+    baseline_after = _baseline_registration_snapshot(current, baseline)
+    if baseline_after != baseline_before:
+        raise ValueError("refinement_candidate_baseline_changed")
+    candidate_after = tuple(
+        _secure_snapshot(
+            current.root,
+            reference.path,
+            expected=reference,
+            error_code="refinement_candidate_identity_changed",
+        )[0]
+        for reference in references
+    )
+    manifest_after, final_manifest_bytes = _secure_snapshot(
+        current.root,
+        relative_manifest,
+        expected=manifest_snapshot.reference,
+        error_code="refinement_candidate_identity_changed",
+    )
+    if (
+        candidate_after != candidate_before
+        or manifest_after != manifest_snapshot
+        or final_manifest_bytes != manifest_bytes
+    ):
+        raise ValueError("refinement_candidate_identity_changed")
+    _require_closed_candidate_tree(
+        candidate_root,
+        manifest_path=relative_manifest,
+        references=references,
+    )
+    refreshed = ResearchProject.open(current.root)
+    if refreshed.state != starting_state:
+        raise ValueError("refinement_candidate_binding_invalid")
+    published = {reference.path: reference for reference in references} | {
+        relative_manifest: manifest_snapshot.reference
+    }
+    for path, reference in published.items():
+        existing = refreshed.state.artifacts.get(path)
+        if existing not in {None, reference}:
+            raise ValueError("refinement_candidate_identity_changed")
+    refreshed.persist_state(
+        replace(
+            refreshed.state,
+            next_action="prepare_refinement_run",
+            artifacts={**refreshed.state.artifacts, **published},
+        )
+    )
+    return CandidateStatus(
+        candidate_id=candidate_id,
+        manifest_path=relative_manifest,
+        manifest_sha256=manifest_snapshot.reference.sha256,
+        decision_sha256=decision_ref.sha256,
+        package_contract_sha256=package_contract_sha256,
+        entry_point=entry_point,
+        files=references,
+        next_action="prepare_refinement_run",
+    )
