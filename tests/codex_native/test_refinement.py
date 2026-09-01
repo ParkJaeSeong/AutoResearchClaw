@@ -301,6 +301,7 @@ def valid_decision_record(
         "final_votes": [
             {
                 "role": role,
+                "producer": f"{role}-agent",
                 "evidence_packet_sha256": status.evidence_packet_sha256,
                 "decision": vote,
                 "rationale": ["Final position after rebuttal."],
@@ -442,7 +443,43 @@ def test_implementation_producer_cannot_register_a_council_assessment(tmp_path):
         )
 
 
-def test_second_failed_retry_is_rejected_before_a_second_vacancy_is_written(tmp_path):
+def test_disguised_coordinator_cannot_register_a_council_assessment(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    payload = valid_assessment_record(project, role="domain")
+    payload["producer"] = "CoOrDiNaToR-agent"
+
+    with pytest.raises(ValueError, match="refinement_assessment_producer_invalid"):
+        register_refinement_assessment(
+            project, write_record(project, "submissions/disguised-coordinator.json", payload)
+        )
+
+
+def test_council_roles_cannot_share_an_active_assessment_producer(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_one_assessment(project, role="domain")
+    payload = valid_assessment_record(project, role="methodology")
+    payload["producer"] = "domain-agent"
+
+    with pytest.raises(ValueError, match="refinement_assessment_producer_duplicate"):
+        register_refinement_assessment(
+            project, write_record(project, "submissions/shared-producer.json", payload)
+        )
+
+
+def test_final_vote_producer_must_match_its_active_assessment(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision = valid_decision_record(project)
+    decision["final_votes"][0]["producer"] = "methodology-agent"
+
+    with pytest.raises(ValueError, match="refinement_final_vote_producer_invalid"):
+        register_refinement_decision(
+            project, write_record(project, "submissions/mismatched-vote-producer.json", decision)
+        )
+
+
+def test_second_failed_retry_is_durable_and_pauses_without_a_second_vacancy(tmp_path):
     project = prepared_refinement_project(tmp_path / "project")
     for role in ("critical_reproducibility", "methodology"):
         initial = failed_assessment_record(project, role=role, producer=f"{role}-agent-a")
@@ -460,11 +497,71 @@ def test_second_failed_retry_is_rejected_before_a_second_vacancy_is_written(tmp_
                 project, write_record(project, f"submissions/{role}-retry.json", retry)
             )
         else:
-            with pytest.raises(ValueError, match="refinement_vacancy_limit_invalid"):
-                register_refinement_assessment(
-                    project, write_record(project, f"submissions/{role}-retry.json", retry)
-                )
+            status = register_refinement_assessment(
+                project, write_record(project, f"submissions/{role}-retry.json", retry)
+            )
 
-    assert not (
-        project.root / "refinement/deliberations/round-001/methodology_retry.json"
-    ).exists()
+    assert status.phase == "paused_insufficient_voters"
+    assert (project.root / "refinement/deliberations/round-001/methodology_retry.json").is_file()
+    assert not (project.root / "refinement/deliberations/round-001/methodology_vacancy.json").exists()
+
+
+def test_assessment_recovers_exact_orphaned_file_state_and_rejects_changed_bytes(
+    tmp_path, monkeypatch
+):
+    project = prepared_refinement_project(tmp_path / "project")
+    original = refinement._record_state_ref
+
+    def interrupt_after_assessment(project_arg, relative_path, payload, *, next_action):
+        if relative_path.endswith("domain_review.json"):
+            raise RuntimeError("assessment-state interruption")
+        return original(project_arg, relative_path, payload, next_action=next_action)
+
+    monkeypatch.setattr(refinement, "_record_state_ref", interrupt_after_assessment)
+    original_payload = valid_assessment_record(project, role="domain")
+    original_path = write_record(project, "submissions/domain-orphan.json", original_payload)
+    with pytest.raises(RuntimeError, match="assessment-state interruption"):
+        register_refinement_assessment(project, original_path)
+
+    monkeypatch.setattr(refinement, "_record_state_ref", original)
+    changed = {**original_payload}
+    changed["producer"] = "different-domain-agent"
+    with pytest.raises(ValueError, match="refinement_assessment_conflict"):
+        register_refinement_assessment(
+            project, write_record(project, "submissions/domain-changed-orphan.json", changed)
+        )
+    assert (
+        register_refinement_assessment(project, original_path).phase
+        == "awaiting_independent_assessments"
+    )
+
+
+def test_request_discriminating_run_accepts_an_envelope_contained_change_request(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision = valid_decision_record(project)
+    decision["final_votes"] = [
+        {**vote, "decision": "request_discriminating_run"}
+        for vote in decision["final_votes"]
+    ]
+    decision["supporting_roles"] = ["domain", "methodology", "critical_reproducibility"]
+    decision["dissenting_roles"] = []
+    decision["action"] = "request_discriminating_run"
+
+    status = register_refinement_decision(
+        project, write_record(project, "submissions/discriminating-run.json", decision)
+    )
+
+    assert status.next_action == "register_refinement_candidate"
+
+
+def test_submission_schema_version_rejects_bool(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    payload = valid_assessment_record(project, role="domain")
+    payload["schema_version"] = True
+
+    with pytest.raises(ValueError, match="refinement_submission_schema_invalid"):
+        register_refinement_assessment(
+            project, write_record(project, "submissions/bool-schema.json", payload)
+        )

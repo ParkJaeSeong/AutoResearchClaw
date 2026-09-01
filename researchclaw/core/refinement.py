@@ -49,6 +49,7 @@ _CANDIDATE_ROOT = re.compile(
 )
 _ROUND_ID = re.compile(r"round-([0-9]{3})\Z")
 _CANDIDATE_ID = re.compile(r"candidate-[0-9]{3}\Z")
+_RESERVED_PRODUCER_TERMS = ("coordinator", "implementation")
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
@@ -677,7 +678,11 @@ def _submission_base(
         "created_at",
         "artifacts",
     } | extra_fields
-    if set(payload) != required or payload.get("schema_version") != _SCHEMA_VERSION:
+    if (
+        set(payload) != required
+        or payload.get("schema_version") != _SCHEMA_VERSION
+        or isinstance(payload.get("schema_version"), bool)
+    ):
         raise ValueError("refinement_submission_schema_invalid")
     if payload.get("project_id") != project.state.project_id or payload.get("session_id") != session.session_id:
         raise ValueError("refinement_submission_binding_invalid")
@@ -698,6 +703,13 @@ def _submission_base(
         raise ValueError("refinement_integrity_failure") from error
     if packet.sha256 != session.evidence_packet_sha256 or packet.size != packet_size:
         raise ValueError("refinement_submission_binding_invalid")
+    return producer
+
+
+def _council_producer(producer: str, *, error: str) -> str:
+    normalized = producer.casefold()
+    if any(term in normalized for term in _RESERVED_PRODUCER_TERMS):
+        raise ValueError(error)
     return producer
 
 
@@ -786,6 +798,44 @@ def _write_registered_record(
     _record_state_ref(project, relative_path, payload, next_action=next_action)
 
 
+def _adopt_exact_assessment_orphan(
+    project: ResearchProject,
+    session: RefinementSessionStatus,
+    round_id: str,
+    *,
+    role: CouncilRole,
+    retry: bool,
+    source_payload: Mapping[str, object],
+    source_bytes: bytes,
+) -> ResearchProject:
+    relative_path = (
+        f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
+        if retry
+        else f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
+    )
+    destination = resolve_project_artifact(project.root, relative_path)
+    if not os.path.lexists(destination) or relative_path in project.state.artifacts:
+        return project
+    _, existing_bytes = _read_bounded_json(destination)
+    if existing_bytes != source_bytes:
+        raise ValueError("refinement_assessment_conflict")
+    _assessment_attempt(
+        source_payload,
+        source_bytes,
+        project=project,
+        session=session,
+        role=role,
+        retry=retry,
+    )
+    _record_state_ref(
+        project,
+        relative_path,
+        source_bytes,
+        next_action="register_refinement_assessment",
+    )
+    return ResearchProject.open(project.root)
+
+
 def _assessment_attempt(
     payload: Mapping[str, object],
     raw: bytes,
@@ -804,8 +854,7 @@ def _assessment_attempt(
     if retry:
         fields.add("retry")
     producer = _submission_base(payload, project=project, session=session, extra_fields=fields)
-    if producer.casefold() in {"coordinator", "implementation"} or "implementation" in producer.casefold():
-        raise ValueError("refinement_assessment_producer_invalid")
+    _council_producer(producer, error="refinement_assessment_producer_invalid")
     try:
         submitted_role = CouncilRole(payload["role"])
     except (KeyError, TypeError, ValueError) as error:
@@ -878,8 +927,26 @@ def _active_assessments(
     for role, (initial, retry) in history.items():
         effective = retry if retry is not None else initial
         if effective is not None and effective.assessment is not None:
+            if any(existing.producer == effective.producer for existing in active.values()):
+                raise ValueError("refinement_integrity_failure")
             active[role] = effective
     return active
+
+
+def _require_distinct_new_assessment_producer(
+    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]],
+    *,
+    role: CouncilRole,
+    attempt: _AssessmentAttempt,
+) -> None:
+    if attempt.assessment is None:
+        return
+    for other_role, (initial, retry) in history.items():
+        if other_role is role:
+            continue
+        effective = retry if retry is not None else initial
+        if effective is not None and effective.assessment is not None and effective.producer == attempt.producer:
+            raise ValueError("refinement_assessment_producer_duplicate")
 
 
 def _assessment_unresolved(
@@ -889,6 +956,15 @@ def _assessment_unresolved(
         if initial is None or (initial.assessment is None and retry is None):
             return True
     return False
+
+
+def _failed_retry_count(
+    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]]
+) -> int:
+    return sum(
+        retry is not None and retry.assessment is None
+        for _, retry in history.values()
+    )
 
 
 def _vacancy_payload(
@@ -924,9 +1000,26 @@ def _ensure_vacancy_records(
     round_id: str,
     history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]],
 ) -> None:
+    recorded_vacancies: list[CouncilRole] = []
+    failed_retries: list[tuple[CouncilRole, _AssessmentAttempt]] = []
     for role, (_, retry) in history.items():
+        relative_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_vacancy.json"
+        registered = _read_registered_record(project, relative_path)
         if retry is None or retry.assessment is not None:
+            if registered is not None:
+                raise ValueError("refinement_integrity_failure")
             continue
+        failed_retries.append((role, retry))
+        if registered is None:
+            continue
+        expected = _canonical_json(_vacancy_payload(project, session, role, retry))
+        if registered[1] != expected:
+            raise ValueError("refinement_integrity_failure")
+        recorded_vacancies.append(role)
+    if len(recorded_vacancies) > 1:
+        raise ValueError("refinement_integrity_failure")
+    if not recorded_vacancies and failed_retries:
+        role, retry = failed_retries[0]
         relative_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_vacancy.json"
         payload = _canonical_json(_vacancy_payload(project, session, role, retry))
         _write_registered_record(
@@ -953,7 +1046,7 @@ def _vacant_roles(
                 raise ValueError("refinement_integrity_failure")
             continue
         if registered is None:
-            raise ValueError("refinement_integrity_failure")
+            continue
         expected = _canonical_json(_vacancy_payload(project, session, role, retry))
         if registered[1] != expected:
             raise ValueError("refinement_integrity_failure")
@@ -1008,13 +1101,13 @@ def _parse_rebuttals_submission(
     return tuple(parsed[role] for role in CouncilRole if role in parsed)
 
 
-def _final_votes(value: object) -> tuple[FinalVote, ...]:
+def _final_votes(value: object) -> tuple[tuple[FinalVote, str], ...]:
     if not isinstance(value, list):
         raise ValueError("refinement_decision_schema_invalid")
-    votes: list[FinalVote] = []
+    votes: list[tuple[FinalVote, str]] = []
     for item in value:
         if not isinstance(item, Mapping) or set(item) != {
-            "role", "evidence_packet_sha256", "decision", "rationale", "evidence_refs"
+            "role", "producer", "evidence_packet_sha256", "decision", "rationale", "evidence_refs"
         }:
             raise ValueError("refinement_decision_schema_invalid")
         try:
@@ -1025,13 +1118,20 @@ def _final_votes(value: object) -> tuple[FinalVote, ...]:
         evidence_refs = item["evidence_refs"]
         if not isinstance(rationale, list) or not isinstance(evidence_refs, list):
             raise ValueError("refinement_decision_schema_invalid")
+        producer = item["producer"]
+        if not isinstance(producer, str) or not producer.strip():
+            raise ValueError("refinement_final_vote_producer_invalid")
+        _council_producer(producer, error="refinement_final_vote_producer_invalid")
         votes.append(
-            FinalVote(
+            (
+                FinalVote(
                 role=role,
                 evidence_packet_sha256=item["evidence_packet_sha256"],
                 decision=item["decision"],
                 rationale=tuple(rationale),
                 evidence_refs=tuple(evidence_refs),
+                ),
+                producer,
             )
         )
     return tuple(votes)
@@ -1103,7 +1203,12 @@ def _parse_decision_submission(
         raise ValueError("refinement_decision_binding_invalid")
     if payload["quorum"] != 2:
         raise ValueError("refinement_decision_quorum_invalid")
-    votes = _final_votes(payload["final_votes"])
+    submitted_votes = _final_votes(payload["final_votes"])
+    for vote, producer in submitted_votes:
+        assessment = assessments.get(vote.role)
+        if assessment is None or assessment.producer != producer:
+            raise ValueError("refinement_final_vote_producer_invalid")
+    votes = tuple(vote for vote, _ in submitted_votes)
     try:
         council = decide_council(
             assessments=tuple(attempt.assessment for attempt in assessments.values()),
@@ -1132,7 +1237,7 @@ def _parse_decision_submission(
             raise ValueError("refinement_candidate_unknown")
     elif candidate_id is not None:
         raise ValueError("refinement_candidate_unknown")
-    if council.decision == "refine":
+    if council.decision in {"refine", "request_discriminating_run"}:
         _decision_change_request(project, payload["change_request"])
     elif payload["change_request"] is not None:
         raise ValueError("refinement_change_request_invalid")
@@ -1158,6 +1263,8 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
     rebuttal_path = f"{_DELIBERATIONS_PATH}/{round_id}/rebuttals.json"
     rebuttal = _read_registered_record(current, rebuttal_path)
     if rebuttal is None:
+        if _failed_retry_count(history) > 1:
+            return replace(session, phase="paused_insufficient_voters", next_action="await_approval")
         if _assessment_unresolved(history):
             return session
         if len(assessments) < 2:
@@ -1190,21 +1297,31 @@ def register_refinement_assessment(
     current = ResearchProject.open(project.root)
     session = _load_prepared_refinement_session(current)
     round_id, _ = _round_path(current, create=True) or ("", Path())
-    history = _assessment_history(current, session, round_id)
     source_payload, source_bytes = _read_bounded_json(_submission_path(current, path))
     role_value = source_payload.get("role")
     try:
         role = CouncilRole(role_value)
     except (TypeError, ValueError) as error:
         raise ValueError("refinement_assessment_role_invalid") from error
+    current = _adopt_exact_assessment_orphan(
+        current,
+        session,
+        round_id,
+        role=role,
+        retry="retry" in source_payload,
+        source_payload=source_payload,
+        source_bytes=source_bytes,
+    )
+    history = _assessment_history(current, session, round_id)
     initial, retry = history[role]
     wants_retry = "retry" in source_payload
     if initial is None:
         if wants_retry:
             raise ValueError("refinement_retry_order_invalid")
-        _assessment_attempt(
+        attempt = _assessment_attempt(
             source_payload, source_bytes, project=current, session=session, role=role, retry=False
         )
+        _require_distinct_new_assessment_producer(history, role=role, attempt=attempt)
         target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
     elif initial.assessment is not None:
         target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
@@ -1221,8 +1338,7 @@ def register_refinement_assessment(
         retry_info = attempt.payload["retry"]
         if retry_info["failed_producer"] != initial.producer or attempt.producer == initial.producer:
             raise ValueError("refinement_retry_authority_invalid")
-        if attempt.assessment is None and _vacant_roles(current, session, round_id, history):
-            raise ValueError("refinement_vacancy_limit_invalid")
+        _require_distinct_new_assessment_producer(history, role=role, attempt=attempt)
         target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
     else:
         target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
