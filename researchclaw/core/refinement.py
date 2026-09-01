@@ -49,10 +49,19 @@ _CANDIDATE_ROOT = re.compile(
 )
 _ROUND_ID = re.compile(r"round-([0-9]{3})\Z")
 _CANDIDATE_ID = re.compile(r"candidate-[0-9]{3}\Z")
-_RESERVED_PRODUCER_TERMS = ("coordinator", "implementation")
+_CANDIDATE_RESULT_PATH = re.compile(
+    r"refinement/candidates/candidate-[0-9]{3}/results\.json\Z"
+)
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
+
+
+@dataclass(frozen=True)
+class RefinementAuthority:
+    coordinator: str
+    implementation: str
+    council: tuple[tuple[CouncilRole, str], ...]
 
 
 @dataclass(frozen=True)
@@ -62,6 +71,7 @@ class RefinementEnvelope:
     maximum_candidate_seconds: int
     allowed_input_paths: tuple[str, ...]
     allowed_change_roots: tuple[str, ...]
+    authority: RefinementAuthority
 
 
 @dataclass(frozen=True)
@@ -80,6 +90,14 @@ class _Baseline:
     manifest: ArtifactRef
     artifacts: tuple[dict[str, object], ...]
     input_paths: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _RoundBinding:
+    round_id: str
+    previous_round_id: str | None
+    evaluated_artifacts: tuple[ArtifactRef, ...]
+    authority: RefinementAuthority
 
 
 def _canonical_json(payload: Mapping[str, object]) -> bytes:
@@ -147,7 +165,9 @@ def _read_bounded_json(path: Path) -> tuple[dict[str, object], bytes]:
     finally:
         os.close(descriptor)
     try:
-        value = json.loads(payload.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+        value = json.loads(
+            payload.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
+        )
     except (UnicodeError, ValueError, json.JSONDecodeError, RecursionError) as error:
         raise ValueError("refinement_integrity_failure") from error
     if not isinstance(value, dict):
@@ -165,7 +185,11 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 
 def _positive_int(value: object, name: str, *, maximum: int) -> int:
-    if not isinstance(value, int) or isinstance(value, bool) or not 1 <= value <= maximum:
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not 1 <= value <= maximum
+    ):
         raise ValueError(f"refinement_envelope_{name}_invalid")
     return value
 
@@ -176,7 +200,56 @@ def _nonempty_text(value: object, name: str) -> str:
     return value
 
 
-def _parse_envelope(payload: object, *, input_paths: tuple[str, ...]) -> tuple[RefinementEnvelope, str]:
+def _parse_authority(value: object) -> RefinementAuthority:
+    if not isinstance(value, Mapping) or set(value) != {
+        "coordinator",
+        "implementation",
+        "council",
+    }:
+        raise ValueError("refinement_authority_invalid")
+    coordinator = value.get("coordinator")
+    implementation = value.get("implementation")
+    council = value.get("council")
+    if (
+        not isinstance(coordinator, str)
+        or not coordinator.strip()
+        or not isinstance(implementation, str)
+        or not implementation.strip()
+        or not isinstance(council, Mapping)
+        or set(council) != {role.value for role in CouncilRole}
+    ):
+        raise ValueError("refinement_authority_invalid")
+    assignments: list[tuple[CouncilRole, str]] = []
+    for role in CouncilRole:
+        producer = council.get(role.value)
+        if not isinstance(producer, str) or not producer.strip():
+            raise ValueError("refinement_authority_invalid")
+        assignments.append((role, producer))
+    producers = [
+        coordinator,
+        implementation,
+        *(producer for _, producer in assignments),
+    ]
+    if len(producers) != len(set(producers)):
+        raise ValueError("refinement_authority_invalid")
+    return RefinementAuthority(
+        coordinator=coordinator,
+        implementation=implementation,
+        council=tuple(assignments),
+    )
+
+
+def _authority_payload(authority: RefinementAuthority) -> dict[str, object]:
+    return {
+        "coordinator": authority.coordinator,
+        "implementation": authority.implementation,
+        "council": {role.value: producer for role, producer in authority.council},
+    }
+
+
+def _parse_envelope(
+    payload: object, *, input_paths: tuple[str, ...]
+) -> tuple[RefinementEnvelope, str]:
     fields = {
         "schema_version",
         "producer",
@@ -185,10 +258,13 @@ def _parse_envelope(payload: object, *, input_paths: tuple[str, ...]) -> tuple[R
         "maximum_candidate_seconds",
         "allowed_input_paths",
         "allowed_change_roots",
+        "authority",
     }
     if not isinstance(payload, Mapping) or set(payload) != fields:
         raise ValueError("refinement_envelope_schema_invalid")
-    if payload.get("schema_version") != _SCHEMA_VERSION or isinstance(payload.get("schema_version"), bool):
+    if payload.get("schema_version") != _SCHEMA_VERSION or isinstance(
+        payload.get("schema_version"), bool
+    ):
         raise ValueError("refinement_envelope_schema_invalid")
     producer = _nonempty_text(payload["producer"], "producer")
     maximum_runs = _positive_int(payload["maximum_runs"], "maximum_runs", maximum=10)
@@ -196,12 +272,15 @@ def _parse_envelope(payload: object, *, input_paths: tuple[str, ...]) -> tuple[R
         payload["maximum_wall_seconds"], "maximum_wall_seconds", maximum=_MAX_SECONDS
     )
     maximum_candidate_seconds = _positive_int(
-        payload["maximum_candidate_seconds"], "maximum_candidate_seconds", maximum=_MAX_SECONDS
+        payload["maximum_candidate_seconds"],
+        "maximum_candidate_seconds",
+        maximum=_MAX_SECONDS,
     )
     declared_inputs = _paths(payload["allowed_input_paths"], "input")
     if declared_inputs != input_paths:
         raise ValueError("refinement_envelope_inputs_invalid")
     change_roots = _change_roots(payload["allowed_change_roots"])
+    authority = _parse_authority(payload["authority"])
     return (
         RefinementEnvelope(
             maximum_runs=maximum_runs,
@@ -209,6 +288,7 @@ def _parse_envelope(payload: object, *, input_paths: tuple[str, ...]) -> tuple[R
             maximum_candidate_seconds=maximum_candidate_seconds,
             allowed_input_paths=declared_inputs,
             allowed_change_roots=change_roots,
+            authority=authority,
         ),
         producer,
     )
@@ -218,7 +298,9 @@ def _paths(value: object, kind: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError(f"refinement_envelope_{kind}s_invalid")
     try:
-        paths = tuple(validate_relative_path(path, kind=f"refinement {kind}") for path in value)
+        paths = tuple(
+            validate_relative_path(path, kind=f"refinement {kind}") for path in value
+        )
     except ValueError as error:
         raise ValueError(f"refinement_envelope_{kind}s_invalid") from error
     if len(paths) != len(set(paths)):
@@ -236,7 +318,12 @@ def _change_roots(value: object) -> tuple[str, ...]:
             raise ValueError("refinement_envelope_change_roots_invalid")
         candidate_ids.add(path.split("/")[2])
         categories.add(match.group(1))
-    if len(candidate_ids) != 1 or categories != {"code", "config", "tests", "package_metadata"}:
+    if len(candidate_ids) != 1 or categories != {
+        "code",
+        "config",
+        "tests",
+        "package_metadata",
+    }:
         raise ValueError("refinement_envelope_change_roots_invalid")
     return paths
 
@@ -256,6 +343,109 @@ def _artifact(value: object, *, expected_path: str | None = None) -> ArtifactRef
     ):
         raise ValueError("refinement_integrity_failure")
     return ArtifactRef(path, digest, size)
+
+
+def _artifact_payload(reference: ArtifactRef) -> dict[str, object]:
+    return {
+        "path": reference.path,
+        "sha256": reference.sha256,
+        "size": reference.size,
+    }
+
+
+def _verify_artifact_identity(project: ResearchProject, reference: ArtifactRef) -> None:
+    try:
+        path = validate_relative_path(reference.path, kind="refinement evidence")
+        destination = resolve_project_artifact(project.root, path)
+        descriptor = os.open(
+            destination,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
+        )
+    except (OSError, ValueError) as error:
+        raise ValueError("refinement_round_binding_invalid") from error
+    try:
+        initial = os.fstat(descriptor)
+        if not stat.S_ISREG(initial.st_mode) or initial.st_size != reference.size:
+            raise ValueError("refinement_round_binding_invalid")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+        final = os.fstat(descriptor)
+        if digest.hexdigest() != reference.sha256 or (
+            initial.st_dev,
+            initial.st_ino,
+            initial.st_mode,
+            initial.st_size,
+            initial.st_mtime_ns,
+            initial.st_ctime_ns,
+        ) != (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        ):
+            raise ValueError("refinement_round_binding_invalid")
+    except OSError as error:
+        raise ValueError("refinement_round_binding_invalid") from error
+    finally:
+        os.close(descriptor)
+
+
+def _evaluated_artifacts(
+    project: ResearchProject,
+    value: object,
+    *,
+    session: RefinementSessionStatus,
+) -> tuple[ArtifactRef, ...]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("refinement_round_binding_invalid")
+    try:
+        references = tuple(_artifact(item) for item in value)
+    except ValueError as error:
+        raise ValueError("refinement_round_binding_invalid") from error
+    if len({reference.path for reference in references}) != len(references):
+        raise ValueError("refinement_round_binding_invalid")
+    for reference in references:
+        if (
+            reference.path != EVIDENCE_PACKET_PATH
+            and _CANDIDATE_RESULT_PATH.fullmatch(reference.path) is None
+        ):
+            raise ValueError("refinement_round_binding_invalid")
+        if project.state.artifacts.get(reference.path) != reference:
+            raise ValueError("refinement_round_binding_invalid")
+        _verify_artifact_identity(project, reference)
+    packet = project.state.artifacts.get(EVIDENCE_PACKET_PATH)
+    if (
+        packet is None
+        or packet.sha256 != session.evidence_packet_sha256
+        or packet not in references
+    ):
+        raise ValueError("refinement_round_binding_invalid")
+    return tuple(
+        sorted(
+            references,
+            key=lambda reference: (
+                reference.path != EVIDENCE_PACKET_PATH,
+                reference.path,
+            ),
+        )
+    )
+
+
+def _require_evidence_refs(
+    references: tuple[str, ...] | list[object], binding: _RoundBinding
+) -> None:
+    allowed = {reference.path for reference in binding.evaluated_artifacts}
+    if any(
+        not isinstance(reference, str) or reference not in allowed
+        for reference in references
+    ):
+        raise ValueError("refinement_evidence_ref_invalid")
 
 
 def _baseline(project: ResearchProject) -> _Baseline:
@@ -292,7 +482,11 @@ def _baseline(project: ResearchProject) -> _Baseline:
     source_paths: set[str] = set()
     for object_entry in objects:
         if not isinstance(object_entry, Mapping) or set(object_entry) != {
-            "role", "source_path", "sha256", "size", "object_path"
+            "role",
+            "source_path",
+            "sha256",
+            "size",
+            "object_path",
         }:
             raise ValueError("refinement_integrity_failure")
         source_path = object_entry["source_path"]
@@ -333,15 +527,20 @@ def _baseline(project: ResearchProject) -> _Baseline:
     } | set(get_contract(10).required_outputs)
     if not required_paths.issubset(source_paths):
         raise ValueError("refinement_integrity_failure")
-    design = next(item for item in artifacts if item["path"] == "experiment/design.json")
+    design = next(
+        item for item in artifacts if item["path"] == "experiment/design.json"
+    )
     try:
-        design_bytes = resolve_project_artifact(project.root, design["object_path"]).read_bytes()
+        design_bytes = resolve_project_artifact(
+            project.root, design["object_path"]
+        ).read_bytes()
         design_payload = json.loads(design_bytes.decode("utf-8"))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         raise ValueError("refinement_integrity_failure") from error
     if (
         not isinstance(design_payload, Mapping)
-        or design_payload.get("validation_type") not in REFINEMENT_SUPPORTED_VALIDATION_TYPES
+        or design_payload.get("validation_type")
+        not in REFINEMENT_SUPPORTED_VALIDATION_TYPES
     ):
         raise ValueError("refinement_computational_only")
     return _Baseline(
@@ -360,10 +559,13 @@ def _envelope_payload(envelope: RefinementEnvelope, producer: str) -> dict[str, 
         "maximum_candidate_seconds": envelope.maximum_candidate_seconds,
         "allowed_input_paths": list(envelope.allowed_input_paths),
         "allowed_change_roots": list(envelope.allowed_change_roots),
+        "authority": _authority_payload(envelope.authority),
     }
 
 
-def _session_id(project_id: str, baseline: _Baseline, envelope: RefinementEnvelope, producer: str) -> str:
+def _session_id(
+    project_id: str, baseline: _Baseline, envelope: RefinementEnvelope, producer: str
+) -> str:
     identity = {
         "project_id": project_id,
         "baseline_manifest": {
@@ -377,13 +579,18 @@ def _session_id(project_id: str, baseline: _Baseline, envelope: RefinementEnvelo
 
 
 def _packet_payload(
-    *, project_id: str, session_id: str, created_at: str, baseline: _Baseline
+    *,
+    project_id: str,
+    session_id: str,
+    created_at: str,
+    baseline: _Baseline,
+    authority: RefinementAuthority,
 ) -> dict[str, object]:
     return {
         "schema_version": _SCHEMA_VERSION,
         "project_id": project_id,
         "session_id": session_id,
-        "producer": "coordinator",
+        "producer": authority.coordinator,
         "created_at": created_at,
         "baseline_manifest": {
             "path": baseline.manifest.path,
@@ -442,7 +649,9 @@ def _created_at(value: object) -> str:
 
 def _existing_payloads(
     project: ResearchProject,
-) -> tuple[dict[str, object] | None, bytes | None, dict[str, object] | None, bytes | None]:
+) -> tuple[
+    dict[str, object] | None, bytes | None, dict[str, object] | None, bytes | None
+]:
     session_path = resolve_project_artifact(project.root, SESSION_PATH)
     packet_path = resolve_project_artifact(project.root, EVIDENCE_PACKET_PATH)
     session_exists = os.path.lexists(session_path)
@@ -461,8 +670,18 @@ def _existing_payloads(
 
 def _status(session: Mapping[str, object]) -> RefinementSessionStatus:
     required = {
-        "schema_version", "project_id", "session_id", "producer", "created_at", "envelope",
-        "baseline_manifest", "artifacts", "evidence_packet", "phase", "runs_used", "next_action",
+        "schema_version",
+        "project_id",
+        "session_id",
+        "producer",
+        "created_at",
+        "envelope",
+        "baseline_manifest",
+        "artifacts",
+        "evidence_packet",
+        "phase",
+        "runs_used",
+        "next_action",
     }
     if set(session) != required or session.get("schema_version") != _SCHEMA_VERSION:
         raise ValueError("refinement_integrity_failure")
@@ -470,7 +689,9 @@ def _status(session: Mapping[str, object]) -> RefinementSessionStatus:
     phase = session.get("phase")
     runs_used = session.get("runs_used")
     next_action = session.get("next_action")
-    packet = _artifact(session.get("evidence_packet"), expected_path=EVIDENCE_PACKET_PATH)
+    packet = _artifact(
+        session.get("evidence_packet"), expected_path=EVIDENCE_PACKET_PATH
+    )
     envelope = session.get("envelope")
     if (
         not isinstance(session_id, str)
@@ -496,7 +717,9 @@ def _status(session: Mapping[str, object]) -> RefinementSessionStatus:
     )
 
 
-def _record_state_refs(project: ResearchProject, session: ArtifactRef, packet: ArtifactRef) -> None:
+def _record_state_refs(
+    project: ResearchProject, session: ArtifactRef, packet: ArtifactRef
+) -> None:
     current = ResearchProject.open(project.root)
     existing_session = current.state.artifacts.get(SESSION_PATH)
     existing_packet = current.state.artifacts.get(EVIDENCE_PACKET_PATH)
@@ -505,7 +728,11 @@ def _record_state_refs(project: ResearchProject, session: ArtifactRef, packet: A
     updated = replace(
         current.state,
         next_action=_NEXT_ACTION,
-        artifacts={**current.state.artifacts, SESSION_PATH: session, EVIDENCE_PACKET_PATH: packet},
+        artifacts={
+            **current.state.artifacts,
+            SESSION_PATH: session,
+            EVIDENCE_PACKET_PATH: packet,
+        },
     )
     if updated != current.state:
         current.persist_state(updated)
@@ -535,10 +762,14 @@ def _write_exclusive(path: Path, payload: bytes) -> None:
     _fsync_directory(path.parent)
 
 
-def _prepare(project: ResearchProject, envelope_payload: object) -> RefinementSessionStatus:
+def _prepare(
+    project: ResearchProject, envelope_payload: object
+) -> RefinementSessionStatus:
     current = ResearchProject.open(project.root)
     baseline = _baseline(current)
-    envelope, producer = _parse_envelope(envelope_payload, input_paths=baseline.input_paths)
+    envelope, producer = _parse_envelope(
+        envelope_payload, input_paths=baseline.input_paths
+    )
     session_id = _session_id(current.state.project_id, baseline, envelope, producer)
     (
         existing_session,
@@ -558,9 +789,12 @@ def _prepare(project: ResearchProject, envelope_payload: object) -> RefinementSe
         session_id=session_id,
         created_at=created_at,
         baseline=baseline,
+        authority=envelope.authority,
     )
     packet_bytes = _canonical_json(packet_payload)
-    packet_ref = ArtifactRef(EVIDENCE_PACKET_PATH, _sha256(packet_bytes), len(packet_bytes))
+    packet_ref = ArtifactRef(
+        EVIDENCE_PACKET_PATH, _sha256(packet_bytes), len(packet_bytes)
+    )
     session_payload = _session_payload(
         project_id=current.state.project_id,
         session_id=session_id,
@@ -573,19 +807,29 @@ def _prepare(project: ResearchProject, envelope_payload: object) -> RefinementSe
     session_bytes = _canonical_json(session_payload)
     session_ref = ArtifactRef(SESSION_PATH, _sha256(session_bytes), len(session_bytes))
     if existing_session is not None:
-        if existing_session_bytes != session_bytes or existing_packet_bytes != packet_bytes:
+        if (
+            existing_session_bytes != session_bytes
+            or existing_packet_bytes != packet_bytes
+        ):
             raise ValueError("refinement_integrity_failure")
     elif existing_packet is not None:
         if existing_packet_bytes != packet_bytes:
             raise ValueError("refinement_integrity_failure")
         try:
-            _write_exclusive(resolve_project_artifact(current.root, SESSION_PATH), session_bytes)
+            _write_exclusive(
+                resolve_project_artifact(current.root, SESSION_PATH), session_bytes
+            )
         except FileExistsError as error:
             raise ValueError("refinement_integrity_failure") from error
     else:
         try:
-            _write_exclusive(resolve_project_artifact(current.root, EVIDENCE_PACKET_PATH), packet_bytes)
-            _write_exclusive(resolve_project_artifact(current.root, SESSION_PATH), session_bytes)
+            _write_exclusive(
+                resolve_project_artifact(current.root, EVIDENCE_PACKET_PATH),
+                packet_bytes,
+            )
+            _write_exclusive(
+                resolve_project_artifact(current.root, SESSION_PATH), session_bytes
+            )
         except FileExistsError as error:
             raise ValueError("refinement_integrity_failure") from error
     _record_state_refs(current, session_ref, packet_ref)
@@ -600,14 +844,21 @@ def prepare_refinement_session(
     return _prepare(project, envelope_payload)
 
 
-def _load_prepared_refinement_session(project: ResearchProject) -> RefinementSessionStatus:
+def _load_prepared_refinement_session(
+    project: ResearchProject
+) -> RefinementSessionStatus:
     """Load and fully revalidate the durable preparation records without mutation."""
     current = ResearchProject.open_readonly(project.root)
     baseline = _baseline(current)
     session, session_bytes, packet, packet_bytes = _existing_payloads(current)
     if session is None and packet is None:
         raise ValueError("refinement_baseline_unavailable")
-    if session is None or session_bytes is None or packet is None or packet_bytes is None:
+    if (
+        session is None
+        or session_bytes is None
+        or packet is None
+        or packet_bytes is None
+    ):
         raise ValueError("refinement_integrity_failure")
     envelope_raw = session.get("envelope")
     if not isinstance(envelope_raw, Mapping):
@@ -620,9 +871,12 @@ def _load_prepared_refinement_session(project: ResearchProject) -> RefinementSes
         session_id=session_id,
         created_at=created_at,
         baseline=baseline,
+        authority=envelope.authority,
     )
     expected_packet = _canonical_json(packet_payload)
-    packet_ref = ArtifactRef(EVIDENCE_PACKET_PATH, _sha256(expected_packet), len(expected_packet))
+    packet_ref = ArtifactRef(
+        EVIDENCE_PACKET_PATH, _sha256(expected_packet), len(expected_packet)
+    )
     expected_session = _canonical_json(
         _session_payload(
             project_id=current.state.project_id,
@@ -636,7 +890,9 @@ def _load_prepared_refinement_session(project: ResearchProject) -> RefinementSes
     )
     if session_bytes != expected_session or packet_bytes != expected_packet:
         raise ValueError("refinement_integrity_failure")
-    session_ref = ArtifactRef(SESSION_PATH, _sha256(expected_session), len(expected_session))
+    session_ref = ArtifactRef(
+        SESSION_PATH, _sha256(expected_session), len(expected_session)
+    )
     if (
         current.state.artifacts.get(SESSION_PATH) != session_ref
         or current.state.artifacts.get(EVIDENCE_PACKET_PATH) != packet_ref
@@ -669,7 +925,8 @@ def _submission_base(
     project: ResearchProject,
     session: RefinementSessionStatus,
     extra_fields: set[str],
-) -> str:
+    expected_artifacts: tuple[ArtifactRef, ...] | None = None,
+) -> tuple[str, tuple[ArtifactRef, ...]]:
     required = {
         "schema_version",
         "project_id",
@@ -684,33 +941,39 @@ def _submission_base(
         or isinstance(payload.get("schema_version"), bool)
     ):
         raise ValueError("refinement_submission_schema_invalid")
-    if payload.get("project_id") != project.state.project_id or payload.get("session_id") != session.session_id:
+    if (
+        payload.get("project_id") != project.state.project_id
+        or payload.get("session_id") != session.session_id
+    ):
         raise ValueError("refinement_submission_binding_invalid")
     producer = payload.get("producer")
     if not isinstance(producer, str) or not producer.strip():
         raise ValueError("refinement_submission_producer_invalid")
     _created_at(payload.get("created_at"))
     artifacts = payload.get("artifacts")
-    if not isinstance(artifacts, list) or len(artifacts) != 1:
+    if not isinstance(artifacts, list):
         raise ValueError("refinement_submission_artifacts_invalid")
     try:
-        packet = _artifact(artifacts[0], expected_path=EVIDENCE_PACKET_PATH)
+        evaluated = _evaluated_artifacts(project, artifacts, session=session)
     except ValueError as error:
         raise ValueError("refinement_submission_artifacts_invalid") from error
-    try:
-        packet_size = len(resolve_project_artifact(project.root, EVIDENCE_PACKET_PATH).read_bytes())
-    except OSError as error:
-        raise ValueError("refinement_integrity_failure") from error
-    if packet.sha256 != session.evidence_packet_sha256 or packet.size != packet_size:
+    if expected_artifacts is not None and evaluated != expected_artifacts:
         raise ValueError("refinement_submission_binding_invalid")
-    return producer
+    return producer, evaluated
 
 
-def _council_producer(producer: str, *, error: str) -> str:
-    normalized = producer.casefold()
-    if any(term in normalized for term in _RESERVED_PRODUCER_TERMS):
-        raise ValueError(error)
-    return producer
+def _prepared_authority(project: ResearchProject) -> RefinementAuthority:
+    session, _, _, _ = _existing_payloads(project)
+    if session is None or not isinstance(session.get("envelope"), Mapping):
+        raise ValueError("refinement_integrity_failure")
+    baseline = _baseline(project)
+    try:
+        envelope, _ = _parse_envelope(
+            session["envelope"], input_paths=baseline.input_paths
+        )
+    except ValueError as error:
+        raise ValueError("refinement_integrity_failure") from error
+    return envelope.authority
 
 
 def _round_path(project: ResearchProject, *, create: bool) -> tuple[str, Path] | None:
@@ -737,15 +1000,199 @@ def _round_path(project: ResearchProject, *, create: bool) -> tuple[str, Path] |
         if not create:
             return None
         return "round-001", root / "round-001"
-    _, latest = max(rounds)
+    rounds.sort()
+    if [number for number, _ in rounds] != list(range(1, len(rounds) + 1)):
+        raise ValueError("refinement_integrity_failure")
+    _, latest = rounds[-1]
     return latest.name, latest
+
+
+def _round_binding_path(round_id: str) -> str:
+    return f"{_DELIBERATIONS_PATH}/{round_id}/round.json"
+
+
+def _round_binding_payload(
+    project: ResearchProject,
+    session: RefinementSessionStatus,
+    *,
+    round_id: str,
+    previous_round_id: str | None,
+    evaluated_artifacts: tuple[ArtifactRef, ...],
+    created_at: str,
+) -> dict[str, object]:
+    authority = _prepared_authority(project)
+    return {
+        "schema_version": _SCHEMA_VERSION,
+        "project_id": project.state.project_id,
+        "session_id": session.session_id,
+        "producer": authority.coordinator,
+        "created_at": created_at,
+        "round_id": round_id,
+        "previous_round_id": previous_round_id,
+        "evaluated_artifacts": [
+            _artifact_payload(reference) for reference in evaluated_artifacts
+        ],
+        "authority": _authority_payload(authority),
+    }
+
+
+def _load_round_binding(
+    project: ResearchProject,
+    session: RefinementSessionStatus,
+    round_id: str,
+) -> _RoundBinding:
+    registered = _read_registered_record(project, _round_binding_path(round_id))
+    if registered is None:
+        raise ValueError("refinement_integrity_failure")
+    payload = registered[0]
+    required = {
+        "schema_version",
+        "project_id",
+        "session_id",
+        "producer",
+        "created_at",
+        "round_id",
+        "previous_round_id",
+        "evaluated_artifacts",
+        "authority",
+    }
+    match = _ROUND_ID.fullmatch(round_id)
+    number = int(match.group(1)) if match is not None else 0
+    previous = None if number == 1 else f"round-{number - 1:03d}"
+    authority = _prepared_authority(project)
+    if (
+        set(payload) != required
+        or payload.get("schema_version") != _SCHEMA_VERSION
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("project_id") != project.state.project_id
+        or payload.get("session_id") != session.session_id
+        or payload.get("producer") != authority.coordinator
+        or payload.get("round_id") != round_id
+        or payload.get("previous_round_id") != previous
+        or payload.get("authority") != _authority_payload(authority)
+    ):
+        raise ValueError("refinement_integrity_failure")
+    _created_at(payload.get("created_at"))
+    try:
+        evaluated = _evaluated_artifacts(
+            project, payload.get("evaluated_artifacts"), session=session
+        )
+    except ValueError as error:
+        raise ValueError("refinement_integrity_failure") from error
+    if payload.get("evaluated_artifacts") != [
+        _artifact_payload(reference) for reference in evaluated
+    ]:
+        raise ValueError("refinement_integrity_failure")
+    if previous is not None:
+        prior = _load_round_binding(project, session, previous)
+        if not _round_is_complete(project, previous) or not set(
+            prior.evaluated_artifacts
+        ) < set(evaluated):
+            raise ValueError("refinement_integrity_failure")
+    return _RoundBinding(round_id, previous, evaluated, authority)
+
+
+def _round_is_complete(project: ResearchProject, round_id: str) -> bool:
+    return (
+        _read_registered_record(
+            project, f"{_DELIBERATIONS_PATH}/{round_id}/decision.json"
+        )
+        is not None
+    )
+
+
+def _select_assessment_round(
+    project: ResearchProject,
+    session: RefinementSessionStatus,
+    payload: Mapping[str, object],
+) -> tuple[_RoundBinding, bytes, bool]:
+    try:
+        evaluated = _evaluated_artifacts(
+            project, payload.get("artifacts"), session=session
+        )
+    except ValueError as error:
+        raise ValueError("refinement_round_binding_invalid") from error
+    created_at = _created_at(payload.get("created_at"))
+    round_info = _round_path(project, create=True)
+    if round_info is None:
+        raise ValueError("refinement_integrity_failure")
+    round_id, _ = round_info
+    binding_path = _round_binding_path(round_id)
+    binding_file = resolve_project_artifact(project.root, binding_path)
+    binding_registered = binding_path in project.state.artifacts
+    if os.path.lexists(binding_file) and not binding_registered:
+        number = int(_ROUND_ID.fullmatch(round_id).group(1))
+        previous = None if number == 1 else f"round-{number - 1:03d}"
+        if previous is not None:
+            prior = _load_round_binding(project, session, previous)
+            if not _round_is_complete(project, previous) or not set(
+                prior.evaluated_artifacts
+            ) < set(evaluated):
+                raise ValueError("refinement_round_binding_invalid")
+        elif evaluated != (project.state.artifacts[EVIDENCE_PACKET_PATH],):
+            raise ValueError("refinement_round_binding_invalid")
+        orphan = _RoundBinding(
+            round_id, previous, evaluated, _prepared_authority(project)
+        )
+        raw = _canonical_json(
+            _round_binding_payload(
+                project,
+                session,
+                round_id=round_id,
+                previous_round_id=previous,
+                evaluated_artifacts=evaluated,
+                created_at=created_at,
+            )
+        )
+        return orphan, raw, True
+    if binding_registered:
+        latest = _load_round_binding(project, session, round_id)
+        if not _round_is_complete(project, round_id):
+            if evaluated != latest.evaluated_artifacts:
+                raise ValueError("refinement_round_binding_invalid")
+            return latest, b"", False
+        if evaluated == latest.evaluated_artifacts:
+            return latest, b"", False
+        if not set(latest.evaluated_artifacts) < set(evaluated):
+            raise ValueError("refinement_round_binding_invalid")
+        number = int(_ROUND_ID.fullmatch(round_id).group(1)) + 1
+        if number > 999:
+            raise ValueError("refinement_round_binding_invalid")
+        round_id = f"round-{number:03d}"
+        if os.path.lexists(project.root / _DELIBERATIONS_PATH / round_id):
+            raise ValueError("refinement_integrity_failure")
+        previous = latest.round_id
+    else:
+        expected = project.state.artifacts.get(EVIDENCE_PACKET_PATH)
+        if expected is None or evaluated != (expected,):
+            raise ValueError("refinement_round_binding_invalid")
+        previous = None
+    binding = _RoundBinding(
+        round_id,
+        previous,
+        evaluated,
+        _prepared_authority(project),
+    )
+    raw = _canonical_json(
+        _round_binding_payload(
+            project,
+            session,
+            round_id=round_id,
+            previous_round_id=previous,
+            evaluated_artifacts=evaluated,
+            created_at=created_at,
+        )
+    )
+    return binding, raw, True
 
 
 def _record_ref(path: str, payload: bytes) -> ArtifactRef:
     return ArtifactRef(path, _sha256(payload), len(payload))
 
 
-def _read_registered_record(project: ResearchProject, relative_path: str) -> tuple[dict[str, object], bytes] | None:
+def _read_registered_record(
+    project: ResearchProject, relative_path: str
+) -> tuple[dict[str, object], bytes] | None:
     path = resolve_project_artifact(project.root, relative_path)
     if not os.path.lexists(path):
         if relative_path in project.state.artifacts:
@@ -798,10 +1245,32 @@ def _write_registered_record(
     _record_state_ref(project, relative_path, payload, next_action=next_action)
 
 
+def _adopt_exact_generated_orphan(
+    project: ResearchProject,
+    relative_path: str,
+    expected: bytes,
+    *,
+    next_action: str,
+) -> ResearchProject:
+    destination = resolve_project_artifact(project.root, relative_path)
+    if not os.path.lexists(destination) or relative_path in project.state.artifacts:
+        return project
+    _, existing = _read_bounded_json(destination)
+    if existing != expected:
+        raise ValueError("refinement_integrity_failure")
+    _record_state_ref(
+        project,
+        relative_path,
+        expected,
+        next_action=next_action,
+    )
+    return ResearchProject.open(project.root)
+
+
 def _adopt_exact_assessment_orphan(
     project: ResearchProject,
     session: RefinementSessionStatus,
-    round_id: str,
+    binding: _RoundBinding,
     *,
     role: CouncilRole,
     retry: bool,
@@ -809,9 +1278,9 @@ def _adopt_exact_assessment_orphan(
     source_bytes: bytes,
 ) -> ResearchProject:
     relative_path = (
-        f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
+        f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_retry.json"
         if retry
-        else f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
+        else f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_review.json"
     )
     destination = resolve_project_artifact(project.root, relative_path)
     if not os.path.lexists(destination) or relative_path in project.state.artifacts:
@@ -824,6 +1293,7 @@ def _adopt_exact_assessment_orphan(
         source_bytes,
         project=project,
         session=session,
+        binding=binding,
         role=role,
         retry=retry,
     )
@@ -842,6 +1312,7 @@ def _assessment_attempt(
     *,
     project: ResearchProject,
     session: RefinementSessionStatus,
+    binding: _RoundBinding,
     role: CouncilRole,
     retry: bool,
 ) -> _AssessmentAttempt:
@@ -853,23 +1324,44 @@ def _assessment_attempt(
     fields = {"role", "assessment"} if has_assessment else {"role", "failure"}
     if retry:
         fields.add("retry")
-    producer = _submission_base(payload, project=project, session=session, extra_fields=fields)
-    _council_producer(producer, error="refinement_assessment_producer_invalid")
+    producer, _ = _submission_base(
+        payload,
+        project=project,
+        session=session,
+        extra_fields=fields,
+        expected_artifacts=binding.evaluated_artifacts,
+    )
     try:
         submitted_role = CouncilRole(payload["role"])
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("refinement_assessment_role_invalid") from error
     if submitted_role is not role:
         raise ValueError("refinement_assessment_role_invalid")
+    authority = _prepared_authority(project)
+    assigned_producers = dict(authority.council)
     if retry:
         retry_value = payload["retry"]
         if (
             not isinstance(retry_value, Mapping)
-            or set(retry_value) != {"failed_producer"}
+            or set(retry_value)
+            != {"failed_producer", "replacement_producer", "authorized_by"}
             or not isinstance(retry_value.get("failed_producer"), str)
             or not retry_value["failed_producer"].strip()
+            or retry_value.get("failed_producer") != assigned_producers[role]
+            or retry_value.get("replacement_producer") != producer
+            or retry_value.get("authorized_by") != authority.coordinator
+            or producer
+            in {
+                authority.coordinator,
+                authority.implementation,
+                *assigned_producers.values(),
+            }
         ):
-            raise ValueError("refinement_retry_schema_invalid")
+            raise ValueError("refinement_retry_authority_invalid")
+    elif producer != assigned_producers[role]:
+        if producer in assigned_producers.values():
+            raise ValueError("refinement_assessment_producer_duplicate")
+        raise ValueError("refinement_assessment_producer_invalid")
     if has_failure:
         if not isinstance(payload["failure"], str) or not payload["failure"].strip():
             raise ValueError("refinement_assessment_failure_invalid")
@@ -882,59 +1374,85 @@ def _assessment_attempt(
         )
     except ValueError as error:
         raise ValueError("refinement_assessment_invalid") from error
+    _require_evidence_refs(assessment.evidence_refs, binding)
     return _AssessmentAttempt(producer, assessment, dict(payload), raw)
 
 
 def _assessment_history(
     project: ResearchProject,
     session: RefinementSessionStatus,
-    round_id: str,
+    binding: _RoundBinding,
 ) -> dict[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]]:
-    history: dict[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]] = {}
+    history: dict[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ] = {}
     for role in CouncilRole:
-        initial_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
-        retry_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
+        initial_path = (
+            f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_review.json"
+        )
+        retry_path = f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_retry.json"
         initial_raw = _read_registered_record(project, initial_path)
         retry_raw = _read_registered_record(project, retry_path)
         initial = (
             None
             if initial_raw is None
             else _assessment_attempt(
-                initial_raw[0], initial_raw[1], project=project, session=session, role=role, retry=False
+                initial_raw[0],
+                initial_raw[1],
+                project=project,
+                session=session,
+                binding=binding,
+                role=role,
+                retry=False,
             )
         )
         retry = (
             None
             if retry_raw is None
             else _assessment_attempt(
-                retry_raw[0], retry_raw[1], project=project, session=session, role=role, retry=True
+                retry_raw[0],
+                retry_raw[1],
+                project=project,
+                session=session,
+                binding=binding,
+                role=role,
+                retry=True,
             )
         )
         if retry is not None:
             if initial is None or initial.assessment is not None:
                 raise ValueError("refinement_integrity_failure")
             retry_info = retry.payload["retry"]
-            if retry_info["failed_producer"] != initial.producer or retry.producer == initial.producer:
+            if (
+                retry_info["failed_producer"] != initial.producer
+                or retry.producer == initial.producer
+            ):
                 raise ValueError("refinement_integrity_failure")
         history[role] = initial, retry
     return history
 
 
 def _active_assessments(
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]]
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
 ) -> dict[CouncilRole, _AssessmentAttempt]:
     active: dict[CouncilRole, _AssessmentAttempt] = {}
     for role, (initial, retry) in history.items():
         effective = retry if retry is not None else initial
         if effective is not None and effective.assessment is not None:
-            if any(existing.producer == effective.producer for existing in active.values()):
+            if any(
+                existing.producer == effective.producer for existing in active.values()
+            ):
                 raise ValueError("refinement_integrity_failure")
             active[role] = effective
     return active
 
 
 def _require_distinct_new_assessment_producer(
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]],
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
     *,
     role: CouncilRole,
     attempt: _AssessmentAttempt,
@@ -945,12 +1463,18 @@ def _require_distinct_new_assessment_producer(
         if other_role is role:
             continue
         effective = retry if retry is not None else initial
-        if effective is not None and effective.assessment is not None and effective.producer == attempt.producer:
+        if (
+            effective is not None
+            and effective.assessment is not None
+            and effective.producer == attempt.producer
+        ):
             raise ValueError("refinement_assessment_producer_duplicate")
 
 
 def _assessment_unresolved(
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]]
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
 ) -> bool:
     for initial, retry in history.values():
         if initial is None or (initial.assessment is None and retry is None):
@@ -959,17 +1483,19 @@ def _assessment_unresolved(
 
 
 def _failed_retry_count(
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]]
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
 ) -> int:
     return sum(
-        retry is not None and retry.assessment is None
-        for _, retry in history.values()
+        retry is not None and retry.assessment is None for _, retry in history.values()
     )
 
 
 def _vacancy_payload(
     project: ResearchProject,
     session: RefinementSessionStatus,
+    binding: _RoundBinding,
     role: CouncilRole,
     retry: _AssessmentAttempt,
 ) -> dict[str, object]:
@@ -978,14 +1504,10 @@ def _vacancy_payload(
         "schema_version": _SCHEMA_VERSION,
         "project_id": project.state.project_id,
         "session_id": session.session_id,
-        "producer": "coordinator",
+        "producer": _prepared_authority(project).coordinator,
         "created_at": retry.payload["created_at"],
         "artifacts": [
-            {
-                "path": session.evidence_packet_path,
-                "sha256": session.evidence_packet_sha256,
-                "size": len(resolve_project_artifact(project.root, session.evidence_packet_path).read_bytes()),
-            }
+            _artifact_payload(reference) for reference in binding.evaluated_artifacts
         ],
         "role": role.value,
         "failed_producer": retry_info["failed_producer"],
@@ -997,13 +1519,27 @@ def _vacancy_payload(
 def _ensure_vacancy_records(
     project: ResearchProject,
     session: RefinementSessionStatus,
-    round_id: str,
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]],
+    binding: _RoundBinding,
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
 ) -> None:
     recorded_vacancies: list[CouncilRole] = []
     failed_retries: list[tuple[CouncilRole, _AssessmentAttempt]] = []
     for role, (_, retry) in history.items():
-        relative_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_vacancy.json"
+        relative_path = (
+            f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_vacancy.json"
+        )
+        if retry is not None and retry.assessment is None:
+            expected = _canonical_json(
+                _vacancy_payload(project, session, binding, role, retry)
+            )
+            project = _adopt_exact_generated_orphan(
+                project,
+                relative_path,
+                expected,
+                next_action="register_refinement_assessment",
+            )
         registered = _read_registered_record(project, relative_path)
         if retry is None or retry.assessment is not None:
             if registered is not None:
@@ -1012,7 +1548,6 @@ def _ensure_vacancy_records(
         failed_retries.append((role, retry))
         if registered is None:
             continue
-        expected = _canonical_json(_vacancy_payload(project, session, role, retry))
         if registered[1] != expected:
             raise ValueError("refinement_integrity_failure")
         recorded_vacancies.append(role)
@@ -1020,8 +1555,12 @@ def _ensure_vacancy_records(
         raise ValueError("refinement_integrity_failure")
     if not recorded_vacancies and failed_retries:
         role, retry = failed_retries[0]
-        relative_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_vacancy.json"
-        payload = _canonical_json(_vacancy_payload(project, session, role, retry))
+        relative_path = (
+            f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_vacancy.json"
+        )
+        payload = _canonical_json(
+            _vacancy_payload(project, session, binding, role, retry)
+        )
         _write_registered_record(
             project,
             relative_path,
@@ -1034,12 +1573,16 @@ def _ensure_vacancy_records(
 def _vacant_roles(
     project: ResearchProject,
     session: RefinementSessionStatus,
-    round_id: str,
-    history: Mapping[CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]],
+    binding: _RoundBinding,
+    history: Mapping[
+        CouncilRole, tuple[_AssessmentAttempt | None, _AssessmentAttempt | None]
+    ],
 ) -> tuple[CouncilRole, ...]:
     vacancies: list[CouncilRole] = []
     for role, (_, retry) in history.items():
-        relative_path = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_vacancy.json"
+        relative_path = (
+            f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_vacancy.json"
+        )
         registered = _read_registered_record(project, relative_path)
         if retry is None or retry.assessment is not None:
             if registered is not None:
@@ -1047,7 +1590,9 @@ def _vacant_roles(
             continue
         if registered is None:
             continue
-        expected = _canonical_json(_vacancy_payload(project, session, role, retry))
+        expected = _canonical_json(
+            _vacancy_payload(project, session, binding, role, retry)
+        )
         if registered[1] != expected:
             raise ValueError("refinement_integrity_failure")
         vacancies.append(role)
@@ -1061,18 +1606,25 @@ def _parse_rebuttals_submission(
     *,
     project: ResearchProject,
     session: RefinementSessionStatus,
+    binding: _RoundBinding,
     assessments: Mapping[CouncilRole, _AssessmentAttempt],
 ) -> tuple[Rebuttal, ...]:
-    _submission_base(
+    producer, _ = _submission_base(
         payload,
         project=project,
         session=session,
         extra_fields={"assessment_hashes", "rebuttals"},
+        expected_artifacts=binding.evaluated_artifacts,
     )
+    if producer != _prepared_authority(project).coordinator:
+        raise ValueError("refinement_coordinator_producer_invalid")
     hashes = payload["assessment_hashes"]
     if not isinstance(hashes, Mapping):
         raise ValueError("refinement_rebuttal_binding_invalid")
-    expected_hashes = {role.value: _sha256(attempt.payload_bytes) for role, attempt in assessments.items()}
+    expected_hashes = {
+        role.value: _sha256(attempt.payload_bytes)
+        for role, attempt in assessments.items()
+    }
     if dict(hashes) != expected_hashes:
         raise ValueError("refinement_rebuttal_binding_invalid")
     raw_rebuttals = payload["rebuttals"]
@@ -1080,7 +1632,15 @@ def _parse_rebuttals_submission(
         raise ValueError("refinement_rebuttal_schema_invalid")
     parsed: dict[CouncilRole, Rebuttal] = {}
     for item in raw_rebuttals:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or set(item) != {
+            "schema_version",
+            "role",
+            "producer",
+            "evidence_packet_sha256",
+            "challenges",
+            "responses",
+            "evidence_refs",
+        }:
             raise ValueError("refinement_rebuttal_schema_invalid")
         try:
             role = CouncilRole(item.get("role"))
@@ -1088,27 +1648,53 @@ def _parse_rebuttals_submission(
             raise ValueError("refinement_rebuttal_role_invalid") from error
         if role in parsed or role not in assessments:
             raise ValueError("refinement_rebuttal_role_invalid")
+        if item.get("producer") != assessments[role].producer:
+            raise ValueError("refinement_rebuttal_producer_invalid")
+        rebuttal_payload = {
+            key: value for key, value in item.items() if key != "producer"
+        }
         try:
             parsed[role] = parse_rebuttal(
-                item,
+                rebuttal_payload,
                 expected_binding=session.evidence_packet_sha256,
                 expected_role=role,
             )
         except ValueError as error:
             raise ValueError("refinement_rebuttal_invalid") from error
+        _require_evidence_refs(parsed[role].evidence_refs, binding)
     if set(parsed) != set(assessments):
         raise ValueError("refinement_rebuttal_role_invalid")
     return tuple(parsed[role] for role in CouncilRole if role in parsed)
 
 
-def _final_votes(value: object) -> tuple[tuple[FinalVote, str], ...]:
+def _final_votes(
+    value: object, *, project: ResearchProject, binding: _RoundBinding
+) -> tuple[tuple[FinalVote, str], ...]:
     if not isinstance(value, list):
         raise ValueError("refinement_decision_schema_invalid")
     votes: list[tuple[FinalVote, str]] = []
     for item in value:
-        if not isinstance(item, Mapping) or set(item) != {
-            "role", "producer", "evidence_packet_sha256", "decision", "rationale", "evidence_refs"
-        }:
+        if not isinstance(item, Mapping):
+            raise ValueError("refinement_decision_schema_invalid")
+        base_fields = {
+            "role",
+            "producer",
+            "evidence_packet_sha256",
+            "decision",
+            "rationale",
+            "evidence_refs",
+        }
+        decision = item.get("decision")
+        change_seeking = isinstance(decision, str) and decision in {
+            "refine",
+            "request_discriminating_run",
+        }
+        expected_fields = base_fields | (
+            {"change_request"} if change_seeking else set()
+        )
+        if set(item) != expected_fields:
+            if change_seeking or "change_request" in item:
+                raise ValueError("refinement_change_request_invalid")
             raise ValueError("refinement_decision_schema_invalid")
         try:
             role = CouncilRole(item["role"])
@@ -1121,41 +1707,55 @@ def _final_votes(value: object) -> tuple[tuple[FinalVote, str], ...]:
         producer = item["producer"]
         if not isinstance(producer, str) or not producer.strip():
             raise ValueError("refinement_final_vote_producer_invalid")
-        _council_producer(producer, error="refinement_final_vote_producer_invalid")
-        votes.append(
-            (
-                FinalVote(
-                role=role,
-                evidence_packet_sha256=item["evidence_packet_sha256"],
-                decision=item["decision"],
-                rationale=tuple(rationale),
-                evidence_refs=tuple(evidence_refs),
-                ),
-                producer,
-            )
+        change_request = (
+            _decision_change_request(project, item["change_request"])
+            if change_seeking
+            else None
         )
+        vote = FinalVote(
+            role=role,
+            evidence_packet_sha256=item["evidence_packet_sha256"],
+            decision=item["decision"],
+            rationale=tuple(rationale),
+            evidence_refs=tuple(evidence_refs),
+            change_request=change_request,
+        )
+        _require_evidence_refs(vote.evidence_refs, binding)
+        votes.append((vote, producer))
     return tuple(votes)
 
 
-def _decision_change_request(project: ResearchProject, value: object) -> None:
-    if value is None:
-        return
-    if not isinstance(value, Mapping) or set(value) != {"paths"} or not isinstance(value["paths"], list):
+def _decision_change_request(
+    project: ResearchProject, value: object
+) -> tuple[str, ...]:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {"paths"}
+        or not isinstance(value["paths"], list)
+    ):
         raise ValueError("refinement_change_request_invalid")
     session_payload, _, _, _ = _existing_payloads(project)
-    if session_payload is None or not isinstance(session_payload.get("envelope"), Mapping):
+    if session_payload is None or not isinstance(
+        session_payload.get("envelope"), Mapping
+    ):
         raise ValueError("refinement_integrity_failure")
     roots = session_payload["envelope"].get("allowed_change_roots")
     if not isinstance(roots, list):
         raise ValueError("refinement_integrity_failure")
     try:
-        paths = tuple(validate_relative_path(path, kind="refinement change") for path in value["paths"])
+        paths = tuple(
+            validate_relative_path(path, kind="refinement change")
+            for path in value["paths"]
+        )
     except ValueError as error:
         raise ValueError("refinement_change_request_invalid") from error
-    if not paths or len(paths) != len(set(paths)) or any(
-        not any(path.startswith(f"{root}/") for root in roots) for path in paths
+    if (
+        not paths
+        or len(paths) != len(set(paths))
+        or any(not any(path.startswith(f"{root}/") for root in roots) for path in paths)
     ):
         raise ValueError("refinement_change_request_invalid")
+    return paths
 
 
 def _known_candidate(project: ResearchProject, candidate_id: str) -> bool:
@@ -1175,35 +1775,60 @@ def _parse_decision_submission(
     *,
     project: ResearchProject,
     session: RefinementSessionStatus,
+    binding: _RoundBinding,
     assessments: Mapping[CouncilRole, _AssessmentAttempt],
     rebuttals: tuple[Rebuttal, ...],
     rebuttal_bytes: bytes,
     vacant_roles: tuple[CouncilRole, ...],
 ):
-    _submission_base(
+    action = payload.get("action")
+    change_seeking = isinstance(action, str) and action in {
+        "refine",
+        "request_discriminating_run",
+    }
+    if change_seeking != ("change_request" in payload):
+        raise ValueError("refinement_change_request_invalid")
+    top_level_change_request = (
+        _decision_change_request(project, payload["change_request"])
+        if change_seeking
+        else None
+    )
+    decision_fields = {
+        "assessment_hashes",
+        "rebuttals_sha256",
+        "final_votes",
+        "quorum",
+        "supporting_roles",
+        "dissenting_roles",
+        "rationale",
+        "evidence_refs",
+        "action",
+        "candidate_id",
+    }
+    if change_seeking:
+        decision_fields.add("change_request")
+    producer, _ = _submission_base(
         payload,
         project=project,
         session=session,
-        extra_fields={
-            "assessment_hashes",
-            "rebuttals_sha256",
-            "final_votes",
-            "quorum",
-            "supporting_roles",
-            "dissenting_roles",
-            "rationale",
-            "evidence_refs",
-            "action",
-            "candidate_id",
-            "change_request",
-        },
+        extra_fields=decision_fields,
+        expected_artifacts=binding.evaluated_artifacts,
     )
-    expected_hashes = {role.value: _sha256(attempt.payload_bytes) for role, attempt in assessments.items()}
-    if payload["assessment_hashes"] != expected_hashes or payload["rebuttals_sha256"] != _sha256(rebuttal_bytes):
+    if producer != _prepared_authority(project).coordinator:
+        raise ValueError("refinement_coordinator_producer_invalid")
+    expected_hashes = {
+        role.value: _sha256(attempt.payload_bytes)
+        for role, attempt in assessments.items()
+    }
+    if payload["assessment_hashes"] != expected_hashes or payload[
+        "rebuttals_sha256"
+    ] != _sha256(rebuttal_bytes):
         raise ValueError("refinement_decision_binding_invalid")
     if payload["quorum"] != 2:
         raise ValueError("refinement_decision_quorum_invalid")
-    submitted_votes = _final_votes(payload["final_votes"])
+    submitted_votes = _final_votes(
+        payload["final_votes"], project=project, binding=binding
+    )
     for vote, producer in submitted_votes:
         assessment = assessments.get(vote.role)
         if assessment is None or assessment.producer != producer:
@@ -1224,30 +1849,46 @@ def _parse_decision_submission(
         or payload["dissenting_roles"] != list(council.dissenting_roles)
         or not isinstance(payload["rationale"], list)
         or not payload["rationale"]
+        or any(
+            not isinstance(reason, str) or not reason.strip()
+            for reason in payload["rationale"]
+        )
         or not isinstance(payload["evidence_refs"], list)
     ):
         raise ValueError("refinement_decision_schema_invalid")
-    try:
-        tuple(validate_relative_path(reference, kind="decision evidence") for reference in payload["evidence_refs"])
-    except ValueError as error:
-        raise ValueError("refinement_decision_schema_invalid") from error
+    _require_evidence_refs(payload["evidence_refs"], binding)
     candidate_id = payload["candidate_id"]
     if council.decision == "select_candidate":
-        if not isinstance(candidate_id, str) or not _known_candidate(project, candidate_id):
+        if not isinstance(candidate_id, str) or not _known_candidate(
+            project, candidate_id
+        ):
             raise ValueError("refinement_candidate_unknown")
     elif candidate_id is not None:
         raise ValueError("refinement_candidate_unknown")
     if council.decision in {"refine", "request_discriminating_run"}:
-        _decision_change_request(project, payload["change_request"])
-    elif payload["change_request"] is not None:
+        if top_level_change_request is None or any(
+            vote.change_request != top_level_change_request
+            for vote in votes
+            if vote.decision == council.decision
+        ):
+            raise ValueError("refinement_change_request_invalid")
+    elif top_level_change_request is not None:
         raise ValueError("refinement_change_request_invalid")
     return council
 
 
-def _decision_status(session: RefinementSessionStatus, decision: str) -> RefinementSessionStatus:
+def _decision_status(
+    session: RefinementSessionStatus, decision: str
+) -> RefinementSessionStatus:
     if decision in {"refine", "request_discriminating_run"}:
-        return replace(session, phase="awaiting_candidate", next_action="register_refinement_candidate")
-    return replace(session, phase="awaiting_finalization", next_action="finalize_refinement")
+        return replace(
+            session,
+            phase="awaiting_candidate",
+            next_action="register_refinement_candidate",
+        )
+    return replace(
+        session, phase="awaiting_finalization", next_action="finalize_refinement"
+    )
 
 
 def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
@@ -1257,30 +1898,52 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
     if round_info is None:
         return session
     round_id, _ = round_info
-    history = _assessment_history(current, session, round_id)
-    vacancies = _vacant_roles(current, session, round_id, history)
+    binding = _load_round_binding(current, session, round_id)
+    history = _assessment_history(current, session, binding)
+    vacancies = _vacant_roles(current, session, binding, history)
     assessments = _active_assessments(history)
     rebuttal_path = f"{_DELIBERATIONS_PATH}/{round_id}/rebuttals.json"
     rebuttal = _read_registered_record(current, rebuttal_path)
     if rebuttal is None:
         if _failed_retry_count(history) > 1:
-            return replace(session, phase="paused_insufficient_voters", next_action="await_approval")
+            return replace(
+                session,
+                phase="paused_insufficient_voters",
+                next_action="await_approval",
+            )
         if _assessment_unresolved(history):
             return session
         if len(assessments) < 2:
-            return replace(session, phase="paused_insufficient_voters", next_action="await_approval")
-        return replace(session, phase="awaiting_rebuttals", next_action="register_refinement_rebuttals")
+            return replace(
+                session,
+                phase="paused_insufficient_voters",
+                next_action="await_approval",
+            )
+        return replace(
+            session,
+            phase="awaiting_rebuttals",
+            next_action="register_refinement_rebuttals",
+        )
     rebuttals = _parse_rebuttals_submission(
-        rebuttal[0], project=current, session=session, assessments=assessments
+        rebuttal[0],
+        project=current,
+        session=session,
+        binding=binding,
+        assessments=assessments,
     )
     decision_path = f"{_DELIBERATIONS_PATH}/{round_id}/decision.json"
     decision = _read_registered_record(current, decision_path)
     if decision is None:
-        return replace(session, phase="awaiting_final_votes", next_action="register_refinement_final_votes")
+        return replace(
+            session,
+            phase="awaiting_final_votes",
+            next_action="register_refinement_final_votes",
+        )
     council = _parse_decision_submission(
         decision[0],
         project=current,
         session=session,
+        binding=binding,
         assessments=assessments,
         rebuttals=rebuttals,
         rebuttal_bytes=rebuttal[1],
@@ -1296,35 +1959,63 @@ def register_refinement_assessment(
     """Durably register one role's independent initial assessment or one retry."""
     current = ResearchProject.open(project.root)
     session = _load_prepared_refinement_session(current)
-    round_id, _ = _round_path(current, create=True) or ("", Path())
     source_payload, source_bytes = _read_bounded_json(_submission_path(current, path))
     role_value = source_payload.get("role")
     try:
         role = CouncilRole(role_value)
     except (TypeError, ValueError) as error:
         raise ValueError("refinement_assessment_role_invalid") from error
+    binding, binding_bytes, create_binding = _select_assessment_round(
+        current, session, source_payload
+    )
+    attempt: _AssessmentAttempt | None = None
+    if create_binding:
+        attempt = _assessment_attempt(
+            source_payload,
+            source_bytes,
+            project=current,
+            session=session,
+            binding=binding,
+            role=role,
+            retry="retry" in source_payload,
+        )
+        _write_registered_record(
+            current,
+            _round_binding_path(binding.round_id),
+            binding_bytes,
+            next_action="register_refinement_assessment",
+            conflict="refinement_round_binding_invalid",
+        )
+        current = ResearchProject.open(current.root)
     current = _adopt_exact_assessment_orphan(
         current,
         session,
-        round_id,
+        binding,
         role=role,
         retry="retry" in source_payload,
         source_payload=source_payload,
         source_bytes=source_bytes,
     )
-    history = _assessment_history(current, session, round_id)
+    history = _assessment_history(current, session, binding)
     initial, retry = history[role]
     wants_retry = "retry" in source_payload
     if initial is None:
         if wants_retry:
             raise ValueError("refinement_retry_order_invalid")
-        attempt = _assessment_attempt(
-            source_payload, source_bytes, project=current, session=session, role=role, retry=False
-        )
+        if attempt is None:
+            attempt = _assessment_attempt(
+                source_payload,
+                source_bytes,
+                project=current,
+                session=session,
+                binding=binding,
+                role=role,
+                retry=False,
+            )
         _require_distinct_new_assessment_producer(history, role=role, attempt=attempt)
-        target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
+        target = f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_review.json"
     elif initial.assessment is not None:
-        target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_review.json"
+        target = f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_review.json"
         if source_bytes != initial.payload_bytes:
             raise ValueError("refinement_assessment_conflict")
     elif retry is None:
@@ -1332,16 +2023,26 @@ def register_refinement_assessment(
             if source_bytes != initial.payload_bytes:
                 raise ValueError("refinement_assessment_conflict")
             return _deliberation_status(current)
-        attempt = _assessment_attempt(
-            source_payload, source_bytes, project=current, session=session, role=role, retry=True
-        )
+        if attempt is None:
+            attempt = _assessment_attempt(
+                source_payload,
+                source_bytes,
+                project=current,
+                session=session,
+                binding=binding,
+                role=role,
+                retry=True,
+            )
         retry_info = attempt.payload["retry"]
-        if retry_info["failed_producer"] != initial.producer or attempt.producer == initial.producer:
+        if (
+            retry_info["failed_producer"] != initial.producer
+            or attempt.producer == initial.producer
+        ):
             raise ValueError("refinement_retry_authority_invalid")
         _require_distinct_new_assessment_producer(history, role=role, attempt=attempt)
-        target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
+        target = f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_retry.json"
     else:
-        target = f"{_DELIBERATIONS_PATH}/{round_id}/{role.value}_retry.json"
+        target = f"{_DELIBERATIONS_PATH}/{binding.round_id}/{role.value}_retry.json"
         if source_bytes != retry.payload_bytes:
             raise ValueError("refinement_assessment_conflict")
     _write_registered_record(
@@ -1352,8 +2053,8 @@ def register_refinement_assessment(
         conflict="refinement_assessment_conflict",
     )
     persisted = ResearchProject.open(current.root)
-    history = _assessment_history(persisted, session, round_id)
-    _ensure_vacancy_records(persisted, session, round_id, history)
+    history = _assessment_history(persisted, session, binding)
+    _ensure_vacancy_records(persisted, session, binding, history)
     status = _deliberation_status(ResearchProject.open(current.root))
     _record_next_action(current, status.next_action)
     return status
@@ -1370,13 +2071,18 @@ def register_refinement_rebuttals(
     if round_info is None:
         raise ValueError("refinement_disclosure_order_invalid")
     round_id, _ = round_info
-    history = _assessment_history(current, session, round_id)
+    binding = _load_round_binding(current, session, round_id)
+    history = _assessment_history(current, session, binding)
     assessments = _active_assessments(history)
     if _assessment_unresolved(history) or len(assessments) < 2:
         raise ValueError("refinement_disclosure_order_invalid")
     source_payload, source_bytes = _read_bounded_json(_submission_path(current, path))
     _parse_rebuttals_submission(
-        source_payload, project=current, session=session, assessments=assessments
+        source_payload,
+        project=current,
+        session=session,
+        binding=binding,
+        assessments=assessments,
     )
     _write_registered_record(
         current,
@@ -1404,23 +2110,29 @@ def register_refinement_decision(
     if round_info is None:
         raise ValueError("refinement_disclosure_order_invalid")
     round_id, _ = round_info
-    history = _assessment_history(current, session, round_id)
+    binding = _load_round_binding(current, session, round_id)
+    history = _assessment_history(current, session, binding)
     if _assessment_unresolved(history):
         raise ValueError("refinement_disclosure_order_invalid")
-    vacancies = _vacant_roles(current, session, round_id, history)
+    vacancies = _vacant_roles(current, session, binding, history)
     assessments = _active_assessments(history)
     rebuttal_path = f"{_DELIBERATIONS_PATH}/{round_id}/rebuttals.json"
     rebuttal = _read_registered_record(current, rebuttal_path)
     if rebuttal is None:
         raise ValueError("refinement_disclosure_order_invalid")
     rebuttals = _parse_rebuttals_submission(
-        rebuttal[0], project=current, session=session, assessments=assessments
+        rebuttal[0],
+        project=current,
+        session=session,
+        binding=binding,
+        assessments=assessments,
     )
     source_payload, source_bytes = _read_bounded_json(_submission_path(current, path))
     council = _parse_decision_submission(
         source_payload,
         project=current,
         session=session,
+        binding=binding,
         assessments=assessments,
         rebuttals=rebuttals,
         rebuttal_bytes=rebuttal[1],

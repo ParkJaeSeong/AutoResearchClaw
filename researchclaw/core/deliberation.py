@@ -62,6 +62,7 @@ class FinalVote:
     decision: str
     rationale: tuple[str, ...] = ()
     evidence_refs: tuple[str, ...] = ()
+    change_request: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,9 @@ def _error(kind: str) -> ValueError:
     return ValueError(f"deliberation_{kind}_invalid")
 
 
-def _require_closed_mapping(payload: object, required_keys: frozenset[str]) -> Mapping[str, object]:
+def _require_closed_mapping(
+    payload: object, required_keys: frozenset[str]
+) -> Mapping[str, object]:
     if not isinstance(payload, Mapping) or set(payload) != required_keys:
         raise _error("schema")
     if payload.get("schema_version") != _SCHEMA_VERSION or isinstance(
@@ -118,7 +121,10 @@ def _texts(value: object, *, allow_empty: bool, kind: str) -> tuple[str, ...]:
 def _evidence_refs(value: object) -> tuple[str, ...]:
     references = _texts(value, allow_empty=True, kind="evidence")
     try:
-        return tuple(validate_relative_path(reference, kind="evidence") for reference in references)
+        return tuple(
+            validate_relative_path(reference, kind="evidence")
+            for reference in references
+        )
     except ValueError as error:
         raise _error("evidence") from error
 
@@ -195,7 +201,9 @@ def parse_rebuttal(
     )
 
 
-def _unique_roles(records: Iterable[object], expected_type: type[object]) -> dict[CouncilRole, object]:
+def _unique_roles(
+    records: Iterable[object], expected_type: type[object]
+) -> dict[CouncilRole, object]:
     by_role: dict[CouncilRole, object] = {}
     for record in records:
         if not isinstance(record, expected_type):
@@ -224,10 +232,28 @@ def _validate_rebuttal(record: Rebuttal) -> None:
 
 def _validate_vote(record: FinalVote) -> None:
     _binding(record.evidence_packet_sha256)
-    if record.decision not in _FINAL_DECISIONS:
+    if not isinstance(record.decision, str) or record.decision not in _FINAL_DECISIONS:
         raise _error("vote")
     _texts(record.rationale, allow_empty=True, kind="schema")
     _evidence_refs(record.evidence_refs)
+    if record.decision in {"refine", "request_discriminating_run"}:
+        if record.change_request is None:
+            raise _error("vote")
+        try:
+            paths = tuple(
+                validate_relative_path(path, kind="change request")
+                for path in _texts(
+                    record.change_request,
+                    allow_empty=False,
+                    kind="vote",
+                )
+            )
+        except ValueError as error:
+            raise _error("vote") from error
+        if len(paths) != len(set(paths)):
+            raise _error("vote")
+    elif record.change_request is not None:
+        raise _error("vote")
 
 
 def _vacancies(vacant_roles: Iterable[CouncilRole | str]) -> frozenset[CouncilRole]:
@@ -300,7 +326,9 @@ def decide_council(
         for role in CouncilRole
         if role in vote_records and vote_records[role].decision != winning_decision
     )
-    ordered_votes = tuple(vote_records[role] for role in CouncilRole if role in vote_records)
+    ordered_votes = tuple(
+        vote_records[role] for role in CouncilRole if role in vote_records
+    )
     return CouncilDecision(
         decision=winning_decision,
         supporting_roles=supporting_roles,

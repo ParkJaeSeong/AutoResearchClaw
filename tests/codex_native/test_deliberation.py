@@ -18,7 +18,9 @@ from researchclaw.core.deliberation import (
 _BINDING = "a" * 64
 
 
-def valid_assessment(*, role: str, evidence_sha256: str = _BINDING) -> dict[str, object]:
+def valid_assessment(
+    *, role: str, evidence_sha256: str = _BINDING
+) -> dict[str, object]:
     return {
         "schema_version": 1,
         "role": role,
@@ -81,6 +83,9 @@ def final_votes(*decisions: str) -> tuple[FinalVote, ...]:
             decision=decision,
             rationale=("Final position after rebuttal.",),
             evidence_refs=("refinement/evidence_packet.json",),
+            change_request=("refinement/candidates/candidate-001/code/model.py",)
+            if decision in {"refine", "request_discriminating_run"}
+            else None,
         )
         for role, decision in zip(CouncilRole, decisions)
     )
@@ -88,9 +93,12 @@ def final_votes(*decisions: str) -> tuple[FinalVote, ...]:
 
 def test_assessment_requires_expected_role_and_binding():
     payload = valid_assessment(role="domain", evidence_sha256="a" * 64)
-    assert parse_assessment(
-        payload, expected_binding="a" * 64, expected_role=CouncilRole.DOMAIN
-    ).role is CouncilRole.DOMAIN
+    assert (
+        parse_assessment(
+            payload, expected_binding="a" * 64, expected_role=CouncilRole.DOMAIN
+        ).role
+        is CouncilRole.DOMAIN
+    )
     with pytest.raises(ValueError, match="deliberation_binding_invalid"):
         parse_assessment(
             payload, expected_binding="b" * 64, expected_role=CouncilRole.DOMAIN
@@ -188,7 +196,9 @@ def test_council_rejects_changed_bindings_and_duplicate_final_votes():
             final_votes=final_votes("refine", "refine", "retain_baseline"),
         )
 
-    duplicate_role = replace(final_votes("refine", "refine", "retain_baseline")[1], role=CouncilRole.DOMAIN)
+    duplicate_role = replace(
+        final_votes("refine", "refine", "retain_baseline")[1], role=CouncilRole.DOMAIN
+    )
     with pytest.raises(ValueError, match="deliberation_role_invalid"):
         decide_council(
             assessments=three_valid_assessments(),
@@ -216,4 +226,48 @@ def test_council_rejects_ties_and_unsupported_final_decisions():
             assessments=three_valid_assessments(),
             rebuttals=three_valid_rebuttals(),
             final_votes=final_votes("refine", "refine", "coordinator_override"),
+        )
+
+
+def test_malformed_unhashable_final_vote_decision_raises_stable_value_error():
+    malformed = replace(
+        final_votes("refine", "refine", "retain_baseline")[0],
+        decision=[],  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(ValueError, match="deliberation_vote_invalid"):
+        decide_council(
+            assessments=three_valid_assessments(),
+            rebuttals=three_valid_rebuttals(),
+            final_votes=(
+                malformed,
+                *final_votes("refine", "retain_baseline")[1:],
+            ),
+        )
+
+
+def test_change_request_is_required_only_for_change_seeking_votes():
+    missing = replace(final_votes("refine")[0], change_request=None)
+    with pytest.raises(ValueError, match="deliberation_vote_invalid"):
+        decide_council(
+            assessments=three_valid_assessments(),
+            rebuttals=three_valid_rebuttals(),
+            final_votes=(
+                missing,
+                *final_votes("refine", "retain_baseline")[1:],
+            ),
+        )
+
+    unexpected = replace(
+        final_votes("retain_baseline")[0],
+        change_request=("refinement/candidates/candidate-001/code/model.py",),
+    )
+    with pytest.raises(ValueError, match="deliberation_vote_invalid"):
+        decide_council(
+            assessments=three_valid_assessments(),
+            rebuttals=three_valid_rebuttals(),
+            final_votes=(
+                unexpected,
+                *final_votes("retain_baseline", "retain_baseline")[1:],
+            ),
         )
