@@ -179,13 +179,28 @@ def test_generated_self_test_matches_a_symlink_venv_interpreter_contract(tmp_pat
         capture_output=True,
         text=True,
     )
+    launcher_bound_inspection = subprocess.run(
+        [
+            str(interpreter),
+            "-c",
+            "from experiment.code.main import execution_environment_fingerprint; "
+            "print(execution_environment_fingerprint([], "
+            f"{str(interpreter)!r}))",
+        ],
+        cwd=project.root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
     assert completed.returncode == 0, completed.stderr
     assert inspection.returncode == 0, inspection.stderr
+    assert launcher_bound_inspection.returncode == 0, launcher_bound_inspection.stderr
     report = json.loads((project.root / SELF_TEST_REPORT_PATH).read_text())
     observed = json.loads(inspection.stdout)
     assert observed["launcher"] == str(interpreter)
     assert report["environment_fingerprint"] == observed["fingerprint"]
+    assert launcher_bound_inspection.stdout.strip() == observed["fingerprint"]
 
 
 def test_inspection_rejects_repointed_sys_executable(tmp_path, monkeypatch):

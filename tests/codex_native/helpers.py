@@ -594,7 +594,10 @@ def execution_environment_fingerprint(
     interpreter, process_image, base_interpreter, is_venv = (
         execution_environment_runtime_paths()
     )
-    if expected_interpreter is not None and expected_interpreter != str(interpreter):
+    if (
+        expected_interpreter is not None
+        and Path(expected_interpreter).resolve(strict=True) != interpreter
+    ):
         raise ValueError("execution environment changed")
     interpreter_descriptor = os.open(
         interpreter,
