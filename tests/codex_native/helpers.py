@@ -11,6 +11,10 @@ from researchclaw.codex.cli import main
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.execution_gate import recheck_execution_readiness
+from researchclaw.core.research_execution import (
+    prepare_research_execution,
+    register_research_result,
+)
 from researchclaw.core.experiment_package_contract import (
     SELF_TEST_REPORT_PATH,
     register_experiment_self_test,
@@ -1278,6 +1282,52 @@ def build_approved_stage_twelve_project(
     project = ResearchProject.open(root)
     approve_current_gate(project, "approve", "Explicit execution approved")
     return ResearchProject.open(root)
+
+
+def build_stage_thirteen_project(root: Path) -> ResearchProject:
+    """Build one Stage-13 project grounded by immutable Stage-12 evidence."""
+    project = build_approved_stage_twelve_project(root)
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    register_research_result(project, "experiment/results.json")
+    return ResearchProject.open(project.root)
+
+
+def build_ungrounded_stage_thirteen_project(root: Path) -> ResearchProject:
+    """Build the legacy mutable-result shape that must not ground refinement."""
+    project = build_approved_stage_twelve_project(root)
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    state = replace(
+        project.state,
+        current_stage=13,
+        status=StageStatus.READY,
+        completed_stages=(*project.state.completed_stages, 12),
+        next_action="prepare_stage",
+    )
+    project.persist_state(state)
+    return ResearchProject.open(project.root)
+
+
+def immutable_stage_twelve_snapshot(project: ResearchProject) -> tuple[tuple[str, bytes], ...]:
+    """Return the immutable baseline registration and object bytes for comparison."""
+    manifest_paths = sorted(
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    snapshot_paths = [*manifest_paths]
+    for path in manifest_paths:
+        manifest = json.loads((project.root / path).read_text(encoding="utf-8"))
+        snapshot_paths.extend(
+            entry["object_path"]
+            for entry in manifest["objects"]
+            if isinstance(entry, dict) and isinstance(entry.get("object_path"), str)
+        )
+    return tuple(
+        (path, (project.root / path).read_bytes())
+        for path in sorted(set(snapshot_paths))
+    )
 
 
 def load_execution_contract(root: Path) -> dict[str, object]:

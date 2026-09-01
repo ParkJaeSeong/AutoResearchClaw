@@ -33,6 +33,12 @@ _NEXT_ACTIONS = frozenset(
         "cleanup_quarantined_result",
         "validate_experiment_package",
         "audit_legacy_evidence",
+        "register_refinement_assessment",
+        "register_refinement_rebuttals",
+        "register_refinement_final_votes",
+        "register_refinement_candidate",
+        "finalize_refinement",
+        "prepare_refinement_run",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})
