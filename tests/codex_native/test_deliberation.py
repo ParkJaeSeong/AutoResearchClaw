@@ -160,6 +160,20 @@ def test_two_assessments_need_a_declared_vacancy():
 
 
 def test_council_rejects_changed_bindings_and_duplicate_final_votes():
+    altered_assessment = replace(
+        assessment(CouncilRole.METHODOLOGY), evidence_packet_sha256="b" * 64
+    )
+    with pytest.raises(ValueError, match="deliberation_binding_invalid"):
+        decide_council(
+            assessments=(
+                assessment(CouncilRole.DOMAIN),
+                altered_assessment,
+                assessment(CouncilRole.CRITICAL_REPRODUCIBILITY),
+            ),
+            rebuttals=three_valid_rebuttals(),
+            final_votes=final_votes("refine", "refine", "retain_baseline"),
+        )
+
     altered_rebuttal = replace(
         rebuttal(CouncilRole.DOMAIN), evidence_packet_sha256="b" * 64
     )

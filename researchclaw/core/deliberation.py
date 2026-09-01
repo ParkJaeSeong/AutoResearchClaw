@@ -264,10 +264,12 @@ def decide_council(
     required_roles = frozenset(CouncilRole) - vacancies
     assessment_records = _unique_roles(assessments, Assessment)
     _require_exact_prior_roles(assessment_records, required_roles)
+    common_binding = next(iter(assessment_records.values())).evidence_packet_sha256
     for record in assessment_records.values():
         _validate_assessment(record)  # type: ignore[arg-type]
+        if record.evidence_packet_sha256 != common_binding:
+            raise _error("binding")
 
-    common_binding = next(iter(assessment_records.values())).evidence_packet_sha256
     rebuttal_records = _unique_roles(rebuttals, Rebuttal)
     _require_exact_prior_roles(rebuttal_records, required_roles)
     for record in rebuttal_records.values():
