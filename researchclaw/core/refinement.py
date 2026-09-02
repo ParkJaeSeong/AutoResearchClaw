@@ -65,6 +65,14 @@ _CANDIDATE_ID = re.compile(r"candidate-[0-9]{3}\Z")
 _CANDIDATE_RESULT_PATH = re.compile(
     r"refinement/candidates/candidate-[0-9]{3}/results\.json\Z"
 )
+_CANDIDATE_SELF_TEST_REPORT = re.compile(
+    r"refinement/candidates/(candidate-[0-9]{3})/"
+    r"package_metadata/self_test_report\.json\Z"
+)
+_CANDIDATE_SELF_TEST_REGISTRATION = re.compile(
+    r"\.researchclaw/refinement-self-tests/([0-9a-f]{32})/"
+    r"(candidate-[0-9]{3})\.json\Z"
+)
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
@@ -2102,12 +2110,19 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
         if len(matching_candidates) > 1:
             raise ValueError("refinement_candidate_binding_invalid")
         if matching_candidates:
-            if current.state.next_action != "prepare_refinement_self_test":
+            if current.state.next_action not in {
+                "prepare_refinement_self_test",
+                "prepare_refinement_run",
+            }:
                 raise ValueError("refinement_candidate_binding_invalid")
             return replace(
                 decision_status,
-                phase="awaiting_self_test",
-                next_action="prepare_refinement_self_test",
+                phase=(
+                    "awaiting_self_test"
+                    if current.state.next_action == "prepare_refinement_self_test"
+                    else "awaiting_candidate_run"
+                ),
+                next_action=current.state.next_action,
             )
         if current.state.next_action == "prepare_refinement_self_test":
             raise ValueError("refinement_candidate_binding_invalid")
@@ -3055,17 +3070,33 @@ def _registered_candidate_statuses(
     *,
     session: RefinementSessionStatus,
     baseline: _Baseline,
+    unregistered_additional_paths: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[CandidateStatus, ...]:
+    unregistered_additional_paths = unregistered_additional_paths or {}
     manifest_entries: list[tuple[int, str, ArtifactRef]] = []
     package_state_paths: dict[str, set[str]] = {}
+    registration_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     for path, reference in project.state.artifacts.items():
         manifest_match = _CANDIDATE_MANIFEST.fullmatch(path)
         if manifest_match is not None:
             candidate_id = manifest_match.group(1)
             manifest_entries.append((int(candidate_id.split("-")[1]), path, reference))
         file_match = _CANDIDATE_FILE_PATH.fullmatch(path)
-        if file_match is not None and manifest_match is None:
+        if (
+            file_match is not None
+            and manifest_match is None
+            and _CANDIDATE_SELF_TEST_REPORT.fullmatch(path) is None
+        ):
             package_state_paths.setdefault(file_match.group(1), set()).add(path)
+        registration_match = _CANDIDATE_SELF_TEST_REGISTRATION.fullmatch(path)
+        if registration_match is not None:
+            registered_session, registered_candidate = registration_match.groups()
+            if (
+                registered_session != session.session_id
+                or registered_candidate in registration_state_paths
+            ):
+                raise ValueError("refinement_candidate_binding_invalid")
+            registration_state_paths[registered_candidate] = (path, reference)
     manifest_entries.sort()
     if [number for number, _, _ in manifest_entries] != list(
         range(1, len(manifest_entries) + 1)
@@ -3074,7 +3105,10 @@ def _registered_candidate_statuses(
     manifest_ids = {
         _CANDIDATE_MANIFEST.fullmatch(path).group(1) for _, path, _ in manifest_entries
     }
-    if set(package_state_paths) - manifest_ids:
+    if (
+        set(package_state_paths) - manifest_ids
+        or set(registration_state_paths) - manifest_ids
+    ):
         raise ValueError("refinement_candidate_binding_invalid")
 
     statuses: list[CandidateStatus] = []
@@ -3115,7 +3149,22 @@ def _registered_candidate_statuses(
         ):
             raise ValueError("refinement_candidate_binding_invalid")
         result_path = f"refinement/candidates/{candidate_id}/results.json"
-        additional_paths: tuple[str, ...] = ()
+        self_test_report_path = (
+            f"refinement/candidates/{candidate_id}/"
+            "package_metadata/self_test_report.json"
+        )
+        additional_paths: list[str] = list(
+            unregistered_additional_paths.get(candidate_id, ())
+        )
+        if any(
+            path
+            not in {
+                result_path,
+                self_test_report_path,
+            }
+            for path in additional_paths
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
         result_reference = project.state.artifacts.get(result_path)
         if result_reference is not None:
             _require_identity_budget(
@@ -3129,12 +3178,46 @@ def _registered_candidate_statuses(
                 maximum_bytes=result_reference.size,
                 error_code="refinement_candidate_identity_changed",
             )
-            additional_paths = (result_path,)
+            additional_paths.append(result_path)
+        self_test_report_reference = project.state.artifacts.get(self_test_report_path)
+        if self_test_report_reference is not None:
+            _require_identity_budget(
+                (*references, self_test_report_reference),
+                error_code="refinement_candidate_size_invalid",
+            )
+            _secure_snapshot(
+                project.root,
+                self_test_report_path,
+                expected=self_test_report_reference,
+                maximum_bytes=_MAX_RECORD_BYTES,
+                error_code="refinement_candidate_identity_changed",
+                size_error_code="refinement_candidate_size_invalid",
+            )
+            additional_paths.append(self_test_report_path)
+        registration_entry = registration_state_paths.get(candidate_id)
+        if (self_test_report_reference is None) != (registration_entry is None):
+            raise ValueError("refinement_candidate_binding_invalid")
+        if project.state.next_action == "prepare_refinement_run" and (
+            self_test_report_reference is None or registration_entry is None
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
+        if registration_entry is not None:
+            registration_path, registration_reference = registration_entry
+            _secure_snapshot(
+                project.root,
+                registration_path,
+                expected=registration_reference,
+                maximum_bytes=_MAX_RECORD_BYTES,
+                error_code="refinement_candidate_identity_changed",
+                size_error_code="refinement_candidate_size_invalid",
+            )
+        if len(additional_paths) != len(set(additional_paths)):
+            raise ValueError("refinement_candidate_binding_invalid")
         _require_closed_candidate_tree(
             project.root / "refinement/candidates" / candidate_id,
             manifest_path=manifest_path,
             references=references,
-            additional_paths=additional_paths,
+            additional_paths=tuple(additional_paths),
         )
         statuses.append(
             CandidateStatus(
@@ -3149,6 +3232,47 @@ def _registered_candidate_statuses(
             )
         )
     return tuple(statuses)
+
+
+def _revalidate_refinement_candidate(
+    project: ResearchProject,
+    candidate_id: str,
+    *,
+    unregistered_report_path: str | None = None,
+) -> CandidateStatus:
+    current = ResearchProject.open_readonly(project.root)
+    session = _load_prepared_refinement_session(current)
+    baseline = _baseline(current)
+    additional = (
+        {candidate_id: (unregistered_report_path,)}
+        if unregistered_report_path is not None
+        else None
+    )
+    matches = tuple(
+        candidate
+        for candidate in _registered_candidate_statuses(
+            current,
+            session=session,
+            baseline=baseline,
+            unregistered_additional_paths=additional,
+        )
+        if candidate.candidate_id == candidate_id
+    )
+    if len(matches) != 1:
+        raise ValueError("refinement_candidate_unknown")
+    if current.state.next_action not in {
+        "prepare_refinement_self_test",
+        "prepare_refinement_run",
+    }:
+        raise ValueError("refinement_candidate_order_invalid")
+    return replace(matches[0], next_action=current.state.next_action)
+
+
+def revalidate_refinement_candidate(
+    project: ResearchProject, candidate_id: str
+) -> CandidateStatus:
+    """Reopen and fully revalidate one exact registered candidate identity."""
+    return _revalidate_refinement_candidate(project, candidate_id)
 
 
 def _publish_candidate_state(project: ResearchProject, state: ProjectState) -> None:
