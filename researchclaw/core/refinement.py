@@ -73,6 +73,10 @@ _CANDIDATE_SELF_TEST_REGISTRATION = re.compile(
     r"\.researchclaw/refinement-self-tests/([0-9a-f]{32})/"
     r"(candidate-[0-9]{3})\.json\Z"
 )
+_CANDIDATE_SELF_TEST_PREPARATION = re.compile(
+    r"\.researchclaw/refinement-self-tests/([0-9a-f]{32})/"
+    r"(candidate-[0-9]{3})\.preparation\.json\Z"
+)
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
@@ -479,20 +483,25 @@ def _verify_artifact_identity(project: ResearchProject, reference: ArtifactRef) 
             remaining -= len(chunk)
             digest.update(chunk)
         final = os.fstat(descriptor)
-        if total_size != reference.size or digest.hexdigest() != reference.sha256 or (
-            initial.st_dev,
-            initial.st_ino,
-            initial.st_mode,
-            initial.st_size,
-            initial.st_mtime_ns,
-            initial.st_ctime_ns,
-        ) != (
-            final.st_dev,
-            final.st_ino,
-            final.st_mode,
-            final.st_size,
-            final.st_mtime_ns,
-            final.st_ctime_ns,
+        if (
+            total_size != reference.size
+            or digest.hexdigest() != reference.sha256
+            or (
+                initial.st_dev,
+                initial.st_ino,
+                initial.st_mode,
+                initial.st_size,
+                initial.st_mtime_ns,
+                initial.st_ctime_ns,
+            )
+            != (
+                final.st_dev,
+                final.st_ino,
+                final.st_mode,
+                final.st_size,
+                final.st_mtime_ns,
+                final.st_ctime_ns,
+            )
         ):
             raise ValueError("refinement_round_binding_invalid")
     except OSError as error:
@@ -515,9 +524,7 @@ def _evaluated_artifacts(
         raise ValueError("refinement_round_binding_invalid") from error
     if len({reference.path for reference in references}) != len(references):
         raise ValueError("refinement_round_binding_invalid")
-    _require_identity_budget(
-        references, error_code="refinement_round_binding_invalid"
-    )
+    _require_identity_budget(references, error_code="refinement_round_binding_invalid")
     for reference in references:
         if (
             reference.path != EVIDENCE_PACKET_PATH
@@ -2042,7 +2049,10 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
     candidate_statuses = _registered_candidate_statuses(
         current, session=session, baseline=baseline
     )
-    from .refinement_execution import _revalidate_registered_self_test_semantics
+    from .refinement_execution import (
+        _revalidate_registered_preparation_semantics,
+        _revalidate_registered_self_test_semantics,
+    )
 
     for candidate in candidate_statuses:
         report_path = (
@@ -2053,6 +2063,12 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
             ".researchclaw/refinement-self-tests/"
             f"{session.session_id}/{candidate.candidate_id}.json"
         )
+        preparation_path = (
+            ".researchclaw/refinement-self-tests/"
+            f"{session.session_id}/{candidate.candidate_id}.preparation.json"
+        )
+        if preparation_path in current.state.artifacts:
+            _revalidate_registered_preparation_semantics(current, candidate)
         if (
             report_path in current.state.artifacts
             and registration_path in current.state.artifacts
@@ -2526,9 +2542,15 @@ def _same_published_baseline_snapshot(
     before: tuple[_FileSnapshot, ...], after: tuple[_FileSnapshot, ...]
 ) -> bool:
     """Ignore only the shared .researchclaw directory ctime changed by state write."""
+
     def stable_components(snapshot: _FileSnapshot):
         return tuple(
-            (name, device, inode, None if index == 0 and name == ".researchclaw" else ctime)
+            (
+                name,
+                device,
+                inode,
+                None if index == 0 and name == ".researchclaw" else ctime,
+            )
             for index, (name, device, inode, ctime) in enumerate(
                 snapshot.component_identity
             )
@@ -2611,9 +2633,7 @@ def _canonical_candidate_baseline_sources(
     )
     if any(not isinstance(value, str) or not value for value in semantic_values):
         raise ValueError("refinement_candidate_binding_invalid")
-    baseline_self_test_config = _config_argument(
-        baseline_self_test.get("argv_suffix")
-    )
+    baseline_self_test_config = _config_argument(baseline_self_test.get("argv_suffix"))
     candidate_self_test_config = _config_argument(candidate_self_test_argv)
     if _config_argument(candidate_execution_argv) != candidate_config:
         raise ValueError("refinement_candidate_binding_invalid")
@@ -2967,18 +2987,16 @@ def _parse_candidate_manifest(
     if validated.entry_point != entry_point:
         raise ValueError("refinement_candidate_binding_invalid")
     contract_payload, _ = _read_bounded_json(candidate_root / package_contract)
-    canonical_sources, semantic_destinations = (
-        _canonical_candidate_baseline_sources(
-            baseline=baseline,
-            baseline_contract=baseline_contract,
-            baseline_manifest=baseline_manifest,
-            candidate_contract=contract_payload,
-            candidate_entry_point=validated.entry_point,
-            candidate_self_test_argv=validated.self_test_argv,
-            candidate_execution_argv=validated.execution_argv,
-            candidate_contract_path=package_contract,
-            prefix=prefix,
-        )
+    canonical_sources, semantic_destinations = _canonical_candidate_baseline_sources(
+        baseline=baseline,
+        baseline_contract=baseline_contract,
+        baseline_manifest=baseline_manifest,
+        candidate_contract=contract_payload,
+        candidate_entry_point=validated.entry_point,
+        candidate_self_test_argv=validated.self_test_argv,
+        candidate_execution_argv=validated.execution_argv,
+        candidate_contract_path=package_contract,
+        prefix=prefix,
     )
     baseline_by_path = {str(item["path"]): item for item in baseline.artifacts}
     actual_changed_paths: set[str] = set()
@@ -2989,8 +3007,7 @@ def _parse_candidate_manifest(
             actual_changed_paths.add(path)
             if (
                 path in semantic_destinations
-                and candidate_file.candidate_only_classification
-                != "self_test_fixture"
+                and candidate_file.candidate_only_classification != "self_test_fixture"
             ) or (
                 path not in semantic_destinations
                 and candidate_file.candidate_only_classification is not None
@@ -3091,19 +3108,38 @@ def _registered_candidate_statuses(
     unregistered_additional_paths = unregistered_additional_paths or {}
     manifest_entries: list[tuple[int, str, ArtifactRef]] = []
     package_state_paths: dict[str, set[str]] = {}
+    report_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
+    preparation_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     registration_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     for path, reference in project.state.artifacts.items():
         manifest_match = _CANDIDATE_MANIFEST.fullmatch(path)
         if manifest_match is not None:
             candidate_id = manifest_match.group(1)
             manifest_entries.append((int(candidate_id.split("-")[1]), path, reference))
-        file_match = _CANDIDATE_FILE_PATH.fullmatch(path)
+        report_match = _CANDIDATE_SELF_TEST_REPORT.fullmatch(path)
         if (
-            file_match is not None
-            and manifest_match is None
-            and _CANDIDATE_SELF_TEST_REPORT.fullmatch(path) is None
+            report_match is None
+            and path.startswith("refinement/candidates/")
+            and path.endswith("/package_metadata/self_test_report.json")
         ):
+            raise ValueError("refinement_candidate_binding_invalid")
+        if report_match is not None:
+            report_candidate = report_match.group(1)
+            if report_candidate in report_state_paths:
+                raise ValueError("refinement_candidate_binding_invalid")
+            report_state_paths[report_candidate] = (path, reference)
+        file_match = _CANDIDATE_FILE_PATH.fullmatch(path)
+        if file_match is not None and manifest_match is None and report_match is None:
             package_state_paths.setdefault(file_match.group(1), set()).add(path)
+        preparation_match = _CANDIDATE_SELF_TEST_PREPARATION.fullmatch(path)
+        if preparation_match is not None:
+            prepared_session, prepared_candidate = preparation_match.groups()
+            if (
+                prepared_session != session.session_id
+                or prepared_candidate in preparation_state_paths
+            ):
+                raise ValueError("refinement_candidate_binding_invalid")
+            preparation_state_paths[prepared_candidate] = (path, reference)
         registration_match = _CANDIDATE_SELF_TEST_REGISTRATION.fullmatch(path)
         if registration_match is not None:
             registered_session, registered_candidate = registration_match.groups()
@@ -3113,6 +3149,10 @@ def _registered_candidate_statuses(
             ):
                 raise ValueError("refinement_candidate_binding_invalid")
             registration_state_paths[registered_candidate] = (path, reference)
+        if path.startswith(".researchclaw/refinement-self-tests/") and (
+            preparation_match is None and registration_match is None
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
     manifest_entries.sort()
     if [number for number, _, _ in manifest_entries] != list(
         range(1, len(manifest_entries) + 1)
@@ -3123,11 +3163,18 @@ def _registered_candidate_statuses(
     }
     if (
         set(package_state_paths) - manifest_ids
+        or set(report_state_paths) - manifest_ids
+        or set(preparation_state_paths) - manifest_ids
         or set(registration_state_paths) - manifest_ids
     ):
         raise ValueError("refinement_candidate_binding_invalid")
 
     statuses: list[CandidateStatus] = []
+    latest_candidate_id = (
+        _CANDIDATE_MANIFEST.fullmatch(manifest_entries[-1][1]).group(1)
+        if manifest_entries
+        else None
+    )
     for _, manifest_path, manifest_reference in manifest_entries:
         candidate_id = _CANDIDATE_MANIFEST.fullmatch(manifest_path).group(1)
         manifest_snapshot, manifest_bytes = _secure_snapshot(
@@ -3195,7 +3242,12 @@ def _registered_candidate_statuses(
                 error_code="refinement_candidate_identity_changed",
             )
             additional_paths.append(result_path)
-        self_test_report_reference = project.state.artifacts.get(self_test_report_path)
+        report_entry = report_state_paths.get(candidate_id)
+        self_test_report_reference = (
+            report_entry[1] if report_entry is not None else None
+        )
+        if report_entry is not None and report_entry[0] != self_test_report_path:
+            raise ValueError("refinement_candidate_binding_invalid")
         if self_test_report_reference is not None:
             _require_identity_budget(
                 (*references, self_test_report_reference),
@@ -3210,11 +3262,36 @@ def _registered_candidate_statuses(
                 size_error_code="refinement_candidate_size_invalid",
             )
             additional_paths.append(self_test_report_path)
+        preparation_entry = preparation_state_paths.get(candidate_id)
+        if preparation_entry is not None:
+            preparation_path, preparation_reference = preparation_entry
+            _secure_snapshot(
+                project.root,
+                preparation_path,
+                expected=preparation_reference,
+                maximum_bytes=_MAX_RECORD_BYTES,
+                error_code="refinement_candidate_identity_changed",
+                size_error_code="refinement_candidate_size_invalid",
+            )
         registration_entry = registration_state_paths.get(candidate_id)
         if (self_test_report_reference is None) != (registration_entry is None):
             raise ValueError("refinement_candidate_binding_invalid")
-        if project.state.next_action == "prepare_refinement_run" and (
-            self_test_report_reference is None or registration_entry is None
+        if (
+            self_test_report_reference is not None or registration_entry is not None
+        ) and preparation_entry is None:
+            raise ValueError("refinement_candidate_binding_invalid")
+        has_registered_self_test = (
+            self_test_report_reference is not None and registration_entry is not None
+        )
+        if candidate_id == latest_candidate_id and (
+            (
+                project.state.next_action == "prepare_refinement_run"
+                and not has_registered_self_test
+            )
+            or (
+                project.state.next_action == "prepare_refinement_self_test"
+                and has_registered_self_test
+            )
         ):
             raise ValueError("refinement_candidate_binding_invalid")
         if registration_entry is not None:
@@ -3339,10 +3416,7 @@ def _verify_published_candidate_snapshot(
         maximum_bytes=_MAX_RECORD_BYTES,
         error_code="refinement_candidate_identity_changed",
     )[0]
-    if (
-        current_candidate != candidate_snapshot
-        or current_manifest != manifest_snapshot
-    ):
+    if current_candidate != candidate_snapshot or current_manifest != manifest_snapshot:
         raise ValueError("refinement_candidate_identity_changed")
     _require_closed_candidate_tree(
         candidate_root,

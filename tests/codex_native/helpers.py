@@ -1411,7 +1411,7 @@ def write_refinement_candidate(
         '            "development_only": True,\n        }\n'
         '        Path("package_metadata/self_test_report.json")',
         '            "development_only": True,\n'
-        '            **json.loads(args.refinement_self_test_context),\n'
+        "            **json.loads(args.refinement_self_test_context),\n"
         '        }\n        Path("package_metadata/self_test_report.json")',
     )
     (candidate_root / "code/model.py").write_text(source, encoding="utf-8")

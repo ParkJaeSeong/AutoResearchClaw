@@ -45,6 +45,30 @@ def run_candidate_self_test(project, candidate_id):
     return preparation
 
 
+def _publish_test_artifact(project, path, payload=b"{}\n"):
+    target = project.root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload)
+    reference = refinement_execution.ArtifactRef(
+        path, hashlib.sha256(payload).hexdigest(), len(payload)
+    )
+    writable = ResearchProject.open(project.root)
+    writable.persist_state(
+        replace(
+            writable.state,
+            artifacts={**writable.state.artifacts, path: reference},
+        )
+    )
+    return reference
+
+
+def _rewrite_report(project, report_path, mutation):
+    target = project.root / report_path
+    report = json.loads(target.read_text(encoding="utf-8"))
+    mutation(report)
+    target.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def test_candidate_self_test_uses_verified_absolute_launcher_and_candidate_cwd(
     tmp_path,
 ):
@@ -54,10 +78,7 @@ def test_candidate_self_test_uses_verified_absolute_launcher_and_candidate_cwd(
 
     assert Path(status.argv[0]).is_absolute()
     assert status.cwd == str(
-        project.root.resolve()
-        / "refinement"
-        / "candidates"
-        / candidate.candidate_id
+        project.root.resolve() / "refinement" / "candidates" / candidate.candidate_id
     )
     assert status.argv[1:5] == (
         "code/model.py",
@@ -116,13 +137,12 @@ def test_candidate_self_test_registration_binds_context_without_consuming_run_bu
     assert registration["environment_fingerprint"] == (
         preparation.environment_fingerprint
     )
-    assert registration["candidate_manifest"]["sha256"] == (
-        candidate.manifest_sha256
-    )
+    assert registration["candidate_manifest"]["sha256"] == (candidate.manifest_sha256)
     assert registration["council_decision"]["sha256"] == candidate.decision_sha256
-    assert registration["evidence_packet"]["sha256"] == session_before[
-        "evidence_packet"
-    ]["sha256"]
+    assert (
+        registration["evidence_packet"]["sha256"]
+        == session_before["evidence_packet"]["sha256"]
+    )
     assert registration["package_contract"]["sha256"] == (
         candidate.package_contract_sha256
     )
@@ -139,9 +159,18 @@ def test_candidate_self_test_registration_binds_context_without_consuming_run_bu
     assert report["candidate_files"] == registration["candidate_files"]
     assert report["config"] == registration["config"]
     assert report["created_at"].endswith("+00:00")
-    assert json.loads(
-        (project.root / "refinement/session.json").read_text(encoding="utf-8")
-    )["runs_used"] == session_before["runs_used"] == 0
+    assert report["report_created_at"] == report["created_at"]
+    assert registration["preparation_created_at"].endswith("+00:00")
+    assert registration["report_created_at"] == report["created_at"]
+    assert registration["preparation_created_at"] != report["created_at"]
+    assert "created_at" not in registration
+    assert (
+        json.loads(
+            (project.root / "refinement/session.json").read_text(encoding="utf-8")
+        )["runs_used"]
+        == session_before["runs_used"]
+        == 0
+    )
     assert not (project.root / ".researchclaw/evidence/refinement-manifests").exists()
     assert immutable_stage_twelve_snapshot(reopened) == baseline_before
     assert (project.root / "experiment/results.json").read_bytes() == result_before
@@ -500,9 +529,12 @@ def test_candidate_self_test_registration_rejects_parent_component_aba(
         "_before_anchored_registration_leaf_create",
         lambda *_args: None,
     )
-    assert register_refinement_self_test(
-        project, candidate.candidate_id, preparation.report_path
-    ).next_action == "prepare_refinement_run"
+    assert (
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        ).next_action
+        == "prepare_refinement_run"
+    )
 
 
 def test_candidate_self_test_registration_rejects_manifest_producer_aba(
@@ -625,9 +657,7 @@ def test_registered_candidate_rejects_same_byte_artifact_replacement(
 
 
 @pytest.mark.parametrize("loader", ["candidate", "session"])
-def test_registered_candidate_reconstructs_receipt_semantics(
-    tmp_path, loader
-):
+def test_registered_candidate_reconstructs_receipt_semantics(tmp_path, loader):
     project, candidate = registered_candidate_project(tmp_path / "project")
     preparation = run_candidate_self_test(project, candidate.candidate_id)
     register_refinement_self_test(
@@ -672,9 +702,7 @@ def test_prepare_candidate_self_test_final_gate_rejects_late_tree_change(
     tmp_path, monkeypatch, late_file
 ):
     project, candidate = registered_candidate_project(tmp_path / "project")
-    candidate_root = (
-        project.root / "refinement" / "candidates" / candidate.candidate_id
-    )
+    candidate_root = project.root / "refinement" / "candidates" / candidate.candidate_id
 
     def insert_late_file(*_args):
         if late_file == "report":
@@ -725,9 +753,12 @@ def test_candidate_self_test_preparation_is_durable_and_idempotent(tmp_path):
     assert preparation["created_at"] in first.argv[-1]
     assert (project.root / first.preparation_path).read_bytes() == preparation_bytes
     assert ResearchProject.open(project.root).state == prepared_state
-    assert json.loads(
-        (project.root / "refinement/session.json").read_text(encoding="utf-8")
-    )["runs_used"] == 0
+    assert (
+        json.loads(
+            (project.root / "refinement/session.json").read_text(encoding="utf-8")
+        )["runs_used"]
+        == 0
+    )
     assert prepared_state.next_action == state_before.next_action
 
 
@@ -773,12 +804,32 @@ def test_candidate_self_test_report_cannot_replay_from_old_preparation(tmp_path)
         )
 
 
-def test_candidate_self_test_registration_rejects_report_timestamp_mutation(tmp_path):
+@pytest.mark.parametrize(
+    "timestamp_mutation",
+    [
+        {"created_at": "2026-09-02T00:00:00+09:00"},
+        {"report_created_at": "2026-09-02T00:00:00+00:00"},
+        {"preparation_created_at": "2026-09-02T00:00:00+00:00"},
+        {
+            "created_at": "2026-09-02T00:00:00+00:00",
+            "report_created_at": "2026-09-02T00:00:00+00:00",
+        },
+    ],
+    ids=[
+        "non-utc-report-created-at",
+        "mutated-report-created-at-binding",
+        "mutated-preparation-created-at-binding",
+        "mutated-valid-report-timestamp-pair",
+    ],
+)
+def test_candidate_self_test_registration_rejects_report_timestamp_mutation(
+    tmp_path, timestamp_mutation
+):
     project, candidate = registered_candidate_project(tmp_path / "project")
     preparation = run_candidate_self_test(project, candidate.candidate_id)
     report_path = project.root / preparation.report_path
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    report["created_at"] = "2026-09-02T00:00:00+00:00"
+    report.update(timestamp_mutation)
     report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="refinement_self_test_report_invalid"):
@@ -817,7 +868,9 @@ def test_candidate_self_test_registration_rejects_manifest_aba_after_receipt_wri
     assert ResearchProject.open(project.root).state == state_before
 
 
-def test_self_test_preparation_fsyncs_new_directories_before_leaf(tmp_path, monkeypatch):
+def test_self_test_preparation_fsyncs_new_directories_before_leaf(
+    tmp_path, monkeypatch
+):
     project, candidate = registered_candidate_project(tmp_path / "project")
     calls: list[str] = []
     original_fsync = refinement_execution.os.fsync
@@ -834,3 +887,290 @@ def test_self_test_preparation_fsyncs_new_directories_before_leaf(tmp_path, monk
     first_file = calls.index("file")
     assert calls[:first_file].count("directory") >= 4
     assert calls[first_file + 1] == "directory"
+
+
+@pytest.mark.parametrize("operation", ["prepare", "register"])
+@pytest.mark.parametrize("session_attack", ["parent", "absolute"])
+def test_self_test_session_component_race_cannot_escape_or_publish_state(
+    tmp_path, monkeypatch, operation, session_attack
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    if operation == "register":
+        preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    session_path = project.root / "refinement/session.json"
+    original_session_bytes = session_path.read_bytes()
+    session_payload = json.loads(original_session_bytes)
+    if session_attack == "parent":
+        malicious_session = "../escaped-self-test-session"
+        escaped = project.root / ".researchclaw/escaped-self-test-session"
+    else:
+        escaped = tmp_path / "absolute-self-test-session"
+        malicious_session = str(escaped)
+    malicious_payload = {**session_payload, "session_id": malicious_session}
+    original_read = getattr(refinement_execution, "_read_bounded_json", None)
+    original_hold = refinement_execution._hold_candidate_context
+    race_injected = False
+
+    def change_restore_session():
+        nonlocal race_injected
+        session_path.write_text(
+            json.dumps(malicious_payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        session_path.write_bytes(original_session_bytes)
+        race_injected = True
+
+    def race_unbound_session_read(path, *args, **kwargs):
+        nonlocal race_injected
+        assert original_read is not None
+        if Path(path) == session_path and not race_injected:
+            session_path.write_text(
+                json.dumps(malicious_payload, sort_keys=True, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            try:
+                value = original_read(path, *args, **kwargs)
+            finally:
+                session_path.write_bytes(original_session_bytes)
+            race_injected = True
+            return value
+        return original_read(path, *args, **kwargs)
+
+    def race_after_held_context(*args, **kwargs):
+        held = original_hold(*args, **kwargs)
+        if not race_injected:
+            change_restore_session()
+        return held
+
+    if original_read is not None:
+        monkeypatch.setattr(
+            refinement_execution, "_read_bounded_json", race_unbound_session_read
+        )
+    monkeypatch.setattr(
+        refinement_execution, "_hold_candidate_context", race_after_held_context
+    )
+
+    with pytest.raises(ValueError):
+        if operation == "prepare":
+            prepare_refinement_self_test(project, candidate.candidate_id)
+        else:
+            register_refinement_self_test(
+                project, candidate.candidate_id, preparation.report_path
+            )
+
+    assert race_injected
+    assert not escaped.exists()
+    assert ResearchProject.open(project.root).state == state_before
+
+
+@pytest.mark.parametrize(
+    "session_id,candidate_id",
+    [
+        ("../escaped", "candidate-001"),
+        ("0" * 32, "../candidate-001"),
+        ("A" * 32, "candidate-001"),
+    ],
+)
+def test_anchored_record_rejects_unsafe_components_before_filesystem_access(
+    tmp_path, monkeypatch, session_id, candidate_id
+):
+    project, _candidate = registered_candidate_project(tmp_path / "project")
+    calls = 0
+    original_open = refinement_execution.os.open
+
+    def count_open(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_open(*args, **kwargs)
+
+    monkeypatch.setattr(refinement_execution.os, "open", count_open)
+
+    with pytest.raises(
+        ValueError, match="refinement_self_test_registration_recovery_invalid"
+    ):
+        refinement_execution._write_anchored_record(
+            project,
+            session_id=session_id,
+            candidate_id=candidate_id,
+            leaf_name="candidate-001.preparation.json",
+            payload_builder=lambda _identity: {"schema_version": 1},
+            error_code="refinement_self_test_registration_recovery_invalid",
+        )
+
+    assert calls == 0
+
+
+@pytest.mark.parametrize("kind", ["report", "preparation"])
+def test_refinement_state_rejects_unknown_candidate_self_test_artifact(tmp_path, kind):
+    project, _candidate = registered_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    if kind == "report":
+        path = (
+            "refinement/candidates/candidate-999/"
+            "package_metadata/self_test_report.json"
+        )
+    else:
+        path = (
+            f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/{session_id}/"
+            "candidate-999.preparation.json"
+        )
+    _publish_test_artifact(project, path)
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+def test_refinement_state_rejects_unclassified_self_test_namespace_artifact(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    path = (
+        f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/{session_id}/"
+        f"{candidate.candidate_id}.unexpected.json"
+    )
+    _publish_test_artifact(project, path)
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+def test_refinement_state_reconstructs_registered_preparation_semantics(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_self_test(project, candidate.candidate_id)
+    target = project.root / preparation.preparation_path
+    forged = json.loads(target.read_text(encoding="utf-8"))
+    forged["producer"] = "reviewer-agent"
+    forged_bytes = json.dumps(
+        forged, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    target.write_bytes(forged_bytes)
+    writable = ResearchProject.open(project.root)
+    writable.persist_state(
+        replace(
+            writable.state,
+            artifacts={
+                **writable.state.artifacts,
+                preparation.preparation_path: refinement_execution.ArtifactRef(
+                    preparation.preparation_path,
+                    hashlib.sha256(forged_bytes).hexdigest(),
+                    len(forged_bytes),
+                ),
+            },
+        )
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+def test_registered_self_test_with_stale_marker_fails_closed(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    )
+    writable = ResearchProject.open(project.root)
+    writable.persist_state(
+        replace(writable.state, next_action="prepare_refinement_self_test")
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+@pytest.mark.parametrize("alter_orphan", [False, True])
+def test_candidate_self_test_preparation_crash_recovers_only_exact_orphan(
+    tmp_path, monkeypatch, alter_orphan
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    state_before = ResearchProject.open(project.root).state
+
+    def interrupt_after_preparation_write():
+        raise RuntimeError("preparation interrupted")
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_anchored_preparation_write",
+        interrupt_after_preparation_write,
+        raising=False,
+    )
+    with pytest.raises(RuntimeError, match="preparation interrupted"):
+        prepare_refinement_self_test(project, candidate.candidate_id)
+
+    assert ResearchProject.open(project.root).state == state_before
+    orphan = next(
+        (project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT).glob(
+            f"*/{candidate.candidate_id}.preparation.json"
+        )
+    )
+    orphan_bytes = orphan.read_bytes()
+    orphan_identity = (orphan.stat().st_dev, orphan.stat().st_ino)
+    if alter_orphan:
+        orphan.write_bytes(orphan_bytes + b" ")
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_anchored_preparation_write",
+        lambda: None,
+        raising=False,
+    )
+
+    if alter_orphan:
+        with pytest.raises(
+            ValueError, match="refinement_self_test_preparation_invalid"
+        ):
+            prepare_refinement_self_test(project, candidate.candidate_id)
+        assert ResearchProject.open(project.root).state == state_before
+    else:
+        status = prepare_refinement_self_test(project, candidate.candidate_id)
+        assert (orphan.stat().st_dev, orphan.stat().st_ino) == orphan_identity
+        assert orphan.read_bytes() == orphan_bytes
+        assert ResearchProject.open(project.root).state.artifacts[
+            status.preparation_path
+        ] == refinement_execution.ArtifactRef(
+            status.preparation_path,
+            hashlib.sha256(orphan_bytes).hexdigest(),
+            len(orphan_bytes),
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: report.update(metrics=[]),
+        lambda report: report["metrics"].append(
+            {"name": "extra", "actual": 0.0, "expected": 0.0, "tolerance": 0.0}
+        ),
+        lambda report: report["metrics"][0].update(actual=float("nan")),
+        lambda report: report["metrics"][0].update(actual="0.5"),
+        lambda report: report["metrics"][0].update(actual=0.6),
+        lambda report: report["metrics"][0].update(expected=0.6),
+        lambda report: report["metrics"][0].update(tolerance=0.1),
+    ],
+    ids=[
+        "missing-metric",
+        "extra-metric",
+        "nonfinite-actual",
+        "wrong-type-actual",
+        "out-of-tolerance-actual",
+        "mutated-expected",
+        "mutated-tolerance",
+    ],
+)
+def test_candidate_self_test_report_rejects_invalid_metrics_without_publication(
+    tmp_path, mutation
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    _rewrite_report(project, preparation.report_path, mutation)
+
+    with pytest.raises(ValueError, match="^refinement_self_test_report_invalid$"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+
+    assert ResearchProject.open(project.root).state == state_before
