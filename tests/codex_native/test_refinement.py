@@ -1251,6 +1251,51 @@ def test_candidate_provenance_resolves_only_through_stage_twelve_evidence(tmp_pa
         refinement.register_refinement_candidate(project, manifest)
 
 
+def test_candidate_cannot_hide_an_unapproved_file_behind_baseline_provenance(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    before = project.state
+    manifest = write_refinement_candidate(project)
+    evidence_manifest_path = next(
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    evidence_manifest = json.loads(
+        (project.root / evidence_manifest_path).read_text(encoding="utf-8")
+    )
+    baseline_design = next(
+        item
+        for item in evidence_manifest["objects"]
+        if item["source_path"] == "experiment/design.json"
+    )
+    copied_bytes = (project.root / baseline_design["object_path"]).read_bytes()
+    copied_path = (
+        project.root
+        / "refinement/candidates/candidate-001/tests/unapproved-design-copy.json"
+    )
+    copied_path.write_bytes(copied_bytes)
+
+    def add_unapproved_copy(payload):
+        payload["files"].append(
+            {
+                "path": copied_path.relative_to(project.root).as_posix(),
+                "sha256": baseline_design["sha256"],
+                "size": baseline_design["size"],
+                "provenance": {
+                    "kind": "stage12_evidence",
+                    "source_path": "experiment/design.json",
+                },
+            }
+        )
+
+    _rewrite_candidate_manifest(manifest, add_unapproved_copy)
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+    assert ResearchProject.open(project.root).state == before
+
+
 def test_candidate_registration_is_byte_identically_idempotent(tmp_path):
     project = refinement_project_with_refine_decision(tmp_path / "project")
     manifest = write_refinement_candidate(project)
@@ -1661,6 +1706,97 @@ def test_expected_identity_size_bounds_growth_to_expected_plus_one(
     assert requested_sizes == [2]
 
 
+def test_evaluated_artifact_identity_stops_after_declared_size_plus_one(
+    tmp_path, monkeypatch
+):
+    project = ResearchProject.create(tmp_path / "project", "bounded", "materials_ai")
+    relative_path = "refinement/candidates/candidate-001/results.json"
+    artifact = project.root / relative_path
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"x")
+    reference = ArtifactRef(relative_path, refinement._sha256(b"x"), 1)
+    target_identity = (artifact.stat().st_dev, artifact.stat().st_ino)
+    requested_sizes = []
+    consumed_bytes = 0
+    original_read = refinement.os.read
+    grew = False
+
+    def grow_before_read(descriptor, size):
+        nonlocal consumed_bytes, grew
+        descriptor_stat = refinement.os.fstat(descriptor)
+        if (descriptor_stat.st_dev, descriptor_stat.st_ino) == target_identity:
+            requested_sizes.append(size)
+            if not grew:
+                grew = True
+                with artifact.open("ab") as stream:
+                    stream.write(b"y" * (1024 * 1024))
+        chunk = original_read(descriptor, size)
+        consumed_bytes += len(chunk)
+        return chunk
+
+    monkeypatch.setattr(refinement.os, "read", grow_before_read)
+
+    with pytest.raises(ValueError, match="refinement_round_binding_invalid"):
+        refinement._verify_artifact_identity(project, reference)
+
+    assert requested_sizes == [2]
+    assert consumed_bytes == 2
+
+
+@pytest.mark.parametrize("overflow", ["count", "aggregate_bytes"])
+def test_evaluated_artifact_budget_rejects_before_identity_reads(
+    tmp_path, monkeypatch, overflow
+):
+    project = prepared_refinement_project(tmp_path / overflow)
+    project = ResearchProject.open(project.root)
+    session = refinement._load_prepared_refinement_session(project)
+    packet = project.state.artifacts[refinement.EVIDENCE_PACKET_PATH]
+    if overflow == "count":
+        candidates = tuple(
+            ArtifactRef(
+                f"refinement/candidates/candidate-{index:03d}/results.json",
+                "a" * 64,
+                0,
+            )
+            for index in range(1, refinement._MAX_IDENTITY_FILES + 1)
+        )
+    else:
+        candidates = tuple(
+            ArtifactRef(
+                f"refinement/candidates/candidate-{index:03d}/results.json",
+                "a" * 64,
+                refinement._MAX_IDENTITY_FILE_BYTES,
+            )
+            for index in range(1, 5)
+        )
+    references = (packet, *candidates)
+    project.persist_state(
+        replace(
+            project.state,
+            artifacts={
+                **project.state.artifacts,
+                **{reference.path: reference for reference in candidates},
+            },
+        )
+    )
+    identity_reads = 0
+
+    def record_identity_read(*args, **kwargs):
+        nonlocal identity_reads
+        identity_reads += 1
+
+    monkeypatch.setattr(refinement, "_verify_artifact_identity", record_identity_read)
+
+    with pytest.raises(ValueError, match="refinement_round_binding_invalid"):
+        refinement._evaluated_artifacts(
+            ResearchProject.open(project.root),
+            [refinement._artifact_payload(reference) for reference in references],
+            session=session,
+        )
+
+    assert identity_reads == 0
+
+
 @pytest.mark.parametrize("overflow", ["count", "total"])
 def test_candidate_manifest_identity_budget_rejects_aggregate_overflow(
     tmp_path, overflow
@@ -1752,3 +1888,25 @@ def test_rooted_validator_rejects_symlinked_candidate_root(tmp_path):
             package_root=candidate_root,
             contract_path="package_metadata/package_contract.json",
         )
+
+
+def test_rooted_validator_accepts_a_project_reached_through_an_ancestor_alias(
+    tmp_path,
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    write_refinement_candidate(project)
+    alias = tmp_path / "ancestor-alias"
+    alias.symlink_to(tmp_path, target_is_directory=True)
+    aliased_project_root = alias / project.root.name
+    aliased_project = ResearchProject.open(aliased_project_root)
+    aliased_candidate_root = (
+        aliased_project_root / "refinement/candidates/candidate-001"
+    )
+
+    validated = package_contract.validate_experiment_package_contract_at(
+        aliased_project,
+        package_root=aliased_candidate_root,
+        contract_path="package_metadata/package_contract.json",
+    )
+
+    assert validated.entry_point == "code/model.py"

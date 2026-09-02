@@ -1589,16 +1589,24 @@ def validate_experiment_package_contract_at(
             raise ValueError("package root must be the project root")
         package_root = project_root
     else:
-        try:
-            relative_root = supplied_root.relative_to(project_root)
-        except ValueError as error:
-            raise ValueError("candidate package root must be contained") from error
+        relative_root = None
+        for boundary in range(1, len(supplied_root.parts) + 1):
+            try:
+                prefix = Path(*supplied_root.parts[:boundary]).resolve(strict=True)
+            except (OSError, RuntimeError):
+                break
+            if prefix == project_root:
+                suffix = supplied_root.parts[boundary:]
+                relative_root = Path(*suffix) if suffix else Path()
+                break
+        if relative_root is None:
+            raise ValueError("candidate package root must be contained")
+        canonical_root = project_root / relative_root
         if (
             len(relative_root.parts) != 3
             or relative_root.parts[:2] != ("refinement", "candidates")
             or re.fullmatch(r"candidate-[0-9]{3}", relative_root.parts[2]) is None
-            or supplied_root != project_root / relative_root
-            or resolved_root != supplied_root
+            or resolved_root != canonical_root
         ):
             raise ValueError("candidate package root is invalid")
         cursor = project_root
@@ -1610,7 +1618,7 @@ def validate_experiment_package_contract_at(
                     raise ValueError("candidate package root is invalid")
         except OSError as error:
             raise ValueError("candidate package root is invalid") from error
-        package_root = supplied_root
+        package_root = canonical_root
     manifest_path = (
         _PACKAGE_MANIFEST_PATH
         if baseline_layout

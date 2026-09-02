@@ -459,13 +459,19 @@ def _verify_artifact_identity(project: ResearchProject, reference: ArtifactRef) 
         if not stat.S_ISREG(initial.st_mode) or initial.st_size != reference.size:
             raise ValueError("refinement_round_binding_invalid")
         digest = hashlib.sha256()
-        while True:
-            chunk = os.read(descriptor, 64 * 1024)
+        total_size = 0
+        remaining = reference.size + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
             if not chunk:
                 break
+            total_size += len(chunk)
+            if total_size > reference.size:
+                raise ValueError("refinement_round_binding_invalid")
+            remaining -= len(chunk)
             digest.update(chunk)
         final = os.fstat(descriptor)
-        if digest.hexdigest() != reference.sha256 or (
+        if total_size != reference.size or digest.hexdigest() != reference.sha256 or (
             initial.st_dev,
             initial.st_ino,
             initial.st_mode,
@@ -501,6 +507,9 @@ def _evaluated_artifacts(
         raise ValueError("refinement_round_binding_invalid") from error
     if len({reference.path for reference in references}) != len(references):
         raise ValueError("refinement_round_binding_invalid")
+    _require_identity_budget(
+        references, error_code="refinement_round_binding_invalid"
+    )
     for reference in references:
         if (
             reference.path != EVIDENCE_PACKET_PATH
@@ -2525,6 +2534,104 @@ def _baseline_artifact_bytes(
     return payload
 
 
+def _config_argument(argv: object) -> str:
+    if (
+        not isinstance(argv, (list, tuple))
+        or any(not isinstance(item, str) for item in argv)
+        or argv.count("--config") != 1
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
+    position = argv.index("--config")
+    if position + 1 >= len(argv) or not argv[position + 1]:
+        raise ValueError("refinement_candidate_binding_invalid")
+    return argv[position + 1]
+
+
+def _canonical_candidate_baseline_sources(
+    *,
+    baseline: _Baseline,
+    baseline_contract: Mapping[str, object],
+    baseline_manifest: Mapping[str, object],
+    candidate_contract: Mapping[str, object],
+    candidate_entry_point: str,
+    candidate_self_test_argv: tuple[str, ...],
+    candidate_execution_argv: tuple[str, ...],
+    candidate_contract_path: str,
+    prefix: str,
+) -> tuple[dict[str, str], frozenset[str]]:
+    """Derive semantic destination provenance without trusting candidate claims."""
+    baseline_self_test = baseline_contract.get("self_test")
+    candidate_self_test = candidate_contract.get("self_test")
+    if not isinstance(baseline_self_test, Mapping) or not isinstance(
+        candidate_self_test, Mapping
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
+    baseline_entry_point = baseline_contract.get("entry_point")
+    baseline_config = baseline_contract.get("config_path")
+    baseline_fixture = baseline_self_test.get("fixture_path")
+    candidate_config = candidate_contract.get("config_path")
+    candidate_fixture = candidate_self_test.get("fixture_path")
+    semantic_values = (
+        baseline_entry_point,
+        baseline_config,
+        baseline_fixture,
+        candidate_config,
+        candidate_fixture,
+    )
+    if any(not isinstance(value, str) or not value for value in semantic_values):
+        raise ValueError("refinement_candidate_binding_invalid")
+    baseline_self_test_config = _config_argument(
+        baseline_self_test.get("argv_suffix")
+    )
+    candidate_self_test_config = _config_argument(candidate_self_test_argv)
+    if _config_argument(candidate_execution_argv) != candidate_config:
+        raise ValueError("refinement_candidate_binding_invalid")
+
+    baseline_by_path = {str(item["path"]): item for item in baseline.artifacts}
+    manifest_files = baseline_manifest.get("files")
+    if not isinstance(manifest_files, list):
+        raise ValueError("refinement_candidate_binding_invalid")
+    manifest_identities: dict[str, str] = {}
+    for raw in manifest_files:
+        if not isinstance(raw, Mapping):
+            raise ValueError("refinement_candidate_binding_invalid")
+        path, digest = raw.get("path"), raw.get("sha256")
+        if (
+            not isinstance(path, str)
+            or not isinstance(digest, str)
+            or path in manifest_identities
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
+        manifest_identities[path] = digest
+    for source_path in (
+        baseline_entry_point,
+        baseline_config,
+        baseline_self_test_config,
+    ):
+        baseline_item = baseline_by_path.get(source_path)
+        if (
+            baseline_item is None
+            or manifest_identities.get(source_path) != baseline_item["sha256"]
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
+
+    role_pairs = (
+        (candidate_entry_point, baseline_entry_point),
+        (candidate_config, baseline_config),
+        (candidate_self_test_config, baseline_self_test_config),
+        (candidate_fixture, baseline_fixture),
+        (candidate_contract_path, "experiment/package_contract.json"),
+        ("package_metadata/package_manifest.json", "experiment/package_manifest.json"),
+    )
+    semantic_destinations = frozenset(f"{prefix}{path}" for path, _ in role_pairs)
+    canonical_sources = {
+        f"{prefix}{destination}": source
+        for destination, source in role_pairs
+        if source in baseline_by_path
+    }
+    return canonical_sources, semantic_destinations
+
+
 def _candidate_file_references(
     project: ResearchProject,
     *,
@@ -2752,23 +2859,6 @@ def _parse_candidate_manifest(
         or any(path not in reference_paths for path in requested_paths)
     ):
         raise ValueError("refinement_candidate_binding_invalid")
-    actual_changed_paths: set[str] = set()
-    for candidate_file in candidate_files:
-        if candidate_file.baseline_source_path is None:
-            actual_changed_paths.add(candidate_file.reference.path)
-            continue
-        baseline_item = next(
-            item
-            for item in baseline.artifacts
-            if item["path"] == candidate_file.baseline_source_path
-        )
-        if (
-            candidate_file.reference.sha256 != baseline_item["sha256"]
-            or candidate_file.reference.size != baseline_item["size"]
-        ):
-            actual_changed_paths.add(candidate_file.reference.path)
-    if set(requested_paths) != actual_changed_paths:
-        raise ValueError("refinement_candidate_binding_invalid")
 
     baseline_contract_bytes = _baseline_artifact_bytes(
         project, baseline, "experiment/package_contract.json"
@@ -2788,10 +2878,25 @@ def _parse_candidate_manifest(
     if baseline_package != expected_package:
         raise ValueError("refinement_candidate_binding_invalid")
     try:
-        baseline_contract = json.loads(baseline_contract_bytes.decode("utf-8"))
-        baseline_config = json.loads(baseline_config_bytes.decode("utf-8"))
+        baseline_contract = json.loads(
+            baseline_contract_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+        baseline_manifest = json.loads(
+            baseline_manifest_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+        baseline_config = json.loads(
+            baseline_config_bytes.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
     except (UnicodeError, ValueError, json.JSONDecodeError) as error:
         raise ValueError("refinement_candidate_baseline_changed") from error
+    if not all(
+        isinstance(payload, Mapping)
+        for payload in (baseline_contract, baseline_manifest, baseline_config)
+    ):
+        raise ValueError("refinement_candidate_baseline_changed")
     unchanged = manifest.get("unchanged_declarations")
     expected_unchanged = {
         "input_paths": list(baseline.input_paths),
@@ -2831,6 +2936,50 @@ def _parse_candidate_manifest(
     if validated.entry_point != entry_point:
         raise ValueError("refinement_candidate_binding_invalid")
     contract_payload, _ = _read_bounded_json(candidate_root / package_contract)
+    canonical_sources, semantic_destinations = (
+        _canonical_candidate_baseline_sources(
+            baseline=baseline,
+            baseline_contract=baseline_contract,
+            baseline_manifest=baseline_manifest,
+            candidate_contract=contract_payload,
+            candidate_entry_point=validated.entry_point,
+            candidate_self_test_argv=validated.self_test_argv,
+            candidate_execution_argv=validated.execution_argv,
+            candidate_contract_path=package_contract,
+            prefix=prefix,
+        )
+    )
+    baseline_by_path = {str(item["path"]): item for item in baseline.artifacts}
+    actual_changed_paths: set[str] = set()
+    for candidate_file in candidate_files:
+        path = candidate_file.reference.path
+        canonical_source = canonical_sources.get(path)
+        if canonical_source is None:
+            actual_changed_paths.add(path)
+            if (
+                path in semantic_destinations
+                and candidate_file.candidate_only_classification
+                != "self_test_fixture"
+            ) or (
+                path not in semantic_destinations
+                and candidate_file.candidate_only_classification is not None
+            ):
+                raise ValueError("refinement_candidate_provenance_invalid")
+            continue
+        if (
+            candidate_file.baseline_source_path != canonical_source
+            or candidate_file.candidate_only_classification is not None
+        ):
+            raise ValueError("refinement_candidate_provenance_invalid")
+        baseline_item = baseline_by_path[canonical_source]
+        if (
+            candidate_file.reference.sha256 != baseline_item["sha256"]
+            or candidate_file.reference.size != baseline_item["size"]
+        ):
+            actual_changed_paths.add(path)
+    if set(requested_paths) != actual_changed_paths:
+        raise ValueError("refinement_candidate_binding_invalid")
+
     candidate_metrics = contract_payload.get("metrics")
     baseline_metrics = baseline_contract.get("metrics")
     if not isinstance(candidate_metrics, list) or not isinstance(
@@ -2875,14 +3024,6 @@ def _parse_candidate_manifest(
         != baseline_self_test.get("expected_metrics")
     ):
         raise ValueError("refinement_candidate_binding_invalid")
-    fixture_path = candidate_self_test.get("fixture_path")
-    candidate_only_paths = {
-        item.reference.path.removeprefix(prefix): item.candidate_only_classification
-        for item in candidate_files
-        if item.candidate_only_classification is not None
-    }
-    if candidate_only_paths != {fixture_path: "self_test_fixture"}:
-        raise ValueError("refinement_candidate_provenance_invalid")
     return (
         references,
         snapshots,
