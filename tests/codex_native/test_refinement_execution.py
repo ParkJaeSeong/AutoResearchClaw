@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 from dataclasses import replace
@@ -27,38 +28,6 @@ from tests.codex_native.test_refinement import refinement_project_with_refine_de
 def registered_candidate_project(path: Path):
     project = refinement_project_with_refine_decision(path)
     manifest = write_refinement_candidate(project)
-    candidate_root = manifest.parent.parent
-    source_path = candidate_root / "code/model.py"
-    source = source_path.read_text(encoding="utf-8")
-    source = source.replace(
-        "experiment/package_contract.json", "package_metadata/package_contract.json"
-    )
-    source = source.replace(
-        "experiment/package_manifest.json", "package_metadata/package_manifest.json"
-    )
-    source = source.replace("experiment/code/main.py", "code/model.py")
-    source_path.write_text(source, encoding="utf-8")
-    package_manifest_path = candidate_root / "package_metadata/package_manifest.json"
-    package_manifest = json.loads(package_manifest_path.read_text(encoding="utf-8"))
-    package_manifest["files"][0]["sha256"] = hashlib.sha256(
-        source_path.read_bytes()
-    ).hexdigest()
-    package_manifest_path.write_text(
-        json.dumps(package_manifest, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    candidate_manifest = json.loads(manifest.read_text(encoding="utf-8"))
-    by_path = {entry["path"]: entry for entry in candidate_manifest["files"]}
-    for relative_path in (
-        "refinement/candidates/candidate-001/code/model.py",
-        "refinement/candidates/candidate-001/package_metadata/package_manifest.json",
-    ):
-        payload = (project.root / relative_path).read_bytes()
-        by_path[relative_path]["sha256"] = hashlib.sha256(payload).hexdigest()
-        by_path[relative_path]["size"] = len(payload)
-    manifest.write_text(
-        json.dumps(candidate_manifest, sort_keys=True, separators=(",", ":")),
-        encoding="utf-8",
-    )
     candidate = register_refinement_candidate(project, manifest)
     return ResearchProject.open(project.root), candidate
 
@@ -90,12 +59,16 @@ def test_candidate_self_test_uses_verified_absolute_launcher_and_candidate_cwd(
         / "candidates"
         / candidate.candidate_id
     )
-    assert status.argv[1:] == (
+    assert status.argv[1:5] == (
         "code/model.py",
         "--config",
         "tests/self_test_config.json",
         "--self-test",
     )
+    assert status.argv[5] == "--refinement-self-test-context"
+    context = json.loads(status.argv[6])
+    assert context["candidate_id"] == candidate.candidate_id
+    assert context["candidate_manifest"]["sha256"] == candidate.manifest_sha256
     assert status.environment_fingerprint
     assert status.candidate_id == candidate.candidate_id
     assert status.candidate_manifest_sha256 == candidate.manifest_sha256
@@ -125,6 +98,9 @@ def test_candidate_self_test_registration_binds_context_without_consuming_run_bu
     registration = json.loads(
         (project.root / registration_path).read_text(encoding="utf-8")
     )
+    report = json.loads(
+        (project.root / preparation.report_path).read_text(encoding="utf-8")
+    )
     assert status.next_action == "prepare_refinement_run"
     assert reopened.state.next_action == "prepare_refinement_run"
     assert preparation.report_path in reopened.state.artifacts
@@ -148,6 +124,18 @@ def test_candidate_self_test_registration_binds_context_without_consuming_run_bu
         candidate.package_contract_sha256
     )
     assert registration["self_test_report"]["path"] == preparation.report_path
+    assert report["project_id"] == project.state.project_id
+    assert report["session_id"] == session_before["session_id"]
+    assert report["candidate_id"] == candidate.candidate_id
+    assert report["producer"] == "implementation-agent"
+    assert report["producer_role"] == "implementation"
+    assert report["candidate_manifest"]["sha256"] == candidate.manifest_sha256
+    assert report["council_decision"]["sha256"] == candidate.decision_sha256
+    assert report["evidence_packet"] == session_before["evidence_packet"]
+    assert report["baseline_manifest"] == registration["baseline_manifest"]
+    assert report["candidate_files"] == registration["candidate_files"]
+    assert report["config"] == registration["config"]
+    assert report["created_at"].endswith("+00:00")
     assert json.loads(
         (project.root / "refinement/session.json").read_text(encoding="utf-8")
     )["runs_used"] == session_before["runs_used"] == 0
@@ -239,11 +227,10 @@ def test_candidate_self_test_registration_recovers_exact_record_orphan(
     project, candidate = registered_candidate_project(tmp_path / "project")
     preparation = run_candidate_self_test(project, candidate.candidate_id)
     state_before = ResearchProject.open(project.root).state
-    original_write = refinement_execution._write_exclusive
+    original_after_write = refinement_execution._after_anchored_registration_write
     original_publish = refinement_execution._publish_refinement_self_test_state
 
-    def interrupt_after_record_write(*args):
-        original_write(*args)
+    def interrupt_after_record_write():
         raise RuntimeError("registration interrupted")
 
     def interrupt_after_state_write(*args):
@@ -252,7 +239,9 @@ def test_candidate_self_test_registration_recovers_exact_record_orphan(
 
     if interruption == "after_record_write":
         monkeypatch.setattr(
-            refinement_execution, "_write_exclusive", interrupt_after_record_write
+            refinement_execution,
+            "_after_anchored_registration_write",
+            interrupt_after_record_write,
         )
     else:
         monkeypatch.setattr(
@@ -273,8 +262,8 @@ def test_candidate_self_test_registration_recovers_exact_record_orphan(
 
     monkeypatch.setattr(
         refinement_execution,
-        "_write_exclusive",
-        original_write,
+        "_after_anchored_registration_write",
+        original_after_write,
     )
     monkeypatch.setattr(
         refinement_execution,
@@ -446,3 +435,253 @@ def test_candidate_self_test_rejects_partial_registered_state(tmp_path):
             candidate.candidate_id,
             preparation.report_path,
         )
+
+
+def test_candidate_self_test_report_cannot_replay_across_sessions(tmp_path):
+    first, first_candidate = registered_candidate_project(tmp_path / "first")
+    second, second_candidate = registered_candidate_project(tmp_path / "second")
+    first_preparation = run_candidate_self_test(first, first_candidate.candidate_id)
+    second_preparation = prepare_refinement_self_test(
+        second, second_candidate.candidate_id
+    )
+    copied_report = first.root / first_preparation.report_path
+    target_report = second.root / second_preparation.report_path
+    target_report.write_bytes(copied_report.read_bytes())
+
+    with pytest.raises(ValueError, match="refinement_self_test_report_invalid"):
+        register_refinement_self_test(
+            second, second_candidate.candidate_id, second_preparation.report_path
+        )
+
+
+def test_candidate_self_test_registration_rejects_parent_component_aba(
+    tmp_path, monkeypatch
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    registration_root = project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT
+    moved_root = project.root / ".researchclaw/refinement-self-tests-held"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    swapped = False
+
+    def swap_parent(*_args):
+        nonlocal swapped
+        registration_root.rename(moved_root)
+        registration_root.symlink_to(outside, target_is_directory=True)
+        swapped = True
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_before_anchored_registration_leaf_create",
+        swap_parent,
+    )
+    with pytest.raises(
+        ValueError, match="refinement_self_test_registration_recovery_invalid"
+    ):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+
+    assert swapped
+    assert not tuple(outside.iterdir())
+    assert ResearchProject.open(project.root).state == state_before
+    registration_root.unlink()
+    moved_root.rename(registration_root)
+    monkeypatch.setattr(
+        refinement_execution,
+        "_before_anchored_registration_leaf_create",
+        lambda *_args: None,
+    )
+    assert register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    ).next_action == "prepare_refinement_run"
+
+
+def test_candidate_self_test_registration_rejects_manifest_producer_aba(
+    tmp_path, monkeypatch
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    manifest = project.root / candidate.manifest_path
+    original = manifest.read_bytes()
+
+    def producer_aba(*_args):
+        payload = json.loads(original)
+        payload["producer"] = "reviewer-agent"
+        manifest.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        manifest.write_bytes(original)
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_before_refinement_self_test_publication",
+        producer_aba,
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+    assert ResearchProject.open(project.root).state == state_before
+
+
+@pytest.mark.parametrize("drift_call", [2, 5])
+def test_candidate_self_test_registration_rejects_late_environment_drift(
+    tmp_path, monkeypatch, drift_call
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    original = refinement_execution._inspect_bound_environment
+    calls = 0
+
+    def drift_after_validation(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        environment, launcher = original(*args, **kwargs)
+        if calls == drift_call:
+            environment = replace(environment, fingerprint="0" * 64)
+        return environment, launcher
+
+    monkeypatch.setattr(
+        refinement_execution, "_inspect_bound_environment", drift_after_validation
+    )
+    with pytest.raises(ValueError, match="refinement_self_test_environment_changed"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+    assert ResearchProject.open(project.root).state == state_before
+
+
+def test_candidate_self_test_registration_rejects_launcher_identity_drift(
+    tmp_path, monkeypatch
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    original = refinement_execution._inspect_bound_environment
+    calls = 0
+
+    def replace_launcher_identity(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        environment, launcher = original(*args, **kwargs)
+        if calls == 2:
+            launcher = (
+                *launcher[:-1],
+                (*launcher[-1][:-1], int(launcher[-1][-1]) + 1),
+            )
+        return environment, launcher
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_inspect_bound_environment",
+        replace_launcher_identity,
+    )
+    with pytest.raises(ValueError, match="refinement_self_test_environment_changed"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+    assert ResearchProject.open(project.root).state == state_before
+
+
+@pytest.mark.parametrize("artifact", ["report", "receipt"])
+def test_registered_candidate_rejects_same_byte_artifact_replacement(
+    tmp_path, artifact
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    )
+    reopened = ResearchProject.open(project.root)
+    if artifact == "report":
+        target = project.root / preparation.report_path
+    else:
+        target = project.root / next(
+            path
+            for path in reopened.state.artifacts
+            if path.startswith(f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/")
+        )
+    replacement = target.with_name(f".{target.name}.replacement")
+    replacement.write_bytes(target.read_bytes())
+    os.replace(replacement, target)
+
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        refinement_execution.revalidate_refinement_candidate(
+            ResearchProject.open(project.root), candidate.candidate_id
+        )
+
+
+@pytest.mark.parametrize("loader", ["candidate", "session"])
+def test_registered_candidate_reconstructs_receipt_semantics(
+    tmp_path, loader
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    )
+    reopened = ResearchProject.open(project.root)
+    registration_path = next(
+        path
+        for path in reopened.state.artifacts
+        if path.startswith(f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/")
+    )
+    registration = project.root / registration_path
+    forged = json.loads(registration.read_text(encoding="utf-8"))
+    forged["producer"] = "reviewer-agent"
+    registration.write_text(
+        json.dumps(forged, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    forged_bytes = registration.read_bytes()
+    forged_ref = refinement_execution.ArtifactRef(
+        registration_path, hashlib.sha256(forged_bytes).hexdigest(), len(forged_bytes)
+    )
+    writable = ResearchProject.open(project.root)
+    writable.persist_state(
+        replace(
+            writable.state,
+            artifacts={**writable.state.artifacts, registration_path: forged_ref},
+        )
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        if loader == "candidate":
+            refinement_execution.revalidate_refinement_candidate(
+                ResearchProject.open(project.root), candidate.candidate_id
+            )
+        else:
+            load_refinement_session(ResearchProject.open(project.root))
+
+
+@pytest.mark.parametrize("late_file", ["unknown", "report"])
+def test_prepare_candidate_self_test_final_gate_rejects_late_tree_change(
+    tmp_path, monkeypatch, late_file
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    candidate_root = (
+        project.root / "refinement" / "candidates" / candidate.candidate_id
+    )
+
+    def insert_late_file(*_args):
+        if late_file == "report":
+            target = candidate_root / "package_metadata/self_test_report.json"
+        else:
+            target = candidate_root / "tests/late-unknown.json"
+        target.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_before_refinement_self_test_preparation_final_gate",
+        insert_late_file,
+    )
+    with pytest.raises(
+        ValueError,
+        match="refinement_self_test_report_exists|refinement_candidate_manifest_open",
+    ):
+        prepare_refinement_self_test(project, candidate.candidate_id)

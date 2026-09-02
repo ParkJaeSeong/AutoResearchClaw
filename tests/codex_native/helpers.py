@@ -1393,8 +1393,27 @@ def write_refinement_candidate(
     source = source.replace(
         "experiment/self_test_report.json", "package_metadata/self_test_report.json"
     )
+    source = source.replace(
+        "experiment/package_contract.json", "package_metadata/package_contract.json"
+    )
+    source = source.replace(
+        "experiment/package_manifest.json", "package_metadata/package_manifest.json"
+    )
+    source = source.replace("experiment/code/main.py", "code/model.py")
     source = source.replace("experiment/code/config.json", "config/config.json")
     source = source.replace("experiment/results.json", "results.json")
+    source = source.replace(
+        '    parser.add_argument("--self-test", action="store_true")\n',
+        '    parser.add_argument("--self-test", action="store_true")\n'
+        '    parser.add_argument("--refinement-self-test-context")\n',
+    )
+    source = source.replace(
+        '            "development_only": True,\n        }\n'
+        '        Path("package_metadata/self_test_report.json")',
+        '            "development_only": True,\n'
+        '            **json.loads(args.refinement_self_test_context),\n'
+        '        }\n        Path("package_metadata/self_test_report.json")',
+    )
     (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
 
     baseline_config_bytes = evidence_bytes("experiment/code/config.json")

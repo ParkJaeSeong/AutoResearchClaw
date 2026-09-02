@@ -2042,6 +2042,22 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
     candidate_statuses = _registered_candidate_statuses(
         current, session=session, baseline=baseline
     )
+    from .refinement_execution import _revalidate_registered_self_test_semantics
+
+    for candidate in candidate_statuses:
+        report_path = (
+            f"refinement/candidates/{candidate.candidate_id}/"
+            "package_metadata/self_test_report.json"
+        )
+        registration_path = (
+            ".researchclaw/refinement-self-tests/"
+            f"{session.session_id}/{candidate.candidate_id}.json"
+        )
+        if (
+            report_path in current.state.artifacts
+            and registration_path in current.state.artifacts
+        ):
+            _revalidate_registered_self_test_semantics(current, candidate)
     round_info = _round_path(current, create=False)
     if round_info is None:
         if candidate_statuses:
@@ -3272,7 +3288,14 @@ def revalidate_refinement_candidate(
     project: ResearchProject, candidate_id: str
 ) -> CandidateStatus:
     """Reopen and fully revalidate one exact registered candidate identity."""
-    return _revalidate_refinement_candidate(project, candidate_id)
+    status = _revalidate_refinement_candidate(project, candidate_id)
+    if status.next_action == "prepare_refinement_run":
+        from .refinement_execution import (
+            _revalidate_registered_self_test_semantics,
+        )
+
+        _revalidate_registered_self_test_semantics(project, status)
+    return status
 
 
 def _publish_candidate_state(project: ResearchProject, state: ProjectState) -> None:
