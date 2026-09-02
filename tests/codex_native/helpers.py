@@ -1352,35 +1352,19 @@ def immutable_stage_twelve_snapshot(
 def write_refinement_candidate(
     project: ResearchProject,
     *,
+    candidate_id: str = "candidate-001",
     decision_sha256: str | None = None,
     files: list[str] | None = None,
 ) -> Path:
     """Write a complete isolated candidate package and its registration manifest."""
-    candidate_id = "candidate-001"
     relative_root = f"refinement/candidates/{candidate_id}"
     candidate_root = project.root / relative_root
     for category in ("code", "config", "tests", "package_metadata"):
         (candidate_root / category).mkdir(parents=True, exist_ok=True)
 
     source_project = build_known_answer_experiment_package(
-        project.root.parent / f".{project.root.name}-candidate-package-source"
+        project.root.parent / f".{project.root.name}-{candidate_id}-package-source"
     )
-    source = (source_project.root / "experiment/code/main.py").read_text(
-        encoding="utf-8"
-    )
-    source = source.replace("experiment.code.main", "code.model")
-    source = source.replace(
-        "experiment/code/self_test_config.json", "tests/self_test_config.json"
-    )
-    source = source.replace(
-        "experiment/self_test_fixture.json", "tests/self_test_fixture.json"
-    )
-    source = source.replace(
-        "experiment/self_test_report.json", "package_metadata/self_test_report.json"
-    )
-    source = source.replace("experiment/code/config.json", "config/config.json")
-    source = source.replace("experiment/results.json", "results.json")
-    (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
 
     def evidence_bytes(source_path: str) -> bytes:
         manifest_path = next(
@@ -1398,11 +1382,31 @@ def write_refinement_candidate(
         )
         return (project.root / object_path).read_bytes()
 
+    source = evidence_bytes("experiment/code/main.py").decode("utf-8")
+    source = source.replace("experiment.code.main", "code.model")
+    source = source.replace(
+        "experiment/code/self_test_config.json", "tests/self_test_config.json"
+    )
+    source = source.replace(
+        "experiment/self_test_fixture.json", "tests/self_test_fixture.json"
+    )
+    source = source.replace(
+        "experiment/self_test_report.json", "package_metadata/self_test_report.json"
+    )
+    source = source.replace("experiment/code/config.json", "config/config.json")
+    source = source.replace("experiment/results.json", "results.json")
+    (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
+
     baseline_config_bytes = evidence_bytes("experiment/code/config.json")
+    baseline_self_test_config_bytes = evidence_bytes(
+        "experiment/code/self_test_config.json"
+    )
     baseline_contract_bytes = evidence_bytes("experiment/package_contract.json")
     baseline_manifest_bytes = evidence_bytes("experiment/package_manifest.json")
     (candidate_root / "config/config.json").write_bytes(baseline_config_bytes)
-    (candidate_root / "tests/self_test_config.json").write_bytes(b"{}\n")
+    (candidate_root / "tests/self_test_config.json").write_bytes(
+        baseline_self_test_config_bytes
+    )
     (candidate_root / "tests/self_test_fixture.json").write_bytes(
         (source_project.root / "experiment/self_test_fixture.json").read_bytes()
     )
@@ -1459,8 +1463,12 @@ def write_refinement_candidate(
         json.dumps(package_manifest, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    decision_path = "refinement/deliberations/round-001/decision.json"
+    round_paths = sorted(
+        (project.root / "refinement/deliberations").glob("round-*/decision.json")
+    )
+    decision_path = round_paths[-1].relative_to(project.root).as_posix()
     decision_payload = (project.root / decision_path).read_bytes()
+    decision_record = json.loads(decision_payload)
     baseline_manifest_path = next(
         path
         for path in project.state.artifacts
@@ -1477,14 +1485,42 @@ def write_refinement_candidate(
             "package_metadata/package_manifest.json",
         )
     ]
-    file_entries = [
-        {
-            "path": path,
-            "sha256": hashlib.sha256((project.root / path).read_bytes()).hexdigest(),
-            "size": (project.root / path).stat().st_size,
-        }
-        for path in candidate_file_paths
-    ]
+    baseline_sources = {
+        f"{relative_root}/code/model.py": "experiment/code/main.py",
+        f"{relative_root}/config/config.json": "experiment/code/config.json",
+        f"{relative_root}/tests/self_test_config.json": (
+            "experiment/code/self_test_config.json"
+        ),
+        f"{relative_root}/package_metadata/package_contract.json": (
+            "experiment/package_contract.json"
+        ),
+        f"{relative_root}/package_metadata/package_manifest.json": (
+            "experiment/package_manifest.json"
+        ),
+    }
+    file_entries = []
+    for path in candidate_file_paths:
+        provenance = (
+            {
+                "kind": "stage12_evidence",
+                "source_path": baseline_sources[path],
+            }
+            if path in baseline_sources
+            else {
+                "kind": "candidate_only",
+                "classification": "self_test_fixture",
+            }
+        )
+        file_entries.append(
+            {
+                "path": path,
+                "sha256": hashlib.sha256(
+                    (project.root / path).read_bytes()
+                ).hexdigest(),
+                "size": (project.root / path).stat().st_size,
+                "provenance": provenance,
+            }
+        )
     if files is not None:
         file_entries[0]["path"] = files[0]
 
@@ -1503,7 +1539,7 @@ def write_refinement_candidate(
             "sha256": decision_sha256 or hashlib.sha256(decision_payload).hexdigest(),
             "size": len(decision_payload),
         },
-        "change_request": {"paths": [f"{relative_root}/code/model.py"]},
+        "change_request": decision_record["change_request"],
         "baseline_manifest": {
             "path": baseline_manifest_path,
             "sha256": project.state.artifacts[baseline_manifest_path].sha256,

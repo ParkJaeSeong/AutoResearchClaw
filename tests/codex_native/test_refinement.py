@@ -40,10 +40,10 @@ def valid_envelope() -> dict[str, object]:
         "maximum_candidate_seconds": 60,
         "allowed_input_paths": ["data/input.csv"],
         "allowed_change_roots": [
-            "refinement/candidates/candidate-001/code",
-            "refinement/candidates/candidate-001/config",
-            "refinement/candidates/candidate-001/tests",
-            "refinement/candidates/candidate-001/package_metadata",
+            "refinement/candidates/{candidate_id}/code",
+            "refinement/candidates/{candidate_id}/config",
+            "refinement/candidates/{candidate_id}/tests",
+            "refinement/candidates/{candidate_id}/package_metadata",
         ],
     }
 
@@ -335,8 +335,17 @@ def valid_decision_record(
     *,
     roles=("domain", "methodology", "critical_reproducibility"),
     votes=("refine", "refine", "retain_baseline"),
+    candidate_id="candidate-001",
+    change_paths=None,
 ):
     status = load_refinement_session(project)
+    if change_paths is None:
+        change_paths = [
+            f"refinement/candidates/{candidate_id}/code/model.py",
+            f"refinement/candidates/{candidate_id}/tests/self_test_fixture.json",
+            f"refinement/candidates/{candidate_id}/package_metadata/package_contract.json",
+            f"refinement/candidates/{candidate_id}/package_metadata/package_manifest.json",
+        ]
     supporting = [role for role, vote in zip(roles, votes) if vote == "refine"]
     dissenting = [role for role, vote in zip(roles, votes) if vote != "refine"]
     return {
@@ -371,13 +380,7 @@ def valid_decision_record(
                 "rationale": ["Final position after rebuttal."],
                 "evidence_refs": ["refinement/evidence_packet.json"],
                 **(
-                    {
-                        "change_request": {
-                            "paths": [
-                                "refinement/candidates/candidate-001/code/model.py"
-                            ]
-                        }
-                    }
+                    {"change_request": {"paths": change_paths}}
                     if vote in {"refine", "request_discriminating_run"}
                     else {}
                 ),
@@ -391,9 +394,7 @@ def valid_decision_record(
         "evidence_refs": ["refinement/evidence_packet.json"],
         "action": "refine",
         "candidate_id": None,
-        "change_request": {
-            "paths": ["refinement/candidates/candidate-001/code/model.py"]
-        },
+        "change_request": {"paths": change_paths},
     }
 
 
@@ -1184,8 +1185,8 @@ def test_candidate_registration_publishes_one_closed_immutable_identity(tmp_path
     reopened = ResearchProject.open(project.root)
     assert status.candidate_id == "candidate-001"
     assert status.entry_point == "code/model.py"
-    assert status.next_action == "prepare_refinement_run"
-    assert reopened.state.next_action == "prepare_refinement_run"
+    assert status.next_action == "prepare_refinement_self_test"
+    assert reopened.state.next_action == "prepare_refinement_self_test"
     assert (
         reopened.state.artifacts[status.manifest_path].sha256 == status.manifest_sha256
     )
@@ -1193,6 +1194,61 @@ def test_candidate_registration_publishes_one_closed_immutable_identity(tmp_path
         reopened.state.artifacts
     )
     assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+
+
+def test_loaded_registered_candidate_preserves_awaiting_self_test_status(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    refinement.register_refinement_candidate(project, manifest)
+
+    status = load_refinement_session(ResearchProject.open(project.root))
+
+    assert status.phase == "awaiting_self_test"
+    assert status.next_action == "prepare_refinement_self_test"
+
+
+def test_loaded_registered_candidate_rejects_tampering_instead_of_reverting(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    refinement.register_refinement_candidate(project, manifest)
+    model = manifest.parent.parent / "code/model.py"
+    model.write_bytes(model.read_bytes() + b"\n# tampered\n")
+
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+def test_candidate_rejects_changed_fixture_when_only_code_is_approved(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    only_code = ["refinement/candidates/candidate-001/code/model.py"]
+    register_refinement_decision(
+        project,
+        write_valid_decision(project, change_paths=only_code),
+    )
+    manifest = write_refinement_candidate(ResearchProject.open(project.root))
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+
+def test_candidate_provenance_resolves_only_through_stage_twelve_evidence(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    _rewrite_candidate_manifest(
+        manifest,
+        lambda payload: payload["files"][0].__setitem__(
+            "provenance",
+            {
+                "kind": "stage12_evidence",
+                "source_path": "experiment/self_test_fixture.json",
+            },
+        ),
+    )
+
+    with pytest.raises(ValueError, match="refinement_candidate_provenance_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
 
 
 def test_candidate_registration_is_byte_identically_idempotent(tmp_path):
@@ -1205,6 +1261,89 @@ def test_candidate_registration_is_byte_identically_idempotent(tmp_path):
     )
 
     assert second == first
+
+
+def _open_second_candidate_round(project):
+    first_result = register_future_candidate_result(
+        ResearchProject.open(project.root), candidate_id="candidate-001"
+    )
+    artifacts = [_packet_artifact(project), first_result]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=artifacts)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(
+        project,
+        write_valid_decision(project, candidate_id="candidate-002"),
+    )
+    return ResearchProject.open(project.root)
+
+
+def test_candidate_ids_advance_monotonically_across_rounds_and_old_id_is_idempotent(
+    tmp_path,
+):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    first_manifest = write_refinement_candidate(project, candidate_id="candidate-001")
+    first = refinement.register_refinement_candidate(project, first_manifest)
+    project = _open_second_candidate_round(ResearchProject.open(project.root))
+    second_manifest = write_refinement_candidate(project, candidate_id="candidate-002")
+
+    second = refinement.register_refinement_candidate(project, second_manifest)
+    repeated_first = refinement.register_refinement_candidate(
+        ResearchProject.open(project.root), first_manifest
+    )
+
+    assert first.candidate_id == "candidate-001"
+    assert second.candidate_id == "candidate-002"
+    assert repeated_first == first
+
+
+def test_candidate_id_gap_is_rejected(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project, candidate_id="candidate-002")
+
+    with pytest.raises(ValueError, match="refinement_candidate_id_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+
+def test_legacy_exact_candidate_scope_does_not_authorize_candidate_two(tmp_path):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = valid_envelope()
+    envelope["allowed_change_roots"] = [
+        f"refinement/candidates/candidate-001/{category}"
+        for category in ("code", "config", "tests", "package_metadata")
+    ]
+    prepare_refinement_session(project, envelope)
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(project, write_valid_decision(project))
+    first_manifest = write_refinement_candidate(project, candidate_id="candidate-001")
+    refinement.register_refinement_candidate(project, first_manifest)
+    first_result = register_future_candidate_result(
+        ResearchProject.open(project.root), candidate_id="candidate-001"
+    )
+    artifacts = [_packet_artifact(project), first_result]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=artifacts)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+
+    with pytest.raises(ValueError, match="refinement_change_request_invalid"):
+        register_refinement_decision(
+            project,
+            write_valid_decision(project, candidate_id="candidate-002"),
+        )
+
+
+def test_loaded_registered_candidate_rejects_partial_state_refs(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    status = refinement.register_refinement_candidate(project, manifest)
+    current = ResearchProject.open(project.root)
+    artifacts = dict(current.state.artifacts)
+    artifacts.pop(status.files[0].path)
+    current.persist_state(replace(current.state, artifacts=artifacts))
+
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        load_refinement_session(ResearchProject.open(project.root))
 
 
 def test_candidate_manifest_is_closed_before_any_state_is_published(tmp_path):
@@ -1490,6 +1629,71 @@ def test_bounded_snapshot_stops_at_cap_when_file_grows_during_read(
     assert requested_sizes == [17]
 
 
+def test_expected_identity_size_bounds_growth_to_expected_plus_one(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "declared.bin"
+    path.write_bytes(b"x")
+    expected = ArtifactRef(path.name, refinement._sha256(b"x"), 1)
+    requested_sizes = []
+    original_read = refinement.os.read
+    grew = False
+
+    def replace_before_read(descriptor, size):
+        nonlocal grew
+        requested_sizes.append(size)
+        if not grew:
+            grew = True
+            with path.open("ab") as stream:
+                stream.write(b"y" * (1024 * 1024))
+        return original_read(descriptor, size)
+
+    monkeypatch.setattr(refinement.os, "read", replace_before_read)
+
+    with pytest.raises(ValueError, match="bounded_expected_identity"):
+        refinement._secure_snapshot(
+            tmp_path,
+            path.name,
+            expected=expected,
+            error_code="bounded_expected_identity",
+        )
+
+    assert requested_sizes == [2]
+
+
+@pytest.mark.parametrize("overflow", ["count", "total"])
+def test_candidate_manifest_identity_budget_rejects_aggregate_overflow(
+    tmp_path, overflow
+):
+    project = refinement_project_with_refine_decision(tmp_path / overflow)
+    manifest = write_refinement_candidate(project)
+
+    def add_overflow(payload):
+        if overflow == "count":
+            sizes = [0] * refinement._MAX_IDENTITY_FILES
+        else:
+            sizes = [refinement._MAX_IDENTITY_FILE_BYTES] * 5
+        payload["files"].extend(
+            {
+                "path": (
+                    f"refinement/candidates/candidate-001/tests/overflow-{index}.json"
+                ),
+                "sha256": "a" * 64,
+                "size": size,
+                "provenance": {
+                    "kind": "candidate_only",
+                    "classification": "self_test_fixture",
+                },
+            }
+            for index, size in enumerate(sizes)
+        )
+
+    _rewrite_candidate_manifest(manifest, add_overflow)
+
+    with pytest.raises(ValueError, match="refinement_candidate_size_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+
+
 def test_rooted_candidate_reader_rejects_entry_point_growth_during_read(
     tmp_path, monkeypatch
 ):
@@ -1520,3 +1724,31 @@ def test_rooted_candidate_reader_rejects_entry_point_growth_during_read(
         )
 
     assert grew is True
+
+
+def test_rooted_validator_rejects_external_package_root(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    external = build_stage_thirteen_project(tmp_path / "external")
+
+    with pytest.raises(ValueError, match="package root"):
+        package_contract.validate_experiment_package_contract_at(
+            project,
+            package_root=external.root,
+            contract_path="experiment/package_contract.json",
+        )
+
+
+def test_rooted_validator_rejects_symlinked_candidate_root(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    manifest = write_refinement_candidate(project)
+    candidate_root = manifest.parent.parent
+    target = candidate_root.with_name("candidate-source")
+    candidate_root.rename(target)
+    candidate_root.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="package root"):
+        package_contract.validate_experiment_package_contract_at(
+            project,
+            package_root=candidate_root,
+            contract_path="package_metadata/package_contract.json",
+        )

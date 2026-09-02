@@ -39,6 +39,7 @@ _NEXT_ACTIONS = frozenset(
         "register_refinement_candidate",
         "finalize_refinement",
         "prepare_refinement_run",
+        "prepare_refinement_self_test",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})

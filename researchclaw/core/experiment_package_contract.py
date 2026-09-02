@@ -1577,11 +1577,40 @@ def validate_experiment_package_contract_at(
     contract_path: str,
 ) -> ValidatedExperimentPackage:
     """Validate a closed package rooted beneath ``package_root`` without execution."""
-    del (
-        project
-    )  # The rooted contract is intentionally independent of live project files.
-    package_root = Path(package_root)
     baseline_layout = contract_path == EXPERIMENT_PACKAGE_CONTRACT_PATH
+    try:
+        project_root = project.root.resolve(strict=True)
+        supplied_root = Path(os.path.abspath(package_root))
+        resolved_root = supplied_root.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ValueError("package root is invalid") from error
+    if baseline_layout:
+        if resolved_root != project_root:
+            raise ValueError("package root must be the project root")
+        package_root = project_root
+    else:
+        try:
+            relative_root = supplied_root.relative_to(project_root)
+        except ValueError as error:
+            raise ValueError("candidate package root must be contained") from error
+        if (
+            len(relative_root.parts) != 3
+            or relative_root.parts[:2] != ("refinement", "candidates")
+            or re.fullmatch(r"candidate-[0-9]{3}", relative_root.parts[2]) is None
+            or supplied_root != project_root / relative_root
+            or resolved_root != supplied_root
+        ):
+            raise ValueError("candidate package root is invalid")
+        cursor = project_root
+        try:
+            for part in relative_root.parts:
+                cursor /= part
+                metadata = cursor.lstat()
+                if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+                    raise ValueError("candidate package root is invalid")
+        except OSError as error:
+            raise ValueError("candidate package root is invalid") from error
+        package_root = supplied_root
     manifest_path = (
         _PACKAGE_MANIFEST_PATH
         if baseline_layout
