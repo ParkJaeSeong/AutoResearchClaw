@@ -69,6 +69,9 @@ def test_candidate_self_test_uses_verified_absolute_launcher_and_candidate_cwd(
     context = json.loads(status.argv[6])
     assert context["candidate_id"] == candidate.candidate_id
     assert context["candidate_manifest"]["sha256"] == candidate.manifest_sha256
+    assert context["preparation"]["path"] == status.preparation_path
+    assert context["context_id"] == status.context_id
+    assert context["context_sha256"] == status.context_sha256
     assert status.environment_fingerprint
     assert status.candidate_id == candidate.candidate_id
     assert status.candidate_manifest_sha256 == candidate.manifest_sha256
@@ -159,8 +162,8 @@ def test_candidate_self_test_rejects_invalid_report_binding_without_side_effects
     project, candidate = registered_candidate_project(tmp_path / "project")
     baseline_before = immutable_stage_twelve_snapshot(project)
     result_before = (project.root / "experiment/results.json").read_bytes()
-    state_before = ResearchProject.open(project.root).state
     preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
     report = project.root / preparation.report_path
     payload = json.loads(report.read_text(encoding="utf-8"))
     payload["package_contract"]["sha256"] = "0" * 64
@@ -187,6 +190,7 @@ def test_candidate_self_test_registration_is_byte_identically_idempotent(tmp_pat
         reference
         for path, reference in state_after_first.artifacts.items()
         if path.startswith(f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/")
+        and path.endswith(f"/{candidate.candidate_id}.json")
     )
     registration_bytes = (project.root / registration_ref.path).read_bytes()
 
@@ -256,7 +260,9 @@ def test_candidate_self_test_registration_recovers_exact_record_orphan(
 
     assert ResearchProject.open(project.root).state == state_before
     orphan = next(
-        (project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT).glob("*/*.json")
+        (project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT).glob(
+            f"*/{candidate.candidate_id}.json"
+        )
     )
     orphan_bytes = orphan.read_bytes()
 
@@ -606,6 +612,7 @@ def test_registered_candidate_rejects_same_byte_artifact_replacement(
             path
             for path in reopened.state.artifacts
             if path.startswith(f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/")
+            and path.endswith(f"/{candidate.candidate_id}.json")
         )
     replacement = target.with_name(f".{target.name}.replacement")
     replacement.write_bytes(target.read_bytes())
@@ -631,6 +638,7 @@ def test_registered_candidate_reconstructs_receipt_semantics(
         path
         for path in reopened.state.artifacts
         if path.startswith(f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/")
+        and path.endswith(f"/{candidate.candidate_id}.json")
     )
     registration = project.root / registration_path
     forged = json.loads(registration.read_text(encoding="utf-8"))
@@ -677,7 +685,7 @@ def test_prepare_candidate_self_test_final_gate_rejects_late_tree_change(
 
     monkeypatch.setattr(
         refinement_execution,
-        "_before_refinement_self_test_preparation_final_gate",
+        "_after_refinement_self_test_preparation_environment",
         insert_late_file,
     )
     with pytest.raises(
@@ -685,3 +693,144 @@ def test_prepare_candidate_self_test_final_gate_rejects_late_tree_change(
         match="refinement_self_test_report_exists|refinement_candidate_manifest_open",
     ):
         prepare_refinement_self_test(project, candidate.candidate_id)
+
+
+def test_candidate_self_test_preparation_is_durable_and_idempotent(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    state_before = ResearchProject.open(project.root).state
+
+    first = prepare_refinement_self_test(project, candidate.candidate_id)
+    prepared_state = ResearchProject.open(project.root).state
+    preparation_ref = prepared_state.artifacts[first.preparation_path]
+    preparation_bytes = (project.root / first.preparation_path).read_bytes()
+    preparation = json.loads(preparation_bytes)
+    context = {
+        key: value
+        for key, value in preparation.items()
+        if key not in {"context_id", "context_sha256"}
+    }
+    expected_hash = hashlib.sha256(
+        json.dumps(context, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    second = prepare_refinement_self_test(
+        ResearchProject.open(project.root), candidate.candidate_id
+    )
+
+    assert second == first
+    assert preparation_ref.path == first.preparation_path
+    assert preparation["schema_version"] == 1
+    assert preparation["context_sha256"] == expected_hash == first.context_sha256
+    assert preparation["context_id"] == first.context_id
+    assert preparation["created_at"] in first.argv[-1]
+    assert (project.root / first.preparation_path).read_bytes() == preparation_bytes
+    assert ResearchProject.open(project.root).state == prepared_state
+    assert json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["runs_used"] == 0
+    assert prepared_state.next_action == state_before.next_action
+
+
+def test_candidate_self_test_registration_rejects_deleted_preparation(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    (project.root / preparation.preparation_path).unlink()
+
+    with pytest.raises(ValueError, match="refinement_self_test_preparation_invalid"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+
+
+def test_candidate_self_test_report_cannot_replay_from_old_preparation(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    first = run_candidate_self_test(project, candidate.candidate_id)
+    report_path = project.root / first.report_path
+    first_report = report_path.read_bytes()
+    report_path.unlink()
+    (project.root / first.preparation_path).unlink()
+    current = ResearchProject.open(project.root)
+    current.persist_state(
+        replace(
+            current.state,
+            artifacts={
+                path: reference
+                for path, reference in current.state.artifacts.items()
+                if path != first.preparation_path
+            },
+        )
+    )
+
+    second = prepare_refinement_self_test(
+        ResearchProject.open(project.root), candidate.candidate_id
+    )
+    report_path.write_bytes(first_report)
+
+    assert second.context_sha256 != first.context_sha256
+    with pytest.raises(ValueError, match="refinement_self_test_report_invalid"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, second.report_path
+        )
+
+
+def test_candidate_self_test_registration_rejects_report_timestamp_mutation(tmp_path):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    report_path = project.root / preparation.report_path
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["created_at"] = "2026-09-02T00:00:00+00:00"
+    report_path.write_text(json.dumps(report, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="refinement_self_test_report_invalid"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+
+
+def test_candidate_self_test_registration_rejects_manifest_aba_after_receipt_write(
+    tmp_path, monkeypatch
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    state_before = ResearchProject.open(project.root).state
+    manifest_path = project.root / candidate.manifest_path
+    original = manifest_path.read_bytes()
+
+    def producer_aba_after_write():
+        payload = json.loads(original)
+        payload["producer"] = "reviewer-agent"
+        manifest_path.write_text(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        manifest_path.write_bytes(original)
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_anchored_registration_write",
+        producer_aba_after_write,
+    )
+    with pytest.raises(ValueError, match="refinement_candidate_identity_changed"):
+        register_refinement_self_test(
+            project, candidate.candidate_id, preparation.report_path
+        )
+    assert ResearchProject.open(project.root).state == state_before
+
+
+def test_self_test_preparation_fsyncs_new_directories_before_leaf(tmp_path, monkeypatch):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    calls: list[str] = []
+    original_fsync = refinement_execution.os.fsync
+
+    def recording_fsync(descriptor):
+        mode = os.fstat(descriptor).st_mode
+        calls.append("directory" if refinement_execution.stat.S_ISDIR(mode) else "file")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(refinement_execution.os, "fsync", recording_fsync)
+
+    prepare_refinement_self_test(project, candidate.candidate_id)
+
+    first_file = calls.index("file")
+    assert calls[:first_file].count("directory") >= 4
+    assert calls[first_file + 1] == "directory"

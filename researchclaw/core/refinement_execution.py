@@ -53,6 +53,9 @@ _REPORT_KEYS = {
     "producer",
     "producer_role",
     "created_at",
+    "preparation",
+    "context_id",
+    "context_sha256",
     "candidate_manifest",
     "council_decision",
     "evidence_packet",
@@ -92,6 +95,9 @@ _RECEIPT_KEYS = {
     "producer_role",
     "created_at",
     "report_created_at",
+    "preparation",
+    "context_id",
+    "context_sha256",
     "candidate_manifest",
     "council_decision",
     "evidence_packet",
@@ -114,6 +120,33 @@ _RECEIPT_KEYS = {
     "development_only",
     "artifacts",
 }
+_PREPARATION_KEYS = {
+    "schema_version",
+    "project_id",
+    "session_id",
+    "candidate_id",
+    "producer",
+    "producer_role",
+    "created_at",
+    "candidate_manifest",
+    "council_decision",
+    "evidence_packet",
+    "baseline_manifest",
+    "package_contract",
+    "package_manifest",
+    "candidate_files",
+    "entry_point",
+    "fixture",
+    "config",
+    "expected_metrics",
+    "self_test_argv",
+    "environment_fingerprint",
+    "execution_environment",
+    "launcher_identity",
+    "preparation_filesystem_identity",
+    "context_id",
+    "context_sha256",
+}
 
 
 @dataclass(frozen=True)
@@ -130,6 +163,9 @@ class SelfTestPreparationStatus:
     package_contract_sha256: str
     decision_sha256: str
     report_path: str
+    preparation_path: str
+    context_id: str
+    context_sha256: str
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -155,6 +191,9 @@ class SelfTestPreparationStatus:
             "package_contract_sha256": self.package_contract_sha256,
             "decision_sha256": self.decision_sha256,
             "report_path": self.report_path,
+            "preparation_path": self.preparation_path,
+            "context_id": self.context_id,
+            "context_sha256": self.context_sha256,
         }
 
 
@@ -170,6 +209,73 @@ class _HeldCandidateContext:
     baseline_manifest: ArtifactRef
     manifest_snapshot: object
     bound_snapshots: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class _ValidatedPreparation:
+    reference: ArtifactRef
+    snapshot: object
+    payload: Mapping[str, object]
+    created_at: str
+    context_id: str
+    context_sha256: str
+
+
+def _same_snapshot_with_expected_directory_updates(
+    before: object,
+    after: object,
+    *,
+    allowed_ctime_paths: frozenset[str],
+) -> bool:
+    """Compare held files while allowing ctime from our own directory entry writes."""
+    if before.reference != after.reference or before.stat_identity != after.stat_identity:
+        return False
+    if len(before.component_identity) != len(after.component_identity):
+        return False
+    path_parts: list[str] = []
+    for left, right in zip(
+        before.component_identity, after.component_identity, strict=True
+    ):
+        path_parts.append(left[0])
+        if left[:3] != right[:3]:
+            return False
+        if left[3] != right[3] and "/".join(path_parts) not in allowed_ctime_paths:
+            return False
+    return True
+
+
+def _same_held_context_with_expected_directory_updates(
+    before: _HeldCandidateContext,
+    after: _HeldCandidateContext,
+    *,
+    allowed_ctime_paths: frozenset[str],
+) -> bool:
+    if (
+        before.project_id != after.project_id
+        or before.session_id != after.session_id
+        or before.producer != after.producer
+        or before.producer_role != after.producer_role
+        or before.candidate_manifest != after.candidate_manifest
+        or before.council_decision != after.council_decision
+        or before.evidence_packet != after.evidence_packet
+        or before.baseline_manifest != after.baseline_manifest
+        or len(before.bound_snapshots) != len(after.bound_snapshots)
+    ):
+        return False
+    return _same_snapshot_with_expected_directory_updates(
+        before.manifest_snapshot,
+        after.manifest_snapshot,
+        allowed_ctime_paths=allowed_ctime_paths,
+    ) and all(
+        _same_snapshot_with_expected_directory_updates(
+            left,
+            right,
+            allowed_ctime_paths=allowed_ctime_paths,
+        )
+        for left, right in zip(
+            before.bound_snapshots, after.bound_snapshots, strict=True
+        )
+    )
 
 
 def _candidate_root(project: ResearchProject, candidate_id: str) -> Path:
@@ -317,6 +423,10 @@ def _before_refinement_self_test_preparation_final_gate() -> None:
     """Deterministic race seam immediately before preparation's final gate."""
 
 
+def _after_refinement_self_test_preparation_environment() -> None:
+    """Deterministic race seam after final-gate environment inspection."""
+
+
 def _before_refinement_self_test_publication() -> None:
     """Deterministic race seam immediately before registration's final gate."""
 
@@ -383,11 +493,103 @@ def _report_context_payload(
     }
 
 
+def _expected_self_test_metrics(
+    project: ResearchProject, candidate: CandidateStatus
+) -> list[object]:
+    contract, _contract_bytes = package_contract._read_json_object(
+        _candidate_root(project, candidate.candidate_id),
+        _CONTRACT_LOCAL_PATH,
+        candidate_rooted=True,
+    )
+    self_test = contract.get("self_test")
+    metrics = self_test.get("expected_metrics") if isinstance(self_test, Mapping) else None
+    if not isinstance(metrics, list) or not metrics:
+        raise ValueError("refinement_self_test_preparation_invalid")
+    return list(metrics)
+
+
+def _preparation_payload(
+    *,
+    project: ResearchProject,
+    candidate: CandidateStatus,
+    context: _HeldCandidateContext,
+    package: package_contract.ValidatedExperimentPackage,
+    bound_environment: tuple[
+        ExecutionEnvironment, tuple[tuple[object, ...], ...]
+    ],
+    created_at: str,
+    filesystem_identity: Mapping[str, int],
+) -> dict[str, object]:
+    base = {
+        "schema_version": 1,
+        **_report_context_payload(
+            project=project,
+            candidate=candidate,
+            context=context,
+            package=package,
+            created_at=created_at,
+        ),
+        "expected_metrics": _expected_self_test_metrics(project, candidate),
+        "self_test_argv": list(package.self_test_argv),
+        "environment_fingerprint": bound_environment[0].fingerprint,
+        "execution_environment": _environment_payload(bound_environment[0]),
+        "launcher_identity": [list(item) for item in bound_environment[1]],
+        "preparation_filesystem_identity": dict(filesystem_identity),
+    }
+    digest = hashlib.sha256(_canonical_json(base)).hexdigest()
+    return {
+        **base,
+        "context_id": f"refinement-self-test-{digest[:32]}",
+        "context_sha256": digest,
+    }
+
+
+def _external_report_context(
+    preparation: _ValidatedPreparation,
+) -> dict[str, object]:
+    payload = preparation.payload
+    return {
+        key: payload[key]
+        for key in (
+            "project_id",
+            "session_id",
+            "candidate_id",
+            "producer",
+            "producer_role",
+            "created_at",
+            "candidate_manifest",
+            "council_decision",
+            "evidence_packet",
+            "baseline_manifest",
+            "package_contract",
+            "package_manifest",
+            "candidate_files",
+            "entry_point",
+            "fixture",
+            "config",
+            "environment_fingerprint",
+            "execution_environment",
+            "launcher_identity",
+            "context_id",
+            "context_sha256",
+        )
+    } | {"preparation": _artifact_payload(preparation.reference)}
+
+
+def _preparation_path(session_id: str, candidate_id: str) -> str:
+    return (
+        f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/{session_id}/"
+        f"{candidate_id}.preparation.json"
+    )
+
+
+@project_mutation
 def prepare_refinement_self_test(
     project: ResearchProject, candidate_id: str
 ) -> SelfTestPreparationStatus:
     """Return a verified candidate command without executing or reserving a run."""
-    current = ResearchProject.open_readonly(project.root)
+    current = ResearchProject.open(project.root)
+    starting_state = current.state
     candidate = revalidate_refinement_candidate(current, candidate_id)
     root = _candidate_root(current, candidate_id)
     report_path = (
@@ -395,49 +597,206 @@ def prepare_refinement_self_test(
     )
     if os.path.lexists(current.root / report_path):
         raise ValueError("refinement_self_test_report_exists")
+    session_payload, _session_bytes = _read_bounded_json(current.root / SESSION_PATH)
+    session_id = session_payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        raise ValueError("refinement_self_test_preparation_invalid")
+    preparation_parent = _open_registration_parent(current, session_id)
+    os.close(preparation_parent)
     baseline = _baseline(current)
     baseline_before = _baseline_registration_snapshot(current, baseline)
     result_before = _direct_baseline_result_snapshot(current)
     context_before = _hold_candidate_context(current, candidate)
-    state_before = _state_file_snapshot(current)
+    if context_before.session_id != session_id:
+        raise ValueError("refinement_self_test_preparation_invalid")
+    state_before = _state_file_snapshot(current)[0]
     package = validate_experiment_package_contract_at(
         current,
         package_root=root,
         contract_path="package_metadata/package_contract.json",
     )
-    created_at = datetime.now(timezone.utc).isoformat()
-    report_context = _report_context_payload(
-        project=current,
-        candidate=candidate,
-        context=context_before,
-        package=package,
-        created_at=created_at,
+    bound_environment = _inspect_bound_environment(package)
+    preparation_path = _preparation_path(context_before.session_id, candidate_id)
+    registered_preparation = starting_state.artifacts.get(preparation_path)
+    preparation_exists = os.path.lexists(current.root / preparation_path)
+    if registered_preparation is not None and not preparation_exists:
+        raise ValueError("refinement_self_test_preparation_invalid")
+    if preparation_exists:
+        preparation = _read_and_validate_preparation(
+            project=current,
+            path=preparation_path,
+            expected_reference=registered_preparation,
+            candidate=candidate,
+            context=context_before,
+            package=package,
+            bound_environment=bound_environment,
+        )
+    else:
+        created_at = datetime.now(timezone.utc).isoformat()
+        try:
+            payload, payload_bytes = _write_anchored_record(
+                current,
+                session_id=context_before.session_id,
+                leaf_name=f"{candidate_id}.preparation.json",
+                payload_builder=lambda identity: _preparation_payload(
+                    project=current,
+                    candidate=candidate,
+                    context=context_before,
+                    package=package,
+                    bound_environment=bound_environment,
+                    created_at=created_at,
+                    filesystem_identity=identity,
+                ),
+                error_code="refinement_self_test_preparation_invalid",
+            )
+        except FileExistsError as error:
+            raise ValueError("refinement_self_test_preparation_invalid") from error
+        preparation_reference = ArtifactRef(
+            preparation_path,
+            hashlib.sha256(payload_bytes).hexdigest(),
+            len(payload_bytes),
+        )
+        preparation = _read_and_validate_preparation(
+            project=current,
+            path=preparation_path,
+            expected_reference=preparation_reference,
+            candidate=candidate,
+            context=context_before,
+            package=package,
+            bound_environment=bound_environment,
+        )
+        if preparation.payload != payload:
+            raise ValueError("refinement_self_test_preparation_invalid")
+    target_state = replace(
+        starting_state,
+        artifacts={
+            **starting_state.artifacts,
+            preparation_path: preparation.reference,
+        },
     )
-    _before_refinement_self_test_preparation_final_gate()
-    if os.path.lexists(current.root / report_path):
-        raise ValueError("refinement_self_test_report_exists")
-    repeated_candidate = _revalidate_refinement_candidate(current, candidate_id)
-    repeated_context = _hold_candidate_context(current, repeated_candidate)
-    repeated_package = validate_experiment_package_contract_at(
-        current, package_root=root, contract_path=_CONTRACT_LOCAL_PATH
-    )
-    if (
-        repeated_candidate != candidate
-        or repeated_context != context_before
-        or repeated_package != package
-        or _baseline_registration_snapshot(current, baseline) != baseline_before
-        or _direct_baseline_result_snapshot(current) != result_before
-        or _state_file_snapshot(current) != state_before
-        or ResearchProject.open_readonly(current.root).state != current.state
-    ):
-        raise ValueError("refinement_candidate_identity_changed")
-    environment, launcher_identity = _inspect_bound_environment(repeated_package)
-    report_context = {
-        **report_context,
-        "execution_environment": _environment_payload(environment),
-        "launcher_identity": [list(item) for item in launcher_identity],
-    }
-    context_argument = _canonical_json(report_context).decode("utf-8")
+    if registered_preparation is not None:
+        if registered_preparation != preparation.reference or target_state != starting_state:
+            raise ValueError("refinement_self_test_preparation_invalid")
+    else:
+        current_state_snapshot = _state_file_snapshot(current)[0]
+        if (
+            current_state_snapshot.reference != state_before.reference
+            or current_state_snapshot.stat_identity != state_before.stat_identity
+            or ResearchProject.open_readonly(current.root).state != starting_state
+        ):
+            raise ValueError("refinement_self_test_preparation_invalid")
+        current.persist_state(target_state)
+
+    try:
+        published = ResearchProject.open_readonly(current.root)
+        if published.state != target_state:
+            raise ValueError("refinement_self_test_preparation_invalid")
+        authoritative_candidate = _revalidate_refinement_candidate(
+            published, candidate_id
+        )
+        authoritative_context = _hold_candidate_context(
+            published, authoritative_candidate
+        )
+        authoritative_package = validate_experiment_package_contract_at(
+            published,
+            package_root=root,
+            contract_path=_CONTRACT_LOCAL_PATH,
+        )
+        authoritative_preparation = _read_and_validate_preparation(
+            project=published,
+            path=preparation_path,
+            expected_reference=preparation.reference,
+            candidate=authoritative_candidate,
+            context=authoritative_context,
+            package=authoritative_package,
+            bound_environment=bound_environment,
+        )
+        authoritative_baseline = _baseline_registration_snapshot(
+            published, baseline
+        )
+        authoritative_result = _direct_baseline_result_snapshot(published)
+        allowed_state_update = frozenset({".researchclaw"})
+        if (
+            authoritative_candidate != candidate
+            or not _same_held_context_with_expected_directory_updates(
+                context_before,
+                authoritative_context,
+                allowed_ctime_paths=allowed_state_update,
+            )
+            or authoritative_package != package
+            or authoritative_preparation.reference != preparation.reference
+            or authoritative_preparation.payload != preparation.payload
+            or not _same_snapshot_with_expected_directory_updates(
+                preparation.snapshot,
+                authoritative_preparation.snapshot,
+                allowed_ctime_paths=allowed_state_update,
+            )
+            or not _same_published_baseline_snapshot(
+                baseline_before, authoritative_baseline
+            )
+            or authoritative_result != result_before
+        ):
+            raise ValueError("refinement_candidate_identity_changed")
+        candidate = authoritative_candidate
+        context_before = authoritative_context
+        package = authoritative_package
+        preparation = authoritative_preparation
+        baseline_before = authoritative_baseline
+        result_before = authoritative_result
+        published_state_snapshot = _state_file_snapshot(published)[0]
+        _before_refinement_self_test_preparation_final_gate()
+        first_environment = _inspect_bound_environment(package)
+        if first_environment != bound_environment:
+            raise ValueError("refinement_self_test_environment_changed")
+        _after_refinement_self_test_preparation_environment()
+
+        def final_candidate_gate() -> _ValidatedPreparation:
+            if os.path.lexists(published.root / report_path):
+                raise ValueError("refinement_self_test_report_exists")
+            checked_candidate = _revalidate_refinement_candidate(published, candidate_id)
+            checked_context = _hold_candidate_context(published, checked_candidate)
+            checked_package = validate_experiment_package_contract_at(
+                published,
+                package_root=root,
+                contract_path=_CONTRACT_LOCAL_PATH,
+            )
+            checked_preparation = _read_and_validate_preparation(
+                project=published,
+                path=preparation_path,
+                expected_reference=preparation.reference,
+                candidate=checked_candidate,
+                context=checked_context,
+                package=checked_package,
+                bound_environment=bound_environment,
+            )
+            if (
+                checked_candidate != candidate
+                or checked_context != context_before
+                or checked_package != package
+                or checked_preparation != preparation
+                or _baseline_registration_snapshot(published, baseline)
+                != baseline_before
+                or _direct_baseline_result_snapshot(published) != result_before
+                or _state_file_snapshot(published)[0] != published_state_snapshot
+                or ResearchProject.open_readonly(published.root).state != target_state
+            ):
+                raise ValueError("refinement_candidate_identity_changed")
+            return checked_preparation
+
+        final_candidate_gate()
+        if _inspect_bound_environment(package) != bound_environment:
+            raise ValueError("refinement_self_test_environment_changed")
+        preparation = final_candidate_gate()
+    except Exception:
+        if registered_preparation is None:
+            rollback = ResearchProject.open(current.root)
+            if rollback.state != starting_state:
+                rollback.persist_state(starting_state)
+        raise
+    environment, launcher_identity = bound_environment
+    context_argument = _canonical_json(
+        _external_report_context(preparation)
+    ).decode("utf-8")
     return SelfTestPreparationStatus(
         candidate_id=candidate_id,
         argv=(
@@ -455,6 +814,9 @@ def prepare_refinement_self_test(
         package_contract_sha256=package.contract_sha256,
         decision_sha256=candidate.decision_sha256,
         report_path=report_path,
+        preparation_path=preparation_path,
+        context_id=preparation.context_id,
+        context_sha256=preparation.context_sha256,
     )
 
 
@@ -648,6 +1010,7 @@ def _validate_candidate_self_test_report(
         ExecutionEnvironment, tuple[tuple[object, ...], ...]
     ],
     context: _HeldCandidateContext,
+    preparation: _ValidatedPreparation,
 ) -> _ValidatedCandidateSelfTest:
     root = _candidate_root(project, candidate.candidate_id)
     try:
@@ -676,6 +1039,11 @@ def _validate_candidate_self_test_report(
         created_at = _created_at(report.get("created_at"))
     except ValueError as error:
         raise ValueError("refinement_self_test_report_invalid") from error
+    expected_report_context = _external_report_context(preparation)
+    if created_at != preparation.created_at or any(
+        report.get(key) != value for key, value in expected_report_context.items()
+    ):
+        raise ValueError("refinement_self_test_report_invalid")
     if (
         report.get("project_id") != context.project_id
         or report.get("session_id") != context.session_id
@@ -841,7 +1209,7 @@ def _require_filesystem_identity(
     return {key: int(payload[key]) for key in keys}
 
 
-def _open_anchored_registration_directory(
+def _open_registration_parent(
     project: ResearchProject, session_id: str
 ) -> int:
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -857,7 +1225,10 @@ def _open_anchored_registration_directory(
                     os.mkdir(component, mode=0o700, dir_fd=descriptor)
                 except FileExistsError:
                     pass
+                else:
+                    os.fsync(descriptor)
                 child = os.open(component, flags, dir_fd=descriptor)
+                os.fsync(child)
             metadata = os.fstat(child)
             if not stat.S_ISDIR(metadata.st_mode):
                 os.close(child)
@@ -876,19 +1247,22 @@ def _open_anchored_registration_directory(
         raise ValueError("refinement_self_test_registration_recovery_invalid") from error
 
 
-def _write_anchored_registration(
+def _write_anchored_record(
     project: ResearchProject,
     *,
     session_id: str,
-    candidate_id: str,
+    leaf_name: str,
     payload_builder,
+    before_leaf_create=None,
+    error_code: str,
 ) -> tuple[dict[str, object], bytes]:
-    parent_descriptor = _open_anchored_registration_directory(project, session_id)
+    parent_descriptor = _open_registration_parent(project, session_id)
     descriptor: int | None = None
     try:
-        _before_anchored_registration_leaf_create(parent_descriptor, candidate_id)
+        if before_leaf_create is not None:
+            before_leaf_create(parent_descriptor, leaf_name)
         descriptor = os.open(
-            f"{candidate_id}.json",
+            leaf_name,
             os.O_WRONLY
             | os.O_CREAT
             | os.O_EXCL
@@ -903,11 +1277,11 @@ def _write_anchored_registration(
             or initial.st_nlink != 1
             or initial.st_size != 0
         ):
-            raise ValueError("refinement_self_test_registration_recovery_invalid")
+            raise ValueError(error_code)
         payload = payload_builder(_receipt_filesystem_identity(initial))
         encoded = _canonical_json(payload)
         if len(encoded) > _MAX_JSON_BYTES:
-            raise ValueError("refinement_self_test_registration_recovery_invalid")
+            raise ValueError(error_code)
         written = 0
         while written < len(encoded):
             written += os.write(descriptor, encoded[written:])
@@ -918,17 +1292,104 @@ def _write_anchored_registration(
             != _receipt_filesystem_identity(initial)
             or final.st_size != len(encoded)
         ):
-            raise ValueError("refinement_self_test_registration_recovery_invalid")
+            raise ValueError(error_code)
         os.fsync(parent_descriptor)
         return payload, encoded
     except FileExistsError:
         raise
     except (OSError, ValueError) as error:
-        raise ValueError("refinement_self_test_registration_recovery_invalid") from error
+        raise ValueError(error_code) from error
     finally:
         if descriptor is not None:
             os.close(descriptor)
         os.close(parent_descriptor)
+
+
+def _write_anchored_registration(
+    project: ResearchProject,
+    *,
+    session_id: str,
+    candidate_id: str,
+    payload_builder,
+) -> tuple[dict[str, object], bytes]:
+    return _write_anchored_record(
+        project,
+        session_id=session_id,
+        leaf_name=f"{candidate_id}.json",
+        payload_builder=payload_builder,
+        before_leaf_create=_before_anchored_registration_leaf_create,
+        error_code="refinement_self_test_registration_recovery_invalid",
+    )
+
+
+def _read_and_validate_preparation(
+    *,
+    project: ResearchProject,
+    path: str,
+    expected_reference: ArtifactRef | None,
+    candidate: CandidateStatus,
+    context: _HeldCandidateContext,
+    package: package_contract.ValidatedExperimentPackage,
+    bound_environment: tuple[
+        ExecutionEnvironment, tuple[tuple[object, ...], ...]
+    ],
+) -> _ValidatedPreparation:
+    try:
+        snapshot, payload_bytes = _secure_snapshot(
+            project.root,
+            path,
+            expected=expected_reference,
+            maximum_bytes=_MAX_JSON_BYTES,
+            read_payload=True,
+            error_code="refinement_self_test_preparation_invalid",
+        )
+        payload = _parse_held_json(
+            payload_bytes, error="refinement_self_test_preparation_invalid"
+        )
+        _require_closed(
+            payload,
+            _PREPARATION_KEYS,
+            error="refinement_self_test_preparation_invalid",
+        )
+        if (
+            payload.get("environment_fingerprint") != bound_environment[0].fingerprint
+            or payload.get("execution_environment")
+            != _environment_payload(bound_environment[0])
+            or payload.get("launcher_identity")
+            != [list(item) for item in bound_environment[1]]
+        ):
+            raise ValueError("refinement_self_test_environment_changed")
+        created_at = _created_at(payload.get("created_at"))
+        identity = _receipt_filesystem_identity_from_snapshot(snapshot)
+        expected = _preparation_payload(
+            project=project,
+            candidate=candidate,
+            context=context,
+            package=package,
+            bound_environment=bound_environment,
+            created_at=created_at,
+            filesystem_identity=identity,
+        )
+    except ValueError as error:
+        if str(error) == "refinement_self_test_environment_changed":
+            raise
+        raise ValueError("refinement_self_test_preparation_invalid") from error
+    except OSError as error:
+        raise ValueError("refinement_self_test_preparation_invalid") from error
+    if payload != expected or payload_bytes != _canonical_json(expected):
+        raise ValueError("refinement_self_test_preparation_invalid")
+    context_id = payload.get("context_id")
+    context_sha256 = payload.get("context_sha256")
+    if not isinstance(context_id, str) or not isinstance(context_sha256, str):
+        raise ValueError("refinement_self_test_preparation_invalid")
+    return _ValidatedPreparation(
+        reference=snapshot.reference,
+        snapshot=snapshot,
+        payload=payload,
+        created_at=created_at,
+        context_id=context_id,
+        context_sha256=context_sha256,
+    )
 
 
 def _registration_payload(
@@ -937,7 +1398,7 @@ def _registration_payload(
     session_id: str,
     candidate: CandidateStatus,
     context: _HeldCandidateContext,
-    created_at: str,
+    preparation: _ValidatedPreparation,
     package_contract_ref: ArtifactRef,
     validated: _ValidatedCandidateSelfTest,
     self_test_argv: tuple[str, ...],
@@ -953,6 +1414,7 @@ def _registration_payload(
         ("council_decision", context.council_decision),
         ("evidence_packet", context.evidence_packet),
         ("baseline_manifest", context.baseline_manifest),
+        ("self_test_preparation", preparation.reference),
         *(("candidate_file", reference) for reference in candidate.files),
         ("self_test_report", validated.report),
     ]
@@ -970,8 +1432,11 @@ def _registration_payload(
         "candidate_id": candidate.candidate_id,
         "producer": context.producer,
         "producer_role": context.producer_role,
-        "created_at": created_at,
+        "created_at": preparation.created_at,
         "report_created_at": validated.created_at,
+        "preparation": _artifact_payload(preparation.reference),
+        "context_id": preparation.context_id,
+        "context_sha256": preparation.context_sha256,
         "candidate_manifest": _artifact_payload(context.candidate_manifest),
         "council_decision": _artifact_payload(context.council_decision),
         "evidence_packet": _artifact_payload(context.evidence_packet),
@@ -998,12 +1463,12 @@ def _registration_payload(
     }
 
 
-def _read_registration_or_created_at(
+def _read_registration(
     project: ResearchProject, relative_path: str
-) -> tuple[dict[str, object] | None, bytes | None, object | None, str]:
+) -> tuple[dict[str, object] | None, bytes | None, object | None]:
     path = project.root / relative_path
     if not os.path.lexists(path):
-        return None, None, None, datetime.now(timezone.utc).isoformat()
+        return None, None, None
     try:
         snapshot, payload_bytes = _secure_snapshot(
             project.root,
@@ -1016,14 +1481,13 @@ def _read_registration_or_created_at(
             payload_bytes,
             error="refinement_self_test_registration_recovery_invalid",
         )
-        created_at = _created_at(payload.get("created_at"))
     except (OSError, ValueError) as error:
         raise ValueError(
             "refinement_self_test_registration_recovery_invalid"
         ) from error
     if snapshot.reference.size != len(payload_bytes):
         raise ValueError("refinement_self_test_registration_recovery_invalid")
-    return payload, payload_bytes, snapshot, created_at
+    return payload, payload_bytes, snapshot
 
 
 def _publish_refinement_self_test_state(
@@ -1070,6 +1534,7 @@ def _validated_receipt(
     candidate: CandidateStatus,
     context: _HeldCandidateContext,
     package: package_contract.ValidatedExperimentPackage,
+    preparation: _ValidatedPreparation,
     validated: _ValidatedCandidateSelfTest,
     registration_payload: Mapping[str, object],
     registration_bytes: bytes,
@@ -1083,7 +1548,6 @@ def _validated_receipt(
         _RECEIPT_KEYS,
         error="refinement_self_test_registration_recovery_invalid",
     )
-    created_at = _created_at(registration_payload.get("created_at"))
     receipt_identity = _require_filesystem_identity(
         registration_payload.get("receipt_filesystem_identity"),
         receipt=True,
@@ -1094,23 +1558,23 @@ def _validated_receipt(
         receipt=False,
         error="refinement_self_test_registration_recovery_invalid",
     )
-    if (
-        receipt_identity
-        != _receipt_filesystem_identity_from_snapshot(registration_snapshot)
-        or report_identity != _filesystem_identity(validated.report_snapshot)
-    ):
+    current_receipt_identity = _receipt_filesystem_identity_from_snapshot(
+        registration_snapshot
+    )
+    current_report_identity = _filesystem_identity(validated.report_snapshot)
+    if receipt_identity != current_receipt_identity or report_identity != current_report_identity:
         raise ValueError("refinement_self_test_registration_recovery_invalid")
     expected = _registration_payload(
         project=project,
         session_id=session_id,
         candidate=candidate,
         context=context,
-        created_at=created_at,
+        preparation=preparation,
         package_contract_ref=_candidate_reference(candidate, _CONTRACT_LOCAL_PATH),
         validated=validated,
         self_test_argv=package.self_test_argv,
-        report_filesystem_identity=report_identity,
-        receipt_filesystem_identity=receipt_identity,
+        report_filesystem_identity=current_report_identity,
+        receipt_filesystem_identity=current_receipt_identity,
         bound_environment=bound_environment,
     )
     if registration_payload != expected or registration_bytes != _canonical_json(expected):
@@ -1128,10 +1592,18 @@ def _revalidate_registered_self_test_semantics(
         registration_path = _registration_path(
             context_before.session_id, candidate.candidate_id
         )
+        preparation_path = _preparation_path(
+            context_before.session_id, candidate.candidate_id
+        )
         report_path = _candidate_report_path(candidate.candidate_id)
         report_reference = current.state.artifacts.get(report_path)
         registration_reference = current.state.artifacts.get(registration_path)
-        if report_reference is None or registration_reference is None:
+        preparation_reference = current.state.artifacts.get(preparation_path)
+        if (
+            report_reference is None
+            or registration_reference is None
+            or preparation_reference is None
+        ):
             raise ValueError("refinement_candidate_identity_changed")
         package = validate_experiment_package_contract_at(
             current,
@@ -1139,12 +1611,22 @@ def _revalidate_registered_self_test_semantics(
             contract_path=_CONTRACT_LOCAL_PATH,
         )
         environment_before = _inspect_bound_environment(package)
+        preparation = _read_and_validate_preparation(
+            project=current,
+            path=preparation_path,
+            expected_reference=preparation_reference,
+            candidate=candidate,
+            context=context_before,
+            package=package,
+            bound_environment=environment_before,
+        )
         validated = _validate_candidate_self_test_report(
             current,
             candidate,
             package,
             environment_before,
             context_before,
+            preparation,
         )
         if validated.report != report_reference:
             raise ValueError("refinement_candidate_identity_changed")
@@ -1165,6 +1647,7 @@ def _revalidate_registered_self_test_semantics(
             candidate=candidate,
             context=context_before,
             package=package,
+            preparation=preparation,
             validated=validated,
             registration_payload=registration_payload,
             registration_bytes=registration_bytes,
@@ -1186,10 +1669,18 @@ def _revalidate_registered_self_test_semantics(
             maximum_bytes=_MAX_JSON_BYTES,
             error_code="refinement_candidate_identity_changed",
         )[0]
+        preparation_after = _secure_snapshot(
+            current.root,
+            preparation_path,
+            expected=preparation_reference,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_candidate_identity_changed",
+        )[0]
         if (
             context_after != context_before
             or report_after != validated.report_snapshot
             or receipt_after != registration_snapshot
+            or preparation_after != preparation.snapshot
             or _inspect_bound_environment(package) != environment_before
         ):
             raise ValueError("refinement_candidate_identity_changed")
@@ -1262,12 +1753,26 @@ def register_refinement_self_test(
         contract_path=_CONTRACT_LOCAL_PATH,
     )
     environment_before = _inspect_bound_environment(package)
+    preparation_path = _preparation_path(context_before.session_id, candidate_id)
+    preparation_reference = starting_state.artifacts.get(preparation_path)
+    if preparation_reference is None:
+        raise ValueError("refinement_self_test_preparation_invalid")
+    preparation = _read_and_validate_preparation(
+        project=current,
+        path=preparation_path,
+        expected_reference=preparation_reference,
+        candidate=candidate,
+        context=context_before,
+        package=package,
+        bound_environment=environment_before,
+    )
     validated = _validate_candidate_self_test_report(
         current,
         candidate,
         package,
         environment_before,
         context_before,
+        preparation,
     )
     if _hold_candidate_context(current, candidate) != context_before:
         raise ValueError("refinement_candidate_identity_changed")
@@ -1349,8 +1854,8 @@ def register_refinement_self_test(
     if environment_before_publication != environment_before:
         raise ValueError("refinement_self_test_environment_changed")
 
-    existing_payload, existing_bytes, existing_snapshot, created_at = (
-        _read_registration_or_created_at(current, registration_path)
+    existing_payload, existing_bytes, existing_snapshot = _read_registration(
+        current, registration_path
     )
     if existing_payload is not None:
         assert existing_bytes is not None and existing_snapshot is not None
@@ -1360,6 +1865,7 @@ def register_refinement_self_test(
             candidate=candidate,
             context=context_before,
             package=package,
+            preparation=preparation,
             validated=validated,
             registration_payload=existing_payload,
             registration_bytes=existing_bytes,
@@ -1378,7 +1884,7 @@ def register_refinement_self_test(
                     session_id=session_id,
                     candidate=candidate,
                     context=context_before,
-                    created_at=created_at,
+                    preparation=preparation,
                     package_contract_ref=package_contract_ref,
                     validated=validated,
                     self_test_argv=package.self_test_argv,
@@ -1408,12 +1914,38 @@ def register_refinement_self_test(
     )
     if persisted_registration_bytes != registration_bytes:
         raise ValueError("refinement_self_test_registration_recovery_invalid")
+    refreshed_preparation = _read_and_validate_preparation(
+        project=current,
+        path=preparation_path,
+        expected_reference=preparation_reference,
+        candidate=candidate,
+        context=context_before,
+        package=package,
+        bound_environment=environment_before,
+    )
+    if (
+        refreshed_preparation.reference != preparation.reference
+        or refreshed_preparation.payload != preparation.payload
+        or not _same_snapshot_with_expected_directory_updates(
+            preparation.snapshot,
+            refreshed_preparation.snapshot,
+            allowed_ctime_paths=frozenset(
+                {
+                    f"{REFINEMENT_SELF_TEST_REGISTRATION_ROOT}/"
+                    f"{session_id}"
+                }
+            ),
+        )
+    ):
+        raise ValueError("refinement_candidate_identity_changed")
+    preparation = refreshed_preparation
     _validated_receipt(
         project=current,
         session_id=session_id,
         candidate=candidate,
         context=context_before,
         package=package,
+        preparation=preparation,
         validated=validated,
         registration_payload=registration_payload,
         registration_bytes=registration_bytes,
@@ -1421,8 +1953,75 @@ def register_refinement_self_test(
         bound_environment=environment_before,
     )
     _after_anchored_registration_write()
+
+    def post_write_candidate_gate() -> None:
+        checked_candidate = _revalidate_refinement_candidate(
+            current,
+            candidate_id,
+            unregistered_report_path=(
+                None if complete_registration else expected_report_path
+            ),
+        )
+        checked_context = _hold_candidate_context(current, checked_candidate)
+        checked_package = validate_experiment_package_contract_at(
+            current,
+            package_root=_candidate_root(current, candidate_id),
+            contract_path=_CONTRACT_LOCAL_PATH,
+        )
+        checked_preparation = _read_and_validate_preparation(
+            project=current,
+            path=preparation_path,
+            expected_reference=preparation_reference,
+            candidate=checked_candidate,
+            context=checked_context,
+            package=checked_package,
+            bound_environment=environment_before,
+        )
+        checked_report = _secure_snapshot(
+            current.root,
+            expected_report_path,
+            expected=validated.report,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_self_test_report_invalid",
+        )[0]
+        checked_registration = _secure_snapshot(
+            current.root,
+            registration_path,
+            expected=registration_ref,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_self_test_registration_recovery_invalid",
+        )[0]
+        _validated_receipt(
+            project=current,
+            session_id=session_id,
+            candidate=checked_candidate,
+            context=checked_context,
+            package=checked_package,
+            preparation=checked_preparation,
+            validated=validated,
+            registration_payload=registration_payload,
+            registration_bytes=registration_bytes,
+            registration_snapshot=checked_registration,
+            bound_environment=environment_before,
+        )
+        if (
+            checked_candidate != candidate
+            or checked_context != context_before
+            or checked_package != package
+            or checked_preparation != preparation
+            or checked_report != validated.report_snapshot
+            or checked_registration != registration_snapshot
+            or _baseline_registration_snapshot(current, baseline) != baseline_before
+            or _direct_baseline_result_snapshot(current) != result_before
+            or _state_file_snapshot(current) != state_file_before
+            or ResearchProject.open_readonly(current.root).state != starting_state
+        ):
+            raise ValueError("refinement_candidate_identity_changed")
+
+    post_write_candidate_gate()
     if _inspect_bound_environment(package) != environment_before:
         raise ValueError("refinement_self_test_environment_changed")
+    post_write_candidate_gate()
 
     target_state = replace(
         starting_state,
@@ -1442,6 +2041,7 @@ def register_refinement_self_test(
         try:
             if _inspect_bound_environment(package) != environment_before:
                 raise ValueError("refinement_self_test_environment_changed")
+            post_write_candidate_gate()
             _publish_refinement_self_test_state(current, target_state)
             if _inspect_bound_environment(package) != environment_before:
                 raise ValueError("refinement_self_test_environment_changed")
