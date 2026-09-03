@@ -31,8 +31,10 @@ from tests.codex_native.helpers import (
     write_refinement_candidate,
 )
 from tests.codex_native.test_refinement import (
+    _packet_artifact,
     refinement_project_with_refine_decision,
     register_all_assessments,
+    register_one_assessment,
     valid_envelope,
     write_valid_decision,
     write_valid_rebuttals,
@@ -242,6 +244,45 @@ def test_prepare_refinement_run_recovers_exact_intent_only_reservation(
     )
 
 
+def test_prepare_refinement_run_rescans_closed_inventory_after_intent_publication(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    run_root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    unexpected = run_root / "unexpected.json"
+
+    def inject_unknown_record():
+        unexpected.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_intent_publication",
+        inject_unknown_record,
+    )
+
+    with pytest.raises(ValueError, match="^refinement_run_reservation_invalid$"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    pending = ResearchProject.open(project.root)
+    assert pending.state.next_action == "prepare_refinement_run"
+    assert len(tuple(run_root.glob("run-001.intent.json"))) == 1
+    assert not (run_root / "run-001.contract.json").exists()
+    unexpected.unlink()
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_intent_publication",
+        lambda: None,
+    )
+
+    recovered = prepare_refinement_run(pending, candidate.candidate_id)
+
+    assert recovered.run_id == "run-001"
+    assert recovered.next_action == "register_refinement_result"
+
+
 def test_prepare_refinement_run_recovers_exact_contract_only_publication(
     tmp_path, monkeypatch
 ):
@@ -307,6 +348,69 @@ def test_prepare_refinement_run_rejects_expired_session_without_reserving_slot(
         prepare_refinement_run(project, candidate.candidate_id)
 
     assert not (project.root / REFINEMENT_RUN_REGISTRATION_ROOT).exists()
+
+
+def test_refinement_run_reservation_is_capped_by_actual_session_deadline(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+    created_at = refinement_execution.datetime.fromisoformat(session["created_at"])
+    deadline = created_at + refinement_execution.timedelta(seconds=120)
+    monkeypatch.setattr(
+        refinement_execution,
+        "_utc_now",
+        lambda: deadline - refinement_execution.timedelta(seconds=1),
+    )
+
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    contract = json.loads((project.root / preparation.contract_path).read_bytes())
+
+    assert contract["envelope"]["session_deadline"] == deadline.isoformat()
+    assert contract["envelope"]["deadline_seconds_remaining"] == 1.0
+    assert contract["envelope"]["reserved_maximum_seconds"] == 1
+    result_path = write_refinement_result(
+        project, preparation, elapsed_seconds=1.0
+    )
+    registered = register_refinement_result(
+        ResearchProject.open(project.root),
+        candidate.candidate_id,
+        result_path.relative_to(project.root),
+    )
+    assert registered.wall_seconds_used == 1.0
+
+
+def test_refinement_run_samples_deadline_after_authority_revalidation(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+    created_at = refinement_execution.datetime.fromisoformat(session["created_at"])
+    deadline = created_at + refinement_execution.timedelta(seconds=120)
+    current_time = [deadline - refinement_execution.timedelta(seconds=61)]
+    original_inspect = refinement_execution._inspect_bound_environment
+
+    def inspect_then_advance(package):
+        inspected = original_inspect(package)
+        current_time[0] = deadline - refinement_execution.timedelta(seconds=1)
+        return inspected
+
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: current_time[0])
+    monkeypatch.setattr(
+        refinement_execution,
+        "_inspect_bound_environment",
+        inspect_then_advance,
+    )
+
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    contract = json.loads((project.root / preparation.contract_path).read_bytes())
+
+    assert contract["envelope"]["deadline_seconds_remaining"] == 1.0
+    assert contract["envelope"]["reserved_maximum_seconds"] == 1
 
 
 @pytest.mark.parametrize("unsafe_kind", ["unknown", "symlink", "hardlink"])
@@ -489,6 +593,70 @@ def test_register_refinement_result_is_byte_identically_idempotent(tmp_path):
     assert len(
         tuple((project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).rglob("run-*.json"))
     ) == 1
+
+
+def test_two_candidate_runs_complete_and_retry_with_historical_counters(tmp_path):
+    project, first_candidate = self_tested_candidate_project(tmp_path / "project")
+    first_preparation = prepare_refinement_run(project, first_candidate.candidate_id)
+    write_refinement_result(project, first_preparation, elapsed_seconds=1.0)
+    first = register_refinement_result(
+        project, first_candidate.candidate_id, first_preparation.result_path
+    )
+    first_result = ResearchProject.open(project.root).state.artifacts[
+        first.result_path
+    ]
+    evaluated = [
+        _packet_artifact(ResearchProject.open(project.root)),
+        {
+            "path": first_result.path,
+            "sha256": first_result.sha256,
+            "size": first_result.size,
+        },
+    ]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=evaluated)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(
+        project, write_valid_decision(project, candidate_id="candidate-002")
+    )
+    second_manifest = write_refinement_candidate(
+        ResearchProject.open(project.root), candidate_id="candidate-002"
+    )
+    second_candidate = register_refinement_candidate(project, second_manifest)
+    second_self_test = run_candidate_self_test(project, second_candidate.candidate_id)
+    register_refinement_self_test(
+        project, second_candidate.candidate_id, second_self_test.report_path
+    )
+    second_preparation = prepare_refinement_run(
+        ResearchProject.open(project.root), second_candidate.candidate_id
+    )
+    write_refinement_result(project, second_preparation, elapsed_seconds=2.0)
+
+    second = register_refinement_result(
+        ResearchProject.open(project.root),
+        second_candidate.candidate_id,
+        second_preparation.result_path,
+    )
+    state_after_second = ResearchProject.open(project.root).state
+    repeated = register_refinement_result(
+        ResearchProject.open(project.root),
+        second_candidate.candidate_id,
+        second_preparation.result_path,
+    )
+
+    assert second == repeated
+    assert second.run_id == "run-002"
+    assert second.runs_used == 2
+    assert second.wall_seconds_used == 3.0
+    assert ResearchProject.open(project.root).state == state_after_second
+    assert state_after_second.artifacts[first.result_path] == first_result
+    assert len(
+        tuple((project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).rglob("run-*.json"))
+    ) == 2
+    session = load_refinement_session(ResearchProject.open(project.root))
+    assert session.runs_used == 2
+    assert session.wall_seconds_used == 3.0
+    assert session.next_action == "register_refinement_assessment"
 
 
 @pytest.mark.parametrize(
@@ -686,7 +854,7 @@ def test_register_refinement_result_recovers_receipt_write_before_state_publicat
     ],
 )
 def test_prepare_refinement_run_rejects_exhausted_reserved_envelope_stably(
-    tmp_path, maximum_runs, maximum_wall_seconds, error
+    tmp_path, monkeypatch, maximum_runs, maximum_wall_seconds, error
 ):
     project, candidate = self_tested_candidate_project_with_envelope(
         tmp_path / "project",
@@ -694,14 +862,32 @@ def test_prepare_refinement_run_rejects_exhausted_reserved_envelope_stably(
         maximum_wall_seconds=maximum_wall_seconds,
     )
     preparation = prepare_refinement_run(project, candidate.candidate_id)
+    contract = json.loads((project.root / preparation.contract_path).read_bytes())
     write_refinement_result(
         project,
         preparation,
-        elapsed_seconds=float(60 if maximum_runs == 2 else 1),
+        elapsed_seconds=float(
+            contract["envelope"]["reserved_maximum_seconds"]
+            if maximum_runs == 2
+            else 1
+        ),
     )
     register_refinement_result(
         project, candidate.candidate_id, preparation.result_path
     )
+    if maximum_runs == 2:
+        session = json.loads(
+            (project.root / "refinement/session.json").read_text(encoding="utf-8")
+        )
+        created_at = refinement_execution.datetime.fromisoformat(
+            session["created_at"]
+        )
+        monkeypatch.setattr(
+            refinement_execution,
+            "_utc_now",
+            lambda: created_at
+            + refinement_execution.timedelta(seconds=maximum_wall_seconds + 1),
+        )
 
     with pytest.raises(ValueError, match=f"^{error}$"):
         prepare_refinement_run(

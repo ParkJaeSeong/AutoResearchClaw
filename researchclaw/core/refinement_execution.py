@@ -2736,6 +2736,13 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _reservation_time(value: object) -> datetime:
+    try:
+        return datetime.fromisoformat(_created_at(value))
+    except ValueError as error:
+        raise ValueError("refinement_run_reservation_invalid") from error
+
+
 def _run_intent_path(session_id: str, run_id: str) -> str:
     return f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{run_id}.intent.json"
 
@@ -2879,6 +2886,38 @@ def _run_inventory(project: ResearchProject, session_id: str) -> dict[str, dict[
     return {run_id: inventory[run_id] for run_id in sorted(inventory)}
 
 
+def _run_inventory_snapshot(
+    project: ResearchProject, session_id: str
+) -> tuple[
+    dict[str, dict[str, str]],
+    dict[str, tuple[ArtifactRef, tuple[object, ...]]],
+]:
+    inventory = _run_inventory(project, session_id)
+    identities: dict[str, tuple[ArtifactRef, tuple[object, ...]]] = {}
+    for records in inventory.values():
+        for path in records.values():
+            snapshot = _secure_snapshot(
+                project.root,
+                path,
+                maximum_bytes=_MAX_JSON_BYTES,
+                error_code="refinement_run_reservation_invalid",
+            )[0]
+            identities[path] = (snapshot.reference, snapshot.stat_identity)
+    return inventory, identities
+
+
+def _assert_closed_run_inventory(
+    project: ResearchProject,
+    session_id: str,
+    *,
+    expected_inventory: Mapping[str, Mapping[str, str]],
+    expected_identities: Mapping[str, tuple[ArtifactRef, tuple[object, ...]]],
+) -> None:
+    actual_inventory, actual_identities = _run_inventory_snapshot(project, session_id)
+    if actual_inventory != expected_inventory or actual_identities != expected_identities:
+        raise ValueError("refinement_run_reservation_invalid")
+
+
 def _completed_run_wall_seconds(
     project: ResearchProject, inventory: Mapping[str, Mapping[str, str]]
 ) -> float:
@@ -2939,7 +2978,7 @@ def _run_authority_payload(
     run_id: str,
     runs_reserved_before: int,
     wall_seconds_used_before: float,
-    enforce_deadline: bool = True,
+    reservation_time: datetime | None,
 ) -> dict[str, object]:
     baseline = _baseline(project)
     envelope = session_payload.get("envelope")
@@ -2966,10 +3005,7 @@ def _run_authority_payload(
     remaining = maximum_wall_seconds - wall_seconds_used_before
     if runs_reserved_before >= maximum_runs:
         raise ValueError("refinement_run_budget_exhausted")
-    if remaining <= 0 or (enforce_deadline and _utc_now() > deadline):
-        raise ValueError("refinement_run_wall_time_exhausted")
-    reserved_maximum = min(maximum_candidate_seconds, int(remaining))
-    if reserved_maximum <= 0:
+    if remaining <= 0:
         raise ValueError("refinement_run_wall_time_exhausted")
     input_items: list[dict[str, object]] = []
     for input_path in baseline.input_paths:
@@ -3061,6 +3097,23 @@ def _run_authority_payload(
         binding_filesystem_identities.append(
             {"path": path, **_filesystem_identity(snapshot)}
         )
+    effective_reservation_time = (
+        reservation_time
+        if reservation_time is not None
+        else _reservation_time(_utc_now().isoformat())
+    )
+    deadline_seconds_remaining = (
+        deadline - effective_reservation_time
+    ).total_seconds()
+    if deadline_seconds_remaining <= 0:
+        raise ValueError("refinement_run_wall_time_exhausted")
+    reserved_maximum = min(
+        maximum_candidate_seconds,
+        int(remaining),
+        int(deadline_seconds_remaining),
+    )
+    if reserved_maximum <= 0:
+        raise ValueError("refinement_run_wall_time_exhausted")
     return {
         "project_id": context.project_id,
         "session_id": context.session_id,
@@ -3097,6 +3150,8 @@ def _run_authority_payload(
             "runs_reserved_before": runs_reserved_before,
             "wall_seconds_used_before": wall_seconds_used_before,
             "remaining_wall_seconds": remaining,
+            "reservation_created_at": effective_reservation_time.isoformat(),
+            "deadline_seconds_remaining": deadline_seconds_remaining,
             "reserved_maximum_seconds": reserved_maximum,
             "session_deadline": deadline.isoformat(),
         },
@@ -3268,7 +3323,12 @@ def prepare_refinement_run(
     current = ResearchProject.open(project.root)
     session_payload = _current_session_payload(current)
     session_id = str(session_payload["session_id"])
-    inventory = _run_inventory(current, session_id)
+    inventory, expected_run_identities = _run_inventory_snapshot(
+        current, session_id
+    )
+    expected_inventory = {
+        run_id: dict(records) for run_id, records in inventory.items()
+    }
     session_status = _load_prepared_refinement_session(current)
     candidate_statuses = _registered_candidate_statuses(
         current, session=session_status, baseline=_baseline(current)
@@ -3295,6 +3355,11 @@ def prepare_refinement_run(
             or completed_wall_seconds >= maximum_wall_seconds
         ):
             raise ValueError("refinement_run_wall_time_exhausted")
+        session_deadline = _reservation_time(session_payload.get("created_at")) + (
+            timedelta(seconds=maximum_wall_seconds)
+        )
+        if _utc_now() >= session_deadline:
+            raise ValueError("refinement_run_wall_time_exhausted")
     if current.state.next_action not in {
         "prepare_refinement_run",
         "register_refinement_result",
@@ -3309,6 +3374,20 @@ def prepare_refinement_run(
             run_id = f"run-{len(inventory) + 1:03d}"
     else:
         run_id = "run-001"
+    intent_path = _run_intent_path(session_id, run_id)
+    contract_path = _run_contract_path(session_id, run_id)
+    result_path = _run_result_path(candidate_id)
+    records = inventory.get(run_id, {})
+    if records:
+        reservation_time: datetime | None = _reservation_time(
+            _read_run_payload(
+                current,
+                intent_path,
+                error_code="refinement_run_reservation_invalid",
+            )[0].get("created_at")
+        )
+    else:
+        reservation_time = None
     candidate = _revalidate_refinement_candidate(current, candidate_id)
     _revalidate_registered_self_test_semantics(current, candidate)
     context = _hold_candidate_context(current, candidate)
@@ -3319,7 +3398,6 @@ def prepare_refinement_run(
     )
     bound_environment = _inspect_bound_environment(package)
     wall_seconds_used = completed_wall_seconds
-    records = inventory.get(run_id, {})
     authority = _run_authority_payload(
         current,
         candidate,
@@ -3332,11 +3410,8 @@ def prepare_refinement_run(
             int(run_id.split("-")[1]) - 1 if run_id in inventory else len(inventory)
         ),
         wall_seconds_used_before=wall_seconds_used,
-        enforce_deadline=not bool(records),
+        reservation_time=reservation_time,
     )
-    intent_path = _run_intent_path(session_id, run_id)
-    contract_path = _run_contract_path(session_id, run_id)
-    result_path = _run_result_path(candidate_id)
     intent_reference = current.state.artifacts.get(intent_path)
     contract_reference = current.state.artifacts.get(contract_path)
     if records and records.get("intent") != intent_path:
@@ -3368,7 +3443,10 @@ def prepare_refinement_run(
         intent_reference = actual_intent_ref
     else:
         reservation_id = uuid4().hex
-        created_at = _utc_now().isoformat()
+        authority_envelope = authority.get("envelope")
+        if not isinstance(authority_envelope, Mapping):
+            raise ValueError("refinement_run_reservation_invalid")
+        created_at = str(authority_envelope.get("reservation_created_at"))
         try:
             intent_payload, intent_bytes = _write_run_record(
                 current,
@@ -3408,6 +3486,21 @@ def prepare_refinement_run(
         )
         current = ResearchProject.open(current.root)
         _after_refinement_run_intent_publication()
+    current_intent_identity = (
+        intent_snapshot.reference,
+        intent_snapshot.stat_identity,
+    )
+    prior_intent_identity = expected_run_identities.get(intent_path)
+    if prior_intent_identity not in {None, current_intent_identity}:
+        raise ValueError("refinement_run_reservation_invalid")
+    expected_run_identities[intent_path] = current_intent_identity
+    expected_inventory.setdefault(run_id, {})["intent"] = intent_path
+    _assert_closed_run_inventory(
+        current,
+        session_id,
+        expected_inventory=expected_inventory,
+        expected_identities=expected_run_identities,
+    )
     if os.path.lexists(current.root / contract_path):
         persisted_contract, contract_bytes, contract_snapshot = _read_run_payload(
             current, contract_path, error_code="refinement_run_contract_invalid"
@@ -3445,6 +3538,21 @@ def prepare_refinement_run(
         if persisted_contract != contract_payload or contract_bytes != expected_contract_bytes:
             raise ValueError("refinement_run_contract_invalid")
         _after_refinement_run_contract_write()
+    current_contract_identity = (
+        contract_snapshot.reference,
+        contract_snapshot.stat_identity,
+    )
+    prior_contract_identity = expected_run_identities.get(contract_path)
+    if prior_contract_identity not in {None, current_contract_identity}:
+        raise ValueError("refinement_run_contract_invalid")
+    expected_run_identities[contract_path] = current_contract_identity
+    expected_inventory[run_id]["contract"] = contract_path
+    _assert_closed_run_inventory(
+        current,
+        session_id,
+        expected_inventory=expected_inventory,
+        expected_identities=expected_run_identities,
+    )
     contract_reference = ArtifactRef(
         contract_path, hashlib.sha256(contract_bytes).hexdigest(), len(contract_bytes)
     )
@@ -3489,6 +3597,12 @@ def prepare_refinement_run(
         or os.path.lexists(published.root / result_path)
     ):
         raise ValueError("refinement_run_contract_invalid")
+    _assert_closed_run_inventory(
+        published,
+        session_id,
+        expected_inventory=expected_inventory,
+        expected_identities=expected_run_identities,
+    )
     execution = contract_payload["execution"]
     assert isinstance(execution, Mapping)
     return RefinementRunStatus(
@@ -4327,7 +4441,7 @@ def _reconstruct_refinement_run_counters(
             run_id=run_id,
             runs_reserved_before=run_number - 1,
             wall_seconds_used_before=wall_seconds,
-            enforce_deadline=False,
+            reservation_time=_reservation_time(intent.get("created_at")),
         )
         contract_path = _run_contract_path(session_id, run_id)
         result_path = _run_result_path(candidate_id)
@@ -4474,6 +4588,17 @@ def register_refinement_result(
         for prior_run_id, prior_records in inventory.items()
         if prior_run_id < run_id
     }
+    intent_path = records.get("intent")
+    contract_path = records.get("contract")
+    if intent_path is None or contract_path is None:
+        raise ValueError("refinement_result_reservation_invalid")
+    reservation_time = _reservation_time(
+        _read_run_payload(
+            current,
+            intent_path,
+            error_code="refinement_run_reservation_invalid",
+        )[0].get("created_at")
+    )
     authority = _run_authority_payload(
         current,
         candidate,
@@ -4486,12 +4611,8 @@ def register_refinement_result(
         wall_seconds_used_before=_completed_run_wall_seconds(
             current, prior_inventory
         ),
-        enforce_deadline=False,
+        reservation_time=reservation_time,
     )
-    intent_path = records.get("intent")
-    contract_path = records.get("contract")
-    if intent_path is None or contract_path is None:
-        raise ValueError("refinement_result_reservation_invalid")
     intent, intent_bytes, intent_snapshot = _read_run_payload(
         current, intent_path, error_code="refinement_run_reservation_invalid"
     )
@@ -4794,8 +4915,17 @@ def register_refinement_result(
         or _inspect_bound_environment(package) != bound_environment
     ):
         raise ValueError("refinement_evidence_registration_invalid")
+    published_session = _load_prepared_refinement_session(published)
+    published_candidates = tuple(
+        replace(item, next_action=published.state.next_action)
+        for item in _registered_candidate_statuses(
+            published,
+            session=published_session,
+            baseline=_baseline(published),
+        )
+    )
     runs_used, wall_seconds_used = _reconstruct_refinement_run_counters(
-        published, (replace(candidate, next_action=published.state.next_action),)
+        published, published_candidates
     )
     execution = contract["execution"]
     assert isinstance(execution, Mapping)

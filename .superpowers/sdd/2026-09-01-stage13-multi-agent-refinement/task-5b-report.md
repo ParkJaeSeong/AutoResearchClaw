@@ -134,3 +134,95 @@ PASS
 None known. `researchclaw/core/models.py` was necessarily changed even though
 the slice's state-interface note named `refinement.py`, because persisted
 project state rejects any next action not present in the central whitelist.
+
+## Review correction pass (2026-09-03)
+
+### RED / GREEN
+
+- Multi-candidate reconstruction RED: a two-round, two-candidate regression
+  completed the second result publication, then failed while reconstructing
+  counters because final registration supplied only the current candidate.
+  GREEN: final reconstruction now reloads every registered candidate before
+  validating the complete historical run inventory. The second run completes
+  with two runs and three wall seconds, and its exact retry is byte- and
+  state-idempotent.
+- Deadline RED: with the clock one second before the authoritative session
+  deadline, a reservation still received the per-candidate 60-second bound.
+  GREEN: the execution envelope now reserves the minimum of per-candidate
+  allowance, remaining declared wall budget, and whole seconds actually left
+  until the session deadline. The clock is sampled through the injected seam
+  after authority revalidation; the immutable intent timestamp replays that
+  exact bound during recovery and result registration. Non-positive capacity
+  and an expired deadline fail closed.
+- Closed-inventory RED: an unknown file injected immediately after run-intent
+  publication was not detected and preparation returned a contract.
+  GREEN: descriptor-anchored snapshots now compare the entire reservation
+  inventory and every filesystem identity after intent publication, after
+  contract publication, and immediately before return. The injection fails
+  closed with only the valid recoverable intent remaining; removing the
+  foreign file permits exact recovery without slot reuse.
+
+### Implementation and files
+
+The correction pass changed only:
+
+- `researchclaw/core/refinement_execution.py`
+- `tests/codex_native/test_refinement_execution.py`
+- this report
+
+It preserves Task 5A write-ahead authority, immutable refinement-only evidence,
+baseline namespaces, result merit neutrality, and the Task 6 boundary.
+
+### Verification
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py -k 'refinement_run or refinement_result or refinement_evidence or two_candidate_runs' -q
+36 passed, 64 deselected in 264.78s (0:04:24)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement.py tests/codex_native/test_refinement_execution.py -q
+184 passed in 722.70s (0:12:02)
+```
+
+The preceding combined Stage 13 run had one fixture-construction failure in
+the pre-5B research-result setup (`execution_prerequisites_changed`) while
+running the non-finite-metric parameter. That exact node immediately passed,
+inspection found no persistent 5B invariant failure, and the complete command
+above passed on a fresh rerun without a code change.
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py tests/codex_native/test_execution_environment.py tests/codex_native/test_evidence_registration.py tests/codex_native/test_evidence_store.py -q
+250 passed in 652.25s (0:10:52)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_research_execution.py tests/codex_native/test_experiment_package_contract.py tests/codex_native/test_stage12_final_fix_wave.py tests/codex_native/test_stage12_trustworthy_evidence_integration.py tests/codex_native/test_stage12_release_script.py -q
+320 passed in 386.50s (0:06:26)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m ruff check researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py
+PASS
+
+/opt/homebrew/bin/python3.11 -m compileall -q researchclaw tests/codex_native/test_refinement_execution.py
+PASS
+
+git diff --check
+PASS
+```
+
+### Self-review and concerns
+
+- Every final reconstruction sees the complete refreshed candidate set; no
+  historical run is omitted after publication.
+- New reservations use a late clock sample, while exact recovery uses the
+  durable reservation timestamp, so deadline enforcement neither overbooks
+  nor makes a valid pending reservation unrecoverable.
+- Closed-inventory comparisons cover path membership, content reference, and
+  filesystem identity at every required publication boundary.
+- No candidate launcher, subprocess, model, API, final selection, or handoff
+  behavior was introduced.
+
+No known concerns remain. The isolated transient noted above was not
+reproducible, and the full Stage 13 gate passed on the authoritative rerun.
