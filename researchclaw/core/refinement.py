@@ -133,6 +133,7 @@ class RefinementSessionStatus:
     runs_used: int
     maximum_runs: int
     next_action: str
+    wall_seconds_used: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -2054,6 +2055,7 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
         current, session=session, baseline=baseline
     )
     from .refinement_execution import (
+        _reconstruct_refinement_run_counters,
         _revalidate_registered_intent_semantics,
         _revalidate_registered_preparation_semantics,
         _revalidate_registered_self_test_semantics,
@@ -2085,6 +2087,12 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
             and registration_path in current.state.artifacts
         ):
             _revalidate_registered_self_test_semantics(current, candidate)
+    runs_used, wall_seconds_used = _reconstruct_refinement_run_counters(
+        current, candidate_statuses
+    )
+    session = replace(
+        session, runs_used=runs_used, wall_seconds_used=wall_seconds_used
+    )
     round_info = _round_path(current, create=False)
     if round_info is None:
         if candidate_statuses:
@@ -2156,8 +2164,22 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
             if current.state.next_action not in {
                 "prepare_refinement_self_test",
                 "prepare_refinement_run",
+                "register_refinement_result",
+                "register_refinement_assessment",
             }:
                 raise ValueError("refinement_candidate_binding_invalid")
+            if current.state.next_action == "register_refinement_result":
+                return replace(
+                    session,
+                    phase="awaiting_candidate_result",
+                    next_action="register_refinement_result",
+                )
+            if current.state.next_action == "register_refinement_assessment":
+                return replace(
+                    session,
+                    phase="awaiting_independent_assessments",
+                    next_action="register_refinement_assessment",
+                )
             return replace(
                 decision_status,
                 phase=(
@@ -3374,15 +3396,17 @@ def _revalidate_refinement_candidate(
     candidate_id: str,
     *,
     unregistered_report_path: str | None = None,
+    unregistered_result_path: str | None = None,
 ) -> CandidateStatus:
     current = ResearchProject.open_readonly(project.root)
     session = _load_prepared_refinement_session(current)
     baseline = _baseline(current)
-    additional = (
-        {candidate_id: (unregistered_report_path,)}
-        if unregistered_report_path is not None
-        else None
+    unregistered_paths = tuple(
+        path
+        for path in (unregistered_report_path, unregistered_result_path)
+        if path is not None
     )
+    additional = {candidate_id: unregistered_paths} if unregistered_paths else None
     matches = tuple(
         candidate
         for candidate in _registered_candidate_statuses(
@@ -3398,6 +3422,8 @@ def _revalidate_refinement_candidate(
     if current.state.next_action not in {
         "prepare_refinement_self_test",
         "prepare_refinement_run",
+        "register_refinement_result",
+        "register_refinement_assessment",
     }:
         raise ValueError("refinement_candidate_order_invalid")
     return replace(matches[0], next_action=current.state.next_action)
@@ -3408,7 +3434,11 @@ def revalidate_refinement_candidate(
 ) -> CandidateStatus:
     """Reopen and fully revalidate one exact registered candidate identity."""
     status = _revalidate_refinement_candidate(project, candidate_id)
-    if status.next_action == "prepare_refinement_run":
+    if status.next_action in {
+        "prepare_refinement_run",
+        "register_refinement_result",
+        "register_refinement_assessment",
+    }:
         from .refinement_execution import (
             _revalidate_registered_self_test_semantics,
         )

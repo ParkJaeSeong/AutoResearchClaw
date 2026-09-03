@@ -11,18 +11,32 @@ import researchclaw.core.refinement_execution as refinement_execution
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
     load_refinement_session,
+    prepare_refinement_session,
     register_refinement_candidate,
+    register_refinement_decision,
+    register_refinement_rebuttals,
 )
 from researchclaw.core.refinement_execution import (
+    REFINEMENT_EVIDENCE_MANIFEST_ROOT,
+    REFINEMENT_RUN_REGISTRATION_ROOT,
     REFINEMENT_SELF_TEST_REGISTRATION_ROOT,
+    prepare_refinement_run,
     prepare_refinement_self_test,
+    register_refinement_result,
     register_refinement_self_test,
 )
 from tests.codex_native.helpers import (
+    build_stage_thirteen_project,
     immutable_stage_twelve_snapshot,
     write_refinement_candidate,
 )
-from tests.codex_native.test_refinement import refinement_project_with_refine_decision
+from tests.codex_native.test_refinement import (
+    refinement_project_with_refine_decision,
+    register_all_assessments,
+    valid_envelope,
+    write_valid_decision,
+    write_valid_rebuttals,
+)
 
 
 def registered_candidate_project(path: Path):
@@ -43,6 +57,740 @@ def run_candidate_self_test(project, candidate_id):
     )
     assert completed.returncode == 0, completed.stderr
     return preparation
+
+
+def self_tested_candidate_project(path: Path):
+    project, candidate = registered_candidate_project(path)
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    )
+    return ResearchProject.open(project.root), candidate
+
+
+def self_tested_candidate_project_with_envelope(
+    path: Path, *, maximum_runs: int, maximum_wall_seconds: int
+):
+    project = build_stage_thirteen_project(path)
+    envelope = valid_envelope()
+    envelope["maximum_runs"] = maximum_runs
+    envelope["maximum_wall_seconds"] = maximum_wall_seconds
+    envelope["maximum_candidate_seconds"] = min(
+        envelope["maximum_candidate_seconds"], maximum_wall_seconds
+    )
+    prepare_refinement_session(project, envelope)
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    register_refinement_decision(project, write_valid_decision(project))
+    manifest = write_refinement_candidate(project)
+    candidate = register_refinement_candidate(project, manifest)
+    preparation = run_candidate_self_test(project, candidate.candidate_id)
+    register_refinement_self_test(
+        project, candidate.candidate_id, preparation.report_path
+    )
+    return ResearchProject.open(project.root), candidate
+
+
+def test_prepare_refinement_run_reserves_exact_authoritative_contract_without_execution(
+    tmp_path,
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    baseline_before = immutable_stage_twelve_snapshot(project)
+    baseline_result_before = (project.root / "experiment/results.json").read_bytes()
+    candidate_result = project.root / "refinement/candidates/candidate-001/results.json"
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+
+    status = prepare_refinement_run(project, candidate.candidate_id)
+
+    assert status.run_id == "run-001"
+    assert Path(status.argv[0]).is_absolute()
+    assert status.argv[1:] == ("code/model.py", "--config", "config/config.json")
+    assert status.cwd == str(
+        project.root.resolve() / "refinement/candidates/candidate-001"
+    )
+    assert status.intent_path == (
+        f".researchclaw/refinement-runs/{session['session_id']}/run-001.intent.json"
+    )
+    assert status.contract_path == (
+        f".researchclaw/refinement-runs/{session['session_id']}/run-001.contract.json"
+    )
+    assert status.result_path == "refinement/candidates/candidate-001/results.json"
+    contract_bytes = (project.root / status.contract_path).read_bytes()
+    contract = json.loads(contract_bytes)
+    assert set(contract) == {
+        "schema_version",
+        "contract_id",
+        "project_id",
+        "session_id",
+        "candidate_id",
+        "run_id",
+        "producer",
+        "producer_role",
+        "created_at",
+        "reservation",
+        "contract_filesystem_identity",
+        "candidate_manifest",
+        "candidate_files",
+        "package_contract",
+        "package_manifest",
+        "entry_point",
+        "self_test",
+        "council_decision",
+        "evidence_packet",
+        "baseline_manifest",
+        "baseline_result",
+        "allowed_inputs",
+        "allowed_change_roots",
+        "binding_filesystem_identities",
+        "execution",
+        "envelope",
+        "expected_result",
+    }
+    assert contract["schema_version"] == 1
+    assert contract["project_id"] == project.state.project_id
+    assert contract["session_id"] == session["session_id"]
+    assert contract["candidate_id"] == candidate.candidate_id
+    assert contract["run_id"] == status.run_id
+    assert contract["producer"] == "implementation-agent"
+    assert contract["producer_role"] == "implementation"
+    assert contract["candidate_manifest"]["sha256"] == candidate.manifest_sha256
+    assert contract["council_decision"]["sha256"] == candidate.decision_sha256
+    assert contract["evidence_packet"] == session["evidence_packet"]
+    assert contract["allowed_inputs"][0]["path"] == "data/input.csv"
+    assert contract["execution"]["argv"] == list(status.argv)
+    assert contract["execution"]["cwd"] == status.cwd
+    assert contract["execution"]["environment_fingerprint"] == (
+        status.environment_fingerprint
+    )
+    assert contract["expected_result"]["path"] == status.result_path
+    assert hashlib.sha256(contract_bytes).hexdigest() == status.contract_sha256
+    assert ResearchProject.open(project.root).state.next_action == (
+        "register_refinement_result"
+    )
+    session_status = load_refinement_session(ResearchProject.open(project.root))
+    assert session_status.runs_used == 1
+    assert session_status.wall_seconds_used == 0.0
+    assert session_status.phase == "awaiting_candidate_result"
+    assert not candidate_result.exists()
+    assert immutable_stage_twelve_snapshot(project) == baseline_before
+    assert (project.root / "experiment/results.json").read_bytes() == (
+        baseline_result_before
+    )
+
+
+def test_prepare_refinement_run_is_idempotent_for_the_exact_pending_reservation(
+    tmp_path,
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    first = prepare_refinement_run(project, candidate.candidate_id)
+    state_after_first = ResearchProject.open(project.root).state
+    intent_bytes = (project.root / first.intent_path).read_bytes()
+    contract_bytes = (project.root / first.contract_path).read_bytes()
+
+    second = prepare_refinement_run(
+        ResearchProject.open(project.root), candidate.candidate_id
+    )
+
+    assert second == first
+    assert ResearchProject.open(project.root).state == state_after_first
+    assert (project.root / second.intent_path).read_bytes() == intent_bytes
+    assert (project.root / second.contract_path).read_bytes() == contract_bytes
+    assert not tuple(
+        (project.root / REFINEMENT_RUN_REGISTRATION_ROOT).glob("*/run-002.*")
+    )
+
+
+def test_prepare_refinement_run_recovers_exact_intent_only_reservation(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+
+    def interrupt_after_intent():
+        raise RuntimeError("intent reserved")
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_intent_publication",
+        interrupt_after_intent,
+    )
+    with pytest.raises(RuntimeError, match="intent reserved"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    pending = ResearchProject.open(project.root)
+    intent_paths = [
+        path
+        for path in pending.state.artifacts
+        if path.startswith(f"{REFINEMENT_RUN_REGISTRATION_ROOT}/")
+    ]
+    assert len(intent_paths) == 1
+    assert intent_paths[0].endswith("/run-001.intent.json")
+    assert pending.state.next_action == "prepare_refinement_run"
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_intent_publication",
+        lambda: None,
+    )
+
+    recovered = prepare_refinement_run(pending, candidate.candidate_id)
+
+    assert recovered.run_id == "run-001"
+    assert recovered.intent_path == intent_paths[0]
+    assert ResearchProject.open(project.root).state.next_action == (
+        "register_refinement_result"
+    )
+
+
+def test_prepare_refinement_run_recovers_exact_contract_only_publication(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+
+    def interrupt_after_contract():
+        raise RuntimeError("contract durable")
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_contract_write",
+        interrupt_after_contract,
+    )
+    with pytest.raises(RuntimeError, match="contract durable"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    pending = ResearchProject.open(project.root)
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    contract_path = (
+        project.root
+        / REFINEMENT_RUN_REGISTRATION_ROOT
+        / session_id
+        / "run-001.contract.json"
+    )
+    contract_bytes = contract_path.read_bytes()
+    contract_identity = (contract_path.stat().st_dev, contract_path.stat().st_ino)
+    assert contract_path.relative_to(project.root).as_posix() not in pending.state.artifacts
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_run_contract_write",
+        lambda: None,
+    )
+
+    recovered = prepare_refinement_run(pending, candidate.candidate_id)
+
+    assert recovered.run_id == "run-001"
+    assert contract_path.read_bytes() == contract_bytes
+    assert (contract_path.stat().st_dev, contract_path.stat().st_ino) == (
+        contract_identity
+    )
+    assert ResearchProject.open(project.root).state.artifacts[
+        recovered.contract_path
+    ].sha256 == recovered.contract_sha256
+
+
+def test_prepare_refinement_run_rejects_expired_session_without_reserving_slot(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+    created_at = refinement_execution.datetime.fromisoformat(session["created_at"])
+    monkeypatch.setattr(
+        refinement_execution,
+        "_utc_now",
+        lambda: created_at + refinement_execution.timedelta(seconds=121),
+    )
+
+    with pytest.raises(ValueError, match="^refinement_run_wall_time_exhausted$"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    assert not (project.root / REFINEMENT_RUN_REGISTRATION_ROOT).exists()
+
+
+@pytest.mark.parametrize("unsafe_kind", ["unknown", "symlink", "hardlink"])
+def test_prepare_refinement_run_rejects_unknown_or_unsafe_reservation_records(
+    tmp_path, unsafe_kind
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    reservation_root = (
+        project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    )
+    reservation_root.mkdir(parents=True)
+    if unsafe_kind == "unknown":
+        (reservation_root / "unexpected.json").write_text("{}", encoding="utf-8")
+    elif unsafe_kind == "symlink":
+        (reservation_root / "run-001.intent.json").symlink_to(
+            project.root / "refinement/session.json"
+        )
+    else:
+        os.link(
+            project.root / "refinement/session.json",
+            reservation_root / "run-001.intent.json",
+        )
+
+    with pytest.raises(ValueError, match="^refinement_run_reservation_invalid$"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    assert ResearchProject.open(project.root).state.next_action == (
+        "prepare_refinement_run"
+    )
+
+
+def write_refinement_result(
+    project: ResearchProject,
+    status,
+    *,
+    elapsed_seconds: float = 1.0,
+    metric_value: float = -999.0,
+):
+    contract_bytes = (project.root / status.contract_path).read_bytes()
+    contract = json.loads(contract_bytes)
+    execution = contract["execution"]
+    payload = {
+        "schema_version": 1,
+        "project_id": contract["project_id"],
+        "session_id": contract["session_id"],
+        "candidate_id": contract["candidate_id"],
+        "run_id": contract["run_id"],
+        "producer": contract["producer"],
+        "producer_role": contract["producer_role"],
+        "created_at": "2026-09-03T00:00:00+00:00",
+        "execution_contract": {
+            "path": status.contract_path,
+            "contract_id": contract["contract_id"],
+            "sha256": hashlib.sha256(contract_bytes).hexdigest(),
+            "size": len(contract_bytes),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {
+            "primary": {
+                "name": "mae",
+                "value": metric_value,
+                "unit": "absolute_error",
+            }
+        },
+        "split_summary": {
+            "isolation_key": "cell_id",
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "candidate_manifest": contract["candidate_manifest"],
+            "candidate_files": contract["candidate_files"],
+            "package_contract": contract["package_contract"],
+            "package_manifest": contract["package_manifest"],
+            "entry_point": contract["entry_point"],
+            "self_test": contract["self_test"],
+            "council_decision": contract["council_decision"],
+            "evidence_packet": contract["evidence_packet"],
+            "baseline_manifest": contract["baseline_manifest"],
+            "baseline_result": contract["baseline_result"],
+            "inputs": contract["allowed_inputs"],
+            "environment_fingerprint": execution["environment_fingerprint"],
+            "execution_environment": execution["environment"],
+            "launcher_identity": execution["launcher_identity"],
+        },
+        "runtime": {
+            "elapsed_seconds": elapsed_seconds,
+            "maximum_seconds": contract["envelope"]["reserved_maximum_seconds"],
+        },
+    }
+    target = project.root / status.result_path
+    target.write_bytes(_canonical_bytes(payload))
+    return target
+
+
+def test_register_refinement_result_publishes_only_refinement_evidence_and_deliberates(
+    tmp_path,
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    baseline_before = immutable_stage_twelve_snapshot(project)
+    baseline_result_before = (project.root / "experiment/results.json").read_bytes()
+    baseline_manifests_before = sorted(
+        path
+        for path in project.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    )
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    result_path = write_refinement_result(project, preparation, metric_value=-999.0)
+    result_bytes = result_path.read_bytes()
+
+    status = register_refinement_result(
+        ResearchProject.open(project.root), candidate.candidate_id, preparation.result_path
+    )
+
+    expected_manifest = (
+        f"{REFINEMENT_EVIDENCE_MANIFEST_ROOT}/"
+        f"{json.loads((project.root / 'refinement/session.json').read_text())['session_id']}/"
+        f"{candidate.candidate_id}/{preparation.run_id}.json"
+    )
+    reopened = ResearchProject.open(project.root)
+    assert status.run_id == "run-001"
+    assert status.evidence_manifest_path == expected_manifest
+    assert status.runs_used == 1
+    assert status.wall_seconds_used == 1.0
+    assert status.next_action == "register_refinement_assessment"
+    assert reopened.state.next_action == "register_refinement_assessment"
+    assert reopened.state.artifacts[preparation.result_path].sha256 == hashlib.sha256(
+        result_bytes
+    ).hexdigest()
+    manifest = json.loads((project.root / expected_manifest).read_bytes())
+    result_object = next(item for item in manifest["objects"] if item["role"] == "result")
+    assert (project.root / result_object["object_path"]).read_bytes() == result_bytes
+    assert sorted(
+        path
+        for path in reopened.state.artifacts
+        if path.startswith(".researchclaw/evidence/manifests/")
+    ) == baseline_manifests_before
+    assert not any(
+        path.startswith(".researchclaw/evidence/manifests/")
+        and path.endswith(f"{preparation.run_id}.json")
+        for path in reopened.state.artifacts
+    )
+    assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+    assert (project.root / "experiment/results.json").read_bytes() == baseline_result_before
+    session_status = load_refinement_session(reopened)
+    assert session_status.runs_used == 1
+    assert session_status.next_action == "register_refinement_assessment"
+    assert session_status.phase == "awaiting_independent_assessments"
+
+
+def test_register_refinement_result_is_byte_identically_idempotent(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    first = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    state_after_first = ResearchProject.open(project.root).state
+    manifest_bytes = (project.root / first.evidence_manifest_path).read_bytes()
+
+    second = register_refinement_result(
+        ResearchProject.open(project.root), candidate.candidate_id, preparation.result_path
+    )
+
+    assert second == first
+    assert ResearchProject.open(project.root).state == state_after_first
+    assert (project.root / second.evidence_manifest_path).read_bytes() == manifest_bytes
+    assert len(
+        tuple((project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).rglob("run-*.json"))
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        (lambda result: result.update(extra=True), "refinement_result_schema_invalid"),
+        (lambda result: result.update(status="running"), "refinement_result_schema_invalid"),
+        (lambda result: result.update(created_at="not-a-time"), "refinement_result_schema_invalid"),
+        (
+            lambda result: result["execution_contract"].update(contract_id="0" * 64),
+            "refinement_result_contract_mismatch",
+        ),
+        (
+            lambda result: result["provenance"]["inputs"][0].update(sha256="0" * 64),
+            "refinement_result_provenance_mismatch",
+        ),
+        (
+            lambda result: result["metrics"]["primary"].update(value=float("nan")),
+            "refinement_result_metrics_invalid",
+        ),
+        (
+            lambda result: result["runtime"].update(elapsed_seconds=-1.0),
+            "refinement_result_runtime_invalid",
+        ),
+        (
+            lambda result: result["runtime"].update(elapsed_seconds=61.0),
+            "refinement_result_runtime_invalid",
+        ),
+    ],
+    ids=[
+        "unknown-field",
+        "incomplete-status",
+        "invalid-created-at",
+        "contract",
+        "input-provenance",
+        "nonfinite-metric",
+        "negative-runtime",
+        "runtime-over-reservation",
+    ],
+)
+def test_register_refinement_result_rejects_schema_metric_runtime_or_provenance_tampering(
+    tmp_path, mutation, error
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    result_path = write_refinement_result(project, preparation)
+    result = json.loads(result_path.read_bytes())
+    mutation(result)
+    result_path.write_bytes(_canonical_bytes(result))
+    state_before = ResearchProject.open(project.root).state
+
+    with pytest.raises(ValueError, match=f"^{error}$"):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+
+    assert ResearchProject.open(project.root).state == state_before
+    assert not (project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).exists()
+
+
+@pytest.mark.parametrize("seam", ["intent", "manifest", "state"])
+def test_register_refinement_result_recovers_exact_partial_publication(
+    tmp_path, monkeypatch, seam
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+
+    hook = {
+        "intent": "_after_refinement_result_intent_publication",
+        "manifest": "_after_refinement_evidence_manifest_publication",
+        "state": "_after_refinement_result_state_publication",
+    }[seam]
+
+    def interrupt():
+        raise RuntimeError(f"{seam} interrupted")
+
+    monkeypatch.setattr(refinement_execution, hook, interrupt, raising=False)
+    with pytest.raises(RuntimeError, match=f"{seam} interrupted"):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+    monkeypatch.setattr(refinement_execution, hook, lambda: None, raising=False)
+
+    recovered = register_refinement_result(
+        ResearchProject.open(project.root), candidate.candidate_id, preparation.result_path
+    )
+
+    assert recovered.run_id == "run-001"
+    assert recovered.runs_used == 1
+    assert recovered.wall_seconds_used == 1.0
+    assert len(
+        tuple((project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).rglob("run-*.json"))
+    ) == 1
+
+
+def test_register_refinement_result_recovers_intent_write_before_state_publication(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    original_persist_state = ResearchProject.persist_state
+    interrupted = False
+
+    def interrupt_intent_state(self, state):
+        nonlocal interrupted
+        newly_registered = tuple(
+            path
+            for path in state.artifacts
+            if path.endswith(".registration.intent.json")
+            and path not in self.state.artifacts
+        )
+        if newly_registered and not interrupted:
+            interrupted = True
+            raise RuntimeError("intent state interrupted")
+        return original_persist_state(self, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", interrupt_intent_state)
+    with pytest.raises(RuntimeError, match="intent state interrupted"):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+    monkeypatch.setattr(ResearchProject, "persist_state", original_persist_state)
+    pending = ResearchProject.open(project.root)
+    orphaned = tuple(
+        path
+        for path in (
+            project.root / preparation.intent_path
+        ).parent.glob("run-*.registration.intent.json")
+    )
+    assert len(orphaned) == 1
+    assert not any(
+        path.endswith(".registration.intent.json") for path in pending.state.artifacts
+    )
+
+    recovered = register_refinement_result(
+        pending, candidate.candidate_id, preparation.result_path
+    )
+
+    assert recovered.run_id == "run-001"
+    assert recovered.next_action == "register_refinement_assessment"
+
+
+def test_register_refinement_result_recovers_receipt_write_before_state_publication(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    original_persist_state = ResearchProject.persist_state
+    interrupted = False
+
+    def interrupt_completed_state(self, state):
+        nonlocal interrupted
+        publishes_result = preparation.result_path in state.artifacts
+        publishes_receipt = any(
+            path.endswith(".registration.json") for path in state.artifacts
+        )
+        if publishes_result and publishes_receipt and not interrupted:
+            interrupted = True
+            raise RuntimeError("completed state interrupted")
+        return original_persist_state(self, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", interrupt_completed_state)
+    with pytest.raises(RuntimeError, match="completed state interrupted"):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+    monkeypatch.setattr(ResearchProject, "persist_state", original_persist_state)
+    pending = ResearchProject.open(project.root)
+    assert preparation.result_path not in pending.state.artifacts
+    assert len(
+        tuple(
+            (project.root / preparation.intent_path).parent.glob(
+                "run-*.registration.json"
+            )
+        )
+    ) == 1
+
+    recovered = register_refinement_result(
+        pending, candidate.candidate_id, preparation.result_path
+    )
+
+    assert recovered.run_id == "run-001"
+    assert recovered.next_action == "register_refinement_assessment"
+    assert preparation.result_path in ResearchProject.open(project.root).state.artifacts
+
+
+@pytest.mark.parametrize(
+    ("maximum_runs", "maximum_wall_seconds", "error"),
+    [
+        (1, 120, "refinement_run_budget_exhausted"),
+        (2, 60, "refinement_run_wall_time_exhausted"),
+    ],
+)
+def test_prepare_refinement_run_rejects_exhausted_reserved_envelope_stably(
+    tmp_path, maximum_runs, maximum_wall_seconds, error
+):
+    project, candidate = self_tested_candidate_project_with_envelope(
+        tmp_path / "project",
+        maximum_runs=maximum_runs,
+        maximum_wall_seconds=maximum_wall_seconds,
+    )
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(
+        project,
+        preparation,
+        elapsed_seconds=float(60 if maximum_runs == 2 else 1),
+    )
+    register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+
+    with pytest.raises(ValueError, match=f"^{error}$"):
+        prepare_refinement_run(
+            ResearchProject.open(project.root), candidate.candidate_id
+        )
+
+    assert len(
+        tuple((project.root / REFINEMENT_RUN_REGISTRATION_ROOT).glob("*/run-*.intent.json"))
+    ) == 2  # reservation intent plus result-registration intent
+    assert not tuple(
+        (project.root / REFINEMENT_RUN_REGISTRATION_ROOT).glob("*/run-002.*")
+    )
+
+
+@pytest.mark.parametrize("target_kind", ["candidate", "input", "contract"])
+def test_register_refinement_result_rejects_bound_identity_drift(
+    tmp_path, target_kind
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    if target_kind == "candidate":
+        target = project.root / candidate.files[0].path
+    elif target_kind == "input":
+        target = project.root / "data/input.csv"
+    else:
+        target = project.root / preparation.contract_path
+    original = target.read_bytes()
+    target.unlink()
+    target.write_bytes(original)
+
+    with pytest.raises(ValueError):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+
+    assert not (project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).exists()
+
+
+def test_register_refinement_result_rejects_environment_drift(tmp_path, monkeypatch):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    original = refinement_execution._inspect_bound_environment
+
+    def changed_environment(package):
+        environment, launcher_identity = original(package)
+        return replace(environment, fingerprint="0" * 64), launcher_identity
+
+    monkeypatch.setattr(
+        refinement_execution, "_inspect_bound_environment", changed_environment
+    )
+
+    with pytest.raises(ValueError):
+        register_refinement_result(
+            project, candidate.candidate_id, preparation.result_path
+        )
+
+    assert not (project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).exists()
+
+
+@pytest.mark.parametrize("target_kind", ["result", "manifest", "object"])
+def test_registered_refinement_result_rejects_exact_byte_evidence_replacement(
+    tmp_path, target_kind
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    if target_kind == "result":
+        target = project.root / preparation.result_path
+    elif target_kind == "manifest":
+        target = project.root / registered.evidence_manifest_path
+    else:
+        manifest = json.loads(
+            (project.root / registered.evidence_manifest_path).read_bytes()
+        )
+        result_object = next(
+            item for item in manifest["objects"] if item["role"] == "result"
+        )
+        target = project.root / result_object["object_path"]
+    original = target.read_bytes()
+    target.unlink()
+    target.write_bytes(original)
+
+    with pytest.raises(ValueError):
+        load_refinement_session(ResearchProject.open(project.root))
 
 
 def _publish_test_artifact(project, path, payload=b"{}\n"):

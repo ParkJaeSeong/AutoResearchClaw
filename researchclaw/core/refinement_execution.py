@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ import sys
 from uuid import uuid4
 
 from .execution_environment import ExecutionEnvironment, inspect_execution_environment
+from .evidence_store import EvidenceSource, EvidenceStore
 from . import experiment_package_contract as package_contract
 from .experiment_package_contract import validate_experiment_package_contract_at
 from .models import ArtifactRef, ProjectState
@@ -30,6 +32,8 @@ from .refinement import (
     _baseline_registration_snapshot,
     _canonical_json,
     _created_at,
+    _load_prepared_refinement_session,
+    _registered_candidate_statuses,
     _reject_duplicate_keys,
     _revalidate_refinement_candidate,
     _same_published_baseline_snapshot,
@@ -37,9 +41,16 @@ from .refinement import (
     revalidate_refinement_candidate,
 )
 from .transactions import project_mutation
+from .research_execution import (
+    _validate_result_metrics,
+    _validate_result_runtime,
+    _validate_result_splits,
+)
 
 
 REFINEMENT_SELF_TEST_REGISTRATION_ROOT = ".researchclaw/refinement-self-tests"
+REFINEMENT_RUN_REGISTRATION_ROOT = ".researchclaw/refinement-runs"
+REFINEMENT_EVIDENCE_MANIFEST_ROOT = ".researchclaw/evidence/refinement-manifests"
 _REPORT_LOCAL_PATH = "package_metadata/self_test_report.json"
 _CONTRACT_LOCAL_PATH = "package_metadata/package_contract.json"
 _MANIFEST_LOCAL_PATH = "package_metadata/package_manifest.json"
@@ -48,6 +59,10 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _SESSION_ID = re.compile(r"[0-9a-f]{32}\Z")
 _CANDIDATE_ID = re.compile(r"candidate-[0-9]{3}\Z")
 _INTENT_ID = re.compile(r"[0-9a-f]{32}\Z")
+_RUN_ID = re.compile(r"run-([0-9]{3})\Z")
+_RUN_LEAF = re.compile(
+    r"(run-[0-9]{3})\.(intent|contract|registration\.intent|registration)\.json\Z"
+)
 _REPORT_KEYS = {
     "schema_version",
     "project_id",
@@ -245,6 +260,42 @@ class SelfTestPreparationStatus:
 
 
 @dataclass(frozen=True)
+class RefinementRunStatus:
+    """One reserved Stage-13 run and its exact execution/evidence identity."""
+
+    candidate_id: str
+    run_id: str
+    argv: tuple[str, ...]
+    cwd: str
+    environment_fingerprint: str
+    intent_path: str
+    contract_path: str
+    contract_sha256: str
+    result_path: str
+    evidence_manifest_path: str | None
+    runs_used: int
+    wall_seconds_used: float
+    next_action: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate_id": self.candidate_id,
+            "run_id": self.run_id,
+            "argv": list(self.argv),
+            "cwd": self.cwd,
+            "environment_fingerprint": self.environment_fingerprint,
+            "intent_path": self.intent_path,
+            "contract_path": self.contract_path,
+            "contract_sha256": self.contract_sha256,
+            "result_path": self.result_path,
+            "evidence_manifest_path": self.evidence_manifest_path,
+            "runs_used": self.runs_used,
+            "wall_seconds_used": self.wall_seconds_used,
+            "next_action": self.next_action,
+        }
+
+
+@dataclass(frozen=True)
 class _HeldCandidateContext:
     project_id: str
     session_id: str
@@ -351,7 +402,13 @@ def _parse_held_json(payload: bytes, *, error: str) -> dict[str, object]:
         value = json.loads(
             payload.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
         )
-    except (UnicodeError, ValueError, json.JSONDecodeError) as exception:
+    except (
+        UnicodeError,
+        ValueError,
+        TypeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ) as exception:
         raise ValueError(error) from exception
     if not isinstance(value, dict):
         raise ValueError(error)
@@ -2673,3 +2730,2087 @@ def register_refinement_self_test(
                 rollback.persist_state(starting_state)
         raise
     return final_candidate
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _run_intent_path(session_id: str, run_id: str) -> str:
+    return f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{run_id}.intent.json"
+
+
+def _run_contract_path(session_id: str, run_id: str) -> str:
+    return f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{run_id}.contract.json"
+
+
+def _run_result_path(candidate_id: str) -> str:
+    return f"refinement/candidates/{candidate_id}/results.json"
+
+
+def _open_run_parent(project: ResearchProject, session_id: str) -> int:
+    if _SESSION_ID.fullmatch(session_id) is None:
+        raise ValueError("refinement_run_reservation_invalid")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(project.root.resolve(strict=True), flags)
+        for component in (".researchclaw", "refinement-runs", session_id):
+            try:
+                child = os.open(component, flags, dir_fd=descriptor)
+            except OSError as error:
+                if error.errno != errno.ENOENT:
+                    raise
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+                else:
+                    os.fsync(descriptor)
+                child = os.open(component, flags, dir_fd=descriptor)
+                os.fsync(child)
+            metadata = os.fstat(child)
+            if not stat.S_ISDIR(metadata.st_mode):
+                os.close(child)
+                raise ValueError("refinement_run_reservation_invalid")
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except (OSError, ValueError) as error:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise ValueError("refinement_run_reservation_invalid") from error
+
+
+def _write_run_record(
+    project: ResearchProject,
+    *,
+    session_id: str,
+    leaf_name: str,
+    payload_builder,
+    error_code: str,
+) -> tuple[dict[str, object], bytes]:
+    match = _RUN_LEAF.fullmatch(leaf_name)
+    if match is None:
+        raise ValueError(error_code)
+    parent = _open_run_parent(project, session_id)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            leaf_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            0o600,
+            dir_fd=parent,
+        )
+        initial = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or initial.st_nlink != 1
+            or initial.st_size != 0
+        ):
+            raise ValueError(error_code)
+        payload = payload_builder(_receipt_filesystem_identity(initial))
+        encoded = _canonical_json(payload)
+        if len(encoded) > _MAX_JSON_BYTES:
+            raise ValueError(error_code)
+        written = 0
+        while written < len(encoded):
+            written += os.write(descriptor, encoded[written:])
+        os.fsync(descriptor)
+        final = os.fstat(descriptor)
+        if (
+            _receipt_filesystem_identity(final)
+            != _receipt_filesystem_identity(initial)
+            or final.st_size != len(encoded)
+        ):
+            raise ValueError(error_code)
+        os.fsync(parent)
+        return payload, encoded
+    except FileExistsError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ValueError(error_code) from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def _run_inventory(project: ResearchProject, session_id: str) -> dict[str, dict[str, str]]:
+    root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    if not os.path.lexists(root):
+        return {}
+    parent = _open_run_parent(project, session_id)
+    inventory: dict[str, dict[str, str]] = {}
+    try:
+        with os.scandir(parent) as entries:
+            names = [entry.name for entry in entries]
+        if len(names) > 40:
+            raise ValueError("refinement_run_reservation_invalid")
+        for name in names:
+            match = _RUN_LEAF.fullmatch(name)
+            if match is None:
+                raise ValueError("refinement_run_reservation_invalid")
+            run_id, kind = match.groups()
+            metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise ValueError("refinement_run_reservation_invalid")
+            if kind in inventory.setdefault(run_id, {}):
+                raise ValueError("refinement_run_reservation_invalid")
+            inventory[run_id][kind] = (
+                f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{name}"
+            )
+    except (OSError, ValueError) as error:
+        raise ValueError("refinement_run_reservation_invalid") from error
+    finally:
+        os.close(parent)
+    numbered = sorted(int(run_id.split("-")[1]) for run_id in inventory)
+    if numbered != list(range(1, len(numbered) + 1)) or any(
+        "intent" not in records for records in inventory.values()
+    ):
+        raise ValueError("refinement_run_reservation_invalid")
+    return {run_id: inventory[run_id] for run_id in sorted(inventory)}
+
+
+def _completed_run_wall_seconds(
+    project: ResearchProject, inventory: Mapping[str, Mapping[str, str]]
+) -> float:
+    total = 0.0
+    for run_id, records in inventory.items():
+        registration_path = records.get("registration")
+        if registration_path is None:
+            continue
+        receipt, _receipt_bytes, _receipt_snapshot = _read_run_payload(
+            project,
+            registration_path,
+            error_code="refinement_evidence_registration_invalid",
+        )
+        runtime = receipt.get("runtime")
+        elapsed = runtime.get("elapsed_seconds") if isinstance(runtime, Mapping) else None
+        if (
+            receipt.get("run_id") != run_id
+            or receipt.get("completed") is not True
+            or isinstance(elapsed, bool)
+            or not isinstance(elapsed, (int, float))
+            or not math.isfinite(elapsed)
+            or elapsed < 0
+        ):
+            raise ValueError("refinement_evidence_registration_invalid")
+        total += float(elapsed)
+    return total
+
+
+def _current_session_payload(project: ResearchProject) -> dict[str, object]:
+    _load_prepared_refinement_session(project)
+    reference = project.state.artifacts.get(SESSION_PATH)
+    if reference is None:
+        raise ValueError("refinement_run_reservation_invalid")
+    _snapshot, payload_bytes = _secure_snapshot(
+        project.root,
+        SESSION_PATH,
+        expected=reference,
+        maximum_bytes=_MAX_JSON_BYTES,
+        read_payload=True,
+        error_code="refinement_run_reservation_invalid",
+    )
+    payload = _parse_held_json(
+        payload_bytes, error="refinement_run_reservation_invalid"
+    )
+    if payload_bytes != _canonical_json(payload):
+        raise ValueError("refinement_run_reservation_invalid")
+    return payload
+
+
+def _run_authority_payload(
+    project: ResearchProject,
+    candidate: CandidateStatus,
+    context: _HeldCandidateContext,
+    package: package_contract.ValidatedExperimentPackage,
+    bound_environment: tuple[ExecutionEnvironment, tuple[tuple[object, ...], ...]],
+    *,
+    session_payload: Mapping[str, object],
+    run_id: str,
+    runs_reserved_before: int,
+    wall_seconds_used_before: float,
+    enforce_deadline: bool = True,
+) -> dict[str, object]:
+    baseline = _baseline(project)
+    envelope = session_payload.get("envelope")
+    if not isinstance(envelope, Mapping):
+        raise ValueError("refinement_run_reservation_invalid")
+    maximum_runs = envelope.get("maximum_runs")
+    maximum_wall_seconds = envelope.get("maximum_wall_seconds")
+    maximum_candidate_seconds = envelope.get("maximum_candidate_seconds")
+    allowed_change_roots = envelope.get("allowed_change_roots")
+    if (
+        not isinstance(maximum_runs, int)
+        or isinstance(maximum_runs, bool)
+        or not isinstance(maximum_wall_seconds, int)
+        or isinstance(maximum_wall_seconds, bool)
+        or not isinstance(maximum_candidate_seconds, int)
+        or isinstance(maximum_candidate_seconds, bool)
+        or not isinstance(allowed_change_roots, list)
+    ):
+        raise ValueError("refinement_run_reservation_invalid")
+    session_created_at = datetime.fromisoformat(
+        _created_at(session_payload.get("created_at"))
+    )
+    deadline = session_created_at + timedelta(seconds=maximum_wall_seconds)
+    remaining = maximum_wall_seconds - wall_seconds_used_before
+    if runs_reserved_before >= maximum_runs:
+        raise ValueError("refinement_run_budget_exhausted")
+    if remaining <= 0 or (enforce_deadline and _utc_now() > deadline):
+        raise ValueError("refinement_run_wall_time_exhausted")
+    reserved_maximum = min(maximum_candidate_seconds, int(remaining))
+    if reserved_maximum <= 0:
+        raise ValueError("refinement_run_wall_time_exhausted")
+    input_items: list[dict[str, object]] = []
+    for input_path in baseline.input_paths:
+        item = next(
+            entry for entry in baseline.artifacts if entry["path"] == input_path
+        )
+        reference = ArtifactRef(input_path, str(item["sha256"]), int(item["size"]))
+        _secure_snapshot(
+            project.root,
+            input_path,
+            expected=reference,
+            maximum_bytes=reference.size,
+            error_code="refinement_run_input_changed",
+        )
+        input_items.append(_artifact_payload(reference))
+    baseline_result_item = next(
+        item for item in baseline.artifacts if item["path"] == "experiment/results.json"
+    )
+    baseline_result = ArtifactRef(
+        "experiment/results.json",
+        str(baseline_result_item["sha256"]),
+        int(baseline_result_item["size"]),
+    )
+    _secure_snapshot(
+        project.root,
+        baseline_result.path,
+        expected=baseline_result,
+        maximum_bytes=baseline_result.size,
+        error_code="refinement_candidate_baseline_changed",
+    )
+    self_test_paths = {
+        "intent": _preparation_intent_path(context.session_id, candidate.candidate_id),
+        "preparation": _preparation_path(context.session_id, candidate.candidate_id),
+        "report": _candidate_report_path(candidate.candidate_id),
+        "receipt": _registration_path(context.session_id, candidate.candidate_id),
+    }
+    self_test: dict[str, object] = {}
+    self_test_references: list[ArtifactRef] = []
+    for name, path in self_test_paths.items():
+        reference = project.state.artifacts.get(path)
+        if reference is None:
+            raise ValueError("refinement_run_self_test_invalid")
+        _secure_snapshot(
+            project.root,
+            path,
+            expected=reference,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_run_self_test_invalid",
+        )
+        self_test[name] = _artifact_payload(reference)
+        self_test_references.append(reference)
+    environment, launcher_identity = bound_environment
+    argv = (environment.launcher, package.entry_point, *package.execution_argv)
+    package_contract_reference = _candidate_reference(candidate, _CONTRACT_LOCAL_PATH)
+    package_manifest_reference = _candidate_reference(candidate, _MANIFEST_LOCAL_PATH)
+    entry_point_reference = _candidate_reference(candidate, package.entry_point)
+    session_reference = project.state.artifacts.get(SESSION_PATH)
+    if session_reference is None:
+        raise ValueError("refinement_run_reservation_invalid")
+    identity_references: dict[str, ArtifactRef] = {}
+    for reference in (
+        session_reference,
+        context.candidate_manifest,
+        *candidate.files,
+        package_contract_reference,
+        package_manifest_reference,
+        entry_point_reference,
+        *self_test_references,
+        context.council_decision,
+        context.evidence_packet,
+        context.baseline_manifest,
+        baseline_result,
+        *(ArtifactRef(str(item["path"]), str(item["sha256"]), int(item["size"])) for item in input_items),
+    ):
+        prior = identity_references.get(reference.path)
+        if prior not in {None, reference}:
+            raise ValueError("refinement_run_reservation_invalid")
+        identity_references[reference.path] = reference
+    binding_filesystem_identities: list[dict[str, object]] = []
+    for path in sorted(identity_references):
+        reference = identity_references[path]
+        snapshot = _secure_snapshot(
+            project.root,
+            path,
+            expected=reference,
+            maximum_bytes=reference.size,
+            error_code="refinement_run_binding_changed",
+        )[0]
+        binding_filesystem_identities.append(
+            {"path": path, **_filesystem_identity(snapshot)}
+        )
+    return {
+        "project_id": context.project_id,
+        "session_id": context.session_id,
+        "candidate_id": candidate.candidate_id,
+        "run_id": run_id,
+        "producer": context.producer,
+        "producer_role": context.producer_role,
+        "candidate_manifest": _artifact_payload(context.candidate_manifest),
+        "candidate_files": [
+            _artifact_payload(reference) for reference in candidate.files
+        ],
+        "package_contract": _artifact_payload(package_contract_reference),
+        "package_manifest": _artifact_payload(package_manifest_reference),
+        "entry_point": _artifact_payload(entry_point_reference),
+        "self_test": self_test,
+        "council_decision": _artifact_payload(context.council_decision),
+        "evidence_packet": _artifact_payload(context.evidence_packet),
+        "baseline_manifest": _artifact_payload(context.baseline_manifest),
+        "baseline_result": _artifact_payload(baseline_result),
+        "allowed_inputs": input_items,
+        "allowed_change_roots": list(allowed_change_roots),
+        "binding_filesystem_identities": binding_filesystem_identities,
+        "execution": {
+            "argv": list(argv),
+            "cwd": str(_candidate_root(project, candidate.candidate_id)),
+            "environment_fingerprint": environment.fingerprint,
+            "environment": _environment_payload(environment),
+            "launcher_identity": [list(item) for item in launcher_identity],
+        },
+        "envelope": {
+            "maximum_runs": maximum_runs,
+            "maximum_wall_seconds": maximum_wall_seconds,
+            "maximum_candidate_seconds": maximum_candidate_seconds,
+            "runs_reserved_before": runs_reserved_before,
+            "wall_seconds_used_before": wall_seconds_used_before,
+            "remaining_wall_seconds": remaining,
+            "reserved_maximum_seconds": reserved_maximum,
+            "session_deadline": deadline.isoformat(),
+        },
+    }
+
+
+def _run_intent_payload(
+    authority: Mapping[str, object],
+    *,
+    reservation_id: str,
+    created_at: str,
+    contract_created_at: str,
+    contract_path: str,
+    result_path: str,
+    filesystem_identity: Mapping[str, int],
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "reservation_id": reservation_id,
+        "created_at": created_at,
+        "contract_created_at": contract_created_at,
+        "contract_path": contract_path,
+        "result_path": result_path,
+        **dict(authority),
+        "intent_filesystem_identity": dict(filesystem_identity),
+    }
+
+
+def _run_contract_payload(
+    intent: Mapping[str, object],
+    intent_reference: ArtifactRef,
+    contract_filesystem_identity: Mapping[str, int],
+) -> dict[str, object]:
+    authority_keys = {
+        "project_id",
+        "session_id",
+        "candidate_id",
+        "run_id",
+        "producer",
+        "producer_role",
+        "candidate_manifest",
+        "candidate_files",
+        "package_contract",
+        "package_manifest",
+        "entry_point",
+        "self_test",
+        "council_decision",
+        "evidence_packet",
+        "baseline_manifest",
+        "baseline_result",
+        "allowed_inputs",
+        "allowed_change_roots",
+        "binding_filesystem_identities",
+        "execution",
+        "envelope",
+    }
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "contract_id": "",
+        "created_at": intent["contract_created_at"],
+        "reservation": {
+            "reservation_id": intent["reservation_id"],
+            **_artifact_payload(intent_reference),
+        },
+        "contract_filesystem_identity": dict(contract_filesystem_identity),
+        **{key: intent[key] for key in authority_keys},
+        "expected_result": {
+            "path": intent["result_path"],
+            "schema_version": 1,
+            "status": "completed",
+            "required_fields": [
+                "schema_version",
+                "project_id",
+                "session_id",
+                "candidate_id",
+                "run_id",
+                "producer",
+                "producer_role",
+                "created_at",
+                "execution_contract",
+                "development_only",
+                "evidence_eligible",
+                "status",
+                "metrics",
+                "split_summary",
+                "provenance",
+                "runtime",
+            ],
+        },
+    }
+    contract["contract_id"] = hashlib.sha256(
+        _canonical_json({key: value for key, value in contract.items() if key != "contract_id"})
+    ).hexdigest()
+    return contract
+
+
+def _read_run_payload(
+    project: ResearchProject, path: str, *, error_code: str
+) -> tuple[dict[str, object], bytes, object]:
+    snapshot, payload_bytes = _secure_snapshot(
+        project.root,
+        path,
+        maximum_bytes=_MAX_JSON_BYTES,
+        read_payload=True,
+        error_code=error_code,
+    )
+    payload = _parse_held_json(payload_bytes, error=error_code)
+    if payload_bytes != _canonical_json(payload):
+        raise ValueError(error_code)
+    return payload, payload_bytes, snapshot
+
+
+def _validate_run_intent(
+    payload: Mapping[str, object],
+    snapshot: object,
+    *,
+    authority: Mapping[str, object],
+    contract_path: str,
+    result_path: str,
+) -> None:
+    expected_keys = {
+        "schema_version",
+        "reservation_id",
+        "created_at",
+        "contract_created_at",
+        "contract_path",
+        "result_path",
+        *authority.keys(),
+        "intent_filesystem_identity",
+    }
+    if (
+        set(payload) != expected_keys
+        or payload.get("schema_version") != 1
+        or isinstance(payload.get("schema_version"), bool)
+        or not isinstance(payload.get("reservation_id"), str)
+        or _INTENT_ID.fullmatch(str(payload.get("reservation_id"))) is None
+        or payload.get("contract_path") != contract_path
+        or payload.get("result_path") != result_path
+        or any(payload.get(key) != value for key, value in authority.items())
+    ):
+        raise ValueError("refinement_run_reservation_invalid")
+    try:
+        _created_at(payload.get("created_at"))
+        _created_at(payload.get("contract_created_at"))
+    except ValueError as error:
+        raise ValueError("refinement_run_reservation_invalid") from error
+    identity = _require_filesystem_identity(
+        payload.get("intent_filesystem_identity"),
+        receipt=True,
+        error="refinement_run_reservation_invalid",
+    )
+    if identity != _receipt_filesystem_identity_from_snapshot(snapshot):
+        raise ValueError("refinement_run_reservation_invalid")
+
+
+def _after_refinement_run_intent_publication() -> None:
+    """Interruption seam after the run slot becomes durable authority."""
+
+
+def _after_refinement_run_contract_write() -> None:
+    """Interruption seam after the exact contract is durable, before state."""
+
+
+@project_mutation
+def prepare_refinement_run(
+    project: ResearchProject, candidate_id: str
+) -> RefinementRunStatus:
+    """Reserve one bounded candidate run and return its command without executing it."""
+    current = ResearchProject.open(project.root)
+    session_payload = _current_session_payload(current)
+    session_id = str(session_payload["session_id"])
+    inventory = _run_inventory(current, session_id)
+    session_status = _load_prepared_refinement_session(current)
+    candidate_statuses = _registered_candidate_statuses(
+        current, session=session_status, baseline=_baseline(current)
+    )
+    _runs_used, completed_wall_seconds = _reconstruct_refinement_run_counters(
+        current, candidate_statuses
+    )
+    envelope = session_payload.get("envelope")
+    if not isinstance(envelope, Mapping):
+        raise ValueError("refinement_run_reservation_invalid")
+    maximum_runs = envelope.get("maximum_runs")
+    maximum_wall_seconds = envelope.get("maximum_wall_seconds")
+    latest_is_pending = bool(inventory) and "registration" not in inventory[sorted(inventory)[-1]]
+    if not latest_is_pending:
+        if (
+            not isinstance(maximum_runs, int)
+            or isinstance(maximum_runs, bool)
+            or len(inventory) >= maximum_runs
+        ):
+            raise ValueError("refinement_run_budget_exhausted")
+        if (
+            not isinstance(maximum_wall_seconds, int)
+            or isinstance(maximum_wall_seconds, bool)
+            or completed_wall_seconds >= maximum_wall_seconds
+        ):
+            raise ValueError("refinement_run_wall_time_exhausted")
+    if current.state.next_action not in {
+        "prepare_refinement_run",
+        "register_refinement_result",
+    }:
+        raise ValueError("refinement_run_unavailable")
+    if inventory:
+        active_run_id = sorted(inventory)[-1]
+        active = inventory[active_run_id]
+        if "registration" not in active:
+            run_id = active_run_id
+        else:
+            run_id = f"run-{len(inventory) + 1:03d}"
+    else:
+        run_id = "run-001"
+    candidate = _revalidate_refinement_candidate(current, candidate_id)
+    _revalidate_registered_self_test_semantics(current, candidate)
+    context = _hold_candidate_context(current, candidate)
+    package = validate_experiment_package_contract_at(
+        current,
+        package_root=_candidate_root(current, candidate_id),
+        contract_path=_CONTRACT_LOCAL_PATH,
+    )
+    bound_environment = _inspect_bound_environment(package)
+    wall_seconds_used = completed_wall_seconds
+    records = inventory.get(run_id, {})
+    authority = _run_authority_payload(
+        current,
+        candidate,
+        context,
+        package,
+        bound_environment,
+        session_payload=session_payload,
+        run_id=run_id,
+        runs_reserved_before=(
+            int(run_id.split("-")[1]) - 1 if run_id in inventory else len(inventory)
+        ),
+        wall_seconds_used_before=wall_seconds_used,
+        enforce_deadline=not bool(records),
+    )
+    intent_path = _run_intent_path(session_id, run_id)
+    contract_path = _run_contract_path(session_id, run_id)
+    result_path = _run_result_path(candidate_id)
+    intent_reference = current.state.artifacts.get(intent_path)
+    contract_reference = current.state.artifacts.get(contract_path)
+    if records and records.get("intent") != intent_path:
+        raise ValueError("refinement_run_reservation_invalid")
+    if records:
+        intent_payload, intent_bytes, intent_snapshot = _read_run_payload(
+            current, intent_path, error_code="refinement_run_reservation_invalid"
+        )
+        _validate_run_intent(
+            intent_payload,
+            intent_snapshot,
+            authority=authority,
+            contract_path=contract_path,
+            result_path=result_path,
+        )
+        actual_intent_ref = ArtifactRef(
+            intent_path, hashlib.sha256(intent_bytes).hexdigest(), len(intent_bytes)
+        )
+        if intent_reference not in {None, actual_intent_ref}:
+            raise ValueError("refinement_run_reservation_invalid")
+        if intent_reference is None:
+            current.persist_state(
+                replace(
+                    current.state,
+                    artifacts={**current.state.artifacts, intent_path: actual_intent_ref},
+                )
+            )
+            current = ResearchProject.open(current.root)
+        intent_reference = actual_intent_ref
+    else:
+        reservation_id = uuid4().hex
+        created_at = _utc_now().isoformat()
+        try:
+            intent_payload, intent_bytes = _write_run_record(
+                current,
+                session_id=session_id,
+                leaf_name=f"{run_id}.intent.json",
+                payload_builder=lambda identity: _run_intent_payload(
+                    authority,
+                    reservation_id=reservation_id,
+                    created_at=created_at,
+                    contract_created_at=_utc_now().isoformat(),
+                    contract_path=contract_path,
+                    result_path=result_path,
+                    filesystem_identity=identity,
+                ),
+                error_code="refinement_run_reservation_invalid",
+            )
+        except FileExistsError as error:
+            raise ValueError("refinement_run_reservation_invalid") from error
+        intent_reference = ArtifactRef(
+            intent_path, hashlib.sha256(intent_bytes).hexdigest(), len(intent_bytes)
+        )
+        _intent_payload, _intent_bytes, intent_snapshot = _read_run_payload(
+            current, intent_path, error_code="refinement_run_reservation_invalid"
+        )
+        _validate_run_intent(
+            intent_payload,
+            intent_snapshot,
+            authority=authority,
+            contract_path=contract_path,
+            result_path=result_path,
+        )
+        current.persist_state(
+            replace(
+                current.state,
+                artifacts={**current.state.artifacts, intent_path: intent_reference},
+            )
+        )
+        current = ResearchProject.open(current.root)
+        _after_refinement_run_intent_publication()
+    if os.path.lexists(current.root / contract_path):
+        persisted_contract, contract_bytes, contract_snapshot = _read_run_payload(
+            current, contract_path, error_code="refinement_run_contract_invalid"
+        )
+        contract_payload = _run_contract_payload(
+            intent_payload,
+            intent_reference,
+            _receipt_filesystem_identity_from_snapshot(contract_snapshot),
+        )
+        expected_contract_bytes = _canonical_json(contract_payload)
+        if persisted_contract != contract_payload or contract_bytes != expected_contract_bytes:
+            raise ValueError("refinement_run_contract_invalid")
+    else:
+        try:
+            persisted_contract, contract_bytes = _write_run_record(
+                current,
+                session_id=session_id,
+                leaf_name=f"{run_id}.contract.json",
+                payload_builder=lambda identity: _run_contract_payload(
+                    intent_payload, intent_reference, identity
+                ),
+                error_code="refinement_run_contract_invalid",
+            )
+        except FileExistsError as error:
+            raise ValueError("refinement_run_contract_invalid") from error
+        contract_snapshot = _read_run_payload(
+            current, contract_path, error_code="refinement_run_contract_invalid"
+        )[2]
+        contract_payload = _run_contract_payload(
+            intent_payload,
+            intent_reference,
+            _receipt_filesystem_identity_from_snapshot(contract_snapshot),
+        )
+        expected_contract_bytes = _canonical_json(contract_payload)
+        if persisted_contract != contract_payload or contract_bytes != expected_contract_bytes:
+            raise ValueError("refinement_run_contract_invalid")
+        _after_refinement_run_contract_write()
+    contract_reference = ArtifactRef(
+        contract_path, hashlib.sha256(contract_bytes).hexdigest(), len(contract_bytes)
+    )
+    if current.state.artifacts.get(contract_path) not in {None, contract_reference}:
+        raise ValueError("refinement_run_contract_invalid")
+    target_state = replace(
+        current.state,
+        next_action="register_refinement_result",
+        artifacts={**current.state.artifacts, contract_path: contract_reference},
+    )
+    if current.state != target_state:
+        current.persist_state(target_state)
+    published = ResearchProject.open_readonly(current.root)
+    _revalidate_registered_self_test_semantics(published, candidate)
+    checked_intent, checked_intent_bytes, checked_intent_snapshot = _read_run_payload(
+        published, intent_path, error_code="refinement_run_reservation_invalid"
+    )
+    _validate_run_intent(
+        checked_intent,
+        checked_intent_snapshot,
+        authority=authority,
+        contract_path=contract_path,
+        result_path=result_path,
+    )
+    checked_contract, checked_contract_bytes, checked_contract_snapshot = (
+        _read_run_payload(
+            published, contract_path, error_code="refinement_run_contract_invalid"
+        )
+    )
+    if (
+        published.state != target_state
+        or checked_intent_bytes != intent_bytes
+        or checked_contract != contract_payload
+        or checked_contract
+        != _run_contract_payload(
+            checked_intent,
+            intent_reference,
+            _receipt_filesystem_identity_from_snapshot(checked_contract_snapshot),
+        )
+        or checked_contract_bytes != contract_bytes
+        or _inspect_bound_environment(package) != bound_environment
+        or os.path.lexists(published.root / result_path)
+    ):
+        raise ValueError("refinement_run_contract_invalid")
+    execution = contract_payload["execution"]
+    assert isinstance(execution, Mapping)
+    return RefinementRunStatus(
+        candidate_id=candidate_id,
+        run_id=run_id,
+        argv=tuple(str(item) for item in execution["argv"]),
+        cwd=str(execution["cwd"]),
+        environment_fingerprint=str(execution["environment_fingerprint"]),
+        intent_path=intent_path,
+        contract_path=contract_path,
+        contract_sha256=contract_reference.sha256,
+        result_path=result_path,
+        evidence_manifest_path=None,
+        runs_used=len(inventory) if records else len(inventory) + 1,
+        wall_seconds_used=wall_seconds_used,
+        next_action="register_refinement_result",
+    )
+
+
+_RESULT_FIELDS = {
+    "schema_version",
+    "project_id",
+    "session_id",
+    "candidate_id",
+    "run_id",
+    "producer",
+    "producer_role",
+    "created_at",
+    "execution_contract",
+    "development_only",
+    "evidence_eligible",
+    "status",
+    "metrics",
+    "split_summary",
+    "provenance",
+    "runtime",
+}
+_RESULT_CONTRACT_FIELDS = {"path", "contract_id", "sha256", "size"}
+_RESULT_PROVENANCE_FIELDS = {
+    "candidate_manifest",
+    "candidate_files",
+    "package_contract",
+    "package_manifest",
+    "entry_point",
+    "self_test",
+    "council_decision",
+    "evidence_packet",
+    "baseline_manifest",
+    "baseline_result",
+    "inputs",
+    "environment_fingerprint",
+    "execution_environment",
+    "launcher_identity",
+}
+
+
+def _registration_intent_path(session_id: str, run_id: str) -> str:
+    return (
+        f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/"
+        f"{run_id}.registration.intent.json"
+    )
+
+
+def _run_registration_path(session_id: str, run_id: str) -> str:
+    return (
+        f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/"
+        f"{run_id}.registration.json"
+    )
+
+
+def _refinement_manifest_path(
+    session_id: str, candidate_id: str, run_id: str
+) -> str:
+    return (
+        f"{REFINEMENT_EVIDENCE_MANIFEST_ROOT}/{session_id}/"
+        f"{candidate_id}/{run_id}.json"
+    )
+
+
+def _result_expected_provenance(contract: Mapping[str, object]) -> dict[str, object]:
+    execution = contract.get("execution")
+    if not isinstance(execution, Mapping):
+        raise ValueError("refinement_run_contract_invalid")
+    return {
+        "candidate_manifest": contract["candidate_manifest"],
+        "candidate_files": contract["candidate_files"],
+        "package_contract": contract["package_contract"],
+        "package_manifest": contract["package_manifest"],
+        "entry_point": contract["entry_point"],
+        "self_test": contract["self_test"],
+        "council_decision": contract["council_decision"],
+        "evidence_packet": contract["evidence_packet"],
+        "baseline_manifest": contract["baseline_manifest"],
+        "baseline_result": contract["baseline_result"],
+        "inputs": contract["allowed_inputs"],
+        "environment_fingerprint": execution["environment_fingerprint"],
+        "execution_environment": execution["environment"],
+        "launcher_identity": execution["launcher_identity"],
+    }
+
+
+def _candidate_isolation_key(
+    project: ResearchProject,
+    candidate: CandidateStatus,
+    package: package_contract.ValidatedExperimentPackage,
+) -> str:
+    try:
+        config_path = package.execution_argv[
+            package.execution_argv.index("--config") + 1
+        ]
+        config, _config_bytes = package_contract._read_json_object(
+            _candidate_root(project, candidate.candidate_id),
+            config_path,
+            candidate_rooted=True,
+        )
+        split = config.get("split_strategy")
+        isolation_key = split.get("isolation_key") if isinstance(split, Mapping) else None
+    except (IndexError, OSError, ValueError) as error:
+        raise ValueError("refinement_result_split_invalid") from error
+    if not isinstance(isolation_key, str) or not isolation_key:
+        raise ValueError("refinement_result_split_invalid")
+    return isolation_key
+
+
+def _validate_refinement_result_payload(
+    project: ResearchProject,
+    candidate: CandidateStatus,
+    package: package_contract.ValidatedExperimentPackage,
+    *,
+    run_id: str,
+    contract_path: str,
+    contract: Mapping[str, object],
+    contract_bytes: bytes,
+    result_path: str,
+) -> tuple[dict[str, object], bytes, object, float]:
+    snapshot, result_bytes = _secure_snapshot(
+        project.root,
+        result_path,
+        maximum_bytes=_MAX_JSON_BYTES,
+        read_payload=True,
+        error_code="refinement_result_file_invalid",
+    )
+    payload = _parse_held_json(result_bytes, error="refinement_result_schema_invalid")
+    if set(payload) != _RESULT_FIELDS:
+        raise ValueError("refinement_result_schema_invalid")
+    if (
+        payload.get("schema_version") != 1
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("project_id") != project.state.project_id
+        or payload.get("session_id") != contract.get("session_id")
+        or payload.get("candidate_id") != candidate.candidate_id
+        or payload.get("run_id") != run_id
+        or payload.get("producer") != contract.get("producer")
+        or payload.get("producer_role") != "implementation"
+        or payload.get("status") != "completed"
+        or payload.get("development_only") is not False
+        or payload.get("evidence_eligible") is not True
+    ):
+        raise ValueError("refinement_result_schema_invalid")
+    try:
+        _created_at(payload.get("created_at"))
+    except ValueError as error:
+        raise ValueError("refinement_result_schema_invalid") from error
+    result_contract = payload.get("execution_contract")
+    expected_contract = {
+        "path": contract_path,
+        "contract_id": contract.get("contract_id"),
+        "sha256": hashlib.sha256(contract_bytes).hexdigest(),
+        "size": len(contract_bytes),
+    }
+    if (
+        not isinstance(result_contract, Mapping)
+        or set(result_contract) != _RESULT_CONTRACT_FIELDS
+        or dict(result_contract) != expected_contract
+    ):
+        raise ValueError("refinement_result_contract_mismatch")
+    provenance = payload.get("provenance")
+    if (
+        not isinstance(provenance, Mapping)
+        or set(provenance) != _RESULT_PROVENANCE_FIELDS
+        or dict(provenance) != _result_expected_provenance(contract)
+    ):
+        raise ValueError("refinement_result_provenance_mismatch")
+    try:
+        _validate_result_metrics(payload.get("metrics"))
+    except ValueError as error:
+        raise ValueError("refinement_result_metrics_invalid") from error
+    try:
+        _validate_result_splits(
+            payload.get("split_summary"),
+            _candidate_isolation_key(project, candidate, package),
+        )
+    except ValueError as error:
+        if str(error) == "research_result_leakage_detected":
+            raise ValueError("refinement_result_leakage_detected") from error
+        raise ValueError("refinement_result_split_invalid") from error
+    envelope = contract.get("envelope")
+    approved = (
+        envelope.get("reserved_maximum_seconds")
+        if isinstance(envelope, Mapping)
+        else None
+    )
+    try:
+        _validate_result_runtime(payload.get("runtime"), approved)
+    except ValueError as error:
+        raise ValueError("refinement_result_runtime_invalid") from error
+    runtime = payload["runtime"]
+    if not isinstance(runtime, Mapping) or runtime.get("maximum_seconds") != approved:
+        raise ValueError("refinement_result_runtime_invalid")
+    elapsed = runtime.get("elapsed_seconds")
+    if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)):
+        raise ValueError("refinement_result_runtime_invalid")
+    try:
+        canonical_result = _canonical_json(payload)
+    except ValueError as error:
+        raise ValueError("refinement_result_schema_invalid") from error
+    if result_bytes != canonical_result:
+        raise ValueError("refinement_result_schema_invalid")
+    return payload, result_bytes, snapshot, float(elapsed)
+
+
+def _evidence_sources(
+    contract: Mapping[str, object],
+    *,
+    contract_path: str,
+    contract_bytes: bytes,
+    result_path: str,
+    result_bytes: bytes,
+) -> tuple[EvidenceSource, ...]:
+    sources: list[EvidenceSource] = [
+        EvidenceSource(
+            "result",
+            result_path,
+            hashlib.sha256(result_bytes).hexdigest(),
+            len(result_bytes),
+        ),
+        EvidenceSource(
+            "execution_contract",
+            contract_path,
+            hashlib.sha256(contract_bytes).hexdigest(),
+            len(contract_bytes),
+        ),
+    ]
+
+    def add(role: str, value: object) -> None:
+        reference = _artifact(value)
+        sources.append(
+            EvidenceSource(role, reference.path, reference.sha256, reference.size)
+        )
+
+    add("candidate_manifest", contract["candidate_manifest"])
+    for item in contract["candidate_files"]:
+        add("candidate_file", item)
+    add("package_contract", contract["package_contract"])
+    add("package_manifest", contract["package_manifest"])
+    add("entry_point", contract["entry_point"])
+    self_test = contract["self_test"]
+    if not isinstance(self_test, Mapping):
+        raise ValueError("refinement_result_provenance_mismatch")
+    for name in ("intent", "preparation", "report", "receipt"):
+        add(f"self_test_{name}", self_test[name])
+    add("council_decision", contract["council_decision"])
+    add("evidence_packet", contract["evidence_packet"])
+    add("baseline_manifest", contract["baseline_manifest"])
+    add("baseline_result", contract["baseline_result"])
+    for item in contract["allowed_inputs"]:
+        add("input", item)
+    unique: dict[tuple[str, str], EvidenceSource] = {}
+    for source in sources:
+        key = (source.role, source.path)
+        prior = unique.get(key)
+        if prior not in {None, source}:
+            raise ValueError("refinement_result_provenance_mismatch")
+        unique[key] = source
+    return tuple(unique.values())
+
+
+def _registration_intent_payload(
+    *,
+    contract: Mapping[str, object],
+    registration_id: str,
+    created_at: str,
+    manifest_created_at: str,
+    contract_reference: ArtifactRef,
+    result_reference: ArtifactRef,
+    result_filesystem_identity: Mapping[str, int],
+    sources: tuple[EvidenceSource, ...],
+    manifest_path: str,
+    filesystem_identity: Mapping[str, int],
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "registration_id": registration_id,
+        "project_id": contract["project_id"],
+        "session_id": contract["session_id"],
+        "candidate_id": contract["candidate_id"],
+        "run_id": contract["run_id"],
+        "producer": contract["producer"],
+        "producer_role": contract["producer_role"],
+        "created_at": created_at,
+        "manifest_created_at": manifest_created_at,
+        "execution_contract": _artifact_payload(contract_reference),
+        "result": _artifact_payload(result_reference),
+        "result_filesystem_identity": dict(result_filesystem_identity),
+        "sources": [
+            {
+                "role": source.role,
+                "path": source.path,
+                "sha256": source.expected_sha256,
+                "size": source.expected_size,
+            }
+            for source in sources
+        ],
+        "manifest_path": manifest_path,
+        "intent_filesystem_identity": dict(filesystem_identity),
+    }
+
+
+def _manifest_payload(
+    registration_intent: Mapping[str, object],
+    result_payload: Mapping[str, object],
+) -> dict[str, object]:
+    sources = registration_intent["sources"]
+    assert isinstance(sources, list)
+    result_entry = next(item for item in sources if item["role"] == "result")
+    return {
+        "schema_version": 1,
+        "registration_id": registration_intent["registration_id"],
+        "project_id": registration_intent["project_id"],
+        "session_id": registration_intent["session_id"],
+        "candidate_id": registration_intent["candidate_id"],
+        "run_id": registration_intent["run_id"],
+        "producer": registration_intent["producer"],
+        "producer_role": registration_intent["producer_role"],
+        "created_at": registration_intent["manifest_created_at"],
+        "execution_contract": registration_intent["execution_contract"],
+        "result": {
+            **result_entry,
+            "object_path": (
+                f".researchclaw/evidence/objects/{result_entry['sha256']}"
+            ),
+        },
+        "objects": [
+            {
+                "role": item["role"],
+                "source_path": item["path"],
+                "sha256": item["sha256"],
+                "size": item["size"],
+                "object_path": f".researchclaw/evidence/objects/{item['sha256']}",
+            }
+            for item in sources
+        ],
+        "metrics": result_payload["metrics"],
+        "split_summary": result_payload["split_summary"],
+        "runtime": result_payload["runtime"],
+    }
+
+
+def _open_refinement_manifest_parent(
+    project: ResearchProject, session_id: str, candidate_id: str
+) -> int:
+    if (
+        _SESSION_ID.fullmatch(session_id) is None
+        or _CANDIDATE_ID.fullmatch(candidate_id) is None
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(project.root.resolve(strict=True), flags)
+        for component in (
+            ".researchclaw",
+            "evidence",
+            "refinement-manifests",
+            session_id,
+            candidate_id,
+        ):
+            try:
+                child = os.open(component, flags, dir_fd=descriptor)
+            except OSError as error:
+                if error.errno != errno.ENOENT:
+                    raise
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+                else:
+                    os.fsync(descriptor)
+                child = os.open(component, flags, dir_fd=descriptor)
+                os.fsync(child)
+            metadata = os.fstat(child)
+            if not stat.S_ISDIR(metadata.st_mode):
+                os.close(child)
+                raise ValueError("refinement_evidence_registration_invalid")
+            os.close(descriptor)
+            descriptor = child
+        return descriptor
+    except (OSError, ValueError) as error:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        raise ValueError("refinement_evidence_registration_invalid") from error
+
+
+def _write_refinement_manifest(
+    project: ResearchProject,
+    *,
+    session_id: str,
+    candidate_id: str,
+    run_id: str,
+    payload: Mapping[str, object],
+) -> tuple[ArtifactRef, bytes]:
+    if _RUN_ID.fullmatch(run_id) is None:
+        raise ValueError("refinement_evidence_registration_invalid")
+    encoded = _canonical_json(payload)
+    parent = _open_refinement_manifest_parent(project, session_id, candidate_id)
+    name = f"{run_id}.json"
+    descriptor: int | None = None
+    try:
+        try:
+            descriptor = os.open(
+                name,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=parent,
+            )
+        except FileExistsError:
+            relative = _refinement_manifest_path(session_id, candidate_id, run_id)
+            snapshot, existing = _secure_snapshot(
+                project.root,
+                relative,
+                maximum_bytes=_MAX_JSON_BYTES,
+                read_payload=True,
+                error_code="refinement_evidence_registration_invalid",
+            )
+            if existing != encoded:
+                raise ValueError("refinement_evidence_registration_invalid")
+            return snapshot.reference, existing
+        written = 0
+        while written < len(encoded):
+            written += os.write(descriptor, encoded[written:])
+        os.fsync(descriptor)
+        final = os.fstat(descriptor)
+        if not stat.S_ISREG(final.st_mode) or final.st_nlink != 1:
+            raise ValueError("refinement_evidence_registration_invalid")
+        os.close(descriptor)
+        descriptor = None
+        os.fsync(parent)
+    except (OSError, ValueError) as error:
+        if isinstance(error, ValueError):
+            raise
+        raise ValueError("refinement_evidence_registration_invalid") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+    relative = _refinement_manifest_path(session_id, candidate_id, run_id)
+    return ArtifactRef(relative, hashlib.sha256(encoded).hexdigest(), len(encoded)), encoded
+
+
+def _after_refinement_result_intent_publication() -> None:
+    """Interruption seam after exact result-registration intent is authoritative."""
+
+
+def _after_refinement_evidence_manifest_publication() -> None:
+    """Interruption seam after immutable objects and refinement manifest exist."""
+
+
+def _after_refinement_result_state_publication() -> None:
+    """Interruption seam after the final result/evidence state is durable."""
+
+
+def _registration_receipt_payload(
+    *,
+    registration_intent: ArtifactRef,
+    intent_payload: Mapping[str, object],
+    manifest_reference: ArtifactRef,
+    manifest_filesystem_identity: Mapping[str, int],
+    object_filesystem_identities: list[dict[str, object]],
+    receipt_filesystem_identity: Mapping[str, int],
+    manifest_payload: Mapping[str, object],
+    result_payload: Mapping[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "registration_id": intent_payload["registration_id"],
+        "project_id": intent_payload["project_id"],
+        "session_id": intent_payload["session_id"],
+        "candidate_id": intent_payload["candidate_id"],
+        "run_id": intent_payload["run_id"],
+        "producer": intent_payload["producer"],
+        "producer_role": intent_payload["producer_role"],
+        "created_at": intent_payload["created_at"],
+        "registration_intent": _artifact_payload(registration_intent),
+        "receipt_filesystem_identity": dict(receipt_filesystem_identity),
+        "execution_contract": intent_payload["execution_contract"],
+        "result": intent_payload["result"],
+        "manifest": _artifact_payload(manifest_reference),
+        "manifest_filesystem_identity": dict(manifest_filesystem_identity),
+        "objects": list(manifest_payload["objects"]),
+        "object_filesystem_identities": object_filesystem_identities,
+        "runtime": result_payload["runtime"],
+        "completed": True,
+    }
+
+
+def _find_candidate_run(
+    project: ResearchProject, session_id: str, candidate_id: str
+) -> tuple[str, dict[str, str]]:
+    inventory = _run_inventory(project, session_id)
+    matches: list[tuple[str, dict[str, str]]] = []
+    for run_id, records in inventory.items():
+        contract_path = records.get("contract")
+        if contract_path is None:
+            continue
+        contract, _bytes, _snapshot = _read_run_payload(
+            project, contract_path, error_code="refinement_run_contract_invalid"
+        )
+        if contract.get("candidate_id") == candidate_id:
+            matches.append((run_id, records))
+    if len(matches) != 1 or matches[0][0] != sorted(inventory)[-1]:
+        raise ValueError("refinement_result_reservation_invalid")
+    return matches[0]
+
+
+def _validated_result_registration_context(
+    project: ResearchProject,
+    *,
+    candidate: CandidateStatus,
+    package: package_contract.ValidatedExperimentPackage,
+    run_id: str,
+    contract_path: str,
+    contract: Mapping[str, object],
+    contract_bytes: bytes,
+    registration_intent_path: str,
+) -> tuple[
+    dict[str, object],
+    ArtifactRef,
+    dict[str, object],
+    ArtifactRef,
+    tuple[EvidenceSource, ...],
+    float,
+]:
+    result_path = _run_result_path(candidate.candidate_id)
+    result, result_bytes, result_snapshot, elapsed = _validate_refinement_result_payload(
+        project,
+        candidate,
+        package,
+        run_id=run_id,
+        contract_path=contract_path,
+        contract=contract,
+        contract_bytes=contract_bytes,
+        result_path=result_path,
+    )
+    result_reference = ArtifactRef(
+        result_path, hashlib.sha256(result_bytes).hexdigest(), len(result_bytes)
+    )
+    sources = _evidence_sources(
+        contract,
+        contract_path=contract_path,
+        contract_bytes=contract_bytes,
+        result_path=result_path,
+        result_bytes=result_bytes,
+    )
+    registration_intent, registration_intent_bytes, registration_intent_snapshot = (
+        _read_run_payload(
+            project,
+            registration_intent_path,
+            error_code="refinement_evidence_registration_invalid",
+        )
+    )
+    registration_intent_reference = ArtifactRef(
+        registration_intent_path,
+        hashlib.sha256(registration_intent_bytes).hexdigest(),
+        len(registration_intent_bytes),
+    )
+    state_reference = project.state.artifacts.get(registration_intent_path)
+    if state_reference not in {None, registration_intent_reference}:
+        raise ValueError("refinement_evidence_registration_invalid")
+    try:
+        intent_identity = _require_filesystem_identity(
+            registration_intent.get("intent_filesystem_identity"),
+            receipt=True,
+            error="refinement_evidence_registration_invalid",
+        )
+        registration_id = str(registration_intent["registration_id"])
+        created_at = str(registration_intent["created_at"])
+        manifest_created_at = str(registration_intent["manifest_created_at"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("refinement_evidence_registration_invalid") from error
+    if intent_identity != _receipt_filesystem_identity_from_snapshot(
+        registration_intent_snapshot
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    contract_reference = ArtifactRef(
+        contract_path, hashlib.sha256(contract_bytes).hexdigest(), len(contract_bytes)
+    )
+    manifest_path = _refinement_manifest_path(
+        str(contract["session_id"]), candidate.candidate_id, run_id
+    )
+    expected_intent = _registration_intent_payload(
+        contract=contract,
+        registration_id=registration_id,
+        created_at=created_at,
+        manifest_created_at=manifest_created_at,
+        contract_reference=contract_reference,
+        result_reference=result_reference,
+        result_filesystem_identity=_filesystem_identity(result_snapshot),
+        sources=sources,
+        manifest_path=manifest_path,
+        filesystem_identity=intent_identity,
+    )
+    if registration_intent != expected_intent:
+        raise ValueError("refinement_evidence_registration_invalid")
+    return (
+        registration_intent,
+        registration_intent_reference,
+        result,
+        result_reference,
+        sources,
+        elapsed,
+    )
+
+
+def _validated_refinement_manifest(
+    project: ResearchProject,
+    *,
+    registration_intent: Mapping[str, object],
+    result: Mapping[str, object],
+) -> tuple[dict[str, object], ArtifactRef, object, list[dict[str, object]]]:
+    manifest_path = registration_intent.get("manifest_path")
+    if not isinstance(manifest_path, str):
+        raise ValueError("refinement_evidence_registration_invalid")
+    manifest, manifest_bytes, manifest_snapshot = _read_run_payload(
+        project,
+        manifest_path,
+        error_code="refinement_evidence_registration_invalid",
+    )
+    expected_manifest = _manifest_payload(registration_intent, result)
+    if manifest != expected_manifest:
+        raise ValueError("refinement_evidence_registration_invalid")
+    manifest_reference = ArtifactRef(
+        manifest_path,
+        hashlib.sha256(manifest_bytes).hexdigest(),
+        len(manifest_bytes),
+    )
+    objects = manifest.get("objects")
+    if not isinstance(objects, list):
+        raise ValueError("refinement_evidence_registration_invalid")
+    identities: list[dict[str, object]] = []
+    for item in objects:
+        if not isinstance(item, Mapping):
+            raise ValueError("refinement_evidence_registration_invalid")
+        object_path = item.get("object_path")
+        sha256 = item.get("sha256")
+        size = item.get("size")
+        if (
+            not isinstance(object_path, str)
+            or not isinstance(sha256, str)
+            or isinstance(size, bool)
+            or not isinstance(size, int)
+            or size < 0
+        ):
+            raise ValueError("refinement_evidence_registration_invalid")
+        object_reference = ArtifactRef(object_path, sha256, size)
+        object_snapshot = _secure_snapshot(
+            project.root,
+            object_path,
+            expected=object_reference,
+            maximum_bytes=size,
+            error_code="refinement_evidence_registration_invalid",
+        )[0]
+        identities.append({"path": object_path, **_filesystem_identity(object_snapshot)})
+    return manifest, manifest_reference, manifest_snapshot, identities
+
+
+def _validate_pending_result_registration(
+    project: ResearchProject,
+    *,
+    candidate: CandidateStatus,
+    package: package_contract.ValidatedExperimentPackage,
+    run_id: str,
+    contract_path: str,
+    contract: Mapping[str, object],
+    contract_bytes: bytes,
+    registration_intent_path: str,
+) -> None:
+    registration_intent, _intent_ref, result, _result_ref, _sources, _elapsed = (
+        _validated_result_registration_context(
+            project,
+            candidate=candidate,
+            package=package,
+            run_id=run_id,
+            contract_path=contract_path,
+            contract=contract,
+            contract_bytes=contract_bytes,
+            registration_intent_path=registration_intent_path,
+        )
+    )
+    manifest_path = str(registration_intent["manifest_path"])
+    if os.path.lexists(project.root / manifest_path):
+        _validated_refinement_manifest(
+            project, registration_intent=registration_intent, result=result
+        )
+    if (
+        project.state.artifacts.get(_run_result_path(candidate.candidate_id)) is not None
+        or project.state.artifacts.get(manifest_path) is not None
+        or project.state.artifacts.get(
+            _run_registration_path(str(contract["session_id"]), run_id)
+        )
+        is not None
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+
+
+def _validate_completed_result_registration(
+    project: ResearchProject,
+    *,
+    candidate: CandidateStatus,
+    package: package_contract.ValidatedExperimentPackage,
+    run_id: str,
+    contract_path: str,
+    contract: Mapping[str, object],
+    contract_bytes: bytes,
+    registration_intent_path: str,
+    registration_path: str,
+) -> float:
+    (
+        registration_intent,
+        registration_intent_reference,
+        result,
+        result_reference,
+        _sources,
+        elapsed,
+    ) = _validated_result_registration_context(
+        project,
+        candidate=candidate,
+        package=package,
+        run_id=run_id,
+        contract_path=contract_path,
+        contract=contract,
+        contract_bytes=contract_bytes,
+        registration_intent_path=registration_intent_path,
+    )
+    if project.state.artifacts.get(registration_intent_path) != (
+        registration_intent_reference
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    manifest, manifest_reference, manifest_snapshot, object_identities = (
+        _validated_refinement_manifest(
+            project, registration_intent=registration_intent, result=result
+        )
+    )
+    receipt, receipt_bytes, receipt_snapshot = _read_run_payload(
+        project,
+        registration_path,
+        error_code="refinement_evidence_registration_invalid",
+    )
+    expected_receipt = _registration_receipt_payload(
+        registration_intent=registration_intent_reference,
+        intent_payload=registration_intent,
+        manifest_reference=manifest_reference,
+        manifest_filesystem_identity=_filesystem_identity(manifest_snapshot),
+        object_filesystem_identities=object_identities,
+        receipt_filesystem_identity=_receipt_filesystem_identity_from_snapshot(
+            receipt_snapshot
+        ),
+        manifest_payload=manifest,
+        result_payload=result,
+    )
+    if receipt != expected_receipt:
+        raise ValueError("refinement_evidence_registration_invalid")
+    receipt_reference = ArtifactRef(
+        registration_path, hashlib.sha256(receipt_bytes).hexdigest(), len(receipt_bytes)
+    )
+    manifest_path = str(registration_intent["manifest_path"])
+    state_publication = (
+        project.state.artifacts.get(_run_result_path(candidate.candidate_id)),
+        project.state.artifacts.get(manifest_path),
+        project.state.artifacts.get(registration_path),
+    )
+    complete_state = (result_reference, manifest_reference, receipt_reference)
+    recoverable_state = (None, None, None)
+    if state_publication != complete_state and not (
+        state_publication == recoverable_state
+        and project.state.next_action == "register_refinement_result"
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    return elapsed
+
+
+def _reconstruct_refinement_run_counters(
+    project: ResearchProject, candidates: tuple[CandidateStatus, ...]
+) -> tuple[int, float]:
+    session_payload = _current_session_payload(project)
+    session_id = str(session_payload["session_id"])
+    inventory = _run_inventory(project, session_id)
+    candidate_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    if len(candidate_by_id) != len(candidates):
+        raise ValueError("refinement_run_reservation_invalid")
+    wall_seconds = 0.0
+    prior_run_complete = True
+    for run_number, (run_id, records) in enumerate(inventory.items(), start=1):
+        if not prior_run_complete:
+            raise ValueError("refinement_run_reservation_invalid")
+        intent_path = records["intent"]
+        intent, intent_bytes, intent_snapshot = _read_run_payload(
+            project, intent_path, error_code="refinement_run_reservation_invalid"
+        )
+        candidate_id = intent.get("candidate_id")
+        if not isinstance(candidate_id, str):
+            raise ValueError("refinement_run_reservation_invalid")
+        candidate = candidate_by_id.get(candidate_id)
+        if candidate is None:
+            raise ValueError("refinement_run_reservation_invalid")
+        _revalidate_registered_self_test_semantics(project, candidate)
+        context = _hold_candidate_context(project, candidate)
+        package = validate_experiment_package_contract_at(
+            project,
+            package_root=_candidate_root(project, candidate_id),
+            contract_path=_CONTRACT_LOCAL_PATH,
+        )
+        bound_environment = _inspect_bound_environment(package)
+        authority = _run_authority_payload(
+            project,
+            candidate,
+            context,
+            package,
+            bound_environment,
+            session_payload=session_payload,
+            run_id=run_id,
+            runs_reserved_before=run_number - 1,
+            wall_seconds_used_before=wall_seconds,
+            enforce_deadline=False,
+        )
+        contract_path = _run_contract_path(session_id, run_id)
+        result_path = _run_result_path(candidate_id)
+        _validate_run_intent(
+            intent,
+            intent_snapshot,
+            authority=authority,
+            contract_path=contract_path,
+            result_path=result_path,
+        )
+        intent_reference = ArtifactRef(
+            intent_path, hashlib.sha256(intent_bytes).hexdigest(), len(intent_bytes)
+        )
+        state_intent = project.state.artifacts.get(intent_path)
+        if state_intent not in {None, intent_reference}:
+            raise ValueError("refinement_run_reservation_invalid")
+        contract_path = records.get("contract")
+        if contract_path is None:
+            if records.keys() != {"intent"}:
+                raise ValueError("refinement_run_reservation_invalid")
+            prior_run_complete = False
+            continue
+        if state_intent != intent_reference:
+            raise ValueError("refinement_run_reservation_invalid")
+        contract, contract_bytes, contract_snapshot = _read_run_payload(
+            project, contract_path, error_code="refinement_run_contract_invalid"
+        )
+        expected_contract = _run_contract_payload(
+            intent,
+            intent_reference,
+            _receipt_filesystem_identity_from_snapshot(contract_snapshot),
+        )
+        if contract != expected_contract:
+            raise ValueError("refinement_run_contract_invalid")
+        contract_reference = ArtifactRef(
+            contract_path,
+            hashlib.sha256(contract_bytes).hexdigest(),
+            len(contract_bytes),
+        )
+        state_contract = project.state.artifacts.get(contract_path)
+        if state_contract not in {None, contract_reference}:
+            raise ValueError("refinement_run_contract_invalid")
+        registration_path = records.get("registration")
+        registration_intent_path = records.get("registration.intent")
+        if registration_path is None:
+            if records.keys() not in (
+                {"intent", "contract"},
+                {"intent", "contract", "registration.intent"},
+            ):
+                raise ValueError("refinement_evidence_registration_invalid")
+            if state_contract not in {None, contract_reference}:
+                raise ValueError("refinement_run_contract_invalid")
+            if registration_intent_path is not None:
+                if state_contract != contract_reference:
+                    raise ValueError("refinement_run_contract_invalid")
+                _validate_pending_result_registration(
+                    project,
+                    candidate=candidate,
+                    package=package,
+                    run_id=run_id,
+                    contract_path=contract_path,
+                    contract=contract,
+                    contract_bytes=contract_bytes,
+                    registration_intent_path=registration_intent_path,
+                )
+            prior_run_complete = False
+            continue
+        if registration_intent_path is None or state_contract != contract_reference:
+            raise ValueError("refinement_evidence_registration_invalid")
+        elapsed = _validate_completed_result_registration(
+            project,
+            candidate=candidate,
+            package=package,
+            run_id=run_id,
+            contract_path=contract_path,
+            contract=contract,
+            contract_bytes=contract_bytes,
+            registration_intent_path=registration_intent_path,
+            registration_path=registration_path,
+        )
+        wall_seconds += elapsed
+        maximum_wall_seconds = session_payload.get("envelope", {}).get(
+            "maximum_wall_seconds"
+        )
+        if (
+            isinstance(maximum_wall_seconds, bool)
+            or not isinstance(maximum_wall_seconds, int)
+            or wall_seconds > maximum_wall_seconds
+        ):
+            raise ValueError("refinement_run_wall_time_exhausted")
+    return len(inventory), wall_seconds
+
+
+@project_mutation
+def register_refinement_result(
+    project: ResearchProject, candidate_id: str, result_path: str | Path
+) -> RefinementRunStatus:
+    """Validate one owned run result and publish immutable refinement evidence."""
+    current = ResearchProject.open(project.root)
+    expected_result_path = _run_result_path(candidate_id)
+    supplied = Path(result_path)
+    if supplied.is_absolute() or supplied.as_posix() != expected_result_path:
+        raise ValueError("refinement_result_path_invalid")
+    if current.state.next_action not in {
+        "register_refinement_result",
+        "register_refinement_assessment",
+    }:
+        raise ValueError("refinement_result_unavailable")
+    session_payload = _current_session_payload(current)
+    session_id = str(session_payload["session_id"])
+    run_id, records = _find_candidate_run(current, session_id, candidate_id)
+    session_status = _load_prepared_refinement_session(current)
+    candidate_statuses = _registered_candidate_statuses(
+        current,
+        session=session_status,
+        baseline=_baseline(current),
+        unregistered_additional_paths=(
+            {candidate_id: (expected_result_path,)}
+            if expected_result_path not in current.state.artifacts
+            else None
+        ),
+    )
+    _reconstruct_refinement_run_counters(current, candidate_statuses)
+    candidate = _revalidate_refinement_candidate(
+        current,
+        candidate_id,
+        unregistered_result_path=(
+            None
+            if expected_result_path in current.state.artifacts
+            else expected_result_path
+        ),
+    )
+    _revalidate_registered_self_test_semantics(current, candidate)
+    context = _hold_candidate_context(current, candidate)
+    package = validate_experiment_package_contract_at(
+        current,
+        package_root=_candidate_root(current, candidate_id),
+        contract_path=_CONTRACT_LOCAL_PATH,
+    )
+    bound_environment = _inspect_bound_environment(package)
+    inventory = _run_inventory(current, session_id)
+    prior_inventory = {
+        prior_run_id: prior_records
+        for prior_run_id, prior_records in inventory.items()
+        if prior_run_id < run_id
+    }
+    authority = _run_authority_payload(
+        current,
+        candidate,
+        context,
+        package,
+        bound_environment,
+        session_payload=session_payload,
+        run_id=run_id,
+        runs_reserved_before=int(run_id.split("-")[1]) - 1,
+        wall_seconds_used_before=_completed_run_wall_seconds(
+            current, prior_inventory
+        ),
+        enforce_deadline=False,
+    )
+    intent_path = records.get("intent")
+    contract_path = records.get("contract")
+    if intent_path is None or contract_path is None:
+        raise ValueError("refinement_result_reservation_invalid")
+    intent, intent_bytes, intent_snapshot = _read_run_payload(
+        current, intent_path, error_code="refinement_run_reservation_invalid"
+    )
+    _validate_run_intent(
+        intent,
+        intent_snapshot,
+        authority=authority,
+        contract_path=contract_path,
+        result_path=expected_result_path,
+    )
+    intent_reference = ArtifactRef(
+        intent_path, hashlib.sha256(intent_bytes).hexdigest(), len(intent_bytes)
+    )
+    contract, contract_bytes, contract_snapshot = _read_run_payload(
+        current, contract_path, error_code="refinement_run_contract_invalid"
+    )
+    if contract != _run_contract_payload(
+        intent,
+        intent_reference,
+        _receipt_filesystem_identity_from_snapshot(contract_snapshot),
+    ):
+        raise ValueError("refinement_run_contract_invalid")
+    contract_reference = ArtifactRef(
+        contract_path, hashlib.sha256(contract_bytes).hexdigest(), len(contract_bytes)
+    )
+    if (
+        current.state.artifacts.get(intent_path) != intent_reference
+        or current.state.artifacts.get(contract_path) != contract_reference
+    ):
+        raise ValueError("refinement_result_reservation_invalid")
+    result, result_bytes, result_snapshot, elapsed = _validate_refinement_result_payload(
+        current,
+        candidate,
+        package,
+        run_id=run_id,
+        contract_path=contract_path,
+        contract=contract,
+        contract_bytes=contract_bytes,
+        result_path=expected_result_path,
+    )
+    result_reference = ArtifactRef(
+        expected_result_path,
+        hashlib.sha256(result_bytes).hexdigest(),
+        len(result_bytes),
+    )
+    existing_result = current.state.artifacts.get(expected_result_path)
+    if existing_result not in {None, result_reference}:
+        raise ValueError("refinement_result_changed")
+    sources = _evidence_sources(
+        contract,
+        contract_path=contract_path,
+        contract_bytes=contract_bytes,
+        result_path=expected_result_path,
+        result_bytes=result_bytes,
+    )
+    manifest_path = _refinement_manifest_path(session_id, candidate_id, run_id)
+    registration_intent_path = _registration_intent_path(session_id, run_id)
+    registration_path = _run_registration_path(session_id, run_id)
+    registration_intent_ref = current.state.artifacts.get(registration_intent_path)
+    adopt_registration_intent = False
+    created_registration_intent = False
+    if registration_intent_ref is None:
+        adopt_registration_intent = True
+        if os.path.lexists(current.root / registration_intent_path):
+            (
+                registration_intent,
+                registration_intent_bytes,
+                registration_intent_snapshot,
+            ) = _read_run_payload(
+                current,
+                registration_intent_path,
+                error_code="refinement_evidence_registration_invalid",
+            )
+        else:
+            registration_id = uuid4().hex
+            try:
+                registration_intent, registration_intent_bytes = _write_run_record(
+                    current,
+                    session_id=session_id,
+                    leaf_name=f"{run_id}.registration.intent.json",
+                    payload_builder=lambda identity: _registration_intent_payload(
+                        contract=contract,
+                        registration_id=registration_id,
+                        created_at=_utc_now().isoformat(),
+                        manifest_created_at=_utc_now().isoformat(),
+                        contract_reference=contract_reference,
+                        result_reference=result_reference,
+                        result_filesystem_identity=_filesystem_identity(result_snapshot),
+                        sources=sources,
+                        manifest_path=manifest_path,
+                        filesystem_identity=identity,
+                    ),
+                    error_code="refinement_evidence_registration_invalid",
+                )
+            except FileExistsError as error:
+                raise ValueError("refinement_evidence_registration_invalid") from error
+            registration_intent_snapshot = _read_run_payload(
+                current,
+                registration_intent_path,
+                error_code="refinement_evidence_registration_invalid",
+            )[2]
+            created_registration_intent = True
+        registration_intent_ref = ArtifactRef(
+            registration_intent_path,
+            hashlib.sha256(registration_intent_bytes).hexdigest(),
+            len(registration_intent_bytes),
+        )
+    else:
+        registration_intent, registration_intent_bytes, registration_intent_snapshot = (
+            _read_run_payload(
+                current,
+                registration_intent_path,
+                error_code="refinement_evidence_registration_invalid",
+            )
+        )
+        if registration_intent_snapshot.reference != registration_intent_ref:
+            raise ValueError("refinement_evidence_registration_invalid")
+    registration_intent, registration_intent_bytes, registration_intent_snapshot = (
+        _read_run_payload(
+            current,
+            registration_intent_path,
+            error_code="refinement_evidence_registration_invalid",
+        )
+    )
+    if registration_intent_snapshot.reference != registration_intent_ref:
+        raise ValueError("refinement_evidence_registration_invalid")
+    expected_registration = _registration_intent_payload(
+        contract=contract,
+        registration_id=str(registration_intent["registration_id"]),
+        created_at=str(registration_intent["created_at"]),
+        manifest_created_at=str(registration_intent["manifest_created_at"]),
+        contract_reference=contract_reference,
+        result_reference=result_reference,
+        result_filesystem_identity=_filesystem_identity(result_snapshot),
+        sources=sources,
+        manifest_path=manifest_path,
+        filesystem_identity=_require_filesystem_identity(
+            registration_intent.get("intent_filesystem_identity"),
+            receipt=True,
+            error="refinement_evidence_registration_invalid",
+        ),
+    )
+    if registration_intent != expected_registration:
+        raise ValueError("refinement_evidence_registration_invalid")
+    if _require_filesystem_identity(
+        registration_intent.get("intent_filesystem_identity"),
+        receipt=True,
+        error="refinement_evidence_registration_invalid",
+    ) != _receipt_filesystem_identity_from_snapshot(registration_intent_snapshot):
+        raise ValueError("refinement_evidence_registration_invalid")
+    if adopt_registration_intent:
+        current.persist_state(
+            replace(
+                current.state,
+                artifacts={
+                    **current.state.artifacts,
+                    registration_intent_path: registration_intent_ref,
+                },
+            )
+        )
+        current = ResearchProject.open(current.root)
+        if created_registration_intent:
+            _after_refinement_result_intent_publication()
+    store = EvidenceStore(current.root)
+    store.preflight(sources)
+    evidence_objects = tuple(store.publish(source) for source in sources)
+    if any(
+        evidence_object.sha256 != source.expected_sha256
+        or evidence_object.size != source.expected_size
+        for source, evidence_object in zip(sources, evidence_objects, strict=True)
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    manifest_payload = _manifest_payload(registration_intent, result)
+    manifest_reference, _manifest_bytes = _write_refinement_manifest(
+        current,
+        session_id=session_id,
+        candidate_id=candidate_id,
+        run_id=run_id,
+        payload=manifest_payload,
+    )
+    manifest_snapshot = _secure_snapshot(
+        current.root,
+        manifest_path,
+        expected=manifest_reference,
+        maximum_bytes=_MAX_JSON_BYTES,
+        error_code="refinement_evidence_registration_invalid",
+    )[0]
+    object_filesystem_identities: list[dict[str, object]] = []
+    for evidence_object in evidence_objects:
+        object_reference = ArtifactRef(
+            evidence_object.path, evidence_object.sha256, evidence_object.size
+        )
+        object_snapshot = _secure_snapshot(
+            current.root,
+            evidence_object.path,
+            expected=object_reference,
+            maximum_bytes=evidence_object.size,
+            error_code="refinement_evidence_registration_invalid",
+        )[0]
+        object_filesystem_identities.append(
+            {"path": evidence_object.path, **_filesystem_identity(object_snapshot)}
+        )
+    _after_refinement_evidence_manifest_publication()
+    if os.path.lexists(current.root / registration_path):
+        persisted_receipt, receipt_bytes, receipt_snapshot = _read_run_payload(
+            current,
+            registration_path,
+            error_code="refinement_evidence_registration_invalid",
+        )
+        receipt_payload = _registration_receipt_payload(
+            registration_intent=registration_intent_ref,
+            intent_payload=registration_intent,
+            manifest_reference=manifest_reference,
+            manifest_filesystem_identity=_filesystem_identity(manifest_snapshot),
+            object_filesystem_identities=object_filesystem_identities,
+            receipt_filesystem_identity=(
+                _receipt_filesystem_identity_from_snapshot(receipt_snapshot)
+            ),
+            manifest_payload=manifest_payload,
+            result_payload=result,
+        )
+        receipt_bytes_expected = _canonical_json(receipt_payload)
+        if persisted_receipt != receipt_payload or receipt_bytes != receipt_bytes_expected:
+            raise ValueError("refinement_evidence_registration_invalid")
+    else:
+        try:
+            receipt_payload, receipt_bytes = _write_run_record(
+                current,
+                session_id=session_id,
+                leaf_name=f"{run_id}.registration.json",
+                payload_builder=lambda identity: _registration_receipt_payload(
+                    registration_intent=registration_intent_ref,
+                    intent_payload=registration_intent,
+                    manifest_reference=manifest_reference,
+                    manifest_filesystem_identity=_filesystem_identity(
+                        manifest_snapshot
+                    ),
+                    object_filesystem_identities=object_filesystem_identities,
+                    receipt_filesystem_identity=identity,
+                    manifest_payload=manifest_payload,
+                    result_payload=result,
+                ),
+                error_code="refinement_evidence_registration_invalid",
+            )
+        except FileExistsError as error:
+            raise ValueError("refinement_evidence_registration_invalid") from error
+        receipt_snapshot = _read_run_payload(
+            current,
+            registration_path,
+            error_code="refinement_evidence_registration_invalid",
+        )[2]
+        if receipt_payload != _registration_receipt_payload(
+            registration_intent=registration_intent_ref,
+            intent_payload=registration_intent,
+            manifest_reference=manifest_reference,
+            manifest_filesystem_identity=_filesystem_identity(manifest_snapshot),
+            object_filesystem_identities=object_filesystem_identities,
+            receipt_filesystem_identity=(
+                _receipt_filesystem_identity_from_snapshot(receipt_snapshot)
+            ),
+            manifest_payload=manifest_payload,
+            result_payload=result,
+        ):
+            raise ValueError("refinement_evidence_registration_invalid")
+    receipt_reference = ArtifactRef(
+        registration_path, hashlib.sha256(receipt_bytes).hexdigest(), len(receipt_bytes)
+    )
+    target_state = replace(
+        current.state,
+        next_action="register_refinement_assessment",
+        artifacts={
+            **current.state.artifacts,
+            expected_result_path: result_reference,
+            manifest_path: manifest_reference,
+            registration_path: receipt_reference,
+        },
+    )
+    if current.state != target_state:
+        current.persist_state(target_state)
+        _after_refinement_result_state_publication()
+    published = ResearchProject.open_readonly(current.root)
+    if (
+        published.state != target_state
+        or _secure_snapshot(
+            published.root,
+            expected_result_path,
+            expected=result_reference,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_result_changed",
+        )[0].reference
+        != result_reference
+        or _secure_snapshot(
+            published.root,
+            manifest_path,
+            expected=manifest_reference,
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code="refinement_evidence_registration_invalid",
+        )[0].reference
+        != manifest_reference
+        or _inspect_bound_environment(package) != bound_environment
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
+    runs_used, wall_seconds_used = _reconstruct_refinement_run_counters(
+        published, (replace(candidate, next_action=published.state.next_action),)
+    )
+    execution = contract["execution"]
+    assert isinstance(execution, Mapping)
+    return RefinementRunStatus(
+        candidate_id=candidate_id,
+        run_id=run_id,
+        argv=tuple(str(item) for item in execution["argv"]),
+        cwd=str(execution["cwd"]),
+        environment_fingerprint=str(execution["environment_fingerprint"]),
+        intent_path=intent_path,
+        contract_path=contract_path,
+        contract_sha256=contract_snapshot.reference.sha256,
+        result_path=expected_result_path,
+        evidence_manifest_path=manifest_path,
+        runs_used=runs_used,
+        wall_seconds_used=wall_seconds_used,
+        next_action="register_refinement_assessment",
+    )
