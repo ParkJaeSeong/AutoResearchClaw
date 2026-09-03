@@ -93,6 +93,51 @@ def self_tested_candidate_project_with_envelope(
     return ResearchProject.open(project.root), candidate
 
 
+def mutate_on_nth_run_inventory_scan(
+    monkeypatch, run_root: Path, *, scan_number: int, mutation
+):
+    original_scandir = os.scandir
+    matching_scans = 0
+
+    class MutatingScandir:
+        def __init__(self, iterator):
+            self.iterator = iterator
+            self.mutated = False
+
+        def __enter__(self):
+            self.iterator.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.iterator.__exit__(*args)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            try:
+                return next(self.iterator)
+            except StopIteration:
+                if not self.mutated:
+                    self.mutated = True
+                    mutation()
+                raise
+
+    def mutating_scandir(path):
+        nonlocal matching_scans
+        iterator = original_scandir(path)
+        if isinstance(path, int) and run_root.exists():
+            opened = os.fstat(path)
+            expected = run_root.stat()
+            if (opened.st_dev, opened.st_ino) == (expected.st_dev, expected.st_ino):
+                matching_scans += 1
+                if matching_scans == scan_number:
+                    return MutatingScandir(iterator)
+        return iterator
+
+    monkeypatch.setattr(refinement_execution.os, "scandir", mutating_scandir)
+
+
 def test_prepare_refinement_run_reserves_exact_authoritative_contract_without_execution(
     tmp_path,
 ):
@@ -279,6 +324,70 @@ def test_prepare_refinement_run_rescans_closed_inventory_after_intent_publicatio
 
     recovered = prepare_refinement_run(pending, candidate.candidate_id)
 
+    assert recovered.run_id == "run-001"
+    assert recovered.next_action == "register_refinement_result"
+
+
+def test_prepare_refinement_run_rejects_unknown_inserted_during_inventory_scan(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    run_root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    unexpected = run_root / "unexpected.json"
+    mutate_on_nth_run_inventory_scan(
+        monkeypatch,
+        run_root,
+        scan_number=3,
+        mutation=lambda: unexpected.write_text("{}", encoding="utf-8"),
+    )
+
+    with pytest.raises(ValueError, match="^refinement_run_reservation_invalid$"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    assert unexpected.exists()
+    unexpected.unlink()
+    recovered = prepare_refinement_run(
+        ResearchProject.open(project.root), candidate.candidate_id
+    )
+    assert recovered.run_id == "run-001"
+    assert recovered.next_action == "register_refinement_result"
+
+
+def test_prepare_refinement_run_rejects_session_directory_aba_during_inventory_scan(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session_id = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )["session_id"]
+    run_root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    renamed = run_root.with_name(f"{session_id}.renamed")
+    mutations = []
+
+    def rename_away_and_back():
+        run_root.rename(renamed)
+        renamed.rename(run_root)
+        mutations.append("renamed")
+
+    mutate_on_nth_run_inventory_scan(
+        monkeypatch,
+        run_root,
+        scan_number=3,
+        mutation=rename_away_and_back,
+    )
+
+    with pytest.raises(ValueError, match="^refinement_run_reservation_invalid$"):
+        prepare_refinement_run(project, candidate.candidate_id)
+
+    assert run_root.is_dir()
+    assert not renamed.exists()
+    assert mutations == ["renamed"]
+    recovered = prepare_refinement_run(
+        ResearchProject.open(project.root), candidate.candidate_id
+    )
     assert recovered.run_id == "run-001"
     assert recovered.next_action == "register_refinement_result"
 

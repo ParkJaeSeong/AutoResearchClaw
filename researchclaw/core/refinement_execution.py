@@ -2755,18 +2755,37 @@ def _run_result_path(candidate_id: str) -> str:
     return f"refinement/candidates/{candidate_id}/results.json"
 
 
-def _open_run_parent(project: ResearchProject, session_id: str) -> int:
+def _run_directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("refinement_run_reservation_invalid")
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _open_run_parent_with_identity(
+    project: ResearchProject, session_id: str, *, create: bool
+) -> tuple[int, tuple[tuple[str, tuple[int, ...]], ...]]:
     if _SESSION_ID.fullmatch(session_id) is None:
         raise ValueError("refinement_run_reservation_invalid")
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor: int | None = None
     try:
         descriptor = os.open(project.root.resolve(strict=True), flags)
+        component_identity = [
+            (".", _run_directory_identity(os.fstat(descriptor)))
+        ]
         for component in (".researchclaw", "refinement-runs", session_id):
             try:
                 child = os.open(component, flags, dir_fd=descriptor)
             except OSError as error:
-                if error.errno != errno.ENOENT:
+                if error.errno != errno.ENOENT or not create:
                     raise
                 try:
                     os.mkdir(component, mode=0o700, dir_fd=descriptor)
@@ -2777,12 +2796,12 @@ def _open_run_parent(project: ResearchProject, session_id: str) -> int:
                 child = os.open(component, flags, dir_fd=descriptor)
                 os.fsync(child)
             metadata = os.fstat(child)
-            if not stat.S_ISDIR(metadata.st_mode):
-                os.close(child)
-                raise ValueError("refinement_run_reservation_invalid")
+            component_identity.append(
+                (component, _run_directory_identity(metadata))
+            )
             os.close(descriptor)
             descriptor = child
-        return descriptor
+        return descriptor, tuple(component_identity)
     except (OSError, ValueError) as error:
         if descriptor is not None:
             try:
@@ -2790,6 +2809,10 @@ def _open_run_parent(project: ResearchProject, session_id: str) -> int:
             except OSError:
                 pass
         raise ValueError("refinement_run_reservation_invalid") from error
+
+
+def _open_run_parent(project: ResearchProject, session_id: str) -> int:
+    return _open_run_parent_with_identity(project, session_id, create=True)[0]
 
 
 def _write_run_record(
@@ -2850,34 +2873,22 @@ def _write_run_record(
         os.close(parent)
 
 
-def _run_inventory(project: ResearchProject, session_id: str) -> dict[str, dict[str, str]]:
-    root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
-    if not os.path.lexists(root):
-        return {}
-    parent = _open_run_parent(project, session_id)
+def _run_inventory_from_names(
+    session_id: str, names: list[str]
+) -> dict[str, dict[str, str]]:
     inventory: dict[str, dict[str, str]] = {}
-    try:
-        with os.scandir(parent) as entries:
-            names = [entry.name for entry in entries]
-        if len(names) > 40:
+    if len(names) > 40:
+        raise ValueError("refinement_run_reservation_invalid")
+    for name in names:
+        match = _RUN_LEAF.fullmatch(name)
+        if match is None:
             raise ValueError("refinement_run_reservation_invalid")
-        for name in names:
-            match = _RUN_LEAF.fullmatch(name)
-            if match is None:
-                raise ValueError("refinement_run_reservation_invalid")
-            run_id, kind = match.groups()
-            metadata = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
-                raise ValueError("refinement_run_reservation_invalid")
-            if kind in inventory.setdefault(run_id, {}):
-                raise ValueError("refinement_run_reservation_invalid")
-            inventory[run_id][kind] = (
-                f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{name}"
-            )
-    except (OSError, ValueError) as error:
-        raise ValueError("refinement_run_reservation_invalid") from error
-    finally:
-        os.close(parent)
+        run_id, kind = match.groups()
+        if kind in inventory.setdefault(run_id, {}):
+            raise ValueError("refinement_run_reservation_invalid")
+        inventory[run_id][kind] = (
+            f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{name}"
+        )
     numbered = sorted(int(run_id.split("-")[1]) for run_id in inventory)
     if numbered != list(range(1, len(numbered) + 1)) or any(
         "intent" not in records for records in inventory.values()
@@ -2886,24 +2897,127 @@ def _run_inventory(project: ResearchProject, session_id: str) -> dict[str, dict[
     return {run_id: inventory[run_id] for run_id in sorted(inventory)}
 
 
+def _run_leaf_snapshot(
+    parent: int, name: str, relative_path: str
+) -> tuple[ArtifactRef, tuple[object, ...]]:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0),
+            dir_fd=parent,
+        )
+        initial = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(initial.st_mode)
+            or initial.st_nlink != 1
+            or initial.st_size > _MAX_JSON_BYTES
+        ):
+            raise ValueError("refinement_run_reservation_invalid")
+        identity = (
+            initial.st_dev,
+            initial.st_ino,
+            initial.st_mode,
+            initial.st_nlink,
+            initial.st_size,
+            initial.st_mtime_ns,
+            initial.st_ctime_ns,
+        )
+        digest = hashlib.sha256()
+        total_size = 0
+        while True:
+            read_size = min(64 * 1024, _MAX_JSON_BYTES - total_size + 1)
+            chunk = os.read(descriptor, read_size)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            if total_size > _MAX_JSON_BYTES:
+                raise ValueError("refinement_run_reservation_invalid")
+            digest.update(chunk)
+        final = os.fstat(descriptor)
+        final_identity = (
+            final.st_dev,
+            final.st_ino,
+            final.st_mode,
+            final.st_nlink,
+            final.st_size,
+            final.st_mtime_ns,
+            final.st_ctime_ns,
+        )
+        if identity != final_identity or total_size != initial.st_size:
+            raise ValueError("refinement_run_reservation_invalid")
+        return ArtifactRef(relative_path, digest.hexdigest(), total_size), identity
+    except (OSError, ValueError) as error:
+        raise ValueError("refinement_run_reservation_invalid") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _run_inventory_names(parent: int) -> list[str]:
+    with os.scandir(parent) as entries:
+        return sorted(entry.name for entry in entries)
+
+
 def _run_inventory_snapshot(
     project: ResearchProject, session_id: str
 ) -> tuple[
     dict[str, dict[str, str]],
     dict[str, tuple[ArtifactRef, tuple[object, ...]]],
 ]:
-    inventory = _run_inventory(project, session_id)
+    root = project.root / REFINEMENT_RUN_REGISTRATION_ROOT / session_id
+    if not os.path.lexists(root):
+        return {}, {}
+    parent, component_identity_before = _open_run_parent_with_identity(
+        project, session_id, create=False
+    )
+    reopened: int | None = None
+    verified: int | None = None
     identities: dict[str, tuple[ArtifactRef, tuple[object, ...]]] = {}
-    for records in inventory.values():
-        for path in records.values():
-            snapshot = _secure_snapshot(
-                project.root,
-                path,
-                maximum_bytes=_MAX_JSON_BYTES,
-                error_code="refinement_run_reservation_invalid",
-            )[0]
-            identities[path] = (snapshot.reference, snapshot.stat_identity)
-    return inventory, identities
+    try:
+        directory_identity_before = _run_directory_identity(os.fstat(parent))
+        names_before = _run_inventory_names(parent)
+        inventory = _run_inventory_from_names(session_id, names_before)
+        for records in inventory.values():
+            for path in records.values():
+                name = Path(path).name
+                identities[path] = _run_leaf_snapshot(parent, name, path)
+        names_after = _run_inventory_names(parent)
+        reopened, component_identity_mid = _open_run_parent_with_identity(
+            project, session_id, create=False
+        )
+        reopened_names = _run_inventory_names(reopened)
+        directory_identity_after = _run_directory_identity(os.fstat(parent))
+        reopened_identity = _run_directory_identity(os.fstat(reopened))
+        verified, component_identity_after = _open_run_parent_with_identity(
+            project, session_id, create=False
+        )
+        verified_identity = _run_directory_identity(os.fstat(verified))
+        if (
+            names_before != names_after
+            or names_after != reopened_names
+            or directory_identity_before != directory_identity_after
+            or directory_identity_after != reopened_identity
+            or reopened_identity != verified_identity
+            or component_identity_before != component_identity_mid
+            or component_identity_before != component_identity_after
+        ):
+            raise ValueError("refinement_run_reservation_invalid")
+        return inventory, identities
+    except (OSError, ValueError) as error:
+        raise ValueError("refinement_run_reservation_invalid") from error
+    finally:
+        if verified is not None:
+            os.close(verified)
+        if reopened is not None:
+            os.close(reopened)
+        os.close(parent)
+
+
+def _run_inventory(project: ResearchProject, session_id: str) -> dict[str, dict[str, str]]:
+    return _run_inventory_snapshot(project, session_id)[0]
 
 
 def _assert_closed_run_inventory(

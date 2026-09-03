@@ -226,3 +226,107 @@ PASS
 
 No known concerns remain. The isolated transient noted above was not
 reproducible, and the full Stage 13 gate passed on the authoritative rerun.
+
+## Stable inventory correction pass (2026-09-03)
+
+### RED / GREEN
+
+Two adversarial regressions mutate the real reservation directory only after
+the third descriptor-backed membership iterator has been exhausted. This is
+the old final inventory scan, so the tests directly exercise the prior race
+rather than a mocked result:
+
+- an unknown leaf is inserted after the scan's captured membership;
+- the authoritative session directory is renamed away and back while all run
+  leaves are preserved.
+
+Against the reviewed implementation, both tests were RED because preparation
+returned success across the mutation:
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py::test_prepare_refinement_run_rejects_unknown_inserted_during_inventory_scan tests/codex_native/test_refinement_execution.py::test_prepare_refinement_run_rejects_session_directory_aba_during_inventory_scan -q
+2 failed in 11.70s
+```
+
+The first GREEN attempt caught the unknown insertion but exposed a remaining
+ordering gap in the ABA case: the reopened directory identity was sampled
+before the terminal membership iterator. Moving the terminal identity sample
+after that iterator and adding a final read-only chain reopen closed the gap:
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py::test_prepare_refinement_run_rejects_unknown_inserted_during_inventory_scan tests/codex_native/test_refinement_execution.py::test_prepare_refinement_run_rejects_session_directory_aba_during_inventory_scan -q
+2 passed in 12.99s
+```
+
+### Implementation
+
+- The run-directory descriptor now remains open across membership collection
+  and every leaf's identity/reference hash. Leaves are opened relative to that
+  descriptor with `O_NOFOLLOW`; their type, link count, size, content, and
+  before/after stat identity are checked without reopening by path.
+- Inventory membership is read repeatedly through held and independently
+  reopened descriptors. Unknown insertion, removal, or replacement changes
+  membership or the held directory identity and fails closed.
+- The project root, `.researchclaw`, `refinement-runs`, and authoritative
+  session directory identities are captured by descriptor traversal before
+  the scan and compared with both a mid-scan and terminal read-only traversal.
+  The held, reopened, and terminal session-directory identities must all
+  agree, closing rename-away/back ABA.
+- `_run_inventory()` now delegates to the same stable closed snapshot, so
+  preparation, result registration, and reconstruction share one inventory
+  authority. A detected mutation leaves an exact recoverable pending run;
+  both adversarial tests subsequently recover `run-001` without slot reuse.
+
+The correction changes only `researchclaw/core/refinement_execution.py`,
+`tests/codex_native/test_refinement_execution.py`, and this report. It adds no
+Task 6 selection/handoff behavior and does not alter evidence namespaces,
+scientific-merit handling, external execution, or API/model behavior.
+
+### Verification
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py -k 'inventory or recovers_exact_intent_only_reservation or recovers_exact_contract_only_publication or unknown_or_unsafe_reservation_records' -q
+8 passed, 94 deselected in 48.60s
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py -q
+102 passed in 549.51s (0:09:09)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement.py tests/codex_native/test_refinement_execution.py -q
+186 passed in 724.05s (0:12:04)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_refinement_execution.py tests/codex_native/test_execution_environment.py tests/codex_native/test_evidence_registration.py tests/codex_native/test_evidence_store.py -q
+252 passed in 660.12s (0:11:00)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_research_execution.py tests/codex_native/test_experiment_package_contract.py tests/codex_native/test_stage12_final_fix_wave.py tests/codex_native/test_stage12_trustworthy_evidence_integration.py tests/codex_native/test_stage12_release_script.py -q
+320 passed in 393.37s (0:06:33)
+```
+
+```text
+/opt/homebrew/bin/python3.11 -m ruff check researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py
+PASS
+
+/opt/homebrew/bin/python3.11 -m compileall -q researchclaw tests/codex_native/test_refinement_execution.py
+PASS
+
+git diff --check
+PASS
+```
+
+### Self-review and concerns
+
+- The mutation tests assert both rejection and exact subsequent recovery; the
+  ABA test additionally asserts that the rename mutation really ran.
+- All directory opens are descriptor-relative and no scan creates missing
+  authority while validating an existing inventory.
+- The scanner has a bounded 40-leaf inventory and one-MiB per-leaf limit, so
+  the added stability passes remain within the existing closed budget.
+
+No known concerns remain.
