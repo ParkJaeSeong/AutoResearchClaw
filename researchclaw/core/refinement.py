@@ -77,6 +77,10 @@ _CANDIDATE_SELF_TEST_PREPARATION = re.compile(
     r"\.researchclaw/refinement-self-tests/([0-9a-f]{32})/"
     r"(candidate-[0-9]{3})\.preparation\.json\Z"
 )
+_CANDIDATE_SELF_TEST_PREPARATION_INTENT = re.compile(
+    r"\.researchclaw/refinement-self-tests/([0-9a-f]{32})/"
+    r"(candidate-[0-9]{3})\.preparation\.intent\.json\Z"
+)
 _PHASE = "awaiting_independent_assessments"
 _NEXT_ACTION = "register_refinement_assessment"
 _DELIBERATIONS_PATH = "refinement/deliberations"
@@ -2050,6 +2054,7 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
         current, session=session, baseline=baseline
     )
     from .refinement_execution import (
+        _revalidate_registered_intent_semantics,
         _revalidate_registered_preparation_semantics,
         _revalidate_registered_self_test_semantics,
     )
@@ -2067,6 +2072,12 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
             ".researchclaw/refinement-self-tests/"
             f"{session.session_id}/{candidate.candidate_id}.preparation.json"
         )
+        intent_path = (
+            ".researchclaw/refinement-self-tests/"
+            f"{session.session_id}/{candidate.candidate_id}.preparation.intent.json"
+        )
+        if intent_path in current.state.artifacts:
+            _revalidate_registered_intent_semantics(current, candidate)
         if preparation_path in current.state.artifacts:
             _revalidate_registered_preparation_semantics(current, candidate)
         if (
@@ -3109,6 +3120,7 @@ def _registered_candidate_statuses(
     manifest_entries: list[tuple[int, str, ArtifactRef]] = []
     package_state_paths: dict[str, set[str]] = {}
     report_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
+    intent_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     preparation_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     registration_state_paths: dict[str, tuple[str, ArtifactRef]] = {}
     for path, reference in project.state.artifacts.items():
@@ -3131,6 +3143,15 @@ def _registered_candidate_statuses(
         file_match = _CANDIDATE_FILE_PATH.fullmatch(path)
         if file_match is not None and manifest_match is None and report_match is None:
             package_state_paths.setdefault(file_match.group(1), set()).add(path)
+        intent_match = _CANDIDATE_SELF_TEST_PREPARATION_INTENT.fullmatch(path)
+        if intent_match is not None:
+            intent_session, intent_candidate = intent_match.groups()
+            if (
+                intent_session != session.session_id
+                or intent_candidate in intent_state_paths
+            ):
+                raise ValueError("refinement_candidate_binding_invalid")
+            intent_state_paths[intent_candidate] = (path, reference)
         preparation_match = _CANDIDATE_SELF_TEST_PREPARATION.fullmatch(path)
         if preparation_match is not None:
             prepared_session, prepared_candidate = preparation_match.groups()
@@ -3150,7 +3171,9 @@ def _registered_candidate_statuses(
                 raise ValueError("refinement_candidate_binding_invalid")
             registration_state_paths[registered_candidate] = (path, reference)
         if path.startswith(".researchclaw/refinement-self-tests/") and (
-            preparation_match is None and registration_match is None
+            intent_match is None
+            and preparation_match is None
+            and registration_match is None
         ):
             raise ValueError("refinement_candidate_binding_invalid")
     manifest_entries.sort()
@@ -3164,6 +3187,7 @@ def _registered_candidate_statuses(
     if (
         set(package_state_paths) - manifest_ids
         or set(report_state_paths) - manifest_ids
+        or set(intent_state_paths) - manifest_ids
         or set(preparation_state_paths) - manifest_ids
         or set(registration_state_paths) - manifest_ids
     ):
@@ -3263,6 +3287,17 @@ def _registered_candidate_statuses(
             )
             additional_paths.append(self_test_report_path)
         preparation_entry = preparation_state_paths.get(candidate_id)
+        intent_entry = intent_state_paths.get(candidate_id)
+        if intent_entry is not None:
+            intent_path, intent_reference = intent_entry
+            _secure_snapshot(
+                project.root,
+                intent_path,
+                expected=intent_reference,
+                maximum_bytes=_MAX_RECORD_BYTES,
+                error_code="refinement_candidate_identity_changed",
+                size_error_code="refinement_candidate_size_invalid",
+            )
         if preparation_entry is not None:
             preparation_path, preparation_reference = preparation_entry
             _secure_snapshot(
@@ -3274,11 +3309,18 @@ def _registered_candidate_statuses(
                 size_error_code="refinement_candidate_size_invalid",
             )
         registration_entry = registration_state_paths.get(candidate_id)
-        if (self_test_report_reference is None) != (registration_entry is None):
-            raise ValueError("refinement_candidate_binding_invalid")
-        if (
-            self_test_report_reference is not None or registration_entry is not None
-        ) and preparation_entry is None:
+        self_test_state = (
+            intent_entry is not None,
+            preparation_entry is not None,
+            self_test_report_reference is not None,
+            registration_entry is not None,
+        )
+        if self_test_state not in {
+            (False, False, False, False),
+            (True, False, False, False),
+            (True, True, False, False),
+            (True, True, True, True),
+        }:
             raise ValueError("refinement_candidate_binding_invalid")
         has_registered_self_test = (
             self_test_report_reference is not None and registration_entry is not None

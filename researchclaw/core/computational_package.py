@@ -198,6 +198,7 @@ _TRACEABILITY_SOURCES = {
 _ALLOWED_IMPORT_EXPORTS = {
     "__future__": frozenset({"annotations"}),
     "argparse": frozenset({"ArgumentParser"}),
+    "datetime": frozenset({"datetime", "timezone"}),
     "hashlib": frozenset({"sha256"}),
     "importlib.metadata": frozenset({"version"}),
     "json": frozenset({"dump", "dumps", "load", "loads"}),
@@ -216,6 +217,7 @@ _ALLOWED_IMPORT_EXPORTS = {
 _ALLOWED_IMPORTED_CALLS = frozenset(
     {
         "argparse.ArgumentParser",
+        "datetime.datetime.now",
         "hashlib.sha256",
         "importlib.metadata.version",
         "experiment.code.main.build_plan",
@@ -267,6 +269,7 @@ _ALLOWED_CONSTRUCTOR_CHAINS = frozenset(
         "pathlib.PurePosixPath",
         "PureWindowsPath",
         "pathlib.PureWindowsPath",
+        "datetime.datetime.now",
     }
 )
 _ALLOWED_BUILTIN_CALLS = frozenset(
@@ -313,6 +316,7 @@ _ALLOWED_OBJECT_METHODS = frozenset(
         "is_dir",
         "is_file",
         "is_symlink",
+        "isoformat",
         "hexdigest",
         "items",
         "keys",

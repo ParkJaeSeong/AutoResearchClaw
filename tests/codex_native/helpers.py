@@ -1385,6 +1385,9 @@ def write_refinement_candidate(
     source = evidence_bytes("experiment/code/main.py").decode("utf-8")
     source = source.replace("experiment.code.main", "code.model")
     source = source.replace(
+        "import ctypes\n", "import ctypes\nfrom datetime import datetime, timezone\n"
+    )
+    source = source.replace(
         "experiment/code/self_test_config.json", "tests/self_test_config.json"
     )
     source = source.replace(
@@ -1410,9 +1413,16 @@ def write_refinement_candidate(
     source = source.replace(
         '            "development_only": True,\n        }\n'
         '        Path("package_metadata/self_test_report.json")',
+        '            "created_at": report_created_at,\n'
+        '            "report_created_at": report_created_at,\n'
         '            "development_only": True,\n'
         "            **json.loads(args.refinement_self_test_context),\n"
         '        }\n        Path("package_metadata/self_test_report.json")',
+    )
+    source = source.replace(
+        '        report = {\n            "schema_version": 1,\n',
+        "        report_created_at = datetime.now(timezone.utc).isoformat()\n"
+        '        report = {\n            "schema_version": 1,\n',
     )
     (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
 
