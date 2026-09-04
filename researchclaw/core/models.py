@@ -33,6 +33,7 @@ _NEXT_ACTIONS = frozenset(
         "cleanup_quarantined_result",
         "validate_experiment_package",
         "audit_legacy_evidence",
+        "prepare_refinement_session",
         "register_refinement_assessment",
         "register_refinement_rebuttals",
         "register_refinement_final_votes",

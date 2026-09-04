@@ -10,6 +10,7 @@ import pytest
 import researchclaw.core.refinement_execution as refinement_execution
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
+    finalize_refinement,
     load_refinement_session,
     prepare_refinement_session,
     register_refinement_candidate,
@@ -36,6 +37,7 @@ from tests.codex_native.test_refinement import (
     register_all_assessments,
     register_one_assessment,
     valid_envelope,
+    write_final_decision,
     write_valid_decision,
     write_valid_rebuttals,
 )
@@ -680,6 +682,60 @@ def test_register_refinement_result_publishes_only_refinement_evidence_and_delib
     assert session_status.runs_used == 1
     assert session_status.next_action == "register_refinement_assessment"
     assert session_status.phase == "awaiting_independent_assessments"
+
+
+def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    baseline_before = immutable_stage_twelve_snapshot(project)
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    result = ResearchProject.open(project.root).state.artifacts[registered.result_path]
+    evaluated = [_packet_artifact(project), {
+        "path": result.path,
+        "sha256": result.sha256,
+        "size": result.size,
+    }]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=evaluated)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision_path = write_final_decision(project, "select_candidate")
+
+    finalize_refinement(project, decision_path)
+
+    reopened = ResearchProject.open(project.root)
+    selection = json.loads((project.root / "refinement/final_selection.json").read_text())
+    retained = {item["path"] for item in selection["retained_evidence"]}
+    assert selection["selected_candidate_id"] == candidate.candidate_id
+    assert registered.evidence_manifest_path in retained
+    assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+
+
+def test_finalize_select_candidate_requires_council_to_reference_its_result(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    result = ResearchProject.open(project.root).state.artifacts[registered.result_path]
+    evaluated = [_packet_artifact(project), {
+        "path": result.path,
+        "sha256": result.sha256,
+        "size": result.size,
+    }]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=evaluated)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision_path = write_final_decision(
+        project, "select_candidate", include_selected_evidence=False
+    )
+
+    with pytest.raises(ValueError, match="refinement_finalization_evidence_invalid"):
+        finalize_refinement(project, decision_path)
+    assert ResearchProject.open(project.root).state.current_stage == 13
 
 
 def test_register_refinement_result_is_byte_identically_idempotent(tmp_path):

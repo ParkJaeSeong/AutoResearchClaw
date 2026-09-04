@@ -497,6 +497,17 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
             current_project,
             stage_thirteen_action,
         )
+    if (
+        state.current_stage == 13
+        and 12 in state.completed_stages
+        and (
+            os.path.lexists(current_project.root / "refinement")
+            or any(path.startswith("refinement/") for path in state.artifacts)
+        )
+    ):
+        from .refinement import load_refinement_session
+
+        load_refinement_session(current_project)
     invalid_artifact_stage = None
     if invalid_artifact_stage is None:
         invalid_artifact_stage = _first_invalid_artifact_stage(
@@ -779,7 +790,15 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             )
             next_command = _command(current_project.root, "status")
     elif stage_thirteen_boundary:
-        next_action = "report_stage_thirteen_implementation_boundary"
+        from .refinement import SESSION_PATH, load_refinement_session
+
+        if SESSION_PATH in state.artifacts:
+            refinement_status = load_refinement_session(current_project)
+            next_action = refinement_status.next_action
+        elif os.path.lexists(current_project.root / SESSION_PATH):
+            raise ValueError("refinement_integrity_failure")
+        else:
+            next_action = "prepare_refinement_session"
         next_command = _command(current_project.root, "status")
         approval_required = False
     elif milestone_complete:

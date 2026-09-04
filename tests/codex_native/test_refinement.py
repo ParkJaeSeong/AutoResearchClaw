@@ -1,5 +1,6 @@
 from dataclasses import replace
 import json
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,7 @@ import researchclaw.core.experiment_package_contract as package_contract
 from researchclaw.core.models import ArtifactRef
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
+    finalize_refinement,
     load_refinement_session,
     prepare_refinement_session,
     register_refinement_assessment,
@@ -348,7 +350,7 @@ def valid_decision_record(
         ]
     supporting = [role for role, vote in zip(roles, votes) if vote == "refine"]
     dissenting = [role for role, vote in zip(roles, votes) if vote != "refine"]
-    return {
+    payload = {
         **_submission_base(project, producer="coordinator-agent"),
         "assessment_hashes": {
             role: refinement._sha256(
@@ -396,12 +398,129 @@ def valid_decision_record(
         "candidate_id": None,
         "change_request": {"paths": change_paths},
     }
+    final_actions = {"select_candidate", "retain_baseline", "inconclusive"}
+    winning = max(set(votes), key=votes.count)
+    if winning in final_actions:
+        payload["limitations"] = [
+            "The result remains limited to the registered inputs."
+        ]
+        payload["stage_14_questions"] = [
+            "Does the conclusion survive sensitivity analysis?"
+        ]
+    return payload
 
 
 def write_valid_decision(project, **kwargs):
     return write_record(
         project, "submissions/decision.json", valid_decision_record(project, **kwargs)
     )
+
+
+def write_final_decision(
+    project, action="retain_baseline", *, include_selected_evidence=True
+):
+    candidate_id = "candidate-001" if action == "select_candidate" else None
+    dissenting_vote = "retain_baseline" if action == "inconclusive" else "inconclusive"
+    decision = valid_decision_record(
+        project,
+        votes=(action, action, dissenting_vote),
+        candidate_id=candidate_id or "candidate-001",
+    )
+    decision["action"] = action
+    decision["candidate_id"] = candidate_id
+    decision["supporting_roles"] = ["domain", "methodology"]
+    decision["dissenting_roles"] = ["critical_reproducibility"]
+    decision["rationale"] = ["The registered evidence supports this bounded conclusion."]
+    decision["limitations"] = ["The result remains limited to the registered inputs."]
+    decision["stage_14_questions"] = ["Does the conclusion survive sensitivity analysis?"]
+    decision.pop("change_request", None)
+    if action == "select_candidate" and include_selected_evidence:
+        evidence_refs = [item["path"] for item in _round_artifacts(project)]
+        decision["evidence_refs"] = evidence_refs
+        for vote in decision["final_votes"]:
+            vote["evidence_refs"] = evidence_refs
+    path = write_record(project, f"submissions/{action}.json", decision)
+    register_refinement_decision(project, path)
+    return path
+
+
+def decision_path_payload(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("action", ["retain_baseline", "inconclusive"])
+def test_finalize_refinement_preserves_baseline_and_advances_to_stage_fourteen(
+    tmp_path, action
+):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision_path = write_final_decision(project, action)
+    baseline_before = immutable_stage_twelve_snapshot(project)
+
+    status = finalize_refinement(project, decision_path)
+
+    reopened = ResearchProject.open(project.root)
+    selection = json.loads((project.root / "refinement/final_selection.json").read_text())
+    assert reopened.state.current_stage == 14
+    assert reopened.state.completed_stages[-1] == 13
+    assert reopened.state.next_action == "prepare_stage"
+    assert status.phase == "completed"
+    assert status.next_action == "prepare_stage"
+    assert selection["action"] == action
+    assert selection["selected_candidate_id"] is None
+    assert selection["rationale"] == decision_path_payload(decision_path)["rationale"]
+    assert selection["dissenting_roles"] == ["critical_reproducibility"]
+    assert selection["limitations"] == [
+        "The result remains limited to the registered inputs."
+    ]
+    assert selection["stage_14_questions"] == [
+        "Does the conclusion survive sensitivity analysis?"
+    ]
+    assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+
+
+def test_finalize_refinement_is_exactly_idempotent_and_rejects_another_decision(
+    tmp_path,
+):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision_path = write_final_decision(project)
+    first = finalize_refinement(project, decision_path)
+    state = ResearchProject.open(project.root).state
+    selection = (project.root / "refinement/final_selection.json").read_bytes()
+
+    assert finalize_refinement(ResearchProject.open(project.root), decision_path) == first
+    assert ResearchProject.open(project.root).state == state
+    assert (project.root / "refinement/final_selection.json").read_bytes() == selection
+    conflicting = write_record(project, "submissions/conflicting-final.json", {"x": 1})
+    with pytest.raises(ValueError, match="refinement_decision_conflict"):
+        finalize_refinement(ResearchProject.open(project.root), conflicting)
+
+
+def test_finalize_refinement_recovers_exact_file_published_before_stage_advance(
+    tmp_path, monkeypatch
+):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision_path = write_final_decision(project)
+
+    def interrupt():
+        raise RuntimeError("final-selection-state-interruption")
+
+    monkeypatch.setattr(refinement, "_after_final_selection_publication", interrupt)
+    with pytest.raises(RuntimeError, match="final-selection-state-interruption"):
+        finalize_refinement(project, decision_path)
+    pending = ResearchProject.open(project.root)
+    assert pending.state.current_stage == 13
+    assert "refinement/final_selection.json" not in pending.state.artifacts
+
+    monkeypatch.setattr(refinement, "_after_final_selection_publication", lambda: None)
+    status = finalize_refinement(pending, decision_path)
+    assert status.phase == "completed"
+    assert ResearchProject.open(project.root).state.current_stage == 14
 
 
 def register_future_candidate_result(project, *, candidate_id="candidate-001"):

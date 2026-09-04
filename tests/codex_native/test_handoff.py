@@ -5,6 +5,8 @@ from dataclasses import replace
 import hashlib
 import json
 
+import pytest
+
 
 from researchclaw.codex.cli import main as cli_main
 from researchclaw.core.events import event_log_for
@@ -16,6 +18,8 @@ from researchclaw.core.research_execution import (
     prepare_research_execution,
     register_research_result,
 )
+from researchclaw.core.refinement import prepare_refinement_session
+from tests.codex_native.test_refinement import valid_envelope
 from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
     build_stage_twelve_project,
@@ -71,7 +75,7 @@ def test_stage_twelve_handoff_routes_through_explicit_self_test_registration(
     ]
 
 
-def test_stage_thirteen_handoff_reports_the_next_unsupported_boundary(tmp_path):
+def test_stage_thirteen_handoff_routes_to_phase_specific_refinement_action(tmp_path):
     project = build_approved_stage_twelve_project(tmp_path / "project")
     prepare_research_execution(project)
     contract = load_execution_contract(project.root)
@@ -84,7 +88,7 @@ def test_stage_thirteen_handoff_reports_the_next_unsupported_boundary(tmp_path):
     assert handoff.stage_name == "iterative_refine"
     assert handoff.status == "ready"
     assert handoff.milestone_complete is False
-    assert handoff.next_action == "report_stage_thirteen_implementation_boundary"
+    assert handoff.next_action == "prepare_refinement_session"
     assert shlex.split(handoff.next_command) == [
         "researchclaw-codex",
         "status",
@@ -97,6 +101,25 @@ def test_stage_thirteen_handoff_reports_the_next_unsupported_boundary(tmp_path):
     assert handoff.execution_readiness is None
     assert handoff.unmet_prerequisites == ()
     assert "experiment/results.json" in handoff.available_artifacts
+
+    prepare_refinement_session(project, valid_envelope())
+    prepared = build_handoff(ResearchProject.open(project.root))
+    assert prepared.next_action == "register_refinement_assessment"
+    assert shlex.split(prepared.next_command) == [
+        "researchclaw-codex",
+        "status",
+        str(project.root.resolve()),
+        "--json",
+    ]
+
+
+def test_stage_thirteen_handoff_fails_closed_on_tampered_refinement_state(tmp_path):
+    project = _registered_stage_thirteen_project(tmp_path / "project")
+    prepare_refinement_session(project, valid_envelope())
+    (project.root / "refinement/session.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="refinement_integrity_failure"):
+        build_handoff(ResearchProject.open(project.root))
 
 
 def _registered_stage_thirteen_project(root):

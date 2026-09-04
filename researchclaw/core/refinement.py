@@ -1,8 +1,8 @@
 """Durable Stage-13 deliberation and candidate registration.
 
-This module prepares bounded sessions, persists council procedure, and registers
-closed candidate packages. It does not create candidates, execute them, or
-finalize refinement.
+This module prepares bounded sessions, persists council procedure, registers
+closed candidate packages, and finalizes an evidence-bound council selection.
+It does not create candidates, execute them, or rank scientific merit.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -33,7 +34,7 @@ from .deliberation import (
 )
 from .evidence_registration import load_evidence_manifest, registered_evidence_status
 from .experiment_package_contract import validate_experiment_package_contract_at
-from .models import ArtifactRef, ProjectState
+from .models import ArtifactRef, ProjectState, StageStatus
 from .paths import resolve_project_artifact, validate_relative_path
 from .persistence import _fsync_directory
 from .project import ResearchProject
@@ -42,6 +43,7 @@ from .transactions import project_mutation
 
 SESSION_PATH = "refinement/session.json"
 EVIDENCE_PACKET_PATH = "refinement/evidence_packet.json"
+FINAL_SELECTION_PATH = "refinement/final_selection.json"
 _SCHEMA_VERSION = 1
 _MAX_SECONDS = 7 * 24 * 60 * 60
 _MAX_RECORD_BYTES = 1024 * 1024
@@ -1938,6 +1940,11 @@ def _parse_decision_submission(
     vacant_roles: tuple[CouncilRole, ...],
 ):
     action = payload.get("action")
+    final_action = isinstance(action, str) and action in {
+        "select_candidate",
+        "retain_baseline",
+        "inconclusive",
+    }
     change_seeking = isinstance(action, str) and action in {
         "refine",
         "request_discriminating_run",
@@ -1963,6 +1970,8 @@ def _parse_decision_submission(
     }
     if change_seeking:
         decision_fields.add("change_request")
+    if final_action:
+        decision_fields.update({"limitations", "stage_14_questions"})
     producer, _ = _submission_base(
         payload,
         project=project,
@@ -2012,6 +2021,15 @@ def _parse_decision_submission(
         or not isinstance(payload["evidence_refs"], list)
     ):
         raise ValueError("refinement_decision_schema_invalid")
+    if final_action:
+        for field in ("limitations", "stage_14_questions"):
+            value = payload[field]
+            if (
+                not isinstance(value, list)
+                or not value
+                or any(not isinstance(item, str) or not item.strip() for item in value)
+            ):
+                raise ValueError("refinement_decision_schema_invalid")
     _require_evidence_refs(payload["evidence_refs"], binding)
     candidate_id = payload["candidate_id"]
     if council.decision == "select_candidate":
@@ -2391,6 +2409,258 @@ def register_refinement_decision(
         conflict="refinement_decision_conflict",
     )
     return _deliberation_status(ResearchProject.open(current.root))
+
+
+def _completed_refinement_status(
+    project: ResearchProject, decision_path: str | Path | None = None
+) -> RefinementSessionStatus:
+    record = _read_registered_record(project, FINAL_SELECTION_PATH)
+    if record is None:
+        raise ValueError("refinement_integrity_failure")
+    payload = record[0]
+    required = {
+        "schema_version",
+        "project_id",
+        "session_id",
+        "action",
+        "selected_candidate_id",
+        "council_decision",
+        "evidence_packet",
+        "retained_evidence",
+        "rationale",
+        "votes",
+        "supporting_roles",
+        "dissenting_roles",
+        "limitations",
+        "stage_14_questions",
+        "runs_used",
+        "maximum_runs",
+        "wall_seconds_used",
+    }
+    if set(payload) != required or payload.get("schema_version") != _SCHEMA_VERSION:
+        raise ValueError("refinement_integrity_failure")
+    council_decision = payload.get("council_decision")
+    if not isinstance(council_decision, Mapping):
+        raise ValueError("refinement_integrity_failure")
+    try:
+        decision_ref = _artifact(council_decision)
+    except ValueError as error:
+        raise ValueError("refinement_integrity_failure") from error
+    if (
+        _DECISION_PATH.fullmatch(decision_ref.path) is None
+        or project.state.artifacts.get(decision_ref.path) != decision_ref
+    ):
+        raise ValueError("refinement_integrity_failure")
+    _verify_artifact_identity(project, decision_ref)
+    if decision_path is not None:
+        _, submitted = _read_bounded_json(_submission_path(project, decision_path))
+        if _record_ref(decision_ref.path, submitted) != decision_ref:
+            raise ValueError("refinement_decision_conflict")
+    try:
+        packet_ref = _artifact(payload.get("evidence_packet"))
+        retained = tuple(_artifact(item) for item in payload.get("retained_evidence", ()))
+    except (TypeError, ValueError) as error:
+        raise ValueError("refinement_integrity_failure") from error
+    if (
+        packet_ref.path != EVIDENCE_PACKET_PATH
+        or project.state.artifacts.get(packet_ref.path) != packet_ref
+        or not retained
+        or len({item.path for item in retained}) != len(retained)
+    ):
+        raise ValueError("refinement_integrity_failure")
+    _verify_artifact_identity(project, packet_ref)
+    for reference in retained:
+        if project.state.artifacts.get(reference.path) != reference:
+            raise ValueError("refinement_integrity_failure")
+        _verify_artifact_identity(project, reference)
+    action = payload.get("action")
+    candidate_id = payload.get("selected_candidate_id")
+    if action not in {"select_candidate", "retain_baseline", "inconclusive"}:
+        raise ValueError("refinement_integrity_failure")
+    if action == "select_candidate":
+        if (
+            not isinstance(candidate_id, str)
+            or _CANDIDATE_ID.fullmatch(candidate_id) is None
+            or not any(
+                item.path.startswith(
+                    ".researchclaw/evidence/refinement-manifests/"
+                    f"{payload['session_id']}/{candidate_id}/"
+                )
+                for item in retained
+            )
+        ):
+            raise ValueError("refinement_integrity_failure")
+    elif candidate_id is not None:
+        raise ValueError("refinement_integrity_failure")
+    for field in ("rationale", "limitations", "stage_14_questions"):
+        try:
+            _finalization_texts(payload, field)
+        except ValueError as error:
+            raise ValueError("refinement_integrity_failure") from error
+    if (
+        project.state.current_stage != 14
+        or 13 not in project.state.completed_stages
+        or project.state.next_action != "prepare_stage"
+        or payload.get("project_id") != project.state.project_id
+        or not isinstance(payload.get("session_id"), str)
+        or payload.get("evidence_packet") != _artifact_payload(packet_ref)
+    ):
+        raise ValueError("refinement_integrity_failure")
+    maximum_runs = payload.get("maximum_runs")
+    runs_used = payload.get("runs_used")
+    wall_seconds_used = payload.get("wall_seconds_used")
+    if (
+        not isinstance(maximum_runs, int)
+        or isinstance(maximum_runs, bool)
+        or not isinstance(runs_used, int)
+        or isinstance(runs_used, bool)
+        or not isinstance(wall_seconds_used, (int, float))
+        or isinstance(wall_seconds_used, bool)
+        or not math.isfinite(wall_seconds_used)
+        or wall_seconds_used < 0
+        or runs_used < 0
+        or maximum_runs < 1
+        or runs_used > maximum_runs
+    ):
+        raise ValueError("refinement_integrity_failure")
+    return RefinementSessionStatus(
+        session_id=payload["session_id"],
+        phase="completed",
+        evidence_packet_path=packet_ref.path,
+        evidence_packet_sha256=packet_ref.sha256,
+        runs_used=runs_used,
+        maximum_runs=maximum_runs,
+        next_action="prepare_stage",
+        wall_seconds_used=float(wall_seconds_used),
+    )
+
+
+def _finalization_texts(payload: Mapping[str, object], field: str) -> list[str]:
+    value = payload.get(field)
+    if (
+        not isinstance(value, list)
+        or not value
+        or any(not isinstance(item, str) or not item.strip() for item in value)
+    ):
+        raise ValueError("refinement_finalization_invalid")
+    return list(value)
+
+
+def _after_final_selection_publication() -> None:
+    """Interruption seam after the final-selection file is durable."""
+
+
+@project_mutation
+def finalize_refinement(
+    project: ResearchProject, decision_path: str | Path
+) -> RefinementSessionStatus:
+    """Persist an agent council's final choice and advance without ranking merit."""
+    current = ResearchProject.open(project.root)
+    if current.state.current_stage == 14:
+        return _completed_refinement_status(current, decision_path)
+    session = _deliberation_status(current)
+    if session.phase != "awaiting_finalization":
+        raise ValueError("refinement_finalization_order_invalid")
+    round_info = _round_path(current, create=False)
+    if round_info is None:
+        raise ValueError("refinement_finalization_order_invalid")
+    round_id, _ = round_info
+    registered_path = f"{_DELIBERATIONS_PATH}/{round_id}/decision.json"
+    registered = _read_registered_record(current, registered_path)
+    if registered is None:
+        raise ValueError("refinement_finalization_order_invalid")
+    source_payload, source_bytes = _read_bounded_json(_submission_path(current, decision_path))
+    if source_bytes != registered[1]:
+        raise ValueError("refinement_decision_conflict")
+    action = source_payload.get("action")
+    if action not in {"select_candidate", "retain_baseline", "inconclusive"}:
+        raise ValueError("refinement_finalization_decision_invalid")
+    candidate_id = source_payload.get("candidate_id")
+    if action == "select_candidate":
+        if not isinstance(candidate_id, str) or not _known_candidate(current, candidate_id):
+            raise ValueError("refinement_candidate_unknown")
+        binding = _load_round_binding(current, session, round_id)
+        result_path = f"refinement/candidates/{candidate_id}/results.json"
+        if (
+            result_path not in {item.path for item in binding.evaluated_artifacts}
+            or result_path not in source_payload.get("evidence_refs", ())
+        ):
+            raise ValueError("refinement_finalization_evidence_invalid")
+    elif candidate_id is not None:
+        raise ValueError("refinement_candidate_unknown")
+
+    baseline = _baseline(current)
+    evidence_refs = source_payload.get("evidence_refs")
+    if not isinstance(evidence_refs, list):
+        raise ValueError("refinement_finalization_invalid")
+    retained_paths = {baseline.manifest.path, *(str(path) for path in evidence_refs)}
+    if action == "select_candidate":
+        prefix = (
+            ".researchclaw/evidence/refinement-manifests/"
+            f"{session.session_id}/{candidate_id}/"
+        )
+        candidate_evidence = sorted(
+            path for path in current.state.artifacts if path.startswith(prefix)
+        )
+        if not candidate_evidence:
+            raise ValueError("refinement_finalization_evidence_invalid")
+        retained_paths.update(candidate_evidence)
+    retained: list[dict[str, object]] = []
+    for path in sorted(retained_paths):
+        reference = current.state.artifacts.get(path)
+        if reference is None:
+            raise ValueError("refinement_finalization_evidence_invalid")
+        _verify_artifact_identity(current, reference)
+        retained.append(_artifact_payload(reference))
+
+    selection_payload = {
+        "schema_version": _SCHEMA_VERSION,
+        "project_id": current.state.project_id,
+        "session_id": session.session_id,
+        "action": action,
+        "selected_candidate_id": candidate_id,
+        "council_decision": _artifact_payload(current.state.artifacts[registered_path]),
+        "evidence_packet": _artifact_payload(
+            current.state.artifacts[EVIDENCE_PACKET_PATH]
+        ),
+        "retained_evidence": retained,
+        "rationale": _finalization_texts(source_payload, "rationale"),
+        "votes": source_payload["final_votes"],
+        "supporting_roles": source_payload["supporting_roles"],
+        "dissenting_roles": source_payload["dissenting_roles"],
+        "limitations": _finalization_texts(source_payload, "limitations"),
+        "stage_14_questions": _finalization_texts(
+            source_payload, "stage_14_questions"
+        ),
+        "runs_used": session.runs_used,
+        "maximum_runs": session.maximum_runs,
+        "wall_seconds_used": session.wall_seconds_used,
+    }
+    selection_bytes = _canonical_json(selection_payload)
+    destination = resolve_project_artifact(current.root, FINAL_SELECTION_PATH)
+    try:
+        _write_exclusive(destination, selection_bytes)
+    except FileExistsError:
+        _, existing = _read_bounded_json(destination)
+        if existing != selection_bytes:
+            raise ValueError("refinement_finalization_conflict")
+    _after_final_selection_publication()
+    selection_ref = _record_ref(FINAL_SELECTION_PATH, selection_bytes)
+    current = ResearchProject.open(current.root)
+    if current.state.artifacts.get(FINAL_SELECTION_PATH) not in {None, selection_ref}:
+        raise ValueError("refinement_finalization_conflict")
+    current.persist_state(
+        replace(
+            current.state,
+            current_stage=14,
+            status=StageStatus.READY,
+            completed_stages=(*current.state.completed_stages, 13),
+            next_action="prepare_stage",
+            artifacts={**current.state.artifacts, FINAL_SELECTION_PATH: selection_ref},
+            last_error=None,
+        )
+    )
+    return _completed_refinement_status(ResearchProject.open(current.root))
 
 
 def _candidate_manifest_relative_path(
