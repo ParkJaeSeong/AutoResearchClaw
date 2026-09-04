@@ -137,6 +137,18 @@ class RefinementSessionStatus:
     next_action: str
     wall_seconds_used: float = 0.0
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "phase": self.phase,
+            "evidence_packet_path": self.evidence_packet_path,
+            "evidence_packet_sha256": self.evidence_packet_sha256,
+            "runs_used": self.runs_used,
+            "maximum_runs": self.maximum_runs,
+            "next_action": self.next_action,
+            "wall_seconds_used": self.wall_seconds_used,
+        }
+
 
 @dataclass(frozen=True)
 class CandidateStatus:
@@ -148,6 +160,25 @@ class CandidateStatus:
     entry_point: str
     files: tuple[ArtifactRef, ...]
     next_action: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate_id": self.candidate_id,
+            "manifest_path": self.manifest_path,
+            "manifest_sha256": self.manifest_sha256,
+            "decision_sha256": self.decision_sha256,
+            "package_contract_sha256": self.package_contract_sha256,
+            "entry_point": self.entry_point,
+            "files": [
+                {
+                    "path": reference.path,
+                    "sha256": reference.sha256,
+                    "size": reference.size,
+                }
+                for reference in self.files
+            ],
+            "next_action": self.next_action,
+        }
 
 
 @dataclass(frozen=True)
@@ -252,6 +283,14 @@ def _read_bounded_json(path: Path) -> tuple[dict[str, object], bytes]:
     if not isinstance(value, dict):
         raise ValueError("refinement_integrity_failure")
     return value, payload
+
+
+def read_refinement_envelope(path: Path) -> dict[str, object]:
+    """Read one external refinement envelope through the bounded JSON boundary."""
+    try:
+        return _read_bounded_json(path)[0]
+    except ValueError as error:
+        raise ValueError("refinement_envelope_invalid") from error
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

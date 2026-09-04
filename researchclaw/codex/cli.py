@@ -40,10 +40,69 @@ from researchclaw.core.evidence_store import (
 from researchclaw.core.evidence_registration import registered_evidence_status
 from researchclaw.core.task_packets import prepare_task_packet
 from researchclaw.core.validation import validate_current_stage
+from researchclaw.core.paths import resolve_project_artifact
+from researchclaw.core.refinement import (
+    finalize_refinement,
+    load_refinement_session,
+    prepare_refinement_session,
+    read_refinement_envelope,
+    register_refinement_assessment,
+    register_refinement_candidate,
+    register_refinement_decision,
+    register_refinement_rebuttals,
+)
+from researchclaw.core.refinement_execution import (
+    prepare_refinement_run,
+    prepare_refinement_self_test,
+    register_refinement_result,
+    register_refinement_self_test,
+)
+
+
+def _refinement_payload(value: object) -> dict[str, object]:
+    to_dict = getattr(value, "to_dict", None)
+    if not callable(to_dict):
+        raise ValueError("refinement_serialization_invalid")
+    return to_dict()
+
+
+def _read_refinement_envelope(project: ResearchProject, path: str) -> object:
+    envelope_path = resolve_project_artifact(project.root, path)
+    return read_refinement_envelope(envelope_path)
+
+
+def _refinement_error_code(error: OSError | ValueError) -> str:
+    value = str(error)
+    if value.startswith("refinement_") and all(
+        character.islower() or character.isdigit() or character == "_"
+        for character in value
+    ):
+        return value
+    if value.startswith("unsafe artifact path"):
+        return "refinement_path_invalid"
+    return "refinement_project_invalid"
+
+
+class _CodexArgumentParser(argparse.ArgumentParser):
+    refinement_request = False
+
+    def error(self, message: str) -> None:
+        if self.refinement_request or self.prog.endswith(" refinement"):
+            self.exit(2, "error: refinement_argument_invalid\n")
+        super().error(message)
+
+
+class _RefinementArgumentParser(_CodexArgumentParser):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs["allow_abbrev"] = False
+        super().__init__(*args, **kwargs)
+
+    def error(self, message: str) -> None:
+        self.exit(2, "error: refinement_argument_invalid\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _CodexArgumentParser(
         prog="researchclaw-codex",
         description="Create and inspect durable Codex-native research projects.",
     )
@@ -226,11 +285,110 @@ def build_parser() -> argparse.ArgumentParser:
     quarantine_cleanup.add_argument("root", metavar="PROJECT")
     quarantine_cleanup.add_argument("--confirm", action="store_true")
     quarantine_cleanup.add_argument("--json", action="store_true", help="emit JSON")
+
+    refinement = subcommands.add_parser(
+        "refinement",
+        help="prepare and record deterministic Stage 13 refinement work",
+        allow_abbrev=False,
+    )
+    refinement_commands = refinement.add_subparsers(
+        dest="refinement_command",
+        required=True,
+        parser_class=_RefinementArgumentParser,
+    )
+    prepare_session = refinement_commands.add_parser(
+        "prepare-session", help="prepare one evidence-bound refinement session"
+    )
+    prepare_session.add_argument("root", metavar="PROJECT")
+    prepare_session.add_argument(
+        "--envelope", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    prepare_session.add_argument("--json", action="store_true", help="emit JSON")
+    register_assessment = refinement_commands.add_parser(
+        "register-assessment", help="register one independent council assessment"
+    )
+    register_assessment.add_argument("root", metavar="PROJECT")
+    register_assessment.add_argument(
+        "--assessment", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_assessment.add_argument("--json", action="store_true", help="emit JSON")
+    register_deliberation = refinement_commands.add_parser(
+        "register-deliberation", help="register council rebuttals after assessments"
+    )
+    register_deliberation.add_argument("root", metavar="PROJECT")
+    register_deliberation.add_argument(
+        "--rebuttals", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_deliberation.add_argument("--json", action="store_true", help="emit JSON")
+    register_decision = refinement_commands.add_parser(
+        "register-decision", help="register the council decision"
+    )
+    register_decision.add_argument("root", metavar="PROJECT")
+    register_decision.add_argument(
+        "--decision", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_decision.add_argument("--json", action="store_true", help="emit JSON")
+    register_candidate = refinement_commands.add_parser(
+        "register-candidate", help="register one decision-bound candidate package"
+    )
+    register_candidate.add_argument("root", metavar="PROJECT")
+    register_candidate.add_argument(
+        "--manifest", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_candidate.add_argument("--json", action="store_true", help="emit JSON")
+    prepare_self_test = refinement_commands.add_parser(
+        "prepare-self-test", help="prepare one externally run candidate self-test"
+    )
+    prepare_self_test.add_argument("root", metavar="PROJECT")
+    prepare_self_test.add_argument("--candidate-id", required=True, metavar="ID")
+    prepare_self_test.add_argument("--json", action="store_true", help="emit JSON")
+    register_self_test = refinement_commands.add_parser(
+        "register-self-test", help="register one externally produced self-test report"
+    )
+    register_self_test.add_argument("root", metavar="PROJECT")
+    register_self_test.add_argument("--candidate-id", required=True, metavar="ID")
+    register_self_test.add_argument(
+        "--report", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_self_test.add_argument(
+        "--confirm-refinement-self-test", action="store_true"
+    )
+    register_self_test.add_argument("--json", action="store_true", help="emit JSON")
+    prepare_run = refinement_commands.add_parser(
+        "prepare-run", help="reserve one bounded candidate run without executing it"
+    )
+    prepare_run.add_argument("root", metavar="PROJECT")
+    prepare_run.add_argument("--candidate-id", required=True, metavar="ID")
+    prepare_run.add_argument("--json", action="store_true", help="emit JSON")
+    register_result = refinement_commands.add_parser(
+        "register-result", help="register one externally produced candidate result"
+    )
+    register_result.add_argument("root", metavar="PROJECT")
+    register_result.add_argument("--candidate-id", required=True, metavar="ID")
+    register_result.add_argument(
+        "--result", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    register_result.add_argument("--confirm-refinement-result", action="store_true")
+    register_result.add_argument("--json", action="store_true", help="emit JSON")
+    refinement_status = refinement_commands.add_parser(
+        "status", help="show the verified refinement session status"
+    )
+    refinement_status.add_argument("root", metavar="PROJECT")
+    refinement_status.add_argument("--json", action="store_true", help="emit JSON")
+    finalize = refinement_commands.add_parser(
+        "finalize", help="finalize an already registered council decision"
+    )
+    finalize.add_argument("root", metavar="PROJECT")
+    finalize.add_argument("--decision", required=True, metavar="PROJECT_RELATIVE_PATH")
+    finalize.add_argument("--confirm-refinement-finalization", action="store_true")
+    finalize.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
+    arguments = sys.argv[1:] if argv is None else argv
+    parser.refinement_request = bool(arguments and arguments[0] == "refinement")
     exit_code = 0
     try:
         args = parser.parse_args(argv)
@@ -354,6 +512,66 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evidence" and args.evidence_command == "quarantine-inventory":
             project = ResearchProject.open_readonly(args.root)
             payload = result_quarantine_inventory(project).to_dict()
+        elif args.command == "refinement" and args.refinement_command == "prepare-session":
+            project = ResearchProject.open(args.root)
+            payload = _refinement_payload(
+                prepare_refinement_session(
+                    project, _read_refinement_envelope(project, args.envelope)
+                )
+            )
+        elif args.command == "refinement" and args.refinement_command == "register-assessment":
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.assessment)
+            payload = _refinement_payload(
+                register_refinement_assessment(project, args.assessment)
+            )
+        elif args.command == "refinement" and args.refinement_command == "register-deliberation":
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.rebuttals)
+            payload = _refinement_payload(
+                register_refinement_rebuttals(project, args.rebuttals)
+            )
+        elif args.command == "refinement" and args.refinement_command == "register-decision":
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.decision)
+            payload = _refinement_payload(register_refinement_decision(project, args.decision))
+        elif args.command == "refinement" and args.refinement_command == "register-candidate":
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.manifest)
+            payload = _refinement_payload(register_refinement_candidate(project, args.manifest))
+        elif args.command == "refinement" and args.refinement_command == "prepare-self-test":
+            project = ResearchProject.open(args.root)
+            payload = _refinement_payload(
+                prepare_refinement_self_test(project, args.candidate_id)
+            )
+        elif args.command == "refinement" and args.refinement_command == "register-self-test":
+            if not args.confirm_refinement_self_test:
+                raise ValueError("refinement_self_test_confirmation_required")
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.report)
+            payload = _refinement_payload(
+                register_refinement_self_test(project, args.candidate_id, args.report)
+            )
+        elif args.command == "refinement" and args.refinement_command == "prepare-run":
+            project = ResearchProject.open(args.root)
+            payload = _refinement_payload(prepare_refinement_run(project, args.candidate_id))
+        elif args.command == "refinement" and args.refinement_command == "register-result":
+            if not args.confirm_refinement_result:
+                raise ValueError("refinement_result_confirmation_required")
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.result)
+            payload = _refinement_payload(
+                register_refinement_result(project, args.candidate_id, args.result)
+            )
+        elif args.command == "refinement" and args.refinement_command == "status":
+            project = ResearchProject.open_readonly(args.root)
+            payload = _refinement_payload(load_refinement_session(project))
+        elif args.command == "refinement" and args.refinement_command == "finalize":
+            if not args.confirm_refinement_finalization:
+                raise ValueError("refinement_finalization_confirmation_required")
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.decision)
+            payload = _refinement_payload(finalize_refinement(project, args.decision))
         elif (
             args.command == "evidence"
             and args.evidence_command == "quarantine-operator-cleanup"
@@ -385,7 +603,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: {error}", file=sys.stderr)
         return 2
     except (OSError, ValueError) as error:
-        print(f"error: {error}", file=sys.stderr)
+        if getattr(args, "command", None) == "refinement":
+            print(f"error: {_refinement_error_code(error)}", file=sys.stderr)
+        else:
+            print(f"error: {error}", file=sys.stderr)
         return 2
 
     if args.json:
@@ -419,6 +640,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 else:
                     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         elif args.command == "evidence":
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        elif args.command == "refinement":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")

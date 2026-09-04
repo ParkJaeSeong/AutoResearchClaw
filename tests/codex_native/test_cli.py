@@ -13,6 +13,8 @@ import pytest
 
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.models import ArtifactRef
+from researchclaw.core.refinement import CandidateStatus, RefinementSessionStatus
 from researchclaw.core.experiment_package_contract import validate_experiment_package_contract
 from researchclaw.core.research_execution import prepare_research_execution
 from researchclaw.core.research_execution import register_research_result
@@ -25,11 +27,367 @@ from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
     build_self_test_registration_project,
     build_completed_validation_design_project,
+    build_stage_thirteen_project,
     build_stage_twelve_project,
     load_execution_contract,
     write_runnable_development_fixture,
     write_contract_bound_research_result,
 )
+from tests.codex_native.test_refinement import (
+    valid_assessment_record,
+    valid_decision_record,
+    valid_envelope,
+    valid_rebuttals_record,
+    write_refinement_candidate,
+)
+from tests.codex_native.test_refinement_execution import write_refinement_result
+
+
+def test_refinement_prepare_session_cli_is_agent_neutral(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = project.root / "refinement" / "envelope.json"
+    envelope.parent.mkdir(parents=True)
+    envelope.write_text(json.dumps(valid_envelope()), encoding="utf-8")
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["phase"] == "awaiting_independent_assessments"
+    assert "model" not in payload and "api_key" not in payload
+
+
+def _write_refinement_cli_record(project, relative_path, payload):
+    path = project.root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    return relative_path
+
+
+def _prepare_refinement_session_with_cli(project, capsys):
+    envelope = _write_refinement_cli_record(
+        project, "refinement/envelope.json", valid_envelope()
+    )
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", envelope, "--json",
+    ]) == 0
+    capsys.readouterr()
+
+
+def _register_refinement_assessments_with_cli(project, capsys):
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        assessment = _write_refinement_cli_record(
+            project,
+            f"submissions/{role}.json",
+            valid_assessment_record(project, role=role),
+        )
+        assert main([
+            "refinement", "register-assessment", str(project.root),
+            "--assessment", assessment, "--json",
+        ]) == 0
+        capsys.readouterr()
+    rebuttals = _write_refinement_cli_record(
+        project, "submissions/rebuttals.json", valid_rebuttals_record(project)
+    )
+    assert main([
+        "refinement", "register-deliberation", str(project.root),
+        "--rebuttals", rebuttals, "--json",
+    ]) == 0
+    capsys.readouterr()
+
+
+def _register_refinement_decision_with_cli(project, capsys, payload):
+    decision = _write_refinement_cli_record(project, "submissions/decision.json", payload)
+    assert main([
+        "refinement", "register-decision", str(project.root),
+        "--decision", decision, "--json",
+    ]) == 0
+    capsys.readouterr()
+    return decision
+
+
+def test_refinement_cli_dispatches_registration_self_test_run_and_status(
+    tmp_path, capsys
+):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    _prepare_refinement_session_with_cli(project, capsys)
+    _register_refinement_assessments_with_cli(project, capsys)
+    _register_refinement_decision_with_cli(project, capsys, valid_decision_record(project))
+
+    manifest = write_refinement_candidate(project)
+    assert main([
+        "refinement", "register-candidate", str(project.root),
+        "--manifest", str(manifest.relative_to(project.root)), "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["candidate_id"] == "candidate-001"
+
+    assert main([
+        "refinement", "prepare-self-test", str(project.root),
+        "--candidate-id", "candidate-001", "--json",
+    ]) == 0
+    self_test = json.loads(capsys.readouterr().out)
+    completed = subprocess.run(
+        self_test["argv"], cwd=self_test["cwd"], check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    assert main([
+        "refinement", "register-self-test", str(project.root),
+        "--candidate-id", "candidate-001", "--report", self_test["report_path"],
+        "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_self_test_confirmation_required\n"
+    assert ResearchProject.open(project.root).state.next_action == "prepare_refinement_self_test"
+
+    assert main([
+        "refinement", "register-self-test", str(project.root),
+        "--candidate-id", "candidate-001", "--report", self_test["report_path"],
+        "--confirm-refinement-self-test", "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["next_action"] == "prepare_refinement_run"
+
+    assert main([
+        "refinement", "prepare-run", str(project.root),
+        "--candidate-id", "candidate-001", "--json",
+    ]) == 0
+    run = json.loads(capsys.readouterr().out)
+    write_refinement_result(project, SimpleNamespace(**run))
+
+    assert main([
+        "refinement", "register-result", str(project.root),
+        "--candidate-id", "candidate-001", "--result", run["result_path"], "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_result_confirmation_required\n"
+    assert ResearchProject.open(project.root).state.next_action == "register_refinement_result"
+
+    assert main([
+        "refinement", "register-result", str(project.root),
+        "--candidate-id", "candidate-001", "--result", run["result_path"],
+        "--confirm-refinement-result", "--json",
+    ]) == 0
+    capsys.readouterr()
+
+    assert main(["refinement", "status", str(project.root), "--json"]) == 0
+    encoded = capsys.readouterr().out
+    status = json.loads(encoded)
+    assert status["phase"] == "awaiting_independent_assessments"
+    assert encoded == json.dumps(status, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+def test_refinement_cli_finalization_requires_confirmation_without_mutation(
+    tmp_path, capsys
+):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    _prepare_refinement_session_with_cli(project, capsys)
+    _register_refinement_assessments_with_cli(project, capsys)
+    final_decision = valid_decision_record(
+        project,
+        votes=("retain_baseline", "retain_baseline", "inconclusive"),
+    )
+    final_decision["action"] = "retain_baseline"
+    final_decision["candidate_id"] = None
+    final_decision["supporting_roles"] = ["domain", "methodology"]
+    final_decision["dissenting_roles"] = ["critical_reproducibility"]
+    final_decision["rationale"] = ["The evidence supports retaining the baseline."]
+    final_decision["limitations"] = ["The result remains limited to registered inputs."]
+    final_decision["stage_14_questions"] = ["Does the conclusion survive sensitivity analysis?"]
+    final_decision.pop("change_request")
+    decision = _register_refinement_decision_with_cli(project, capsys, final_decision)
+
+    assert main([
+        "refinement", "finalize", str(project.root), "--decision", decision, "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_finalization_confirmation_required\n"
+    assert ResearchProject.open(project.root).state.current_stage == 13
+
+    assert main([
+        "refinement", "finalize", str(project.root), "--decision", decision,
+        "--confirm-refinement-finalization", "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["phase"] == "completed"
+    assert ResearchProject.open(project.root).state.current_stage == 14
+
+
+def test_refinement_cli_rejects_unsafe_paths_and_agent_controls_without_mutation(
+    tmp_path, capsys
+):
+    project = build_stage_thirteen_project(tmp_path / "project")
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "../outside.json", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_path_invalid\n"
+    assert not (project.root / "refinement/session.json").exists()
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--model", "untrusted", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_argument_invalid\n"
+
+
+def test_refinement_prepare_session_rejects_duplicate_envelope_keys(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = project.root / "refinement" / "envelope.json"
+    envelope.parent.mkdir(parents=True)
+    envelope.write_text(
+        json.dumps(valid_envelope()).replace(
+            '{"schema_version": 1,', '{"schema_version": 1, "schema_version": 1,'
+        ),
+        encoding="utf-8",
+    )
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_envelope_invalid\n"
+    assert not (project.root / "refinement/session.json").exists()
+
+
+@pytest.mark.parametrize(
+    "contents",
+    (
+        "[" * 2_000 + "0" + "]" * 2_000,
+        '{"maximum_runs":' + "9" * 5_000 + "}",
+    ),
+)
+def test_refinement_prepare_session_rejects_pathological_envelopes(
+    tmp_path, capsys, contents
+):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = project.root / "refinement" / "envelope.json"
+    envelope.parent.mkdir(parents=True)
+    envelope.write_text(contents, encoding="utf-8")
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_envelope_invalid\n"
+    assert not (project.root / "refinement/session.json").exists()
+
+
+def test_refinement_prepare_session_rejects_fifo_envelope(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = project.root / "refinement" / "envelope.json"
+    envelope.parent.mkdir(parents=True)
+    os.mkfifo(envelope)
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_envelope_invalid\n"
+    assert not (project.root / "refinement/session.json").exists()
+
+
+def test_refinement_cli_preserves_stable_core_validation_codes(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    envelope = project.root / "refinement" / "envelope.json"
+    envelope.parent.mkdir(parents=True)
+    envelope.write_text("{}", encoding="utf-8")
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "refinement/envelope.json", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_envelope_schema_invalid\n"
+
+
+def test_refinement_cli_sanitizes_newline_bearing_paths(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+
+    assert main([
+        "refinement", "prepare-session", str(project.root),
+        "--envelope", "../outside\nerror: injected", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_path_invalid\n"
+    assert not (project.root / "refinement/session.json").exists()
+
+
+def test_refinement_statuses_expose_closed_public_json_contracts():
+    session = RefinementSessionStatus(
+        session_id="session-001",
+        phase="awaiting_candidate",
+        evidence_packet_path="refinement/evidence_packet.json",
+        evidence_packet_sha256="a" * 64,
+        runs_used=1,
+        maximum_runs=2,
+        next_action="register_refinement_candidate",
+        wall_seconds_used=1.5,
+    )
+    candidate = CandidateStatus(
+        candidate_id="candidate-001",
+        manifest_path="refinement/candidates/candidate-001/package_metadata/manifest.json",
+        manifest_sha256="b" * 64,
+        decision_sha256="c" * 64,
+        package_contract_sha256="d" * 64,
+        entry_point="code/model.py",
+        files=(ArtifactRef("refinement/candidates/candidate-001/code/model.py", "e" * 64, 12),),
+        next_action="prepare_refinement_self_test",
+    )
+
+    assert session.to_dict() == {
+        "session_id": "session-001",
+        "phase": "awaiting_candidate",
+        "evidence_packet_path": "refinement/evidence_packet.json",
+        "evidence_packet_sha256": "a" * 64,
+        "runs_used": 1,
+        "maximum_runs": 2,
+        "next_action": "register_refinement_candidate",
+        "wall_seconds_used": 1.5,
+    }
+    assert candidate.to_dict() == {
+        "candidate_id": "candidate-001",
+        "manifest_path": "refinement/candidates/candidate-001/package_metadata/manifest.json",
+        "manifest_sha256": "b" * 64,
+        "decision_sha256": "c" * 64,
+        "package_contract_sha256": "d" * 64,
+        "entry_point": "code/model.py",
+        "files": [{
+            "path": "refinement/candidates/candidate-001/code/model.py",
+            "sha256": "e" * 64,
+            "size": 12,
+        }],
+        "next_action": "prepare_refinement_self_test",
+    }
+
+
+def test_refinement_cli_rejects_abbreviated_confirmation_options(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+
+    assert main([
+        "refinement", "register-self-test", str(project.root),
+        "--candidate-id", "candidate-001", "--report", "report.json", "--confirm", "--json",
+    ]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_argument_invalid\n"
 
 
 def _run_known_answer_self_test(project):
