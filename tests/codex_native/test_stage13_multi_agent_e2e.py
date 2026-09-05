@@ -147,7 +147,9 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
 
     project = build_stage_thirteen_project(tmp_path / "project")
     baseline_before = immutable_stage_twelve_snapshot(project)
-    envelope = _write_record(project, "refinement/envelope.json", valid_envelope())
+    e2e_envelope = valid_envelope()
+    e2e_envelope["maximum_candidate_seconds"] = 1
+    envelope = _write_record(project, "refinement/envelope.json", e2e_envelope)
     _run_json(
         capsys,
         "refinement",
@@ -204,17 +206,22 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     assert network_attempts.read_text(encoding="utf-8") == ""
     for probe, event in (
         ("tcp", "socket.connect"),
-        ("create_connection", "socket.getaddrinfo"),
-        ("udp", "socket.sendto"),
+        ("sockettype_sendmsg", "socket.sendmsg"),
+        ("bind", "socket.bind"),
+        ("create_server", "socket.create_server"),
+        ("create_connection", "socket.create_connection"),
+        ("sendto", "socket.sendto"),
         ("sendto_flags", "socket.sendto"),
         ("sendmsg", "socket.sendmsg"),
         ("send", "socket.send"),
         ("sendall", "socket.sendall"),
-        ("dns", "socket.getaddrinfo"),
+        ("connect_ex", "socket.connect_ex"),
+        ("sendfile", "socket.sendfile"),
+        ("getaddrinfo", "socket.getaddrinfo"),
         ("dns_name", "socket.gethostbyname"),
         ("dns_name_ex", "socket.gethostbyname_ex"),
         ("dns_addr", "socket.gethostbyaddr"),
-        ("provider", "socket.getaddrinfo"),
+        ("provider", "socket.create_connection"),
     ):
         _assert_blocked_probe(
             self_test["argv"],
@@ -245,6 +252,10 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         "candidate-001",
         "--json",
     )
+    run_contract = json.loads(
+        (project.root / run["contract_path"]).read_text(encoding="utf-8")
+    )
+    assert run_contract["envelope"]["reserved_maximum_seconds"] == 1
     completed = _guarded_subprocess(
         run["argv"],
         cwd=run["cwd"],
@@ -257,7 +268,7 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         cwd=run["cwd"],
         attempts_path=network_attempts,
         probe="provider",
-        event="socket.getaddrinfo",
+        event="socket.create_connection",
     )
     produced_result = json.loads(
         (project.root / run["result_path"]).read_text(encoding="utf-8")
@@ -265,7 +276,8 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     assert produced_result["metrics"]["primary"]["value"] == _expected_candidate_metric(
         project, run
     )
-    assert 0.0 < produced_result["runtime"]["elapsed_seconds"] <= produced_result["runtime"]["maximum_seconds"]
+    assert produced_result["runtime"]["maximum_seconds"] == 1
+    assert 0.0 < produced_result["runtime"]["elapsed_seconds"] <= 1
     candidate_result = _run_json(
         capsys,
         "refinement",
@@ -279,7 +291,7 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         "--json",
     )
     candidate_manifest = candidate_result["evidence_manifest_path"]
-    assert 0.0 <= candidate_result["wall_seconds_used"] <= produced_result["runtime"]["maximum_seconds"]
+    assert 0.0 < candidate_result["wall_seconds_used"] <= 1
 
     reopened = ResearchProject.open(project.root)
     result = reopened.state.artifacts[run["result_path"]]

@@ -1285,7 +1285,10 @@ def build_stage_twelve_project(
 
 
 def build_approved_stage_twelve_project(
-    root: Path, *, include_execution_marker: bool = False
+    root: Path,
+    *,
+    include_execution_marker: bool = False,
+    approved_input_bytes: bytes = b"approved research input\n",
 ) -> ResearchProject:
     """Build a current explicit-execution approval without writing its record directly."""
     project, declared_input = build_stage_twelve_project(
@@ -1294,16 +1297,23 @@ def build_approved_stage_twelve_project(
         include_execution_marker=include_execution_marker,
     )
     declared_input.parent.mkdir(parents=True, exist_ok=True)
-    declared_input.write_bytes(b"approved research input\n")
+    declared_input.write_bytes(approved_input_bytes)
     recheck_execution_readiness(project)
     project = ResearchProject.open(root)
     approve_current_gate(project, "approve", "Explicit execution approved")
     return ResearchProject.open(root)
 
 
-def build_stage_thirteen_project(root: Path) -> ResearchProject:
+def build_stage_thirteen_project(
+    root: Path,
+    *,
+    approved_input_bytes: bytes = b"approved research input\n",
+) -> ResearchProject:
     """Build one Stage-13 project grounded by immutable Stage-12 evidence."""
-    project = build_approved_stage_twelve_project(root)
+    project = build_approved_stage_twelve_project(
+        root,
+        approved_input_bytes=approved_input_bytes,
+    )
     prepare_research_execution(project)
     write_contract_bound_research_result(project, load_execution_contract(project.root))
     register_research_result(project, "experiment/results.json")

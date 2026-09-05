@@ -44,8 +44,21 @@ from tests.codex_native.test_refinement import (
 )
 
 
-def registered_candidate_project(path: Path):
-    project = refinement_project_with_refine_decision(path)
+def registered_candidate_project(
+    path: Path, *, approved_input_bytes: bytes | None = None
+):
+    if approved_input_bytes is None:
+        project = refinement_project_with_refine_decision(path)
+    else:
+        project = build_stage_thirteen_project(
+            path,
+            approved_input_bytes=approved_input_bytes,
+        )
+        prepare_refinement_session(project, valid_envelope())
+        register_all_assessments(project)
+        register_refinement_rebuttals(project, write_valid_rebuttals(project))
+        register_refinement_decision(project, write_valid_decision(project))
+        project = ResearchProject.open(project.root)
     manifest = write_refinement_candidate(project)
     candidate = register_refinement_candidate(project, manifest)
     return ResearchProject.open(project.root), candidate
@@ -64,8 +77,13 @@ def run_candidate_self_test(project, candidate_id):
     return preparation
 
 
-def self_tested_candidate_project(path: Path):
-    project, candidate = registered_candidate_project(path)
+def self_tested_candidate_project(
+    path: Path, *, approved_input_bytes: bytes | None = None
+):
+    project, candidate = registered_candidate_project(
+        path,
+        approved_input_bytes=approved_input_bytes,
+    )
     preparation = run_candidate_self_test(project, candidate.candidate_id)
     register_refinement_self_test(
         project, candidate.candidate_id, preparation.report_path
@@ -273,36 +291,60 @@ def test_context_bound_refinement_argv_produces_registrable_result(tmp_path):
     assert registered.result_path == run.result_path
 
 
-def test_candidate_metric_changes_with_a_different_bound_input(tmp_path):
-    project, candidate = self_tested_candidate_project(tmp_path / "project")
-    run = prepare_refinement_run(project, candidate.candidate_id)
-    completed = subprocess.run(run.argv, cwd=run.cwd, check=False, capture_output=True, text=True)
-    assert completed.returncode == 0, completed.stderr
-    result_path = project.root / run.result_path
-    first_metric = json.loads(result_path.read_text(encoding="utf-8"))["metrics"]["primary"]["value"]
+def test_candidate_metric_changes_between_independent_authorized_inputs(tmp_path):
+    first_project, first_candidate = self_tested_candidate_project(
+        tmp_path / "first-project",
+        approved_input_bytes=b"independent authorized input alpha\n",
+    )
+    first_run = prepare_refinement_run(first_project, first_candidate.candidate_id)
+    first_context_path = first_project.root / first_run.contract_path
+    first_context_before = first_context_path.read_bytes()
+    first_context = json.loads(first_context_before)
+    assert first_context["execution"]["argv"] == list(first_run.argv)
+    assert first_context["execution"]["cwd"] == first_run.cwd
 
-    context_path = project.root / run.contract_path
-    alternate_context = json.loads(context_path.read_text(encoding="utf-8"))
-    binding = alternate_context["execution"]["input_bindings"][0]
-    alternate_input = tmp_path / "alternate-input.json"
-    alternate_bytes = Path(binding["absolute_path"]).read_bytes() + b" changed"
-    alternate_input.write_bytes(alternate_bytes)
-    alternate_path = context_path.with_name("alternate.contract.json")
-    alternate_relative = alternate_path.relative_to(project.root).as_posix()
-    binding.update(
-        absolute_path=str(alternate_input.resolve()),
-        sha256=hashlib.sha256(alternate_bytes).hexdigest(),
-        size=len(alternate_bytes),
+    first_completed = subprocess.run(
+        first_run.argv,
+        cwd=first_run.cwd,
+        check=False,
+        capture_output=True,
+        text=True,
     )
-    alternate_context["execution"]["run_contract_path"] = alternate_relative
-    alternate_context["execution"]["argv"][-1] = str(alternate_path.resolve())
-    alternate_path.write_text(json.dumps(alternate_context, sort_keys=True), encoding="utf-8")
-    alternate_argv = (*run.argv[:-1], str(alternate_path.resolve()))
-    completed = subprocess.run(
-        alternate_argv, cwd=run.cwd, check=False, capture_output=True, text=True
+
+    assert first_completed.returncode == 0, first_completed.stderr
+    assert first_context_path.read_bytes() == first_context_before
+    first_metric = json.loads(
+        (first_project.root / first_run.result_path).read_text(encoding="utf-8")
+    )["metrics"]["primary"]["value"]
+
+    second_project, second_candidate = self_tested_candidate_project(
+        tmp_path / "second-project",
+        approved_input_bytes=b"independent authorized input beta with different bytes\n",
     )
-    assert completed.returncode == 0, completed.stderr
-    second_metric = json.loads(result_path.read_text(encoding="utf-8"))["metrics"]["primary"]["value"]
+    second_run = prepare_refinement_run(second_project, second_candidate.candidate_id)
+    second_context_path = second_project.root / second_run.contract_path
+    second_context_before = second_context_path.read_bytes()
+    second_context = json.loads(second_context_before)
+    assert second_context["execution"]["argv"] == list(second_run.argv)
+    assert second_context["execution"]["cwd"] == second_run.cwd
+    assert (
+        second_context["execution"]["input_bindings"][0]["sha256"]
+        != first_context["execution"]["input_bindings"][0]["sha256"]
+    )
+
+    second_completed = subprocess.run(
+        second_run.argv,
+        cwd=second_run.cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert second_completed.returncode == 0, second_completed.stderr
+    assert second_context_path.read_bytes() == second_context_before
+    second_metric = json.loads(
+        (second_project.root / second_run.result_path).read_text(encoding="utf-8")
+    )["metrics"]["primary"]["value"]
 
     assert second_metric != first_metric
 

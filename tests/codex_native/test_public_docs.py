@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 
+import pytest
+
 from researchclaw.core.computational_package import canonical_computational_scaffold
 from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
 
@@ -29,13 +31,18 @@ network_access, downloads, package_installation, external_llm_calls,
 nested_agent_processes, generated_code_execution
 ```"""
 REFINEMENT_NORMATIVE_POLICY = {
+    "arbitrary_python": "forbidden",
+    "arbitrary_shell": "forbidden",
     "challenge_rounds": "1",
     "confirmation_flags": "self_test,result,finalization",
     "coordinator_vote": "forbidden",
     "disclosure": "after_all_independent_assessments",
     "dissent": "retained",
     "envelope": "immutable_escalate",
+    "execution_argv": "task7_returned_only",
+    "execution_cwd": "task7_returned_only",
     "implementation_vote": "forbidden",
+    "llm_api": "forbidden",
     "network": "forbidden",
     "provider_configuration": "forbidden",
     "provider_key": "forbidden",
@@ -45,13 +52,75 @@ REFINEMENT_NORMATIVE_POLICY = {
 }
 
 
-def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
-    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+def _assert_refinement_contract(text: str) -> None:
     pairs = re.findall(r"(?m)^([a-z_]+)=([a-z0-9_,]+)$", text)
+    sentences = tuple(
+        " ".join(part.split()).lower()
+        for part in re.split(r"(?<=[.!?])\s+|\n+", text)
+        if part.strip()
+    )
 
     assert len(pairs) == len(REFINEMENT_NORMATIVE_POLICY)
     assert dict(pairs) == REFINEMENT_NORMATIVE_POLICY
     assert "researchclaw-codex refinement" in text.lower()
+    assert any(
+        all(term in sentence for term in ("task-7", "returned", "`argv`", "`cwd`", "only"))
+        for sentence in sentences
+    )
+    assert any(
+        all(term in sentence for term in ("arbitrary", "python", "shell", "forbidden"))
+        for sentence in sentences
+    )
+    assert any(
+        all(term in sentence for term in ("llm api", "provider", "key", "network", "must not"))
+        for sentence in sentences
+    )
+
+    permission_markers = (" may ", " allowed ", " permitted ")
+    dangerous_permissions = (
+        ("arbitrary", "python"),
+        ("arbitrary", "shell"),
+        ("llm api",),
+        ("provider key",),
+        ("network call",),
+        ("replace", "task-7"),
+    )
+    assert not any(
+        any(marker in f" {sentence} " for marker in permission_markers)
+        and any(all(term in sentence for term in terms) for terms in dangerous_permissions)
+        for sentence in sentences
+    )
+
+
+def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
+    _assert_refinement_contract(REFINEMENT_REFERENCE.read_text(encoding="utf-8"))
+
+
+def test_refinement_contract_rejects_contradiction_or_map_only_stub():
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    contradiction = (
+        "The coordinator may replace Task-7 returned argv and cwd with arbitrary "
+        "Python or shell execution and may call an LLM API using a provider key "
+        "over a network call."
+    )
+    map_only_stub = "\n".join(
+        [
+            "# Refinement command stub",
+            "```text",
+            *(f"{key}={value}" for key, value in REFINEMENT_NORMATIVE_POLICY.items()),
+            "```",
+            "researchclaw-codex refinement status ROOT --json",
+        ]
+    )
+
+    with pytest.raises(AssertionError):
+        _assert_refinement_contract(f"{text}\n{contradiction}\n")
+    with pytest.raises(AssertionError):
+        _assert_refinement_contract(map_only_stub)
+
+    _assert_refinement_contract(
+        f"{text}\nProgress summaries may use harmless wording without changing policy.\n"
+    )
 
 
 def test_public_docs_advertise_stage_eleven_boundary():

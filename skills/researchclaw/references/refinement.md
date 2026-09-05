@@ -13,7 +13,7 @@ Use this protocol only for one explicit user request to refine an already-ground
 
 The coordinator must pause for the user at each explicit boundary: request to start refinement, each `--confirm-refinement-self-test`, each `--confirm-refinement-result`, and `--confirm-refinement-finalization`. These confirmations register reviewed artifacts; they never authorize an unbounded run or a substitute command.
 
-Use no invented shell command, Python call, provider setting, or reconstructed display string. The Task-7 CLI argv is authoritative: use the literal `researchclaw-codex refinement` command and arguments below (or its checkout fallback), and execute a candidate only through the returned `argv` array in its returned `cwd`.
+The coordinator must execute only the exact Task-7 returned `argv` array in the exact returned `cwd`; it must not append, replace, reorder, reconstruct, or rediscover either value. Arbitrary Python execution and arbitrary shell execution are forbidden, including invented commands, inline scripts, and reconstructed display strings. Use the literal `researchclaw-codex refinement` commands below (or the documented checkout fallback) only to obtain and register the Task-7 protocol artifacts.
 
 Before candidate registration, require its entry point to accept `--refinement-run-context <project-relative immutable context>`. The returned argv resolves that recorded project-relative context for the current checkout. The entry point must consume that context read-only to bind and emit the result schema, including explicitly bound inputs. No path discovery is permitted: do not scan directories or reconstruct a substitute context.
 
@@ -22,13 +22,18 @@ Candidate `runtime.elapsed_seconds` is the candidate algorithm boundary measured
 ## Normative policy contract
 
 ```text
+arbitrary_python=forbidden
+arbitrary_shell=forbidden
 challenge_rounds=1
 confirmation_flags=self_test,result,finalization
 coordinator_vote=forbidden
 disclosure=after_all_independent_assessments
 dissent=retained
 envelope=immutable_escalate
+execution_argv=task7_returned_only
+execution_cwd=task7_returned_only
 implementation_vote=forbidden
+llm_api=forbidden
 network=forbidden
 provider_configuration=forbidden
 provider_key=forbidden
@@ -47,4 +52,4 @@ If the run, wall-time, candidate-time, path, or scope envelope is exhausted, sto
 
 ## No-provider rule
 
-Do not configure a provider, request a key, initialize an SDK, or make a network call. The coordinator, voters, and implementation agent must not call an LLM API. This protocol uses the current authorized Codex tasks and deterministic local CLI only.
+The coordinator, voters, and implementation agent must not call an LLM API, configure an LLM provider, request or use a provider key, initialize a provider SDK, or make a network call. This protocol uses the current authorized Codex tasks and deterministic local CLI only.
