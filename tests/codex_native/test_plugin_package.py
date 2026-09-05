@@ -92,6 +92,7 @@ def test_skill_reference_links_resolve_including_stage_six_and_eleven_guidance()
     expected_skill_references = (
         SKILL_ROOT / "references" / "knowledge-extraction.md",
         SKILL_ROOT / "references" / "resource-planning.md",
+        SKILL_ROOT / "references" / "refinement.md",
     )
     markdown_files = tuple(SKILL_ROOT.rglob("*.md"))
     linked_files = {

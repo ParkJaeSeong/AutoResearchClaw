@@ -21,12 +21,23 @@ STAGE_TWELVE_PUBLIC_FILES = (
 )
 RESOURCE_REFERENCE = SKILL_ROOT / "references" / "resource-planning.md"
 STAGES_REFERENCE = SKILL_ROOT / "references" / "stages.md"
+REFINEMENT_REFERENCE = SKILL_ROOT / "references" / "refinement.md"
 RESOURCE_PROHIBITIONS_CONTRACT = """`prohibitions` has exactly these boolean fields, all `false`:
 
 ```text
 network_access, downloads, package_installation, external_llm_calls,
 nested_agent_processes, generated_code_execution
 ```"""
+
+
+def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
+    normalized = " ".join(REFINEMENT_REFERENCE.read_text().split()).lower()
+
+    assert "coordinator has no vote" in normalized
+    assert "independent assessment" in normalized
+    assert "implementation agent must not vote" in normalized
+    assert "must not call an llm api" in normalized
+    assert "researchclaw-codex refinement" in normalized
 
 
 def test_public_docs_advertise_stage_eleven_boundary():
@@ -194,7 +205,7 @@ def test_public_docs_describe_explicit_research_result_registration_boundary():
 
     assert "approval-only unsupported execution boundary" not in readme
     assert "approval-only unsupported execution boundary" not in stages
-    assert "Stage 13 refinement remains unsupported" in stages
+    assert "Stage 13 refinement uses the explicit council protocol" in stages
 
 
 def test_stage_twelve_public_contract_is_explicit_immutable_and_legacy_safe():
