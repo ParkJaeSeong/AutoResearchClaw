@@ -1,0 +1,18 @@
+{
+  "synthetic_only": true,
+  "topic": "Synthetic battery cycle prediction metric and split audit",
+  "objective": "Audit held-out MAE and cell/group isolation from a frozen synthetic table; do not claim trained-model performance.",
+  "input": "input.csv",
+  "metric": {"name": "mae_cycles", "unit": "cycles", "split": "test", "direction": "lower_is_better"},
+  "expected_baseline_value": 0.5,
+  "isolation_keys": ["cell_id", "group_id"],
+  "maximum_candidates": 1,
+  "maximum_runs": 1,
+  "limitations": [
+    "All 14 cells and seven groups are invented; no external dataset or literature supports them.",
+    "Predictions are fixed input values, not outputs of a fitted model.",
+    "The train, validation and calibration labels test partition accounting only; no training or calibration is performed.",
+    "Lowering error by editing held-out targets or copying them into predictions is leakage, not a valid improvement.",
+    "This source bundle contains no ResearchClaw approvals, registered research evidence or preselected council votes."
+  ]
+}

@@ -210,8 +210,8 @@ class ResearchProject:
             "approval_eligible": approval_eligible,
         }
         if (
-            current_project.state.current_stage == 14
-            and 13 in current_project.state.completed_stages
+            current_project.state.current_stage in {13, 14}
+            and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             from .handoff import build_handoff
 

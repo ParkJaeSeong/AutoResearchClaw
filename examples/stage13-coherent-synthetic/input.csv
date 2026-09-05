@@ -1,0 +1,15 @@
+cell_id,group_id,split,target_cycles,prediction_cycles
+c01,g1,train,100,100.5
+c02,g1,train,102,101.5
+c03,g2,train,104,104.5
+c04,g2,train,106,105.5
+c05,g3,train,108,108.5
+c06,g3,train,110,109.5
+c07,g4,validation,112,112.5
+c08,g4,validation,114,113.5
+c09,g5,calibration,116,116.5
+c10,g5,calibration,118,117.5
+c11,g6,test,120,120.5
+c12,g6,test,122,121.5
+c13,g7,test,124,124.5
+c14,g7,test,126,125.5

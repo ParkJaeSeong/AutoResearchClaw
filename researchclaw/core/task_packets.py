@@ -82,6 +82,12 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
         raise ValueError("validation retry limit reached; user review is required")
     if state.status is StageStatus.AWAITING_APPROVAL:
         raise ValueError("project is awaiting approval")
+    if state.current_stage == 13:
+        raise ValueError(
+            "Stage 13 uses researchclaw-codex refinement prepare-session PROJECT "
+            "--envelope PROJECT_RELATIVE_PATH --json, not stage prepare; "
+            "review the refinement envelope before explicitly preparing a session."
+        )
     if state.current_stage not in SUPPORTED_STAGE_IDS:
         raise ValueError(f"task packets are not defined for stage: {state.current_stage}")
     if state.current_stage == 6:

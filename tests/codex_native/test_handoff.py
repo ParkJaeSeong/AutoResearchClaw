@@ -122,6 +122,48 @@ def test_stage_thirteen_handoff_fails_closed_on_tampered_refinement_state(tmp_pa
         build_handoff(ResearchProject.open(project.root))
 
 
+@pytest.mark.parametrize("empty_directory", [False, True])
+def test_unprepared_stage_thirteen_status_guides_without_mutation(
+    tmp_path, capsys, empty_directory
+):
+    project = _registered_stage_thirteen_project(tmp_path / "project")
+    if empty_directory:
+        (project.root / "refinement").mkdir(exist_ok=True)
+    before = (project.root / ".researchclaw/state.json").read_bytes()
+    assert cli_main(["status", str(project.root), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_action"] == "prepare_refinement_session"
+    assert "prepare-session" in payload["boundary_message"]
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before
+    assert not (project.root / "refinement/session.json").exists()
+
+
+def test_stage_thirteen_generic_prepare_guides_without_creating_session(tmp_path, capsys):
+    project = _registered_stage_thirteen_project(tmp_path / "project")
+    before = (project.root / ".researchclaw/state.json").read_bytes()
+    assert cli_main(["stage", "prepare", str(project.root), "--json"]) == 2
+    error = capsys.readouterr().err
+    assert "refinement prepare-session" in error
+    assert "--envelope" in error
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before
+    assert not (project.root / "refinement/session.json").exists()
+
+
+@pytest.mark.parametrize("kind", ["untracked_file", "symlink"])
+def test_unprepared_stage_thirteen_rejects_suspicious_directory(tmp_path, kind):
+    project = _registered_stage_thirteen_project(tmp_path / "project")
+    directory = project.root / "refinement"
+    if kind == "symlink":
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        directory.symlink_to(outside, target_is_directory=True)
+    else:
+        directory.mkdir()
+        (directory / "session.json").write_text("{}")
+    with pytest.raises((ValueError, OSError)):
+        project.status_dict()
+
+
 def _registered_stage_thirteen_project(root):
     project = build_approved_stage_twelve_project(root)
     prepare_research_execution(project)

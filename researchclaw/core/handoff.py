@@ -503,7 +503,14 @@ def _normalize_durable_project_locked(project: ResearchProject) -> ResearchProje
         state.current_stage == 13
         and 12 in state.completed_stages
         and (
-            os.path.lexists(current_project.root / "refinement")
+            (
+                os.path.lexists(current_project.root / "refinement")
+                and (
+                    (current_project.root / "refinement").is_symlink()
+                    or not (current_project.root / "refinement").is_dir()
+                    or any((current_project.root / "refinement").iterdir())
+                )
+            )
             or any(path.startswith("refinement/") for path in state.artifacts)
         )
     ):
@@ -863,7 +870,14 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             "Stage 13 refinement is complete and its evidence is retained. "
             "Stage 14 result analysis awaits future stage support; "
             "the supported next command only reads project status."
-            if stage_fourteen_boundary else None
+            if stage_fourteen_boundary else (
+                "Stage 13 requires an explicit refinement request and envelope. "
+                "Use researchclaw-codex refinement prepare-session PROJECT "
+                "--envelope PROJECT_RELATIVE_PATH --json after reviewing the envelope; "
+                "status does not create a session or authorize execution."
+                if stage_thirteen_boundary and next_action == "prepare_refinement_session"
+                else None
+            )
         ),
     )
 
