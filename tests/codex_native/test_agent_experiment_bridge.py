@@ -4,8 +4,10 @@ import json
 import subprocess
 import pytest
 import copy
+import os
 from pathlib import Path
 import sys
+import sysconfig
 
 from researchclaw.core.project import ResearchProject
 from tests.codex_native.helpers import (
@@ -637,9 +639,27 @@ def test_changed_interpreter_cannot_publish_self_test(tmp_path, capsys):
     )
     assert created.returncode == 0, created.stderr
     launcher = alternate / "bin/python"
+    # Nested venvs inherit the base installation's site-packages, not necessarily
+    # the parent test venv's dependencies. Retain those paths only for this child.
+    child_environment = os.environ.copy()
+    child_environment["PYTHONPATH"] = os.pathsep.join(
+        dict.fromkeys(
+            (
+                os.environ["PYTHONPATH"],
+                sysconfig.get_path("purelib"),
+                sysconfig.get_path("platlib"),
+            )
+        )
+    )
     probe = subprocess.run(
-        [str(launcher), "-P", "-c", "import encodings, researchclaw; print('ready')"],
+        [
+            str(launcher),
+            "-P",
+            "-c",
+            "import encodings, researchclaw.core.agent_experiment_runtime; print('ready')",
+        ],
         cwd=prepared["cwd"],
+        env=child_environment,
         capture_output=True,
         text=True,
         timeout=60,
@@ -648,11 +668,26 @@ def test_changed_interpreter_cannot_publish_self_test(tmp_path, capsys):
     assert probe.stdout.strip() == "ready"
     changed_argv = [str(launcher), *prepared["argv"][1:]]
     completed = subprocess.run(
-        changed_argv, cwd=prepared["cwd"], capture_output=True, text=True, timeout=60
+        changed_argv,
+        cwd=prepared["cwd"],
+        env=child_environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert completed.returncode != 0
     assert not (project.root / prepared["report_path"]).exists()
-    assert "execution environment changed" in completed.stderr
+    error = completed.stderr.strip().splitlines()[-1]
+    assert error in {
+        "ValueError: execution environment changed",
+        "ValueError: execution_environment_unavailable",
+    }, completed.stderr
+    assert "agent_experiment_runtime.py" in completed.stderr
+    if error == "ValueError: execution_environment_unavailable":
+        # A copied non-framework interpreter can be runnable but fail OS image
+        # attestation. Require that exact inspector rejection, not startup errors.
+        assert "execution_environment.py" in completed.stderr
+        assert "in inspect_execution_environment" in completed.stderr
 
 
 def test_non_authoritative_wrapper_launch_cannot_publish(tmp_path, capsys):

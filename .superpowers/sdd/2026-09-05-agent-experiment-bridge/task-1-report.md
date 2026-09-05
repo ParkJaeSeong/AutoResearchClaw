@@ -326,3 +326,62 @@ environment and repeat the real CLI bridge; no source/installed Python 3.13 pass
 is claimed here. The earlier 129 uncompleted broad-batch cases and two unexplained
 research-execution failures remain explicit limitations. No broad suite was
 repeated, and no deployment, provider access or approval-policy change occurred.
+
+## Review fix round 2: interpreter negative portability (base f42353c)
+
+Controller's isolated Python 3.13 real-CLI run reported **35 passed, 1 failed in
+24.55s**. The alternate-interpreter probe succeeded, and the actual trusted
+runtime rejected with `ValueError: execution_environment_unavailable`, rather
+than the test's sole accepted `ValueError: execution environment changed`.
+There was no publication. This was an inspector rejection, not Python startup
+failure; no production inspection relaxation was warranted.
+
+Narrow source reproduction with controller Python 3.13 initially also exposed a
+fixture dependency difference: a nested venv's system-site-packages does not
+include its parent test venv's packages. The runtime import failed on `packaging`
+even though the weak `import researchclaw` probe succeeded. Original copied-venv
+probe: **1 failed in 1.05s**; experimental symlink venv: **1 failed in 0.42s**,
+both on missing packaging. These failures were not accepted as valid negatives.
+
+With parent dependency paths explicitly retained, direct inspector diagnostics
+proved the symlink venv is recognized but shares the original fingerprint
+(`ff17c648...`) because its resolved interpreter and process image are identical.
+Only launcher paths differ. It cannot exercise a changed-interpreter fingerprint
+under the existing identity design. A copied uv Python 3.13 interpreter imports
+the complete runtime, then fails the existing OS-image check in
+`execution_environment.py::_current_runtime_paths` (line 282), surfaced through
+`inspect_execution_environment`. A byte-identical symlink alias shares identity;
+an actual distinct copied interpreter is rejected. No new launcher identity
+semantics or flag was introduced.
+
+Controller approved the minimal portable fixture-only correction:
+
+- Keep the copied, pip-free runnable venv.
+- Retain the parent purelib/platlib paths only in the alternate child's environment;
+  do not alter the returned command or global runtime environment.
+- Probe `import encodings, researchclaw.core.agent_experiment_runtime` before
+  attempting the prepared self-test, ensuring its dependencies actually import.
+- Require the final traceback line to be exactly one of
+  `ValueError: execution environment changed` or
+  `ValueError: execution_environment_unavailable`, and require trusted-runtime
+  traceback evidence. For unavailable, additionally require
+  `execution_environment.py` and `in inspect_execution_environment` evidence.
+  Arbitrary startup/import exceptions are not accepted. Require no report.
+
+Verification (only the amended case):
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py::test_changed_interpreter_cannot_publish_self_test
+```
+
+Source Python 3.11: **1 passed in 1.05s**.
+
+```
+PYTHONPATH="$PWD" /private/tmp/researchclaw-agent-bridge-installed.sduku3/venv/bin/python -m pytest -q tests/codex_native/test_agent_experiment_bridge.py::test_changed_interpreter_cannot_publish_self_test
+```
+
+Source package on controller Python 3.13: **1 passed in 1.00s**. This is not an
+installed-wheel full-bridge claim; controller owns that verification.
+`ruff check tests/codex_native/test_agent_experiment_bridge.py` and
+`git diff --check` exited 0. Only test fixture and this report changed.
+Earlier partial-suite limitations remain unchanged; no broad suite was rerun.
