@@ -61,6 +61,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--self-test-environment")
     parser.add_argument("--refinement-self-test-context")
     parser.add_argument("--refinement-run-context")
     args = parser.parse_args(argv)
@@ -77,6 +78,7 @@ def main(argv=None):
         args.config != layout["self_config" if args.self_test else "config"]
         or (args.refinement_self_test_context and not args.self_test)
         or (args.refinement_run_context and args.self_test)
+        or (args.self_test_environment and (candidate or not args.self_test))
     ):
         raise ValueError("runtime arguments do not match contract")
     environment = inspect_execution_environment(
@@ -100,6 +102,10 @@ def main(argv=None):
                 "--refinement-self-test-context",
                 args.refinement_self_test_context,
             ]
+        else:
+            if args.self_test_environment != environment.fingerprint:
+                raise ValueError("execution environment changed")
+            expected_argv += ["--self-test-environment", args.self_test_environment]
         if invoked_argv != expected_argv:
             raise ValueError("self-test argv mismatch")
         value = mean_absolute_error(fixture["targets"], fixture["predictions"])

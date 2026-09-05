@@ -248,3 +248,81 @@ files, plus tests/codex_native/fixtures/). Core researchclaw data are wheel pack
 resources. The controller may replace only helpers.run_cli with the real installed
 `sys.executable -m researchclaw.codex.cli` subprocess adapter; no validator or
 post-approval state substitution is needed.
+
+## Review fix round 1 (base c603cc6)
+
+The independent review demonstrated recursive collection comparisons can bypass
+the authored opcode budget: 28 bounded iterations build independent shared
+binary lists, then `a == b`, `min(a, b)` or `max([a, b])` performs exponential
+C-level recursive work before model serialization. Confirmed with three
+subprocess regressions, each guarded by a three-second parent-owned watchdog:
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py -k recursive_collection_comparisons
+```
+
+RED: **3 failed, 33 deselected in 9.32s**, each with
+`subprocess.TimeoutExpired` after three seconds. Subprocess cleanup terminated
+each probe; the pytest parent did not hang.
+
+The AST transformer now wraps comparison operands in a finite-numeric-scalar
+guard before native comparison, retaining native chained short-circuit behavior.
+Authored min/max dispatch to bounded wrappers: finite scalar positional values,
+or a list/tuple/generator of finite scalars, at most 100,000 items. Recursive
+collections fail before comparison. A positive numerical comparison/extrema test
+preserves useful supported behavior. Spec and reference document the restriction.
+
+The interpreter review finding was also verified: copying a standalone binary
+is not a portable runnable environment (controller's installed Python 3.13
+failed importing encodings before reaching application code). The negative now
+creates a pip-free copied venv with stdlib home and system-site access, verifies
+`import encodings, researchclaw` succeeds and prints `ready`, and only then
+replaces the interpreter slot of the exact prepared argv. There are no installs.
+
+That realistic fixture exposed a genuine baseline self-test identity gap:
+`prepare_experiment_self_test` is read-only, and the runtime recomputed its
+environment from the substituted interpreter. Intermediate full bridge run:
+**1 failed, 35 passed in 6.66s**, with the alternate application returning 0 and
+publishing a report instead of rejecting. The comparison regressions passed.
+
+Controller approved the smallest v2-only correction: baseline preparation adds
+`--self-test-environment <prepared fingerprint>` to the authoritative launch,
+after the closed authored suffix. The runtime requires/matches it before report
+publication. It is not an authored schema field and is not placed in the package
+`self_test.argv_suffix`. Preparation still performs no writes. Candidate context
+already carries its environment identity and remains unchanged; legacy commands
+remain unchanged. The alternate-interpreter regression now requires the exact
+application message `execution environment changed`, not arbitrary startup errors.
+
+`pytest -q tests/codex_native/test_agent_experiment_bridge.py` then reported
+**36 passed in 8.60s** on source Python 3.11, including normal public baseline
+and candidate self-tests/results and the runnable alternate-interpreter negative.
+
+A focused legacy response compatibility check found the original bridge commit
+had unconditionally added cwd to the v1 self-test JSON response:
+
+```
+pytest -q tests/codex_native/test_cli.py::test_prepare_self_test_cli_returns_complete_authoritative_argv tests/codex_native/test_public_docs.py
+```
+
+RED: **1 failed, 34 passed in 0.50s**; exact legacy response-key assertion at
+test_cli.py:1596 reported extra `cwd`. With controller approval, explicit cwd
+metadata is now emitted only for v2 baseline self-test/research preparation;
+legacy JSON shape is preserved. This does not alter the launch or authority.
+
+Final source verification:
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py tests/codex_native/test_cli.py::test_prepare_self_test_cli_returns_complete_authoritative_argv
+```
+
+**37 passed in 7.29s** (36 bridge cases plus the exact legacy CLI regression).
+`ruff check researchclaw/core/agent_experiment.py researchclaw/core/agent_experiment_runtime.py researchclaw/core/experiment_package_contract.py researchclaw/core/research_execution.py tests/codex_native/test_agent_experiment_bridge.py`
+and `git diff --check` exited 0. Skill `quick_validate.py skills/researchclaw`
+again reported `Skill is valid!` after the narrowly updated API reference.
+
+The controller will reinstall the final commit into its isolated Python 3.13
+environment and repeat the real CLI bridge; no source/installed Python 3.13 pass
+is claimed here. The earlier 129 uncompleted broad-batch cases and two unexplained
+research-execution failures remain explicit limitations. No broad suite was
+repeated, and no deployment, provider access or approval-policy change occurred.

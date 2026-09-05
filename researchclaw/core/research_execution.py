@@ -139,11 +139,10 @@ class ExecutionPreparationStatus:
     cwd: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "readiness": self.readiness,
             "approval_eligible": self.approval_eligible,
             "argv": list(self.argv),
-            "cwd": self.cwd,
             "environment_fingerprint": self.environment_fingerprint,
             "result_path": self.result_path,
             "contract_path": self.contract_path,
@@ -152,6 +151,9 @@ class ExecutionPreparationStatus:
             "inputs": _thaw_json(self.inputs),
             "result_template": _thaw_json(self.result_template),
         }
+        if self.cwd:
+            value["cwd"] = self.cwd
+        return value
 
 
 @dataclass(frozen=True)
@@ -1012,7 +1014,12 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
     return ExecutionPreparationStatus(
         readiness="ready_for_explicit_execution",
         approval_eligible=False,
-        cwd=str(current.root.resolve()),
+        cwd=(
+            str(current.root.resolve())
+            if contract["argv"][1:4]
+            == ["-P", "-m", "researchclaw.core.agent_experiment_runtime"]
+            else ""
+        ),
         argv=tuple(contract["argv"]),
         environment_fingerprint=str(contract["environment_fingerprint"]),
         result_path=RESEARCH_RESULT_PATH,

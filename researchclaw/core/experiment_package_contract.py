@@ -89,15 +89,17 @@ class SelfTestPreparationStatus:
     cwd: str = ""
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "readiness": "ready_for_explicit_self_test",
             "argv": list(self.argv),
-            "cwd": self.cwd,
             "environment_fingerprint": self.environment_fingerprint,
             "package_contract_sha256": self.package_contract_sha256,
             "report_path": self.report_path,
             "registration_argv": list(self.registration_argv),
         }
+        if self.cwd:
+            value["cwd"] = self.cwd
+        return value
 
 
 @dataclass(frozen=True)
@@ -2410,9 +2412,16 @@ def prepare_experiment_self_test(
             raise ValueError("experiment_package_invalid")
     except (OSError, ValueError) as error:
         raise ValueError("experiment_package_invalid") from error
+    argv = package.command(environment.launcher, package.self_test_argv)
+    if isinstance(package, ValidatedAgentExperimentPackage):
+        argv += ("--self-test-environment", environment.fingerprint)
     return SelfTestPreparationStatus(
-        argv=package.command(environment.launcher, package.self_test_argv),
-        cwd=str(current.root.resolve()),
+        argv=argv,
+        cwd=(
+            str(current.root.resolve())
+            if isinstance(package, ValidatedAgentExperimentPackage)
+            else ""
+        ),
         environment_fingerprint=environment.fingerprint,
         package_contract_sha256=package.contract_sha256,
         report_path=SELF_TEST_REPORT_PATH,

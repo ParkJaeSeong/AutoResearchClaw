@@ -11,6 +11,7 @@ import operator
 import sys
 import hashlib
 from pathlib import Path
+from types import GeneratorType
 
 OUTPUTS = (
     "experiment/package_manifest.json",
@@ -242,7 +243,58 @@ def _numeric_operation(name, left, right):
     return result
 
 
+def _comparison_operand(value):
+    if not finite(value):
+        raise ValueError("algorithm comparison requires finite numbers")
+    return value
+
+
+def _numeric_extreme(operation, values):
+    if len(values) == 1:
+        values = values[0]
+        if not isinstance(values, (list, tuple, GeneratorType)):
+            raise ValueError("algorithm comparison requires finite numbers")
+    found = False
+    result = None
+    for index, value in enumerate(values):
+        if index >= 100000:
+            raise ValueError("algorithm comparison item budget exceeded")
+        value = _comparison_operand(value)
+        result = operation(result, value) if found else value
+        found = True
+    if not found:
+        raise ValueError("algorithm min/max requires nonempty values")
+    return result
+
+
+def _numeric_min(*values):
+    return _numeric_extreme(min, values)
+
+
+def _numeric_max(*values):
+    return _numeric_extreme(max, values)
+
+
 class _NumericalArithmetic(ast.NodeTransformer):
+    def visit_Compare(self, node):
+        self.generic_visit(node)
+
+        def checked(value):
+            return ast.copy_location(
+                ast.Call(
+                    func=ast.Name(id="_comparison", ctx=ast.Load()),
+                    args=[value],
+                    keywords=[],
+                ),
+                value,
+            )
+
+        # Keep native chained comparison evaluation/short-circuiting, but never
+        # enter its recursive collection semantics with unvalidated operands.
+        node.left = checked(node.left)
+        node.comparators = [checked(value) for value in node.comparators]
+        return node
+
     def visit_BinOp(self, node):
         self.generic_visit(node)
         return ast.copy_location(
@@ -309,7 +361,11 @@ def _bounded_model(model):
 def evaluate(source, partitions, columns, parameters):
     tree = validate_algorithm(source)
     tree = ast.fix_missing_locations(_NumericalArithmetic().visit(tree))
-    namespace = {"__builtins__": BUILTINS, "_numeric": _numeric_operation}
+    namespace = {
+        "__builtins__": dict(BUILTINS, min=_numeric_min, max=_numeric_max),
+        "_numeric": _numeric_operation,
+        "_comparison": _comparison_operand,
+    }
     code = compile(tree, "<authored-algorithm>", "exec")
     remaining = 1000000
 

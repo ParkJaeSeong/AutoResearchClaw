@@ -32,6 +32,9 @@ indexing, comprehensions/for loops, conditionals, and `sum`, `len`, `min`, `max`
 `abs`. Imports, attribute access, dynamic calls, helper functions, global work,
 file/process/network access and unbounded loops are rejected. Arithmetic is
 finite numeric only; powers require integer literal exponents from 0 to 8.
+Comparisons are finite numeric scalars only. `min`/`max` accept numeric scalar
+arguments or a list/tuple/generator of numeric scalars (at most 100,000 items),
+not nested collections. Chained numeric comparisons retain short-circuiting.
 An instruction budget bounds authored evaluation. Models allow at most 10,000
 value/key occurrences, depth 64, 1 MiB cumulative string bytes and 1 MiB serialized
 JSON; repeated shared containers count again before serialization. This is a
@@ -46,6 +49,10 @@ installed environment and module search configuration trusted; do not prepend
 the project to `PYTHONPATH` or substitute a project module for this runtime.
 The runtime checks the actual interpreter flags/module and argument suffix, so
 executing the wrapper directly is not equivalent to executing the returned argv.
+Baseline self-test preparation adds `--self-test-environment` with the prepared
+fingerprint. Preserve that returned flag unchanged; do not add it to the authored
+package's `self_test.argv_suffix`. Candidate self-tests retain their existing
+environment-bound context flag.
 
 The runtime passes only training rows to `fit`. Those rows have numeric features
 and the target; prediction rows have features only. The `config` argument is

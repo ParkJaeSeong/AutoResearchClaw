@@ -106,6 +106,13 @@ search configuration must still be trusted. Actual interpreter flags/module and
 arguments from `sys.orig_argv` must match the prepared command; only its launcher
 slot is normalized to the independently fingerprinted interpreter (macOS framework
 launchers rewrite that slot to Python.app). V1 launch dispatch is unchanged.
+Baseline v2 self-test preparation appends the derived launch flag
+`--self-test-environment <prepared environment fingerprint>` after the authored
+closed suffix, without writing preparation state. The runtime requires that
+fingerprint to match before publication; replacing only the interpreter cannot
+silently rederive authority. Candidate self-test context already binds its
+environment and remains unchanged. This derived flag is not an authored schema
+field or an addition to `self_test.argv_suffix`.
 Metrics are exactly one `{name: mae, unit: <approved>, implementation:
 researchclaw.core.agent_experiment:mean_absolute_error}` entry. Dependencies are
 empty. Prohibitions are exactly network_access, external_llm_calls,
@@ -129,6 +136,11 @@ only algorithm config. Model must be finite JSON. Before serialization, traversa
 is bounded to 10,000 value/key occurrences (including repeated shared objects),
 depth 64 and 1 MiB cumulative string bytes; serialized JSON is at most 1 MiB.
 Scalar MAE uses only test rows.
+Comparisons accept only finite numeric scalar operands, with native chained
+short-circuit behavior. `min` and `max` accept finite numeric scalar arguments or
+a list/tuple/generator of finite numeric scalars, capped at 100,000 items. These
+checks occur before any comparison, excluding recursive collection comparisons
+that can consume exponential C-level work outside the authored opcode budget.
 
 Candidate local paths are `code/model.py`, `code/algorithm.py`,
 `config/config.json`, `tests/self_test_config.json`, `tests/self_test_fixture.json`,

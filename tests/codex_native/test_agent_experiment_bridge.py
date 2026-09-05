@@ -5,7 +5,7 @@ import subprocess
 import pytest
 import copy
 from pathlib import Path
-import shutil
+import sys
 
 from researchclaw.core.project import ResearchProject
 from tests.codex_native.helpers import (
@@ -427,6 +427,61 @@ def test_numerical_subset_rejects_collection_amplification_and_large_powers():
         )
 
 
+@pytest.mark.parametrize("expression", ["a == b", "min(a, b)", "max([a, b])"])
+def test_recursive_collection_comparisons_reject_within_watchdog(expression):
+    source = f"""def fit(train_rows, config):
+    a = [0]
+    b = [0]
+    for row in train_rows:
+        a = [a, a]
+        b = [b, b]
+    comparison = {expression}
+    return 0
+
+def predict(model, feature_rows, config):
+    return [model for row in feature_rows]
+"""
+    probe = f"""from researchclaw.core.agent_experiment import evaluate
+try:
+    evaluate({source!r}, {{"train": [{{"y": 1}}] * 28,
+             "test": [{{"x": 1, "y": 1}}]}},
+             {{"target": "y", "features": ["x"]}}, {{}})
+except ValueError as error:
+    assert "comparison requires finite numbers" in str(error), error
+    print("rejected before recursive comparison")
+else:
+    raise AssertionError("recursive collection comparison was accepted")
+"""
+    # A parent-owned watchdog also bounds the failing pre-fix C-level operation.
+    completed = subprocess.run(
+        [sys.executable, "-P", "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=3,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "rejected before recursive comparison"
+
+
+def test_numeric_comparisons_and_extrema_remain_supported():
+    from researchclaw.core.agent_experiment import evaluate
+
+    source = """def fit(train_rows, config):
+    low = min(row["y"] for row in train_rows)
+    high = max(low, 3)
+    return high if 0 < low <= high else 0
+
+def predict(model, feature_rows, config):
+    return [model for row in feature_rows]
+"""
+    assert evaluate(
+        source,
+        {"train": [{"y": 1}, {"y": 2}], "test": [{"x": 1, "y": 3}]},
+        {"target": "y", "features": ["x"]},
+        {},
+    ) == (3, [3], 0)
+
+
 def test_model_serialization_has_a_size_and_depth_budget():
     from researchclaw.core.agent_experiment import evaluate
 
@@ -538,7 +593,7 @@ def test_no_execution_approval_and_no_overwrite(tmp_path, capsys):
     prepared = run_cli_json(
         capsys, "experiment", "prepare-self-test", str(project.root), "--json"
     )
-    actual_run = [*prepared["argv"][:-2], "experiment/code/config.json"]
+    actual_run = [*prepared["argv"][:4], "--config", "experiment/code/config.json"]
     completed = subprocess.run(
         actual_run, cwd=project.root, capture_output=True, text=True, timeout=60
     )
@@ -565,18 +620,39 @@ def test_changed_interpreter_cannot_publish_self_test(tmp_path, capsys):
     prepared = run_cli_json(
         capsys, "experiment", "prepare-self-test", str(project.root), "--json"
     )
-    launcher = tmp_path / "changed-python"
-    shutil.copy2(prepared["argv"][0], launcher)
+    alternate = tmp_path / "changed-python"
+    created = subprocess.run(
+        [
+            prepared["argv"][0],
+            "-m",
+            "venv",
+            "--without-pip",
+            "--system-site-packages",
+            "--copies",
+            str(alternate),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert created.returncode == 0, created.stderr
+    launcher = alternate / "bin/python"
+    probe = subprocess.run(
+        [str(launcher), "-P", "-c", "import encodings, researchclaw; print('ready')"],
+        cwd=prepared["cwd"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert probe.stdout.strip() == "ready"
     changed_argv = [str(launcher), *prepared["argv"][1:]]
     completed = subprocess.run(
         changed_argv, cwd=prepared["cwd"], capture_output=True, text=True, timeout=60
     )
     assert completed.returncode != 0
     assert not (project.root / prepared["report_path"]).exists()
-    assert (
-        "execution_environment_unavailable" in completed.stderr
-        or "execution environment changed" in completed.stderr
-    )
+    assert "execution environment changed" in completed.stderr
 
 
 def test_non_authoritative_wrapper_launch_cannot_publish(tmp_path, capsys):
