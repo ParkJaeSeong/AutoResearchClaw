@@ -65,6 +65,17 @@ class ValidatedExperimentPackage:
     execution_argv: tuple[str, ...]
     required_distributions: tuple[str, ...]
 
+    def command(self, launcher: str, suffix: tuple[str, ...]) -> tuple[str, ...]:
+        return (launcher, self.entry_point, *suffix)
+
+
+@dataclass(frozen=True)
+class ValidatedAgentExperimentPackage(ValidatedExperimentPackage):
+    def command(self, launcher: str, suffix: tuple[str, ...]) -> tuple[str, ...]:
+        return (
+            launcher, "-P", "-m", "researchclaw.core.agent_experiment_runtime", *suffix
+        )
+
 
 @dataclass(frozen=True)
 class SelfTestPreparationStatus:
@@ -75,11 +86,13 @@ class SelfTestPreparationStatus:
     package_contract_sha256: str
     report_path: str
     registration_argv: tuple[str, ...]
+    cwd: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
             "readiness": "ready_for_explicit_self_test",
             "argv": list(self.argv),
+            "cwd": self.cwd,
             "environment_fingerprint": self.environment_fingerprint,
             "package_contract_sha256": self.package_contract_sha256,
             "report_path": self.report_path,
@@ -1634,6 +1647,23 @@ def validate_experiment_package_contract_at(
     contract, contract_bytes = _read_json_object(
         package_root, contract_path, candidate_rooted=not baseline_layout
     )
+    if isinstance(contract.get("schema_version"), int) and contract["schema_version"] == 2:
+        from .agent_experiment import validate_package
+        _layout, _manifest, contract, _cfg, _fixture, _held = validate_package(
+            package_root,
+            candidate=not baseline_layout,
+            project_id=project.state.project_id,
+        )
+        return ValidatedAgentExperimentPackage(
+            contract_sha256=hashlib.sha256(contract_bytes).hexdigest(),
+            entry_point=contract["entry_point"],
+            metric_entrypoints=MappingProxyType(
+                {m["name"]: m["implementation"] for m in contract["metrics"]}
+            ),
+            self_test_argv=tuple(contract["self_test"]["argv_suffix"]),
+            execution_argv=tuple(contract["execution"]["argv_suffix"]),
+            required_distributions=(),
+        )
     _require_closed(contract, PACKAGE_KEYS, "package contract")
     if not _schema_version_one(contract["schema_version"]):
         raise ValueError("package contract schema_version must equal 1")
@@ -1824,9 +1854,15 @@ def validate_registered_self_test(
         )
     if fingerprint != environment.fingerprint:
         raise ValueError("self_test environment fingerprint does not match")
-    _metrics, expected = _validate_metrics(
-        contract["metrics"], self_test["expected_metrics"], contract["entry_point"], _package_main_source(project.root, contract["entry_point"])[1]
-    )
+    if contract["schema_version"] == 2:
+        expected = {
+            m["name"]: (m["expected"], m["tolerance"])
+            for m in self_test["expected_metrics"]
+        }
+    else:
+        _metrics, expected = _validate_metrics(
+            contract["metrics"], self_test["expected_metrics"], contract["entry_point"], _package_main_source(project.root, contract["entry_point"])[1]
+        )
     report_metrics = report["metrics"]
     if not isinstance(report_metrics, list):
         raise ValueError("self_test report metrics must be a list")
@@ -2375,7 +2411,8 @@ def prepare_experiment_self_test(
     except (OSError, ValueError) as error:
         raise ValueError("experiment_package_invalid") from error
     return SelfTestPreparationStatus(
-        argv=(environment.launcher, package.entry_point, *package.self_test_argv),
+        argv=package.command(environment.launcher, package.self_test_argv),
+        cwd=str(current.root.resolve()),
         environment_fingerprint=environment.fingerprint,
         package_contract_sha256=package.contract_sha256,
         report_path=SELF_TEST_REPORT_PATH,

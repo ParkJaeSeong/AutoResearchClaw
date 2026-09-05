@@ -136,12 +136,14 @@ class ExecutionPreparationStatus:
     bindings: Mapping[str, object]
     inputs: tuple[object, ...]
     result_template: Mapping[str, object]
+    cwd: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
             "readiness": self.readiness,
             "approval_eligible": self.approval_eligible,
             "argv": list(self.argv),
+            "cwd": self.cwd,
             "environment_fingerprint": self.environment_fingerprint,
             "result_path": self.result_path,
             "contract_path": self.contract_path,
@@ -540,7 +542,7 @@ def _build_execution_contract(
         }:
             raise ValueError(str(error)) from error
         raise ValueError("execution_approval_invalid") from error
-    argv = [environment.launcher, package.entry_point, *package.execution_argv]
+    argv = list(package.command(environment.launcher, package.execution_argv))
 
     required_bindings = {
         "design": "experiment/design.json",
@@ -1010,6 +1012,7 @@ def prepare_research_execution(project: ResearchProject) -> ExecutionPreparation
     return ExecutionPreparationStatus(
         readiness="ready_for_explicit_execution",
         approval_eligible=False,
+        cwd=str(current.root.resolve()),
         argv=tuple(contract["argv"]),
         environment_fingerprint=str(contract["environment_fingerprint"]),
         result_path=RESEARCH_RESULT_PATH,

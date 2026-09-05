@@ -4,6 +4,24 @@ Use this protocol only for one explicit user request to refine an already-ground
 
 ## Roles and isolation
 
+For a v2 regression baseline, author the candidate at `code/model.py` (the same
+canonical wrapper), `code/algorithm.py` (the candidate's fitted algorithm),
+`config/config.json`, `tests/self_test_config.json`,
+`tests/self_test_fixture.json`, and
+`package_metadata/{package_contract.json,package_manifest.json}`. All seven files
+are declared by the candidate registration manifest, including provenance back
+to the immutable baseline. The package manifest hashes the other six files.
+Use v2 package/config contracts as described in
+[computational-package.md](computational-package.md), with these candidate-local
+paths and `results.json`. Keep runtime hashes, metric/unit, columns, design hash,
+input contract and partition strategy bound to the baseline. The implementation
+agent may change the authored fitting algorithm and parameters only within the
+explicitly approved change request. Self-test fixture expectations remain the
+independent metric known answer. Run only returned `argv` in returned `cwd`;
+v2 uses the installed trusted runtime's `-P -m` dispatch and existing refinement
+context flags. Synthetic development council records do not establish scientific
+approval, and candidate MAE never selects or finalizes a candidate automatically.
+
 - The coordinator has no vote. It prepares the envelope, assigns the fixed roles, records artifact hashes, and invokes only the Task-7 `researchclaw-codex refinement` argv returned by the CLI.
 - Assign exactly three voting tasks: `domain`, `methodology`, and `critical_reproducibility`. Each produces an independent assessment from the packet and registered artifacts before seeing another assessment, a rebuttal, or a vote.
 - Do not disclose any assessment until all three are registered. The coordinator then registers exactly one challenge/revision round and each voter records its final vote. Preserve every assessment, challenge, response, final vote, and minority rationale as dissent; never rewrite the dissent to make a consensus appear unanimous.

@@ -171,6 +171,16 @@ PHASES = (
 )
 
 
+def computational_package_outputs(schema_version: int = 1) -> tuple[str, ...]:
+    """Closed authored output alternatives; legacy artifacts are never converted."""
+    if schema_version == 2:
+        from .agent_experiment import OUTPUTS
+        return OUTPUTS
+    if schema_version != 1:
+        raise ValueError("unsupported computational package format")
+    return STAGE_CONTRACTS[10].required_outputs
+
+
 def get_contract(stage_id: int) -> StageContract:
     """Return the contract for a stage, rejecting unknown stage identifiers."""
     try:

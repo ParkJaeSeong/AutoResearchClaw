@@ -5,6 +5,13 @@ prepared packet's declared inputs plus its `hardware_observation`, and writes
 only `experiment/resources.json`. Do not install packages, download data,
 access a network, call an LLM, spawn an agent, or execute generated code.
 
+V2 scalar regression packages keep this resource-planning contract unchanged.
+Their one CSV input is declared by the validated config. The plan's deferred
+command is descriptive; at Stage 12 obtain the actual trusted runtime argv and
+cwd from `experiment prepare-self-test` and `execution prepare-run`. Do not
+construct a Python command from the deferred display string or execute the
+legacy v1 scaffold as if it were the v2 runtime.
+
 ## Exact workflow
 
 ```text

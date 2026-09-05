@@ -10,26 +10,35 @@ The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
-Codex-native supported execution boundary: stages 1–11. This release continues
+Codex-native supported execution boundary: stages 1–11 through generic stage
+commands, plus the dedicated Stage-12 experiment and Stage-13 refinement
+protocols described below. Stage 14 is a read-only waiting boundary. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
 extraction, evidence synthesis, and provenance-linked hypothesis generation
 without an external LLM API key, then creates a reproducible validation design
 for policy evidence, computational, or laboratory work. Stage 9 is an approval
 gate. After an approved computational design, Stage 10 authors and statically
-validates a fixed six-file computational package but does not execute it.
+validates an agent-authored scalar regression v2 package or the retained six-file
+v1 planning scaffold, without executing either during Stage 10.
 Policy-evidence and laboratory Stage 10 packages are unsupported. Stage 11
 authors and validates only `experiment/resources.json` from declared inputs
 and passive local hardware facts. Stage 12 begins with an explicit user
 approval that records a hash-bound decision but does not execute the
 experiment. After approval, Stage 12 supports an explicit handoff and
 contract-bound user-result registration; ResearchClaw never executes the
-experiment. Stage 13 refinement, experiment execution by ResearchClaw, and
-full-paper production remain roadmap work; later declared contracts are not
-claims of implemented capability.
+experiment from a preparation command. The exact returned command runs the
+repository-owned regression runtime and authored `fit`/`predict` algorithm.
+Stage 13 supports bounded candidate refinement with explicit council decisions,
+self-tests and immutable result registration. Full-paper production remains
+roadmap work; later declared contracts are not claims of implemented capability.
 
 Stages 1–11 are implemented planning and validation work. Stage 12 additionally
 supports only the explicit approved handoff and contract-bound result
-registration boundary; it is not an experiment-execution capability.
+registration boundary. The v2 runtime supports one CSV, declared scalar features
+and target, train-only fitting, disjoint cell/group partitions and MAE in the
+approved unit. It supports no provider APIs or dynamic dependencies. The pure
+numerical subset is not a general Python sandbox. See the
+[computational package authoring reference](skills/researchclaw/references/computational-package.md).
 
 ## Install the CLI
 
@@ -103,7 +112,7 @@ researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex approve ./demo-research \
   --decision approve --note "Validation design accepted" --json
 researchclaw-codex resume ./demo-research --json
-# For an approved computational design, prepare and author only the six Stage-10 outputs.
+# For an approved computational design, prepare and author the declared v2 or v1 outputs.
 researchclaw-codex stage prepare ./demo-research --json
 researchclaw-codex stage validate ./demo-research --json
 researchclaw-codex resume ./demo-research --json

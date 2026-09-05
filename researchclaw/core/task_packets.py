@@ -139,6 +139,14 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
         "quality_checks": profile.quality_checks,
         "metric_guidance": profile.metric_guidance,
     }
+    if state.current_stage == 10:
+        from .agent_experiment import OUTPUTS, runtime_identity, WRAPPER
+
+        profile_context["agent_regression_v2_outputs"] = OUTPUTS
+        profile_context["agent_regression_v2_runtime_sha256"] = (
+            json.dumps(runtime_identity(), sort_keys=True),
+        )
+        profile_context["agent_regression_v2_wrapper"] = (WRAPPER,)
     if state.current_stage == 11:
         observation = observe_local_hardware(project.root)
         profile_context.update(

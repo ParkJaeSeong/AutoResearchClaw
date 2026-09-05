@@ -1455,9 +1455,7 @@ def prepare_refinement_self_test(
     return SelfTestPreparationStatus(
         candidate_id=candidate_id,
         argv=(
-            environment.launcher,
-            package.entry_point,
-            *package.self_test_argv,
+            *package.command(environment.launcher, package.self_test_argv),
             "--refinement-self-test-context",
             context_argument,
         ),
@@ -3492,9 +3490,7 @@ def _run_authority_payload(
         self_test_references.append(reference)
     environment, launcher_identity = bound_environment
     argv = (
-        environment.launcher,
-        package.entry_point,
-        *package.execution_argv,
+        *package.command(environment.launcher, package.execution_argv),
         "--refinement-run-context",
         str((project.root / contract_path).resolve()),
     )

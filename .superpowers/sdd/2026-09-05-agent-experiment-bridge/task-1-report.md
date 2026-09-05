@@ -1,0 +1,250 @@
+# Agent-authored experiment bridge implementation report
+
+Worktree: `.worktrees/agent-experiment-bridge`; branch:
+`fix/agent-experiment-bridge`; requested base: `5bde3cf`.
+
+## Implemented boundary
+
+The new public-flow tests start from synthetic pre-Stage-9 setup, author a
+consistent regression design and CSV before approving Stage 9, and then use
+normal public prepare/validate/approval/registration transitions. Nothing above
+Stage 9 replaces a validated package, rebinds durable artifacts, mocks a
+validator, or writes an invented research result.
+
+Stage 10 now declares the alternative complete v2 authoring set before files
+are written. Static validation preserves the legacy v1 path and selects v2 only
+from integer manifest `schema_version: 2`. V2 permits authored `fit`/`predict`
+algorithms while the repository owns input decoding, target isolation, metric
+calculation, environment/contract checks, timing and exclusive publication.
+
+The training-mean authored fixture fits 6 from training x=0..5, y=2*x+1 and
+produces independently expected held-out MAE 18 arbitrary units. The separately
+authored least-squares candidate computes its slope/intercept from train data and
+produces held-out MAE 0. The candidate passes the public council/self-test/run/
+result-registration sequence and preserves the immutable baseline objects.
+Automated council records are explicitly synthetic protocol tests; they do not
+constitute live scientific approval. Stage 14 finalization policy is unchanged.
+
+## Exact schema decisions
+
+The exact schema was added to
+`docs/superpowers/specs/2026-09-05-agent-experiment-bridge.md` before implementing
+its consumers. The manifest exact fields are schema_version, project_id,
+design_sha256, validation_type, entry_point, config_path, files. File entries
+have exactly path, role, sha256. The eight outputs are manifest, package contract,
+metric fixture and code/{README.md,main.py,algorithm.py,config.json,
+self_test_config.json}. The manifest hashes the other seven files; normal Stage
+10 registration and execution evidence bind the manifest itself.
+
+Contract v2 retains v1 field names and adds algorithm_path and runtime_sha256.
+The runtime mapping binds the actual installed agent_experiment.py,
+agent_experiment_runtime.py and execution_environment.py source bytes. Version
+numbers alone cannot bless changed runtime bytes. Dependency declarations are
+empty; network_access, external_llm_calls and nested_agent_processes are closed
+literal-false declarations.
+
+Config exact fields are schema_version, project_id, design_sha256,
+input_contract, split_strategy, columns, parameters, metrics. There is one
+declared project-relative CSV. Columns explicitly map identity, group, split,
+target, features. All headers must match those distinct names. Only mae is
+supported and its unit must equal the approved design. All four partitions must
+be nonempty, identities unique, groups disjoint and numeric values finite.
+The algorithm sees numeric training feature/target mappings, feature-only test
+mappings, and only the parameters object as config.
+
+The distinct known-answer JSON fixture contains only targets and predictions.
+Its self-test config contains schema_version and fixture_path. Self-test runs
+the same real repository MAE implementation independently of the scientific
+algorithm, compares expected/tolerance, and publishes no report for a wrong
+answer. It is intentionally an independent metric oracle, not reuse of the
+research input or a fixed passed report.
+
+Candidate local files are code/model.py, code/algorithm.py, config/config.json,
+tests/self_test_config.json, tests/self_test_fixture.json, and
+package_metadata/{package_contract.json,package_manifest.json}. Their normal
+registration manifest binds all seven and canonical provenance now maps the
+algorithm to its immutable baseline source. Runtime identity, columns, design,
+metric/unit, partition strategy and input contract remain baseline-bound.
+
+## Trusted launch ruling
+
+A focused RED test demonstrated that executing project main.py could import a
+newly added shadow researchclaw.py before runtime validation. V2 therefore uses
+the exact returned launch form:
+
+```
+<verified-interpreter> -P -m researchclaw.core.agent_experiment_runtime <suffix>
+```
+
+The runtime verifies canonical wrapper and algorithm hashes before compiling the
+validated algorithm. The wrapper remains a bound interface artifact but is never
+executed as launch authority. Python -P removes unsafe script/current-directory
+import injection; the installed environment and module search configuration must
+still be trusted. The controller explicitly agreed to this ruling. Baseline and
+candidate preparation both use the same versioned dispatch. V1 argv is unchanged.
+Returned baseline self-test/research objects now include explicit cwd, which the
+bridge tests use along with their returned interpreter and argv.
+The runtime compares the actual flags/module/suffix from `sys.orig_argv` with
+the authoritative command. Only argv[0] is normalized to the independently
+fingerprinted interpreter: a direct macOS diagnostic showed Python's framework
+launcher rewrites it to `Resources/Python.app/Contents/MacOS/Python` even when
+the exact prepared `.../bin/python3.11` path was executed. Reconstructing flags
+from the expected command would incorrectly accept a direct wrapper launch.
+Legacy `ValidatedExperimentPackage` retains exactly its six public dataclass
+fields; the v2 subtype overrides only command construction.
+
+Models are traversed before JSON expansion, counting repeated shared objects
+again. Limits are 10,000 value/key occurrences, depth 64, 1 MiB cumulative string
+bytes, and 1 MiB serialized JSON. The shared-subtree regression proves a compact
+16-iteration fit cannot force exponential serialization outside that bound.
+
+## RED/GREEN record
+
+- Initial fixture-only Stage-9 errors (closed metric fields and threshold syntax)
+  were corrected before the product RED was accepted.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py`: RED, 1 failed
+  at missing `profile_context.agent_regression_v2_outputs` after real Stage-9
+  validation/approval.
+- `PYTHONPATH="$PWD" pytest -q tests/codex_native/test_agent_experiment_bridge.py`:
+  first baseline GREEN, 1 passed in 0.53s.
+- Candidate public-flow RED exposed Stage-13's hard-coded legacy output set.
+  Version-specific immutable evidence output selection and algorithm provenance
+  mapping repaired it. The next candidate fixture issue was noncanonical JSON
+  registration bytes and was corrected before registration, never afterward.
+- `PYTHONPATH="$PWD" pytest -q tests/codex_native/test_agent_experiment_bridge.py -k public_candidate`:
+  candidate GREEN, 1 passed / 13 deselected in 1.87s.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py -k numerical_subset`:
+  RED, missing rejection of huge power expressions. Numerical-only arithmetic
+  transformation, literal bounded powers and opcode budget repaired this boundary.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py`: intermediate
+  GREEN, 27 passed in 4.94s.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py -k project_module_shadow`:
+  RED, the synthetic shadow module wrote its marker before validation. Trusted
+  module launch plus closed code-tree checks repaired this; GREEN 2 passed /
+  28 deselected in 0.46s, including tampered wrapper with no side effect.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py -k model_serialization`:
+  RED, 1 failed / 30 deselected, because shared-tree model serialization did not
+  raise. Pre-serialization occurrence/depth/string limits repaired it.
+- `pytest -q tests/codex_native/test_agent_experiment_bridge.py -k non_authoritative_wrapper`:
+  RED, 1 failed / 31 deselected, because executing the wrapper directly could
+  publish a self-test. Actual interpreter-argument comparison repaired it.
+- During those fixes, an intermediate combined focused run had 10 failed /
+  25 passed in 7.35s: nine bridge failures exposed the macOS argv[0] rewrite,
+  one was the budget test's error-text regex. The three original broad-run
+  failure nodes all passed in that run. The launcher normalization and precise
+  budget regex resolved the bridge failures; no legacy test was weakened.
+- Final `pytest -q tests/codex_native/test_agent_experiment_bridge.py`:
+  **32 passed in 6.28s**. Both public-flow tests execute the exact returned
+  interpreter/argv/cwd in child processes; baseline MAE 18, candidate MAE 0.
+
+### Interrupted affected-module batch
+
+Command (one batch only):
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py tests/codex_native/test_computational_package.py tests/codex_native/test_contracts.py tests/codex_native/test_task_packets.py tests/codex_native/test_validation.py tests/codex_native/test_experiment_package_contract.py tests/codex_native/test_resource_planning.py tests/codex_native/test_research_execution.py tests/codex_native/test_refinement.py tests/codex_native/test_refinement_execution.py tests/codex_native/test_stage13_multi_agent_e2e.py tests/codex_native/test_public_docs.py
+```
+
+The controller requested graceful SIGINT of owned PID 27130 after prolonged CPU
+work in unchanged legacy refinement AST checks. `kill -INT 27130` produced
+**3 failed, 726 passed in 907.71s** from 858 collected cases; **129 cases were
+not completed**. Pytest then errored while formatting its KeyboardInterrupt
+(`TypeError: unsupported operand type(s) for -: 'NoneType' and 'int'`). No full
+batch pass is claimed. The interrupted case was the legacy parametrized
+`test_register_refinement_result_rejects_schema_metric_runtime_or_provenance_tampering`,
+inside existing `_validate_self_test_adapter` / `_nodes_rebind_os_capabilities`.
+
+Failures:
+
+1. `test_experiment_package_contract.py::test_validated_experiment_package_keeps_the_exact_public_field_contract`
+   expected exactly six fields, found added `command_prefix`. Fixed by the
+   version-specific subclass described above; existing regression now passes.
+2. `test_research_execution.py::test_ordinary_event_append_fails_closed_while_registration_is_pending`
+   failed at line 355: `assert registration_entered_append.wait(1.0)` returned
+   False. The test has a one-second event wait and a two-second release wait;
+   timing sensitivity is observed, but load causality is not proven. No timeout
+   or production behavior was changed.
+3. `test_research_execution.py::test_validate_research_result_rejects_invalid_payload_without_mutation[wrong_contract_hash]`
+   expected regex `^research_result_contract_mismatch$`, received
+   `execution_prerequisites_changed` from `_load_current_resource_plan` after
+   `validate_stage_eleven`. The original output did not expose the underlying
+   resource-plan issues. No causal hardware drift/order diagnosis is claimed.
+
+All three nodes passed the isolated focused run (alongside the intermediate
+bridge run noted above). To check immediate order effects without another broad
+batch, ran this exact predecessor/failure selection:
+
+```
+pytest -q tests/codex_native/test_research_execution.py::test_result_mutation_during_success_append_does_not_change_immutable_registration tests/codex_native/test_research_execution.py::test_ordinary_event_append_fails_closed_while_registration_is_pending 'tests/codex_native/test_research_execution.py::test_validate_research_result_rejects_invalid_payload_without_mutation[wrong_contract_id]' 'tests/codex_native/test_research_execution.py::test_validate_research_result_rejects_invalid_payload_without_mutation[wrong_contract_hash]'
+```
+
+**4 passed in 8.94s**. This rules out a deterministic immediate-predecessor
+reproduction in that run, not longer-range contamination or load effects.
+The causes of failures 2 and 3 remain unresolved concerns for independent review.
+
+### Final focused legacy and documentation verification
+
+```
+pytest -q tests/codex_native/test_stage13_multi_agent_e2e.py tests/codex_native/test_refinement_execution.py::test_context_bound_refinement_argv_produces_registrable_result tests/codex_native/test_refinement_execution.py::test_candidate_self_test_uses_verified_absolute_launcher_and_candidate_cwd tests/codex_native/test_refinement_execution.py::test_prepare_refinement_run_reserves_exact_authoritative_contract_without_execution tests/codex_native/test_public_docs.py tests/codex_native/test_plugin_package.py
+```
+
+**45 passed in 42.01s**. The three named legacy cases cover authoritative
+research argv/result registration, self-test interpreter/cwd, and non-executing
+run preparation. Public-doc tests and package metadata checks are included.
+Earlier metadata verification caught a README boundary-marker mismatch (1 failed,
+5 passed); restoring the established marker with an accurate qualification made
+the standalone metadata run 6 passed in 0.03s.
+
+`/opt/homebrew/opt/python@3.11/bin/python3.11 /Users/jspark/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/researchclaw`
+reported `Skill is valid!`. Skill-creator/reference-skill guidance kept the edit
+tied to the demonstrated Stage-10 authoring failure and executable API contract;
+the invocation policy is unchanged. No pressure-test campaign or skill redesign
+was introduced.
+
+`ruff check researchclaw/core tests/codex_native/test_agent_experiment_bridge.py`
+and `git diff --check` pass. Only the three new Python files were run through
+`ruff format`; existing files retain their formatting outside changed snippets.
+
+No duplicated full-tree suite was used. After the single interrupted affected
+batch, verification was limited to the new bridge, observed failure cases,
+named dispatch regressions, Stage-13 E2E and documentation/metadata checks.
+
+## Files and review notes
+
+- New agent_experiment.py: closed schema and pure AST validation, bounded numeric
+  arithmetic, CSV decoding, train isolation and actual MAE.
+- New agent_experiment_runtime.py: trusted module entry, existing protocol/context
+  binding, OS-attested environment identity, real self-test/result production and
+  exclusive publication.
+- computational_package.py, contracts.py, task_packets.py, validation.py:
+  explicit v2 authoring/discriminator/output validation, with unchanged v1 rules.
+- experiment_package_contract.py and research_execution.py: versioned launch and
+  static validation dispatch; existing registration/approval transactions reused.
+- refinement.py and refinement_execution.py: v2 baseline output/provenance and
+  immutable declaration checks, same launch dispatch and existing transactions.
+- New bridge test module: public baseline/candidate, train isolation, safety and
+  identity negatives. Existing test helpers were not rewritten or used to replace
+  Stage-10 packages.
+- README, computational-package/refinement/resource-planning references and two
+  narrowly scoped SKILL.md workflow lines explain the new executable contract and
+  retained legacy scaffold. Invocation and approval policy remain intact.
+
+Limitations: this is a bounded scalar-regression interface, not a general Python
+sandbox, scientific-validity guarantee, general scheduler, automatic model
+selector, provider client or Stage-14 analysis implementation. No new dependency,
+installation, production project mutation, deployment, merge or push occurred.
+
+## Controller installed smoke handoff
+
+The source-tree bridge test fixture sets child PYTHONPATH to the parent directory
+of the actually imported researchclaw package, retaining exact returned argv and
+interpreter. When the parent import is the isolated site-packages installation,
+the children also use that installation. Assert the parent import first and run
+from a copied tests tree outside the repository.
+
+Copy tests/ (or at minimum bridge test, helpers.py, test_refinement.py,
+test_stage13_multi_agent_e2e.py and its imported test helpers, package __init__.py
+files, plus tests/codex_native/fixtures/). Core researchclaw data are wheel package
+resources. The controller may replace only helpers.run_cli with the real installed
+`sys.executable -m researchclaw.codex.cli` subprocess adapter; no validator or
+post-approval state substitution is needed.

@@ -347,6 +347,21 @@ def _validate_stage_eleven(
 def _current_packet_and_contract(project: ResearchProject) -> tuple[TaskPacket, StageContract]:
     packet = build_task_packet(project)
     contract = get_contract(packet.stage_id)
+    if packet.stage_id == 10:
+        path = project.root / "experiment/package_manifest.json"
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            manifest = {}
+        if (
+            isinstance(manifest, dict)
+            and isinstance(manifest.get("schema_version"), int)
+            and manifest["schema_version"] == 2
+        ):
+            from .agent_experiment import OUTPUTS
+
+            packet = replace(packet, required_outputs=OUTPUTS)
+            contract = replace(contract, required_outputs=OUTPUTS)
     if contract.id != packet.stage_id:
         raise ValueError(f"task packet stage does not match its contract: {packet.stage_id}")
     return packet, contract

@@ -79,6 +79,66 @@ The existing Stage 13 candidate branch must remain usable with the new baseline.
 
 ## Verification
 
+## Exact v2 wire schema (chosen before implementation)
+
+Manifest discriminator is integer `schema_version: 2`. Its exact keys are
+`schema_version, project_id, design_sha256, validation_type, entry_point,
+config_path, files`; files entries are exactly `path, role, sha256`.
+Stage 10 packets declare `profile_context.agent_regression_v2_outputs`: manifest,
+`experiment/package_contract.json`, `experiment/self_test_fixture.json`, and
+`experiment/code/{README.md,main.py,algorithm.py,config.json,self_test_config.json}`.
+The manifest binds every other file in this closed set. The manifest itself is
+bound by existing Stage 10 artifact registration and subsequent execution evidence.
+V1 packets and validators retain their existing path. V2 is explicitly selected by
+the authored manifest discriminator, never by inferred scientific content.
+
+V2 package contract keys are the v1 keys plus `algorithm_path, runtime_sha256`.
+Runtime identity is a closed mapping of repository module filenames to their
+SHA-256 digests, covering `agent_experiment.py`, `agent_experiment_runtime.py`,
+and `execution_environment.py`. A runtime change requires reauthoring/validation;
+same-version changed runtime code cannot silently execute approved evidence.
+The wrapper is exact canonical bytes importing the repository runtime `main`.
+V2 returned commands dispatch directly to the installed trusted module as
+`<verified interpreter> -P -m researchclaw.core.agent_experiment_runtime <suffix>`.
+They never execute the project wrapper before checking its hash. `-P` suppresses
+unsafe script/current-directory imports; the installed environment and module
+search configuration must still be trusted. Actual interpreter flags/module and
+arguments from `sys.orig_argv` must match the prepared command; only its launcher
+slot is normalized to the independently fingerprinted interpreter (macOS framework
+launchers rewrite that slot to Python.app). V1 launch dispatch is unchanged.
+Metrics are exactly one `{name: mae, unit: <approved>, implementation:
+researchclaw.core.agent_experiment:mean_absolute_error}` entry. Dependencies are
+empty. Prohibitions are exactly network_access, external_llm_calls,
+nested_agent_processes, all literal false. Self-test/execution keys retain v1
+shape. Self-test input is exactly `{schema_version: 2, fixture_path: <declared>}`;
+the distinct JSON fixture is exactly `{targets: [...], predictions: [...]}`.
+This known answer exercises the real repository MAE implementation independently
+of candidate science, so candidate and baseline share the same metric check.
+
+Research config exact keys: `schema_version, project_id, design_sha256,
+input_contract, split_strategy, columns, parameters, metrics`.
+`input_contract` is exactly `{required_paths: [<one project-relative CSV>]}`;
+`split_strategy` is exactly `{isolation_key: <identity column>, overlap_policy:
+disjoint, groups: [train, validation, calibration, test]}`. `columns` is exactly
+`{identity, group, split, target, features: [<one or more feature column names>]}`;
+all mapped names must be distinct. CSV headers equal this declared set; IDs are
+unique, all four roles nonempty, and groups cannot cross roles. Numeric features
+and targets are finite. Algorithm receives only numeric feature/target mappings
+for train and only numeric feature mappings for prediction; `parameters` is the
+only algorithm config. Model must be finite JSON. Before serialization, traversal
+is bounded to 10,000 value/key occurrences (including repeated shared objects),
+depth 64 and 1 MiB cumulative string bytes; serialized JSON is at most 1 MiB.
+Scalar MAE uses only test rows.
+
+Candidate local paths are `code/model.py`, `code/algorithm.py`,
+`config/config.json`, `tests/self_test_config.json`, `tests/self_test_fixture.json`,
+`package_metadata/{package_contract.json,package_manifest.json}` and optional
+README is not part of candidate closure. The trusted runtime handles existing
+refinement context flags. All self-test and result schemas stay v1 and
+reuse existing registration and publication gates. Runtime imposes bounded
+algorithm source, row count and instruction budget; it is not a general Python
+sandbox.
+
 Use x=0..13, y=2*x+1 and 14 unique cell IDs in seven pairs. Partition train
 x=0..5, validation 6..7, calibration 8..9, test 10..13. The train-only constant
 baseline is 6 and independently derived test MAE is 18 arbitrary units. An

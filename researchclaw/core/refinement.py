@@ -21,7 +21,6 @@ import stat
 from .contracts import (
     REFINEMENT_STAGE_ID,
     REFINEMENT_SUPPORTED_VALIDATION_TYPES,
-    get_contract,
 )
 from .deliberation import (
     Assessment,
@@ -700,12 +699,33 @@ def _baseline(project: ResearchProject) -> _Baseline:
         ),
         error_code="refinement_integrity_failure",
     )
+    package_manifest = next(
+        (item for item in artifacts if item["path"] == "experiment/package_manifest.json"),
+        None,
+    )
+    if package_manifest is None:
+        raise ValueError("refinement_integrity_failure")
+    _, package_manifest_bytes = _secure_snapshot(
+        project.root,
+        str(package_manifest["object_path"]),
+        expected=ArtifactRef(
+            str(package_manifest["object_path"]),
+            str(package_manifest["sha256"]),
+            int(package_manifest["size"]),
+        ),
+        maximum_bytes=_MAX_RECORD_BYTES,
+        read_payload=True,
+        error_code="refinement_integrity_failure",
+    )
+    from .contracts import computational_package_outputs
+
+    package_version = json.loads(package_manifest_bytes).get("schema_version", 1)
     required_paths = {
         "experiment/design.json",
         "experiment/resources.json",
         "experiment/execution_contract.json",
         "experiment/results.json",
-    } | set(get_contract(10).required_outputs)
+    } | set(computational_package_outputs(package_version))
     if not required_paths.issubset(source_paths):
         raise ValueError("refinement_integrity_failure")
     design = next(
@@ -3016,6 +3036,14 @@ def _canonical_candidate_baseline_sources(
         (candidate_contract_path, "experiment/package_contract.json"),
         ("package_metadata/package_manifest.json", "experiment/package_manifest.json"),
     )
+    if baseline_contract.get("schema_version") == 2:
+        if (
+            candidate_contract.get("schema_version") != 2
+            or candidate_contract.get("runtime_sha256")
+            != baseline_contract.get("runtime_sha256")
+        ):
+            raise ValueError("refinement_candidate_binding_invalid")
+        role_pairs += (("code/algorithm.py", "experiment/code/algorithm.py"),)
     semantic_destinations = frozenset(f"{prefix}{path}" for path, _ in role_pairs)
     canonical_sources = {
         f"{prefix}{destination}": source
@@ -3388,12 +3416,21 @@ def _parse_candidate_manifest(
         }
         for metric in candidate_metrics
     ]
-    if normalized_candidate_metrics != baseline_metrics:
+    if (
+        candidate_metrics
+        if baseline_contract.get("schema_version") == 2
+        else normalized_candidate_metrics
+    ) != baseline_metrics:
         raise ValueError("refinement_candidate_binding_invalid")
     config_path = contract_payload.get("config_path")
     if not isinstance(config_path, str):
         raise ValueError("refinement_candidate_binding_invalid")
     candidate_config, _ = _read_bounded_json(candidate_root / config_path)
+    if baseline_contract.get("schema_version") == 2 and any(
+        candidate_config.get(key) != baseline_config.get(key)
+        for key in ("columns", "design_sha256")
+    ):
+        raise ValueError("refinement_candidate_binding_invalid")
     candidate_input_contract = candidate_config.get("input_contract")
     if (
         not isinstance(candidate_input_contract, Mapping)

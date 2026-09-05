@@ -583,6 +583,7 @@ def _validate_on_disk_tree(
     root: Path,
     prepared_snapshot: tuple[FilesystemEntry, ...] | None,
     issues: list[ComputationalPackageIssue],
+    *, required_outputs: tuple[str, ...] = REQUIRED_OUTPUTS,
 ) -> None:
     if prepared_snapshot is None:
         _issue(
@@ -594,10 +595,10 @@ def _validate_on_disk_tree(
         return
     baseline = {entry.path: entry for entry in prepared_snapshot}
     current = {entry.path: entry for entry in snapshot_project(root)}
-    expected_outputs = set(REQUIRED_OUTPUTS)
+    expected_outputs = set(required_outputs)
     allowed_directories = {
         parent.as_posix()
-        for output in REQUIRED_OUTPUTS
+        for output in required_outputs
         for parent in Path(output).parents
         if parent.as_posix() != "."
     }
@@ -2250,6 +2251,25 @@ def validate_computational_package(
     bytes when the caller has read that durable artifact from disk.
     """
     issues: list[ComputationalPackageIssue] = []
+    try:
+        discriminator = json.loads(outputs.get(MANIFEST_PATH, "{}")).get("schema_version")
+    except (ValueError, AttributeError):
+        discriminator = None
+    if isinstance(discriminator, int) and discriminator == 2:
+        from .agent_experiment import OUTPUTS, validate_package
+
+        try:
+            validate_package(
+                root,
+                project_id=project_id,
+                design_sha256=approved_design_sha256
+                or hashlib.sha256(design_json.encode()).hexdigest(),
+                design=json.loads(design_json),
+            )
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            _issue(issues, "invalid_agent_package", MANIFEST_PATH, str(error))
+        _validate_on_disk_tree(root, prepared_snapshot, issues, required_outputs=OUTPUTS)
+        return tuple(issues)
     for path in REQUIRED_OUTPUTS:
         if not isinstance(outputs.get(path), str):
             _issue(issues, "missing_artifact", path, "required artifact is missing")

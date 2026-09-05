@@ -9,7 +9,102 @@ data, run training or evaluation, collect results, invoke an external LLM, or
 start another agent process. Codex authors but does not execute the package;
 it will statically validate the authored files.
 
-Write exactly these six packet-declared outputs and no other project artifacts:
+## Agent-authored scalar regression (v2)
+
+For an executable scalar regression experiment, choose integer `schema_version: 2`
+in the authored manifest. The prepared packet declares the complete alternative
+file set in `profile_context.agent_regression_v2_outputs`, the exact wrapper in
+`agent_regression_v2_wrapper`, and current runtime hashes in
+`agent_regression_v2_runtime_sha256`. Write only that eight-file set. Do not mix
+v1 and v2 layouts or rewrite already validated packages to switch versions.
+
+The eight outputs are `experiment/package_manifest.json`,
+`experiment/package_contract.json`, `experiment/self_test_fixture.json`, and
+`experiment/code/{README.md,main.py,algorithm.py,config.json,self_test_config.json}`.
+The manifest hashes every other file. Its exact fields are `schema_version`,
+`project_id`, `design_sha256`, `validation_type`, `entry_point`, `config_path`,
+and `files`; each file entry has `path`, `role`, `sha256`.
+
+Copy the packet's exact wrapper to `main.py`. Author scientific code only in
+`algorithm.py`, defining `fit(train_rows, config)` followed by
+`predict(model, feature_rows, config)`. Use local assignments, arithmetic,
+indexing, comprehensions/for loops, conditionals, and `sum`, `len`, `min`, `max`,
+`abs`. Imports, attribute access, dynamic calls, helper functions, global work,
+file/process/network access and unbounded loops are rejected. Arithmetic is
+finite numeric only; powers require integer literal exponents from 0 to 8.
+An instruction budget bounds authored evaluation. Models allow at most 10,000
+value/key occurrences, depth 64, 1 MiB cumulative string bytes and 1 MiB serialized
+JSON; repeated shared containers count again before serialization. This is a
+restricted numerical interface, not a general Python sandbox or a scientific
+validity check.
+
+The authoritative v2 argv launches the installed runtime with
+`<verified interpreter> -P -m researchclaw.core.agent_experiment_runtime`.
+It validates package bytes before executing the algorithm. The canonical wrapper
+remains a bound interface artifact and is not the launch authority. Keep the
+installed environment and module search configuration trusted; do not prepend
+the project to `PYTHONPATH` or substitute a project module for this runtime.
+The runtime checks the actual interpreter flags/module and argument suffix, so
+executing the wrapper directly is not equivalent to executing the returned argv.
+
+The runtime passes only training rows to `fit`. Those rows have numeric features
+and the target; prediction rows have features only. The `config` argument is
+only the `parameters` object. Return a JSON model and one finite prediction per
+test row. For example, a training-mean baseline is:
+
+```python
+def fit(train_rows, config):
+    return sum(row["y"] for row in train_rows) / len(train_rows)
+
+def predict(model, feature_rows, config):
+    return [model for row in feature_rows]
+```
+
+Research config exact fields are `schema_version: 2`, `project_id`,
+`design_sha256`, `input_contract: {required_paths: [<one CSV path>]}`,
+`split_strategy: {isolation_key: <identity column>, overlap_policy: disjoint,
+groups: [train, validation, calibration, test]}`, `columns`, `parameters`, `metrics`.
+Columns are explicit `{identity, group, split, target, features: [<names>]}`;
+all names must be distinct and CSV headers must match exactly. Unique cells,
+disjoint groups, four nonempty partitions and finite numeric data are required.
+`metrics` is exactly `[{name: mae, unit: <approved design unit>}]`.
+There is no inferred column mapping, synthetic data fallback, or RMSE support.
+
+The v2 package contract uses exactly `schema_version`, `entry_point`,
+`algorithm_path`, `config_path`, `result_path`, `metrics`, `self_test`, `execution`,
+`dependencies`, `prohibitions`, and `runtime_sha256`. Paths use the eight-file
+layout above; `result_path` is `experiment/results.json`. Metrics add
+`implementation: researchclaw.core.agent_experiment:mean_absolute_error` to the
+config metric. Dependencies are `[]`; prohibitions are exactly `network_access`,
+`external_llm_calls`, `nested_agent_processes`, each literal `false`.
+Copy the packet's runtime mapping: changed repository runtime bytes invalidate
+the approved package even if the installed distribution version is unchanged.
+
+`execution` is `{argv_suffix: [--config, experiment/code/config.json]}`.
+`self_test` is `{argv_suffix: [--config, experiment/code/self_test_config.json,
+--self-test], fixture_path: experiment/self_test_fixture.json,
+expected_metrics: [{name: mae, expected: <known value>, tolerance: <nonnegative>}]}`.
+The self-test config is exactly `{schema_version: 2, fixture_path:
+experiment/self_test_fixture.json}`. The independent fixture is exactly
+`{targets: [...], predictions: [...]}`. For example `[1,3]` versus `[1.5,2.5]`
+has known MAE `0.5`. This executes the same metric implementation on independent
+fixture values, not the research data or a prewritten success report.
+
+Run normal `stage validate` after authoring. Stage 11 still authors only the
+resource plan. At Stage 12, obtain `experiment prepare-self-test`, run its exact
+returned `argv` in returned `cwd`, and register with `--confirm-self-test`.
+Explicit execution approval is then required before `execution prepare-run`.
+Run its exact returned `argv` in returned `cwd` and register the produced result
+with `--confirm-research-result`. Both publications refuse overwrite. Stage 10
+validation imports or executes no authored Python. CLI preparation never runs
+the experiment; execution occurs through the explicitly handed-off command.
+
+## Legacy v1 static scaffold
+
+The remainder of this reference describes the retained v1 path only. Its fixed
+`run_experiment` is unimplemented; it is a planning scaffold, not the executable
+agent-authored bridge. Existing v1 validation and approved evidence are retained.
+For v1, write exactly these six packet-declared outputs and no other artifacts:
 
 1. `experiment/package_manifest.json`
 2. `experiment/code/README.md`
