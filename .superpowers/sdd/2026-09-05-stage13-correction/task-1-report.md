@@ -112,3 +112,15 @@ Follow-up GREEN:
 - `ruff check researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py`: exit 0.
 - `python3 -m compileall -q researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py tests/codex_native/test_stage13_multi_agent_e2e.py`: exit 0.
 - `git diff --check`: exit 0.
+
+## Main merge and installed release verification — 2026-09-05
+
+- Fast-forward merged the reviewed corrections through `6d2a617` into local main. Independent review approved the final noncanonical-root fix without blockers; containment and no-follow protections remain unchanged.
+- After the initial merge at `bf05e73`, the Stage 13 multi-agent E2E, public documentation, and plugin packaging modules passed: **42 passed in 20.89s**. The subsequent root fix passed **11 scoped regressions** as recorded above; no broad suite was duplicated.
+- Reinstalled `researchclaw-codex` from main with `uv tool install --reinstall --refresh`, retaining the managed Python 3.13 runtime. Verified imports from installed site-packages outside the repository and byte equality of five production modules with main.
+- Refreshed the personal plugin to `0.1.0+codex.20260905125102` with the plugin-creator cachebuster helper and `codex plugin add autoresearchclaw-codex@personal`. Plugin validation passed and cached refinement instructions match main.
+- Ran the installed CLI synthetic workflow through **20 commands**, using the uncanonicalized `/tmp` alias path: session preparation, three-role assessments and deliberation, refinement decision, candidate registration, exact returned self-test/run argv, result registration, new assessments, 2–1 candidate selection, finalization, resume, and the exact returned read-only status command. **Passed**.
+- Launcher: `/Users/jspark/.local/share/uv/tools/researchclaw-codex/bin/python3`. Preparation, actual self-test report, and run environment fingerprints matched (`ff17c648fc8af06b26b243e0d8ffc1cb46ee092a24d3e7737d3e84d864ede6a7`). Baseline evidence remained unchanged and the network guard observed **0 attempts**.
+- Final durable stage is 14; public handoff correctly reports `await_stage_fourteen_support`, `read_only`, and an incomplete milestone. This verifies the boundary, not implementation of Stage 14 analysis or scientific validity of synthetic data.
+- Local diagnostic driver and detailed command results: `/tmp/researchclaw-stage13-installed.713y9C/verify_installed.py` and `verification.json` (temporary, not committed). No live research projects were used.
+- GitHub push was not performed in this merge/install/verification task. Start a new Codex task to load the refreshed plugin instructions.
