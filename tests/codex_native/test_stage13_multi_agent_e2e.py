@@ -54,6 +54,7 @@ def _guarded_subprocess(argv, *, cwd, attempts_path, probe=None):
         capture_output=True,
         text=True,
         env=environment,
+        timeout=1,
     )
 
 
@@ -85,6 +86,24 @@ def _expected_candidate_metric(project, run):
     return (sum(config["seeds"]["values"]) + input_total / 1000.0) / len(
         config["seeds"]["values"]
     )
+
+
+def test_public_e2e_subprocess_has_one_second_hard_timeout(tmp_path, monkeypatch):
+    observed = {}
+
+    def record_run(argv, **kwargs):
+        observed.update(argv=argv, **kwargs)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", record_run)
+
+    _guarded_subprocess(
+        ("trusted-launcher", "candidate-entrypoint"),
+        cwd=tmp_path,
+        attempts_path=tmp_path / "attempts.log",
+    )
+
+    assert observed["timeout"] == 1
 
 
 def _register_assessments(capsys, project, *, submission_prefix, artifacts=None):

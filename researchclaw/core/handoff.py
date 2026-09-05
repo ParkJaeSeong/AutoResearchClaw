@@ -801,6 +801,14 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             next_action = "prepare_refinement_session"
         next_command = _command(current_project.root, "status")
         approval_required = False
+    elif (
+        state.current_stage == 14
+        and 13 in state.completed_stages
+        and state.next_action == "prepare_stage"
+    ):
+        next_action = state.next_action
+        next_command = _command(current_project.root, "stage", "prepare")
+        approval_required = False
     elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
         next_command = _command(current_project.root, "evaluate")

@@ -3,12 +3,15 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 from dataclasses import replace
 
 import pytest
 
 import researchclaw.core.refinement_execution as refinement_execution
+from researchclaw.core.evidence_store import EvidenceStore
+from researchclaw.core.handoff import build_handoff
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
     finalize_refinement,
@@ -92,14 +95,19 @@ def self_tested_candidate_project(
 
 
 def self_tested_candidate_project_with_envelope(
-    path: Path, *, maximum_runs: int, maximum_wall_seconds: int
+    path: Path,
+    *,
+    maximum_runs: int,
+    maximum_wall_seconds: int,
+    maximum_candidate_seconds: int | None = None,
 ):
     project = build_stage_thirteen_project(path)
     envelope = valid_envelope()
     envelope["maximum_runs"] = maximum_runs
     envelope["maximum_wall_seconds"] = maximum_wall_seconds
     envelope["maximum_candidate_seconds"] = min(
-        envelope["maximum_candidate_seconds"], maximum_wall_seconds
+        maximum_candidate_seconds or envelope["maximum_candidate_seconds"],
+        maximum_wall_seconds,
     )
     prepare_refinement_session(project, envelope)
     register_all_assessments(project)
@@ -621,7 +629,81 @@ def test_refinement_run_reservation_is_capped_by_actual_session_deadline(
         candidate.candidate_id,
         result_path.relative_to(project.root),
     )
-    assert registered.wall_seconds_used == 1.0
+    assert registered.wall_seconds_used == 0.0
+
+
+@pytest.mark.parametrize("deadline_kind", ["reservation", "session"])
+def test_register_refinement_result_rejects_late_authoritative_boundary(
+    tmp_path, monkeypatch, deadline_kind
+):
+    project, candidate = self_tested_candidate_project_with_envelope(
+        tmp_path / "project",
+        maximum_runs=2,
+        maximum_wall_seconds=120,
+        maximum_candidate_seconds=1,
+    )
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+    session_created_at = refinement_execution.datetime.fromisoformat(
+        session["created_at"]
+    )
+    if deadline_kind == "reservation":
+        reservation_time = session_created_at + refinement_execution.timedelta(
+            seconds=1
+        )
+    else:
+        reservation_time = session_created_at + refinement_execution.timedelta(
+            seconds=119
+        )
+    current_time = [reservation_time]
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: current_time[0])
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation, elapsed_seconds=0.001)
+    current_time[0] = reservation_time + refinement_execution.timedelta(
+        seconds=1, microseconds=1
+    )
+    state_before = ResearchProject.open(project.root).state
+
+    with pytest.raises(ValueError, match="^refinement_run_wall_time_exhausted$"):
+        register_refinement_result(
+            ResearchProject.open(project.root),
+            candidate.candidate_id,
+            preparation.result_path,
+        )
+
+    assert ResearchProject.open(project.root).state == state_before
+    assert not (project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).exists()
+
+
+def test_refinement_wall_time_uses_trusted_registration_boundary_not_self_report(
+    tmp_path, monkeypatch
+):
+    project, candidate = self_tested_candidate_project_with_envelope(
+        tmp_path / "project",
+        maximum_runs=2,
+        maximum_wall_seconds=120,
+        maximum_candidate_seconds=1,
+    )
+    session = json.loads(
+        (project.root / "refinement/session.json").read_text(encoding="utf-8")
+    )
+    reservation_time = refinement_execution.datetime.fromisoformat(
+        session["created_at"]
+    ) + refinement_execution.timedelta(seconds=1)
+    current_time = [reservation_time]
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: current_time[0])
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation, elapsed_seconds=0.001)
+    current_time[0] += refinement_execution.timedelta(milliseconds=250)
+
+    registered = register_refinement_result(
+        ResearchProject.open(project.root),
+        candidate.candidate_id,
+        preparation.result_path,
+    )
+
+    assert registered.wall_seconds_used == pytest.approx(0.25)
 
 
 def test_refinement_run_samples_deadline_after_authority_revalidation(
@@ -788,7 +870,7 @@ def test_register_refinement_result_publishes_only_refinement_evidence_and_delib
     assert status.run_id == "run-001"
     assert status.evidence_manifest_path == expected_manifest
     assert status.runs_used == 1
-    assert status.wall_seconds_used == 1.0
+    assert 0.0 < status.wall_seconds_used < 60.0
     assert status.next_action == "register_refinement_assessment"
     assert reopened.state.next_action == "register_refinement_assessment"
     assert reopened.state.artifacts[preparation.result_path].sha256 == hashlib.sha256(
@@ -813,6 +895,24 @@ def test_register_refinement_result_publishes_only_refinement_evidence_and_delib
     assert session_status.runs_used == 1
     assert session_status.next_action == "register_refinement_assessment"
     assert session_status.phase == "awaiting_independent_assessments"
+
+
+def test_registered_refinement_manifest_roots_all_candidate_evidence_for_gc(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    manifest = json.loads(
+        (project.root / registered.evidence_manifest_path).read_text(encoding="utf-8")
+    )
+    refinement_objects = {item["object_path"] for item in manifest["objects"]}
+
+    planned = {item.path for item in EvidenceStore(project.root).plan_gc().objects}
+
+    assert refinement_objects
+    assert refinement_objects.isdisjoint(planned)
 
 
 def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path):
@@ -842,6 +942,16 @@ def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path
     assert selection["selected_candidate_id"] == candidate.candidate_id
     assert registered.evidence_manifest_path in retained
     assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+    for handoff in (build_handoff(reopened), reopened.build_handoff()):
+        assert handoff.current_stage == 14
+        assert handoff.next_action == "prepare_stage"
+        assert shlex.split(handoff.next_command) == [
+            "researchclaw-codex",
+            "stage",
+            "prepare",
+            str(project.root.resolve()),
+            "--json",
+        ]
 
 
 def test_finalize_select_candidate_requires_council_to_reference_its_result(tmp_path):
@@ -943,7 +1053,8 @@ def test_two_candidate_runs_complete_and_retry_with_historical_counters(tmp_path
     assert second == repeated
     assert second.run_id == "run-002"
     assert second.runs_used == 2
-    assert second.wall_seconds_used == 3.0
+    assert second.wall_seconds_used > first.wall_seconds_used
+    assert second.wall_seconds_used < 120.0
     assert ResearchProject.open(project.root).state == state_after_second
     assert state_after_second.artifacts[first.result_path] == first_result
     assert len(
@@ -951,7 +1062,7 @@ def test_two_candidate_runs_complete_and_retry_with_historical_counters(tmp_path
     ) == 2
     session = load_refinement_session(ResearchProject.open(project.root))
     assert session.runs_used == 2
-    assert session.wall_seconds_used == 3.0
+    assert session.wall_seconds_used == second.wall_seconds_used
     assert session.next_action == "register_refinement_assessment"
 
 
@@ -1043,7 +1154,7 @@ def test_register_refinement_result_recovers_exact_partial_publication(
 
     assert recovered.run_id == "run-001"
     assert recovered.runs_used == 1
-    assert recovered.wall_seconds_used == 1.0
+    assert 0.0 < recovered.wall_seconds_used < 60.0
     assert len(
         tuple((project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT).rglob("run-*.json"))
     ) == 1
@@ -2561,6 +2672,57 @@ def test_candidate_self_test_publishes_intent_before_preparation_and_resumes(
         result_before=result_before,
         runs_used_before=runs_used_before,
     )
+
+
+@pytest.mark.parametrize("tamper_orphan", [False, True])
+def test_candidate_self_test_adopts_only_exact_intent_orphan_before_state_publish(
+    tmp_path, monkeypatch, tamper_orphan
+):
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    state_before = ResearchProject.open(project.root).state
+    original_persist_state = ResearchProject.persist_state
+
+    def interrupt_intent_state_publish(current, target_state):
+        new_paths = set(target_state.artifacts) - set(current.state.artifacts)
+        if any(path.endswith(".preparation.intent.json") for path in new_paths):
+            raise RuntimeError("intent state publication interrupted")
+        return original_persist_state(current, target_state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", interrupt_intent_state_publish)
+    with pytest.raises(RuntimeError, match="intent state publication interrupted"):
+        prepare_refinement_self_test(project, candidate.candidate_id)
+
+    assert ResearchProject.open(project.root).state == state_before
+    intent_path = next(
+        (project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT).glob(
+            f"*/{candidate.candidate_id}.preparation.intent.json"
+        )
+    )
+    orphan_bytes = intent_path.read_bytes()
+    orphan_identity = (intent_path.stat().st_dev, intent_path.stat().st_ino)
+    if tamper_orphan:
+        forged = json.loads(orphan_bytes)
+        forged["producer"] = "reviewer-agent"
+        intent_path.write_bytes(_canonical_bytes(forged))
+    monkeypatch.setattr(ResearchProject, "persist_state", original_persist_state)
+
+    if tamper_orphan:
+        with pytest.raises(
+            ValueError, match="^refinement_self_test_preparation_invalid$"
+        ):
+            prepare_refinement_self_test(
+                ResearchProject.open(project.root), candidate.candidate_id
+            )
+        assert ResearchProject.open(project.root).state == state_before
+    else:
+        resumed = prepare_refinement_self_test(
+            ResearchProject.open(project.root), candidate.candidate_id
+        )
+        assert intent_path.read_bytes() == orphan_bytes
+        assert (intent_path.stat().st_dev, intent_path.stat().st_ino) == orphan_identity
+        assert ResearchProject.open(project.root).state.artifacts[
+            resumed.intent_path
+        ] == _current_reference(project, resumed.intent_path)
 
 
 def test_refinement_state_rejects_preparation_without_intent(tmp_path):

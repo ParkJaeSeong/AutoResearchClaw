@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 import errno
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -808,52 +807,68 @@ def prepare_refinement_self_test(
 
     authority_state = starting_state
     if registered_intent is None:
-        if os.path.lexists(current.root / intent_path) or os.path.lexists(
-            current.root / preparation_path
-        ):
+        if os.path.lexists(current.root / preparation_path):
             raise ValueError("refinement_self_test_preparation_invalid")
-        intent_id = uuid4().hex
-        intent_created_at = datetime.now(timezone.utc).isoformat()
-        preparation_created_at = datetime.now(timezone.utc).isoformat()
-        try:
-            intent_payload, intent_bytes = _write_anchored_record(
-                current,
-                session_id=context_before.session_id,
-                candidate_id=candidate_id,
-                leaf_name=f"{candidate_id}.preparation.intent.json",
-                payload_builder=lambda identity: _preparation_intent_payload(
-                    project=current,
-                    candidate=candidate,
-                    context=context_before,
-                    package=package,
-                    bound_environment=bound_environment,
-                    intent_id=intent_id,
-                    created_at=intent_created_at,
-                    preparation_created_at=preparation_created_at,
-                    preparation_path=preparation_path,
-                    report_path=report_path,
-                    filesystem_identity=identity,
-                ),
+        if os.path.lexists(current.root / intent_path):
+            orphan_snapshot = _secure_snapshot(
+                current.root,
+                intent_path,
+                maximum_bytes=_MAX_JSON_BYTES,
                 error_code="refinement_self_test_preparation_invalid",
+            )[0]
+            intent_reference = orphan_snapshot.reference
+            intent = _read_and_validate_preparation_intent(
+                project=current,
+                path=intent_path,
+                expected_reference=intent_reference,
+                candidate=candidate,
+                context=context_before,
+                package=package,
+                bound_environment=bound_environment,
             )
-        except FileExistsError as error:
-            raise ValueError("refinement_self_test_preparation_invalid") from error
-        intent_reference = ArtifactRef(
-            intent_path,
-            hashlib.sha256(intent_bytes).hexdigest(),
-            len(intent_bytes),
-        )
-        intent = _read_and_validate_preparation_intent(
-            project=current,
-            path=intent_path,
-            expected_reference=intent_reference,
-            candidate=candidate,
-            context=context_before,
-            package=package,
-            bound_environment=bound_environment,
-        )
-        if intent.payload != intent_payload:
-            raise ValueError("refinement_self_test_preparation_invalid")
+        else:
+            intent_id = uuid4().hex
+            intent_created_at = datetime.now(timezone.utc).isoformat()
+            preparation_created_at = datetime.now(timezone.utc).isoformat()
+            try:
+                intent_payload, intent_bytes = _write_anchored_record(
+                    current,
+                    session_id=context_before.session_id,
+                    candidate_id=candidate_id,
+                    leaf_name=f"{candidate_id}.preparation.intent.json",
+                    payload_builder=lambda identity: _preparation_intent_payload(
+                        project=current,
+                        candidate=candidate,
+                        context=context_before,
+                        package=package,
+                        bound_environment=bound_environment,
+                        intent_id=intent_id,
+                        created_at=intent_created_at,
+                        preparation_created_at=preparation_created_at,
+                        preparation_path=preparation_path,
+                        report_path=report_path,
+                        filesystem_identity=identity,
+                    ),
+                    error_code="refinement_self_test_preparation_invalid",
+                )
+            except FileExistsError as error:
+                raise ValueError("refinement_self_test_preparation_invalid") from error
+            intent_reference = ArtifactRef(
+                intent_path,
+                hashlib.sha256(intent_bytes).hexdigest(),
+                len(intent_bytes),
+            )
+            intent = _read_and_validate_preparation_intent(
+                project=current,
+                path=intent_path,
+                expected_reference=intent_reference,
+                candidate=candidate,
+                context=context_before,
+                package=package,
+                bound_environment=bound_environment,
+            )
+            if intent.payload != intent_payload:
+                raise ValueError("refinement_self_test_preparation_invalid")
         checked_candidate = _revalidate_refinement_candidate(current, candidate_id)
         checked_context = _hold_candidate_context(current, checked_candidate)
         checked_package = validate_experiment_package_contract_at(
@@ -2743,6 +2758,34 @@ def _reservation_time(value: object) -> datetime:
         raise ValueError("refinement_run_reservation_invalid") from error
 
 
+def _authoritative_run_wall_seconds(
+    contract: Mapping[str, object], observed_at: datetime
+) -> float:
+    envelope = contract.get("envelope")
+    if not isinstance(envelope, Mapping):
+        raise ValueError("refinement_run_reservation_invalid")
+    reserved_maximum = envelope.get("reserved_maximum_seconds")
+    if (
+        isinstance(reserved_maximum, bool)
+        or not isinstance(reserved_maximum, int)
+        or reserved_maximum <= 0
+    ):
+        raise ValueError("refinement_run_reservation_invalid")
+    reservation_created_at = _reservation_time(
+        envelope.get("reservation_created_at")
+    )
+    session_deadline = _reservation_time(envelope.get("session_deadline"))
+    if observed_at < reservation_created_at:
+        raise ValueError("refinement_run_reservation_invalid")
+    if (
+        observed_at
+        >= reservation_created_at + timedelta(seconds=reserved_maximum)
+        or observed_at >= session_deadline
+    ):
+        raise ValueError("refinement_run_wall_time_exhausted")
+    return (observed_at - reservation_created_at).total_seconds()
+
+
 def _run_intent_path(session_id: str, run_id: str) -> str:
     return f"{REFINEMENT_RUN_REGISTRATION_ROOT}/{session_id}/{run_id}.intent.json"
 
@@ -3045,18 +3088,22 @@ def _completed_run_wall_seconds(
             registration_path,
             error_code="refinement_evidence_registration_invalid",
         )
-        runtime = receipt.get("runtime")
-        elapsed = runtime.get("elapsed_seconds") if isinstance(runtime, Mapping) else None
-        if (
-            receipt.get("run_id") != run_id
-            or receipt.get("completed") is not True
-            or isinstance(elapsed, bool)
-            or not isinstance(elapsed, (int, float))
-            or not math.isfinite(elapsed)
-            or elapsed < 0
-        ):
+        contract_path = records.get("contract")
+        if contract_path is None:
             raise ValueError("refinement_evidence_registration_invalid")
-        total += float(elapsed)
+        contract, _contract_bytes, _contract_snapshot = _read_run_payload(
+            project,
+            contract_path,
+            error_code="refinement_run_contract_invalid",
+        )
+        try:
+            observed_at = _reservation_time(receipt.get("created_at"))
+            elapsed = _authoritative_run_wall_seconds(contract, observed_at)
+        except ValueError as error:
+            raise ValueError("refinement_evidence_registration_invalid") from error
+        if receipt.get("run_id") != run_id or receipt.get("completed") is not True:
+            raise ValueError("refinement_evidence_registration_invalid")
+        total += elapsed
     return total
 
 
@@ -4437,6 +4484,9 @@ def _validate_pending_result_registration(
             registration_intent_path=registration_intent_path,
         )
     )
+    _authoritative_run_wall_seconds(
+        contract, _reservation_time(registration_intent.get("created_at"))
+    )
     manifest_path = str(registration_intent["manifest_path"])
     if os.path.lexists(project.root / manifest_path):
         _validated_refinement_manifest(
@@ -4471,7 +4521,7 @@ def _validate_completed_result_registration(
         result,
         result_reference,
         _sources,
-        elapsed,
+        _reported_elapsed,
     ) = _validated_result_registration_context(
         project,
         candidate=candidate,
@@ -4526,7 +4576,9 @@ def _validate_completed_result_registration(
         and project.state.next_action == "register_refinement_result"
     ):
         raise ValueError("refinement_evidence_registration_invalid")
-    return elapsed
+    return _authoritative_run_wall_seconds(
+        contract, _reservation_time(registration_intent.get("created_at"))
+    )
 
 
 def _reconstruct_refinement_run_counters(
@@ -4775,15 +4827,21 @@ def register_refinement_result(
         or current.state.artifacts.get(contract_path) != contract_reference
     ):
         raise ValueError("refinement_result_reservation_invalid")
-    result, result_bytes, result_snapshot, elapsed = _validate_refinement_result_payload(
-        current,
-        candidate,
-        package,
-        run_id=run_id,
-        contract_path=contract_path,
-        contract=contract,
-        contract_bytes=contract_bytes,
-        result_path=expected_result_path,
+    registration_observed_at: datetime | None = None
+    if "registration.intent" not in records:
+        registration_observed_at = _utc_now()
+        _authoritative_run_wall_seconds(contract, registration_observed_at)
+    result, result_bytes, result_snapshot, _reported_elapsed = (
+        _validate_refinement_result_payload(
+            current,
+            candidate,
+            package,
+            run_id=run_id,
+            contract_path=contract_path,
+            contract=contract,
+            contract_bytes=contract_bytes,
+            result_path=expected_result_path,
+        )
     )
     result_reference = ArtifactRef(
         expected_result_path,
@@ -4820,6 +4878,9 @@ def register_refinement_result(
             )
         else:
             registration_id = uuid4().hex
+            if registration_observed_at is None:
+                raise ValueError("refinement_evidence_registration_invalid")
+            registration_created_at = registration_observed_at.isoformat()
             try:
                 registration_intent, registration_intent_bytes = _write_run_record(
                     current,
@@ -4828,8 +4889,8 @@ def register_refinement_result(
                     payload_builder=lambda identity: _registration_intent_payload(
                         contract=contract,
                         registration_id=registration_id,
-                        created_at=_utc_now().isoformat(),
-                        manifest_created_at=_utc_now().isoformat(),
+                        created_at=registration_created_at,
+                        manifest_created_at=registration_created_at,
                         contract_reference=contract_reference,
                         result_reference=result_reference,
                         result_filesystem_identity=_filesystem_identity(result_snapshot),
@@ -4889,6 +4950,9 @@ def register_refinement_result(
     )
     if registration_intent != expected_registration:
         raise ValueError("refinement_evidence_registration_invalid")
+    _authoritative_run_wall_seconds(
+        contract, _reservation_time(registration_intent.get("created_at"))
+    )
     if _require_filesystem_identity(
         registration_intent.get("intent_filesystem_identity"),
         receipt=True,

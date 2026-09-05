@@ -40,6 +40,11 @@ _QUARANTINE_ENTRY = re.compile(
 _REGISTRATION_ID = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?\Z")
 _OBJECT_PREFIX = ".researchclaw/evidence/objects/"
 _MANIFEST_PREFIX = ".researchclaw/evidence/manifests/"
+_REFINEMENT_MANIFEST_ROOT = ".researchclaw/evidence/refinement-manifests"
+_REFINEMENT_MANIFEST_PREFIX = f"{_REFINEMENT_MANIFEST_ROOT}/"
+_REFINEMENT_SESSION_NAME = re.compile(r"[0-9a-f]{32}\Z")
+_REFINEMENT_CANDIDATE_NAME = re.compile(r"candidate-[0-9]{3}\Z")
+_REFINEMENT_RUN_MANIFEST_NAME = re.compile(r"run-[0-9]{3}\.json\Z")
 _TEMPORARY_PREFIX = ".publish-"
 _TEMPORARY_SUFFIX = ".tmp"
 _QUARANTINE_PREFIX = ".gc-"
@@ -559,6 +564,7 @@ class EvidenceStore:
         self.evidence_root = root / ".researchclaw/evidence"
         self.objects_root = self.evidence_root / "objects"
         self.manifests_root = self.evidence_root / "manifests"
+        self.refinement_manifests_root = self.evidence_root / "refinement-manifests"
         self.quarantine_root = self.evidence_root / "gc-quarantine"
         self.results_quarantine_root = self.evidence_root / "quarantine/results"
         self.copy_quarantine_root = self.evidence_root / "quarantine/copies"
@@ -904,6 +910,106 @@ class EvidenceStore:
         }
         return value, context_identity
 
+    def _refinement_context_references(
+        self,
+        candidate_paths: set[str],
+        referenced: set[str],
+        identities: list[dict[str, object]],
+    ) -> None:
+        if not os.path.lexists(self.refinement_manifests_root):
+            return
+
+        def names(descriptor: int) -> list[str]:
+            remaining = _MAX_GC_CONTEXT_FILES - len(identities)
+            return sorted(
+                _bounded_directory_names(
+                    descriptor,
+                    limit=remaining,
+                    error_message="evidence GC context file limit exceeded",
+                )
+            )
+
+        def record_directory(descriptor: int, path: str) -> None:
+            if len(identities) >= _MAX_GC_CONTEXT_FILES:
+                raise ValueError("evidence GC context file limit exceeded")
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise ValueError("invalid refinement evidence GC context")
+            identities.append(
+                {
+                    "path": path,
+                    "device": metadata.st_dev,
+                    "inode": metadata.st_ino,
+                    "mtime_ns": metadata.st_mtime_ns,
+                    "ctime_ns": metadata.st_ctime_ns,
+                }
+            )
+
+        def open_child(parent: int, name: str) -> int:
+            return os.open(
+                name,
+                os.O_RDONLY
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=parent,
+            )
+
+        try:
+            root = self._open_directory(self.refinement_manifests_root)
+            try:
+                record_directory(root, _REFINEMENT_MANIFEST_ROOT)
+                for session_name in names(root):
+                    if _REFINEMENT_SESSION_NAME.fullmatch(session_name) is None:
+                        raise ValueError("invalid refinement evidence GC context")
+                    session = open_child(root, session_name)
+                    try:
+                        record_directory(
+                            session,
+                            f"{_REFINEMENT_MANIFEST_ROOT}/{session_name}",
+                        )
+                        for candidate_name in names(session):
+                            if (
+                                _REFINEMENT_CANDIDATE_NAME.fullmatch(candidate_name)
+                                is None
+                            ):
+                                raise ValueError(
+                                    "invalid refinement evidence GC context"
+                                )
+                            candidate = open_child(session, candidate_name)
+                            try:
+                                record_directory(
+                                    candidate,
+                                    f"{_REFINEMENT_MANIFEST_ROOT}/{session_name}/"
+                                    f"{candidate_name}",
+                                )
+                                for name in names(candidate):
+                                    if (
+                                        _REFINEMENT_RUN_MANIFEST_NAME.fullmatch(name)
+                                        is None
+                                    ):
+                                        raise ValueError(
+                                            "invalid refinement evidence GC context"
+                                        )
+                                    relative_path = (
+                                        f"{_REFINEMENT_MANIFEST_PREFIX}{session_name}/"
+                                        f"{candidate_name}/{name}"
+                                    )
+                                    value, identity = self._read_json_file(
+                                        candidate, name, relative_path
+                                    )
+                                    identities.append(identity)
+                                    self._find_references(
+                                        value, referenced, candidate_paths
+                                    )
+                            finally:
+                                os.close(candidate)
+                    finally:
+                        os.close(session)
+            finally:
+                os.close(root)
+        except OSError as error:
+            raise ValueError("invalid refinement evidence GC context") from error
+
     def _context_references(
         self, candidate_paths: set[str]
     ) -> tuple[set[str], tuple[dict[str, object], ...]]:
@@ -927,6 +1033,10 @@ class EvidenceStore:
                 self._find_references(value, referenced, candidate_paths)
         finally:
             os.close(manifest_descriptor)
+
+        self._refinement_context_references(
+            candidate_paths, referenced, identities
+        )
 
         metadata_root = self.project_root / ".researchclaw"
         metadata_descriptor = self._open_directory(metadata_root)
