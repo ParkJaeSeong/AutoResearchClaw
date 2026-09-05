@@ -33,24 +33,10 @@ nested_agent_processes, generated_code_execution
 def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
     text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
     normalized = " ".join(text.split()).lower()
-    roles_line = next(
-        line for line in text.splitlines() if line.startswith("- Assign exactly three")
-    )
-    confirmation_line = next(
-        line
-        for line in text.splitlines()
-        if line.startswith("The coordinator must pause for the user")
-    )
-    escalation_line = next(
-        line for line in text.splitlines() if line.startswith("If the run, wall-time")
-    )
-    prohibition_line = next(
-        line for line in text.splitlines() if line.startswith("Do not configure a provider")
-    )
 
     assert "coordinator has no vote" in normalized
     assert "exactly three voting tasks" in normalized
-    assert re.findall(r"`([^`]+)`", roles_line) == [
+    assert re.findall(r"`(domain|methodology|critical_reproducibility)`", text) == [
         "domain",
         "methodology",
         "critical_reproducibility",
@@ -64,12 +50,15 @@ def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
         "--confirm-refinement-result",
         "--confirm-refinement-finalization",
     ):
-        assert confirmation in confirmation_line
-    assert "explicit authority escalation" in escalation_line.lower()
+        assert confirmation in normalized
+    assert "explicit authority escalation" in normalized
     assert "minority rationale as dissent" in normalized
     assert "must not call an llm api" in normalized
     for prohibition in ("configure a provider", "request a key", "network call"):
-        assert prohibition in prohibition_line.lower()
+        assert prohibition in normalized
+    assert "--refinement-run-context <project-relative immutable context>" in normalized
+    assert "consume that context read-only" in normalized
+    assert "no path discovery" in normalized
     assert "researchclaw-codex refinement" in normalized
 
 

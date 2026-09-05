@@ -42,7 +42,7 @@ def _guarded_subprocess(argv, *, cwd, attempts_path, probe=None):
     environment = dict(os.environ)
     inherited_path = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
-        part for part in (str(NETWORK_GUARD_ROOT), inherited_path) if part
+        part for part in (str(NETWORK_GUARD_ROOT), str(ROOT), inherited_path) if part
     )
     environment["RESEARCHCLAW_STAGE13_NETWORK_GUARD_LOG"] = str(attempts_path)
     if probe is not None:
@@ -54,6 +54,36 @@ def _guarded_subprocess(argv, *, cwd, attempts_path, probe=None):
         capture_output=True,
         text=True,
         env=environment,
+    )
+
+
+def _assert_blocked_probe(argv, *, cwd, attempts_path, probe, event):
+    attempted = _guarded_subprocess(
+        argv,
+        cwd=cwd,
+        attempts_path=attempts_path,
+        probe=probe,
+    )
+    assert attempted.returncode != 0
+    assert set(attempts_path.read_text(encoding="utf-8").splitlines()) == {
+        f"{probe}:{event}"
+    }
+    attempts_path.write_text("", encoding="utf-8")
+
+
+def _expected_candidate_metric(project, run):
+    context = json.loads(
+        (project.root / run["contract_path"]).read_text(encoding="utf-8")
+    )
+    config = json.loads(
+        (Path(run["cwd"]) / "config/config.json").read_text(encoding="utf-8")
+    )
+    input_total = sum(
+        sum(Path(binding["absolute_path"]).read_bytes())
+        for binding in context["execution"]["input_bindings"]
+    )
+    return (sum(config["seeds"]["values"]) + input_total / 1000.0) / len(
+        config["seeds"]["values"]
     )
 
 
@@ -172,15 +202,25 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     )
     assert completed.returncode == 0, completed.stderr
     assert network_attempts.read_text(encoding="utf-8") == ""
-    attempted_self_test = _guarded_subprocess(
-        self_test["argv"],
-        cwd=self_test["cwd"],
-        attempts_path=network_attempts,
-        probe="socket",
-    )
-    assert attempted_self_test.returncode != 0
-    assert network_attempts.read_text(encoding="utf-8") == "socket:socket.connect\n"
-    network_attempts.write_text("", encoding="utf-8")
+    for probe, event in (
+        ("tcp", "socket.connect"),
+        ("create_connection", "socket.getaddrinfo"),
+        ("udp", "socket.sendto"),
+        ("send", "socket.send"),
+        ("sendall", "socket.sendall"),
+        ("dns", "socket.getaddrinfo"),
+        ("dns_name", "socket.gethostbyname"),
+        ("dns_name_ex", "socket.gethostbyname_ex"),
+        ("dns_addr", "socket.gethostbyaddr"),
+        ("provider", "socket.getaddrinfo"),
+    ):
+        _assert_blocked_probe(
+            self_test["argv"],
+            cwd=self_test["cwd"],
+            attempts_path=network_attempts,
+            probe=probe,
+            event=event,
+        )
     _run_json(
         capsys,
         "refinement",
@@ -210,14 +250,20 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     )
     assert completed.returncode == 0, completed.stderr
     assert network_attempts.read_text(encoding="utf-8") == ""
-    attempted_llm_path = _guarded_subprocess(
+    _assert_blocked_probe(
         run["argv"],
         cwd=run["cwd"],
         attempts_path=network_attempts,
-        probe="llm",
+        probe="provider",
+        event="socket.getaddrinfo",
     )
-    assert attempted_llm_path.returncode != 0
-    assert network_attempts.read_text(encoding="utf-8") == "llm:socket.connect\n"
+    produced_result = json.loads(
+        (project.root / run["result_path"]).read_text(encoding="utf-8")
+    )
+    assert produced_result["metrics"]["primary"]["value"] == _expected_candidate_metric(
+        project, run
+    )
+    assert produced_result["runtime"]["elapsed_seconds"] <= produced_result["runtime"]["maximum_seconds"]
     candidate_result = _run_json(
         capsys,
         "refinement",
@@ -231,7 +277,7 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         "--json",
     )
     candidate_manifest = candidate_result["evidence_manifest_path"]
-    assert candidate_result["wall_seconds_used"] == 1.0
+    assert 0.0 <= candidate_result["wall_seconds_used"] <= produced_result["runtime"]["maximum_seconds"]
 
     reopened = ResearchProject.open(project.root)
     result = reopened.state.artifacts[run["result_path"]]

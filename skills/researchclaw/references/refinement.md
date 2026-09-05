@@ -15,6 +15,8 @@ The coordinator must pause for the user at each explicit boundary: request to st
 
 Use no invented shell command, Python call, provider setting, or reconstructed display string. The Task-7 CLI argv is authoritative: use the literal `researchclaw-codex refinement` command and arguments below (or its checkout fallback), and execute a candidate only through the returned `argv` array in its returned `cwd`.
 
+Before candidate registration, require its entry point to accept `--refinement-run-context <project-relative immutable context>`. The returned argv resolves that recorded project-relative context for the current checkout. The entry point must consume that context read-only to bind and emit the result schema, including explicitly bound inputs. No path discovery is permitted: do not scan directories or reconstruct a substitute context.
+
 1. `researchclaw-codex refinement prepare-session ROOT --envelope refinement/envelope.json --json`
 2. Register all three independent assessments, then `researchclaw-codex refinement register-deliberation ROOT --rebuttals ... --json` for the single challenge/revision round.
 3. Register the 2–1 council decision. A `refine` decision may register one candidate; the implementation agent registers its returned self-test report only after the user confirms it.

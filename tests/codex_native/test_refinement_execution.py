@@ -214,6 +214,12 @@ def test_prepare_refinement_run_reserves_exact_authoritative_contract_without_ex
     assert contract["allowed_inputs"][0]["path"] == "data/input.csv"
     assert contract["execution"]["argv"] == list(status.argv)
     assert contract["execution"]["cwd"] == status.cwd
+    assert contract["execution"]["input_bindings"] == [
+        {
+            **contract["allowed_inputs"][0],
+            "absolute_path": str((project.root / contract["allowed_inputs"][0]["path"]).resolve()),
+        }
+    ]
     assert contract["execution"]["environment_fingerprint"] == (
         status.environment_fingerprint
     )
@@ -264,6 +270,40 @@ def test_context_bound_refinement_argv_produces_registrable_result(tmp_path):
 
     assert registered.run_id == run.run_id
     assert registered.result_path == run.result_path
+
+
+def test_candidate_metric_changes_with_a_different_bound_input(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    run = prepare_refinement_run(project, candidate.candidate_id)
+    completed = subprocess.run(run.argv, cwd=run.cwd, check=False, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    result_path = project.root / run.result_path
+    first_metric = json.loads(result_path.read_text(encoding="utf-8"))["metrics"]["primary"]["value"]
+
+    context_path = project.root / run.contract_path
+    alternate_context = json.loads(context_path.read_text(encoding="utf-8"))
+    binding = alternate_context["execution"]["input_bindings"][0]
+    alternate_input = tmp_path / "alternate-input.json"
+    alternate_bytes = Path(binding["absolute_path"]).read_bytes() + b" changed"
+    alternate_input.write_bytes(alternate_bytes)
+    alternate_path = context_path.with_name("alternate.contract.json")
+    alternate_relative = alternate_path.relative_to(project.root).as_posix()
+    binding.update(
+        absolute_path=str(alternate_input.resolve()),
+        sha256=hashlib.sha256(alternate_bytes).hexdigest(),
+        size=len(alternate_bytes),
+    )
+    alternate_context["execution"]["run_contract_path"] = alternate_relative
+    alternate_context["execution"]["argv"][-1] = str(alternate_path.resolve())
+    alternate_path.write_text(json.dumps(alternate_context, sort_keys=True), encoding="utf-8")
+    alternate_argv = (*run.argv[:-1], str(alternate_path.resolve()))
+    completed = subprocess.run(
+        alternate_argv, cwd=run.cwd, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0, completed.stderr
+    second_metric = json.loads(result_path.read_text(encoding="utf-8"))["metrics"]["primary"]["value"]
+
+    assert second_metric != first_metric
 
 
 def test_prepare_refinement_run_is_idempotent_for_the_exact_pending_reservation(

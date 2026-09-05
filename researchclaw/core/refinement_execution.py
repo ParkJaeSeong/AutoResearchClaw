@@ -3261,6 +3261,13 @@ def _run_authority_payload(
             "argv": list(argv),
             "cwd": str(_candidate_root(project, candidate.candidate_id)),
             "run_contract_path": contract_path,
+            "input_bindings": [
+                {
+                    **item,
+                    "absolute_path": str((project.root / str(item["path"])).resolve()),
+                }
+                for item in input_items
+            ],
             "environment_fingerprint": environment.fingerprint,
             "environment": _environment_payload(environment),
             "launcher_identity": [list(item) for item in launcher_identity],
