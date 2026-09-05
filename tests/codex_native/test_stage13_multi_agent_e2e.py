@@ -206,6 +206,8 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         ("tcp", "socket.connect"),
         ("create_connection", "socket.getaddrinfo"),
         ("udp", "socket.sendto"),
+        ("sendto_flags", "socket.sendto"),
+        ("sendmsg", "socket.sendmsg"),
         ("send", "socket.send"),
         ("sendall", "socket.sendall"),
         ("dns", "socket.getaddrinfo"),
@@ -263,7 +265,7 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     assert produced_result["metrics"]["primary"]["value"] == _expected_candidate_metric(
         project, run
     )
-    assert produced_result["runtime"]["elapsed_seconds"] <= produced_result["runtime"]["maximum_seconds"]
+    assert 0.0 < produced_result["runtime"]["elapsed_seconds"] <= produced_result["runtime"]["maximum_seconds"]
     candidate_result = _run_json(
         capsys,
         "refinement",

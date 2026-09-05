@@ -46,14 +46,23 @@ if log_path is not None:
         def connect(self, _address):
             _deny("socket.connect")
 
+        def connect_ex(self, _address):
+            _deny("socket.connect_ex")
+
         def send(self, _data, _flags=0):
             _deny("socket.send")
 
         def sendall(self, _data, _flags=0):
             _deny("socket.sendall")
 
-        def sendto(self, _data, _address):
+        def sendto(self, _data, *_args):
             _deny("socket.sendto")
+
+        def sendmsg(self, _buffers, *_args):
+            _deny("socket.sendmsg")
+
+        def sendfile(self, _file, *_args):
+            _deny("socket.sendfile")
 
     socket.socket = GuardedSocket
 
@@ -86,6 +95,14 @@ if log_path is not None:
             elif probe == "udp":
                 socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(
                     b"blocked", ("127.0.0.1", 9)
+                )
+            elif probe == "sendto_flags":
+                socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(
+                    b"blocked", 0, ("127.0.0.1", 9)
+                )
+            elif probe == "sendmsg":
+                socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendmsg(
+                    [b"blocked"], [], 0, ("127.0.0.1", 9)
                 )
             elif probe == "send":
                 socket.socket(socket.AF_INET, socket.SOCK_DGRAM).send(b"blocked")

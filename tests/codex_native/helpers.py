@@ -1385,7 +1385,7 @@ def write_refinement_candidate(
     source = evidence_bytes("experiment/code/main.py").decode("utf-8")
     source = source.replace("experiment.code.main", "code.model")
     source = source.replace(
-        "import ctypes\n", "import ctypes\nfrom datetime import datetime, timezone\n"
+        "import ctypes\n", "import ctypes\nfrom datetime import datetime, timezone\nimport time\n"
     )
     source = source.replace(
         "experiment/code/self_test_config.json", "tests/self_test_config.json"
@@ -1429,6 +1429,18 @@ def write_refinement_candidate(
         "        report_created_at = datetime.now(timezone.utc).isoformat()\n"
         '        report = {\n            "schema_version": 1,\n',
     )
+    source = source.replace(
+        "\ndef main(argv: list[str] | None = None) -> dict[str, object]:\n",
+        """
+def elapsed_seconds(start_ns: int, end_ns: int) -> float:
+    if end_ns < start_ns:
+        raise ValueError("monotonic clock moved backwards")
+    return (end_ns - start_ns) / 1000000000
+
+
+def main(argv: list[str] | None = None) -> dict[str, object]:
+""",
+    )
     run_block_start = '    execution_path = Path("experiment/execution_contract.json")\n'
     run_bytes_marker = '    execution_bytes = execution_path.read_bytes()\n'
     first_run_start = source.index(run_block_start)
@@ -1446,7 +1458,7 @@ def write_refinement_candidate(
         raise ValueError("refinement run context mismatch")
     if execution["argv"][-2:] != ["--refinement-run-context", args.refinement_run_context]:
         raise ValueError("refinement run argv mismatch")
-    run_started_at = datetime.now(timezone.utc)
+    algorithm_started_ns = time.monotonic_ns()
     config_payload = Path(args.config).read_bytes()
     config = json.loads(config_payload)
     seeds = config["seeds"]["values"]
@@ -1469,6 +1481,7 @@ def write_refinement_candidate(
             "cell_count": count % 7,
             "group_count": count % 4,
         }
+    algorithm_finished_ns = time.monotonic_ns()
     context_digest = hashlib.sha256(context_bytes)
     result = {
         "schema_version": 1,
@@ -1513,10 +1526,7 @@ def write_refinement_candidate(
             "launcher_identity": execution["launcher_identity"],
         },
         "runtime": {
-            "elapsed_seconds": (
-                (datetime.now(timezone.utc).microsecond - run_started_at.microsecond)
-                % 1000000
-            ) / 1000000,
+            "elapsed_seconds": elapsed_seconds(algorithm_started_ns, algorithm_finished_ns),
             "maximum_seconds": context["envelope"]["reserved_maximum_seconds"],
         },
     }

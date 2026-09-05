@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -304,6 +305,17 @@ def test_candidate_metric_changes_with_a_different_bound_input(tmp_path):
     second_metric = json.loads(result_path.read_text(encoding="utf-8"))["metrics"]["primary"]["value"]
 
     assert second_metric != first_metric
+
+
+def test_candidate_elapsed_seconds_preserves_whole_seconds(tmp_path):
+    project, _candidate = registered_candidate_project(tmp_path / "project")
+    module_path = project.root / "refinement/candidates/candidate-001/code/model.py"
+    spec = importlib.util.spec_from_file_location("candidate_elapsed", module_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.elapsed_seconds(10, 2_500_000_010) == 2.5
 
 
 def test_prepare_refinement_run_is_idempotent_for_the_exact_pending_reservation(

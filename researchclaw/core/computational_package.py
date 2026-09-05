@@ -209,7 +209,7 @@ _ALLOWED_IMPORT_EXPORTS = {
     "platform": frozenset({"machine", "python_build", "python_version"}),
     "sys": frozenset(),
     "typing": frozenset({"Any"}),
-    "time": frozenset({"monotonic"}),
+    "time": frozenset({"monotonic", "monotonic_ns"}),
     "experiment.code.main": frozenset(
         {"build_plan", "load_config", "main", "validate_inputs"}
     ),
@@ -241,6 +241,7 @@ _ALLOWED_IMPORTED_CALLS = frozenset(
         "platform.python_build",
         "platform.python_version",
         "time.monotonic",
+        "time.monotonic_ns",
     }
 )
 _CURRENT_PROCESS_ATTESTATION_CALLS = frozenset(

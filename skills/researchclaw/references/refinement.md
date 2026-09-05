@@ -17,6 +17,26 @@ Use no invented shell command, Python call, provider setting, or reconstructed d
 
 Before candidate registration, require its entry point to accept `--refinement-run-context <project-relative immutable context>`. The returned argv resolves that recorded project-relative context for the current checkout. The entry point must consume that context read-only to bind and emit the result schema, including explicitly bound inputs. No path discovery is permitted: do not scan directories or reconstruct a substitute context.
 
+Candidate `runtime.elapsed_seconds` is the candidate algorithm boundary measured by `time.monotonic_ns()`: it starts before the bound config and input reads and ends after their verification and deterministic computation. It does not claim to include interpreter startup, argument parsing, or result-file serialization.
+
+## Normative policy contract
+
+```text
+challenge_rounds=1
+confirmation_flags=self_test,result,finalization
+coordinator_vote=forbidden
+disclosure=after_all_independent_assessments
+dissent=retained
+envelope=immutable_escalate
+implementation_vote=forbidden
+network=forbidden
+provider_configuration=forbidden
+provider_key=forbidden
+run_context=read_only_no_discovery
+runtime_boundary=algorithm_monotonic_ns
+voter_roles=domain,methodology,critical_reproducibility
+```
+
 1. `researchclaw-codex refinement prepare-session ROOT --envelope refinement/envelope.json --json`
 2. Register all three independent assessments, then `researchclaw-codex refinement register-deliberation ROOT --rebuttals ... --json` for the single challenge/revision round.
 3. Register the 2–1 council decision. A `refine` decision may register one candidate; the implementation agent registers its returned self-test report only after the user confirms it.

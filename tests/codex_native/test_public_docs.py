@@ -28,38 +28,30 @@ RESOURCE_PROHIBITIONS_CONTRACT = """`prohibitions` has exactly these boolean fie
 network_access, downloads, package_installation, external_llm_calls,
 nested_agent_processes, generated_code_execution
 ```"""
+REFINEMENT_NORMATIVE_POLICY = {
+    "challenge_rounds": "1",
+    "confirmation_flags": "self_test,result,finalization",
+    "coordinator_vote": "forbidden",
+    "disclosure": "after_all_independent_assessments",
+    "dissent": "retained",
+    "envelope": "immutable_escalate",
+    "implementation_vote": "forbidden",
+    "network": "forbidden",
+    "provider_configuration": "forbidden",
+    "provider_key": "forbidden",
+    "run_context": "read_only_no_discovery",
+    "runtime_boundary": "algorithm_monotonic_ns",
+    "voter_roles": "domain,methodology,critical_reproducibility",
+}
 
 
 def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
     text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
-    normalized = " ".join(text.split()).lower()
+    pairs = re.findall(r"(?m)^([a-z_]+)=([a-z0-9_,]+)$", text)
 
-    assert "coordinator has no vote" in normalized
-    assert "exactly three voting tasks" in normalized
-    assert re.findall(r"`(domain|methodology|critical_reproducibility)`", text) == [
-        "domain",
-        "methodology",
-        "critical_reproducibility",
-    ]
-    assert "before seeing another assessment" in normalized
-    assert "exactly one challenge/revision round" in normalized
-    assert not re.search(r"\b(?:two|2|multiple) challenge/revision rounds?\b", normalized)
-    assert "implementation agent must not vote" in normalized
-    for confirmation in (
-        "--confirm-refinement-self-test",
-        "--confirm-refinement-result",
-        "--confirm-refinement-finalization",
-    ):
-        assert confirmation in normalized
-    assert "explicit authority escalation" in normalized
-    assert "minority rationale as dissent" in normalized
-    assert "must not call an llm api" in normalized
-    for prohibition in ("configure a provider", "request a key", "network call"):
-        assert prohibition in normalized
-    assert "--refinement-run-context <project-relative immutable context>" in normalized
-    assert "consume that context read-only" in normalized
-    assert "no path discovery" in normalized
-    assert "researchclaw-codex refinement" in normalized
+    assert len(pairs) == len(REFINEMENT_NORMATIVE_POLICY)
+    assert dict(pairs) == REFINEMENT_NORMATIVE_POLICY
+    assert "researchclaw-codex refinement" in text.lower()
 
 
 def test_public_docs_advertise_stage_eleven_boundary():
