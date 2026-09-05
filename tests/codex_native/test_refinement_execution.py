@@ -2753,6 +2753,76 @@ def test_self_test_session_component_race_cannot_escape_or_publish_state(
     assert ResearchProject.open(project.root).state == state_before
 
 
+@pytest.mark.parametrize("operation", ["self_test", "result"])
+@pytest.mark.parametrize("mutation", ["session_aba", "baseline_aba", "state_aba", "late_file"])
+def test_intent_authority_commit_revalidates_inputs_before_publishing_state(
+    tmp_path, monkeypatch, operation, mutation
+):
+    if operation == "self_test":
+        project, candidate = registered_candidate_project(tmp_path / "project")
+
+        def publish():
+            return prepare_refinement_self_test(project, candidate.candidate_id)
+    else:
+        project, candidate = self_tested_candidate_project(tmp_path / "project")
+        preparation = prepare_refinement_run(project, candidate.candidate_id)
+        write_refinement_result(project, preparation)
+
+        def publish():
+            return register_refinement_result(
+                project, candidate.candidate_id, preparation.result_path
+            )
+    state_before = ResearchProject.open(project.root).state
+
+    def change_before_commit():
+        if mutation == "late_file":
+            target = project.root / f"refinement/candidates/{candidate.candidate_id}/tests/late.json"
+            target.write_text("{}")
+        else:
+            target = project.root / {
+                "session_aba": "refinement/session.json",
+                "baseline_aba": "experiment/results.json",
+                "state_aba": ".researchclaw/state.json",
+            }[mutation]
+            original = target.read_bytes()
+            target.write_bytes(b"changed before authority commit")
+            target.write_bytes(original)
+
+    monkeypatch.setattr(
+        refinement_execution, "_after_refinement_intent_authority_file", change_before_commit
+    )
+    with pytest.raises(ValueError):
+        publish()
+    assert ResearchProject.open(project.root).state == state_before
+
+
+@pytest.mark.parametrize("target_kind", ["reservation", "contract", "result"])
+def test_result_authority_commit_rejects_restored_run_input_identity(
+    tmp_path, monkeypatch, target_kind
+):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    target = project.root / {
+        "reservation": preparation.intent_path,
+        "contract": preparation.contract_path,
+        "result": preparation.result_path,
+    }[target_kind]
+    state_before = ResearchProject.open(project.root).state
+
+    def restore_changed_input():
+        original = target.read_bytes()
+        target.write_bytes(b"changed run input")
+        target.write_bytes(original)
+
+    monkeypatch.setattr(
+        refinement_execution, "_after_refinement_intent_authority_file", restore_changed_input
+    )
+    with pytest.raises(ValueError, match="refinement_evidence_registration_invalid"):
+        register_refinement_result(project, candidate.candidate_id, preparation.result_path)
+    assert ResearchProject.open(project.root).state == state_before
+
+
 @pytest.mark.parametrize(
     "session_id,candidate_id",
     [

@@ -33,6 +33,7 @@ from .refinement import (
     _created_at,
     _load_prepared_refinement_session,
     _registered_candidate_statuses,
+    _require_closed_candidate_tree,
     _reject_duplicate_keys,
     _revalidate_refinement_candidate,
     _same_published_baseline_snapshot,
@@ -991,6 +992,62 @@ def _publish_authorized_intent(
         os.close(metadata)
 
 
+def _revalidate_intent_acceptance(
+    project: ResearchProject,
+    *,
+    candidate: CandidateStatus,
+    context: _HeldCandidateContext,
+    package: package_contract.ValidatedExperimentPackage,
+    bound_environment: tuple[ExecutionEnvironment, tuple[tuple[object, ...], ...]],
+    baseline,
+    baseline_before,
+    result_before,
+    state_before,
+    unregistered_result_path: str | None = None,
+) -> None:
+    """Reject changed inputs before the first durable acceptance authority.
+
+    Staging changes entries in .researchclaw only. No candidate, baseline, or
+    state file identity change is authorized by preparing the write-ahead files.
+    """
+    current = ResearchProject.open_readonly(project.root)
+    if current.state != project.state:
+        raise ValueError("refinement_candidate_identity_changed")
+    checked_environment = _inspect_bound_environment(package)
+    # The package and candidate semantics were already validated. Reuse them
+    # only if every bound file retains its exact bytes and physical identity.
+    _require_closed_candidate_tree(
+        _candidate_root(current, candidate.candidate_id),
+        manifest_path=candidate.manifest_path,
+        references=candidate.files,
+        additional_paths=tuple(
+            path for path in (
+                _candidate_report_path(candidate.candidate_id),
+                _run_result_path(candidate.candidate_id),
+            )
+            if path in project.state.artifacts or path == unregistered_result_path
+        ),
+    )
+    checked_context = _hold_candidate_context(current, candidate)
+    allowed = frozenset({".researchclaw"})
+    if (
+        current.state != project.state
+        or not _same_held_context_with_expected_directory_updates(
+            context, checked_context, allowed_ctime_paths=allowed,
+        )
+        or checked_environment != bound_environment
+        or not _same_published_baseline_snapshot(
+            baseline_before, _baseline_registration_snapshot(current, baseline)
+        )
+        or _direct_baseline_result_snapshot(current) != result_before
+        or not _same_snapshot_with_expected_directory_updates(
+            state_before, _state_file_snapshot(current)[0],
+            allowed_ctime_paths=allowed,
+        )
+    ):
+        raise ValueError("refinement_candidate_identity_changed")
+
+
 @project_mutation
 def prepare_refinement_self_test(
     project: ResearchProject, candidate_id: str
@@ -1058,6 +1115,12 @@ def prepare_refinement_self_test(
                     filesystem_identity=identity,
                 ),
                 error_code="refinement_self_test_preparation_invalid",
+                before_accept=lambda: _revalidate_intent_acceptance(
+                    current, candidate=candidate, context=context_before,
+                    package=package, bound_environment=bound_environment,
+                    baseline=baseline, baseline_before=baseline_before,
+                    result_before=result_before, state_before=state_before,
+                ),
             )
         finally:
             os.close(parent)
@@ -4933,6 +4996,7 @@ def register_refinement_result(
 ) -> RefinementRunStatus:
     """Validate one owned run result and publish immutable refinement evidence."""
     current = ResearchProject.open(project.root)
+    state_before = _state_file_snapshot(current)[0]
     expected_result_path = _run_result_path(candidate_id)
     supplied = Path(result_path)
     if supplied.is_absolute() or supplied.as_posix() != expected_result_path:
@@ -4946,10 +5010,13 @@ def register_refinement_result(
     session_id = str(session_payload["session_id"])
     run_id, records = _find_candidate_run(current, session_id, candidate_id)
     session_status = _load_prepared_refinement_session(current)
+    baseline = _baseline(current)
+    baseline_before = _baseline_registration_snapshot(current, baseline)
+    baseline_result_before = _direct_baseline_result_snapshot(current)
     candidate_statuses = _registered_candidate_statuses(
         current,
         session=session_status,
-        baseline=_baseline(current),
+        baseline=baseline,
         unregistered_additional_paths=(
             {candidate_id: (expected_result_path,)}
             if expected_result_path not in current.state.artifacts
@@ -5034,6 +5101,29 @@ def register_refinement_result(
         or current.state.artifacts.get(contract_path) != contract_reference
     ):
         raise ValueError("refinement_result_reservation_invalid")
+    # These semantics were validated above and bound by the reserved contract.
+    # Hold their files so acceptance can check identity without replaying all
+    # self-test validation and environment discovery inside the run deadline.
+    registration_binding_snapshots = tuple(
+        _secure_snapshot(
+            current.root, reference.path, expected=reference,
+            maximum_bytes=reference.size,
+            error_code="refinement_evidence_registration_invalid",
+        )[0]
+        for reference in (
+            *(_artifact(item) for item in contract["self_test"].values()),
+            *(_artifact(item) for item in contract["allowed_inputs"]),
+        )
+    )
+    binding_identities = {
+        item["path"]: {key: value for key, value in item.items() if key != "path"}
+        for item in contract["binding_filesystem_identities"]
+    }
+    if any(
+        _filesystem_identity(snapshot) != binding_identities.get(snapshot.reference.path)
+        for snapshot in registration_binding_snapshots
+    ):
+        raise ValueError("refinement_evidence_registration_invalid")
     registration_observed_at: datetime | None = None
     registration_intent_path = _registration_intent_path(session_id, run_id)
     registered_intent_authority = _read_intent_authority(
@@ -5109,6 +5199,33 @@ def register_refinement_result(
                 filesystem_identity=identity,
             )
 
+        def revalidate_acceptance():
+            _revalidate_intent_acceptance(
+                current, candidate=candidate, context=context, package=package,
+                bound_environment=bound_environment, baseline=baseline,
+                baseline_before=baseline_before, result_before=baseline_result_before,
+                state_before=state_before,
+                unregistered_result_path=(
+                    expected_result_path if existing_result is None else None
+                ),
+            )
+            for held in (
+                intent_snapshot, contract_snapshot, result_snapshot,
+                *registration_binding_snapshots,
+            ):
+                checked = _secure_snapshot(
+                    current.root, held.reference.path, expected=held.reference,
+                    maximum_bytes=held.reference.size,
+                    error_code="refinement_evidence_registration_invalid",
+                )[0]
+                if not _same_snapshot_with_expected_directory_updates(
+                    held, checked, allowed_ctime_paths=frozenset({".researchclaw"}),
+                ):
+                    raise ValueError("refinement_evidence_registration_invalid")
+            if _run_inventory(current, session_id) != inventory:
+                raise ValueError("refinement_evidence_registration_invalid")
+            _authoritative_run_wall_seconds(contract, _utc_now())
+
         parent = _open_run_parent(current, session_id)
         try:
             registration_intent, registration_intent_bytes = _publish_authorized_intent(
@@ -5117,9 +5234,7 @@ def register_refinement_result(
                 parent_descriptor=parent,
                 payload_builder=build_registration,
                 error_code="refinement_evidence_registration_invalid",
-                before_accept=lambda: _authoritative_run_wall_seconds(
-                    contract, _utc_now()
-                ),
+                before_accept=revalidate_acceptance,
             )
         finally:
             os.close(parent)
