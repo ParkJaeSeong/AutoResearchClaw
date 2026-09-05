@@ -39,6 +39,14 @@ All commands below ran from this worktree, using the existing installed Python/p
 - `python3 -m compileall -q researchclaw/core tests/codex_native/test_refinement_execution.py tests/codex_native/test_stage13_multi_agent_e2e.py`: exit 0.
 - `git diff --check`: exit 0.
 
+## Controller completion verification
+
+Implementation commits: `5d41d7d` and `6c91d35`. Independent initial review approved the four corrected requirements; the controller's complete module then found the two ordering failures documented in the follow-up section. Following their correction, independent scoped review approved `5d41d7d..6c91d35` with no Critical or Important findings. It checked precommit placement, complete held-evidence equivalence, closed inventories, original deadline enforcement, and authenticated replay.
+
+The controller independently ran `pytest -q tests/codex_native/test_refinement_execution.py -k self_test_session_component_race_cannot_escape_or_publish_state` on `6c91d35`: **4 passed, 145 deselected in 13.99s**. `git diff --check b9ed6fc HEAD` passed and the implementation worktree was clean. Combined with the implementer's final 36-case boundary/recovery batch and 2 real E2E tests, this closes the four original findings and the ordering regression found by the complete module. The entire 149-case module was not rerun after the follow-up; the complete earlier run and scoped subsequent runs are distinguished in this report.
+
+Correction is complete and reviewed. Merge, GitHub push, installed-tool update, and the post-merge `uv tool` gate remain separate integration steps and were not performed. The documented incomplete-result public handoff limitation remains; exact direct registration retry is supported and verified.
+
 Additional fixture-only mistakes during test construction were corrected: a low-level authority test initially used nonexistent profile `default` instead of `materials_ai`; the first isolated formatter invocation could not parse an indented method until its input was dedented. These were not production regressions or substantive RED evidence.
 
 ## Crash seams and compatibility
