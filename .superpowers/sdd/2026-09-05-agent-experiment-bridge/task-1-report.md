@@ -385,3 +385,71 @@ installed-wheel full-bridge claim; controller owns that verification.
 `ruff check tests/codex_native/test_agent_experiment_bridge.py` and
 `git diff --check` exited 0. Only test fixture and this report changed.
 Earlier partial-suite limitations remain unchanged; no broad suite was rerun.
+
+## Final review wave: implicit dictionary keys (base 877af8b)
+
+Independent review identified the same bounded-runtime issue at implicit Python
+dictionary hashing/equality, not explicit Compare: allowed shared nested tuple
+keys could require exponential C work on construction or lookup. This wave is
+limited to those dictionary/index paths, not a general sandbox expansion.
+
+RED command:
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py -k 'recursive_dictionary_keys or dictionary_unpacking'
+```
+
+**5 failed, 38 deselected in 12.29s**. Four three-second subprocess watchdogs
+expired on shared tuple keys built in 32 bounded training iterations:
+
+- `ignored = {a: 1}` (implicit tuple hashing).
+- `ignored = {a: 1, b: 2}` (hashing plus possible collision equality).
+- `ignored = {0: 1}[a]` (lookup hashing).
+- `for table[a] in train_rows` (permitted loop-target Store hashing).
+
+The fifth failure was static validation accepting `ignored = {**config}`;
+the chosen deliberate subset prohibits dictionary unpacking. The watchdogs
+terminated only their own child probes, keeping the test runner responsive.
+
+Implemented `_index_key` before every authored Dict key and Subscript index:
+only finite numeric scalars or strings of at most 65,536 characters can enter
+implicit hashing/equality. Tuple/collection keys are rejected in constant-shape
+type checks before Python sees them as keys. The Subscript transformation covers
+both Load and Store contexts, including allowed loop/comprehension assignment
+targets. Direct assignment statements already require local Name targets and
+remain prohibited; no new mutation capability was added. Dict unpacking is
+rejected during static validation. Dict comprehensions/calls/attribute methods
+remain outside the existing allowed syntax/call set. Returned model dictionaries
+still pass the existing JSON string-key check and serialization budget.
+
+Positive tests cover numeric temporary dictionary keys, string-keyed model
+serialization, parameter indexing, nested train-row indexing and real prediction
+from a model dictionary. A direct dictionary-assignment rejection test preserves
+the existing static rule. Spec/reference document these precise boundaries;
+tuples remain values, not keys. Production changes are confined to
+`agent_experiment.py`; no execution, registration, approval or legacy schema
+behavior changed.
+
+Final GREEN commands/results:
+
+```
+pytest -q tests/codex_native/test_agent_experiment_bridge.py
+```
+
+**43 passed in 7.04s** on source Python 3.11. This includes the complete real
+public baseline/candidate bridge, prior comparison watchdogs, new key watchdogs,
+unpacking rejection, model-dictionary positive and alternate-interpreter test.
+
+```
+pytest -q tests/codex_native/test_public_docs.py
+```
+
+**34 passed in 0.07s**.
+`ruff check researchclaw/core/agent_experiment.py tests/codex_native/test_agent_experiment_bridge.py`
+and `git diff --check` exited 0. Skill `quick_validate.py skills/researchclaw`
+reported `Skill is valid!`; only the directly relevant API reference changed.
+
+Controller owns the single scoped re-review and isolated installed verification
+after this commit. The earlier 129 uncompleted broad-batch cases and two
+unexplained research-execution failures remain limitations, not claimed fixed.
+No broad suite, installation, deployment, provider access or subagent run occurred.

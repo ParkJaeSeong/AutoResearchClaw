@@ -35,6 +35,11 @@ finite numeric only; powers require integer literal exponents from 0 to 8.
 Comparisons are finite numeric scalars only. `min`/`max` accept numeric scalar
 arguments or a list/tuple/generator of numeric scalars (at most 100,000 items),
 not nested collections. Chained numeric comparisons retain short-circuiting.
+Dictionary keys and subscript indices must be finite numeric scalars or strings
+of at most 65,536 characters; tuple/collection keys are rejected before hashing,
+including lookup and loop-target assignment. Dictionary unpacking (`**mapping`)
+and direct subscript assignment are prohibited. Model dictionaries still use
+JSON-compatible string keys; tuples may be values but not keys or indices.
 An instruction budget bounds authored evaluation. Models allow at most 10,000
 value/key occurrences, depth 64, 1 MiB cumulative string bytes and 1 MiB serialized
 JSON; repeated shared containers count again before serialization. This is a

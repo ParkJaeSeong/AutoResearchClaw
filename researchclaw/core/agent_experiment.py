@@ -108,6 +108,8 @@ def validate_algorithm(source: str) -> ast.Module:
                 raise ValueError("algorithm prohibited syntax")
             if isinstance(node, ast.FunctionDef) and node is not fn:
                 raise ValueError("algorithm nested functions prohibited")
+            if isinstance(node, ast.Dict) and any(key is None for key in node.keys):
+                raise ValueError("algorithm dictionary unpacking prohibited")
             if isinstance(node, ast.Name) and (
                 node.id.startswith("_")
                 or (isinstance(node.ctx, ast.Store) and node.id in BUILTINS)
@@ -243,6 +245,14 @@ def _numeric_operation(name, left, right):
     return result
 
 
+def _index_key(value):
+    if isinstance(value, str) and len(value) <= 65536:
+        return value
+    if finite(value):
+        return value
+    raise ValueError("algorithm key requires a bounded string or finite number")
+
+
 def _comparison_operand(value):
     if not finite(value):
         raise ValueError("algorithm comparison requires finite numbers")
@@ -276,6 +286,30 @@ def _numeric_max(*values):
 
 
 class _NumericalArithmetic(ast.NodeTransformer):
+    @staticmethod
+    def _checked_key(value):
+        return ast.copy_location(
+            ast.Call(
+                func=ast.Name(id="_key", ctx=ast.Load()),
+                args=[value],
+                keywords=[],
+            ),
+            value,
+        )
+
+    def visit_Dict(self, node):
+        self.generic_visit(node)
+        # Unpacking is rejected by validation. Each remaining key is checked
+        # before Python can hash it or compare it with a colliding existing key.
+        node.keys = [self._checked_key(key) for key in node.keys]
+        return node
+
+    def visit_Subscript(self, node):
+        self.generic_visit(node)
+        # This covers both lookup and permitted loop/comprehension Store targets.
+        node.slice = self._checked_key(node.slice)
+        return node
+
     def visit_Compare(self, node):
         self.generic_visit(node)
 
@@ -365,6 +399,7 @@ def evaluate(source, partitions, columns, parameters):
         "__builtins__": dict(BUILTINS, min=_numeric_min, max=_numeric_max),
         "_numeric": _numeric_operation,
         "_comparison": _comparison_operand,
+        "_key": _index_key,
     }
     code = compile(tree, "<authored-algorithm>", "exec")
     remaining = 1000000

@@ -141,6 +141,13 @@ short-circuit behavior. `min` and `max` accept finite numeric scalar arguments o
 a list/tuple/generator of finite numeric scalars, capped at 100,000 items. These
 checks occur before any comparison, excluding recursive collection comparisons
 that can consume exponential C-level work outside the authored opcode budget.
+Dictionary keys and subscript indices are checked before implicit hashing or
+equality: only finite numeric scalars or strings of at most 65,536 characters
+are permitted. This applies to dictionary construction, lookup and subscript
+Store targets in loops/comprehensions. Dictionary unpacking is statically
+prohibited; direct subscript assignment remains prohibited. Returned model
+objects still require JSON-compatible string keys. Tuples remain usable as
+values, but never as dictionary keys or indices.
 
 Candidate local paths are `code/model.py`, `code/algorithm.py`,
 `config/config.json`, `tests/self_test_config.json`, `tests/self_test_fixture.json`,

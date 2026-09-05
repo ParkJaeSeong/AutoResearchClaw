@@ -465,6 +465,90 @@ else:
     assert completed.stdout.strip() == "rejected before recursive comparison"
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "ignored = {a: 1}",
+        "ignored = {a: 1, b: 2}",
+        "ignored = {0: 1}[a]",
+        "table = {}\n    for table[a] in train_rows:\n        ignored = 0",
+    ],
+    ids=["construction", "collision", "lookup", "loop-assignment"],
+)
+def test_recursive_dictionary_keys_reject_within_watchdog(operation):
+    source = f"""def fit(train_rows, config):
+    a = (0,)
+    b = (0,)
+    for row in train_rows:
+        a = (a, a)
+        b = (b, b)
+    {operation}
+    return 0
+
+def predict(model, feature_rows, config):
+    return [model for row in feature_rows]
+"""
+    probe = f"""from researchclaw.core.agent_experiment import evaluate
+try:
+    evaluate({source!r}, {{"train": [{{"y": 1}}] * 32,
+             "test": [{{"x": 1, "y": 1}}]}},
+             {{"target": "y", "features": ["x"]}}, {{}})
+except ValueError as error:
+    assert "key requires a bounded string or finite number" in str(error), error
+    print("rejected before implicit hashing")
+else:
+    raise AssertionError("recursive dictionary key was accepted")
+"""
+    completed = subprocess.run(
+        [sys.executable, "-P", "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=3,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "rejected before implicit hashing"
+
+
+def test_dictionary_unpacking_is_outside_authored_subset():
+    from researchclaw.core.agent_experiment import validate_algorithm
+
+    source = MEAN.replace(
+        'return sum(row["y"] for row in train_rows) / len(train_rows)',
+        "ignored = {**config}\n    return 0",
+    )
+    with pytest.raises(ValueError, match="dictionary unpacking prohibited"):
+        validate_algorithm(source)
+
+
+def test_dictionary_direct_assignment_remains_prohibited():
+    from researchclaw.core.agent_experiment import validate_algorithm
+
+    source = MEAN.replace(
+        'return sum(row["y"] for row in train_rows) / len(train_rows)',
+        'model = {}\n    model["bias"] = 0\n    return model',
+    )
+    with pytest.raises(ValueError, match="assignments must be local names"):
+        validate_algorithm(source)
+
+
+def test_model_dictionary_and_row_indexing_remain_supported():
+    from researchclaw.core.agent_experiment import evaluate
+
+    source = """def fit(train_rows, config):
+    numeric = {1: train_rows[0]["y"]}
+    return {"bias": numeric[1], "scale": config["scale"]}
+
+def predict(model, feature_rows, config):
+    return [model["bias"] + model["scale"] * row["x"] for row in feature_rows]
+"""
+    assert evaluate(
+        source,
+        {"train": [{"y": 1}], "test": [{"x": 2, "y": 7}]},
+        {"target": "y", "features": ["x"]},
+        {"scale": 3},
+    ) == ({"bias": 1, "scale": 3}, [7], 0)
+
+
 def test_numeric_comparisons_and_extrema_remain_supported():
     from researchclaw.core.agent_experiment import evaluate
 
