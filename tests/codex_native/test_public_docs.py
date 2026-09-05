@@ -31,12 +31,45 @@ nested_agent_processes, generated_code_execution
 
 
 def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
-    normalized = " ".join(REFINEMENT_REFERENCE.read_text().split()).lower()
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    normalized = " ".join(text.split()).lower()
+    roles_line = next(
+        line for line in text.splitlines() if line.startswith("- Assign exactly three")
+    )
+    confirmation_line = next(
+        line
+        for line in text.splitlines()
+        if line.startswith("The coordinator must pause for the user")
+    )
+    escalation_line = next(
+        line for line in text.splitlines() if line.startswith("If the run, wall-time")
+    )
+    prohibition_line = next(
+        line for line in text.splitlines() if line.startswith("Do not configure a provider")
+    )
 
     assert "coordinator has no vote" in normalized
-    assert "independent assessment" in normalized
+    assert "exactly three voting tasks" in normalized
+    assert re.findall(r"`([^`]+)`", roles_line) == [
+        "domain",
+        "methodology",
+        "critical_reproducibility",
+    ]
+    assert "before seeing another assessment" in normalized
+    assert "exactly one challenge/revision round" in normalized
+    assert not re.search(r"\b(?:two|2|multiple) challenge/revision rounds?\b", normalized)
     assert "implementation agent must not vote" in normalized
+    for confirmation in (
+        "--confirm-refinement-self-test",
+        "--confirm-refinement-result",
+        "--confirm-refinement-finalization",
+    ):
+        assert confirmation in confirmation_line
+    assert "explicit authority escalation" in escalation_line.lower()
+    assert "minority rationale as dissent" in normalized
     assert "must not call an llm api" in normalized
+    for prohibition in ("configure a provider", "request a key", "network call"):
+        assert prohibition in prohibition_line.lower()
     assert "researchclaw-codex refinement" in normalized
 
 

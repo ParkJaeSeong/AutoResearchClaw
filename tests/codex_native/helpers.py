@@ -1411,6 +1411,11 @@ def write_refinement_candidate(
         '    parser.add_argument("--refinement-self-test-context")\n',
     )
     source = source.replace(
+        '    parser.add_argument("--refinement-self-test-context")\n',
+        '    parser.add_argument("--refinement-self-test-context")\n'
+        '    parser.add_argument("--refinement-run-context")\n',
+    )
+    source = source.replace(
         '            "development_only": True,\n        }\n'
         '        Path("package_metadata/self_test_report.json")',
         '            "created_at": report_created_at,\n'
@@ -1424,6 +1429,83 @@ def write_refinement_candidate(
         "        report_created_at = datetime.now(timezone.utc).isoformat()\n"
         '        report = {\n            "schema_version": 1,\n',
     )
+    run_block_start = '    execution_path = Path("experiment/execution_contract.json")\n'
+    run_bytes_marker = '    execution_bytes = execution_path.read_bytes()\n'
+    first_run_start = source.index(run_block_start)
+    contract_run_start = source.rindex(run_block_start, 0, source.index(run_bytes_marker))
+    source = source[:first_run_start] + source[contract_run_start:]
+    contract_run_end = source.index("\n\n\nif __name__ == \"__main__\":", first_run_start)
+    refinement_run = '''    if args.refinement_run_context is None:
+        raise ValueError("refinement run context required")
+    context_path = Path(args.refinement_run_context)
+    context_bytes = context_path.read_bytes()
+    context = json.loads(context_bytes)
+    execution = context["execution"]
+    resolved_context_path = str(context_path.resolve())
+    if resolved_context_path[-len(execution["run_contract_path"]):] != execution["run_contract_path"]:
+        raise ValueError("refinement run context mismatch")
+    if execution["argv"][-2:] != ["--refinement-run-context", args.refinement_run_context]:
+        raise ValueError("refinement run argv mismatch")
+    context_digest = hashlib.sha256(context_bytes)
+    result = {
+        "schema_version": 1,
+        "project_id": context["project_id"],
+        "session_id": context["session_id"],
+        "candidate_id": context["candidate_id"],
+        "run_id": context["run_id"],
+        "producer": context["producer"],
+        "producer_role": context["producer_role"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "execution_contract": {
+            "path": execution["run_contract_path"],
+            "contract_id": context["contract_id"],
+            "sha256": context_digest.hexdigest(),
+            "size": len(context_bytes),
+        },
+        "development_only": False,
+        "evidence_eligible": True,
+        "status": "completed",
+        "metrics": {"primary": {"name": "mae", "value": -999.0, "unit": "absolute_error"}},
+        "split_summary": {
+            "isolation_key": "cell_id",
+            "roles": {
+                "train": {"cell_count": 6, "group_count": 3},
+                "validation": {"cell_count": 2, "group_count": 1},
+                "calibration": {"cell_count": 2, "group_count": 1},
+                "test": {"cell_count": 4, "group_count": 2},
+            },
+            "cell_overlap_count": 0,
+            "group_overlap_count": 0,
+            "leakage_count": 0,
+        },
+        "provenance": {
+            "candidate_manifest": context["candidate_manifest"],
+            "candidate_files": context["candidate_files"],
+            "package_contract": context["package_contract"],
+            "package_manifest": context["package_manifest"],
+            "entry_point": context["entry_point"],
+            "self_test": context["self_test"],
+            "council_decision": context["council_decision"],
+            "evidence_packet": context["evidence_packet"],
+            "baseline_manifest": context["baseline_manifest"],
+            "baseline_result": context["baseline_result"],
+            "inputs": context["allowed_inputs"],
+            "environment_fingerprint": execution["environment_fingerprint"],
+            "execution_environment": execution["environment"],
+            "launcher_identity": execution["launcher_identity"],
+        },
+        "runtime": {
+            "elapsed_seconds": 1.0,
+            "maximum_seconds": context["envelope"]["reserved_maximum_seconds"],
+        },
+    }
+    Path("results.json").write_text(
+        json.dumps(result, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    return result
+'''
+    source = source[:first_run_start] + refinement_run + source[contract_run_end:]
     (candidate_root / "code/model.py").write_text(source, encoding="utf-8")
 
     baseline_config_bytes = evidence_bytes("experiment/code/config.json")

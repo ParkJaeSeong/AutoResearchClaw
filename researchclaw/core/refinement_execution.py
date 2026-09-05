@@ -3090,6 +3090,7 @@ def _run_authority_payload(
     *,
     session_payload: Mapping[str, object],
     run_id: str,
+    contract_path: str,
     runs_reserved_before: int,
     wall_seconds_used_before: float,
     reservation_time: datetime | None,
@@ -3172,7 +3173,13 @@ def _run_authority_payload(
         self_test[name] = _artifact_payload(reference)
         self_test_references.append(reference)
     environment, launcher_identity = bound_environment
-    argv = (environment.launcher, package.entry_point, *package.execution_argv)
+    argv = (
+        environment.launcher,
+        package.entry_point,
+        *package.execution_argv,
+        "--refinement-run-context",
+        str((project.root / contract_path).resolve()),
+    )
     package_contract_reference = _candidate_reference(candidate, _CONTRACT_LOCAL_PATH)
     package_manifest_reference = _candidate_reference(candidate, _MANIFEST_LOCAL_PATH)
     entry_point_reference = _candidate_reference(candidate, package.entry_point)
@@ -3253,6 +3260,7 @@ def _run_authority_payload(
         "execution": {
             "argv": list(argv),
             "cwd": str(_candidate_root(project, candidate.candidate_id)),
+            "run_contract_path": contract_path,
             "environment_fingerprint": environment.fingerprint,
             "environment": _environment_payload(environment),
             "launcher_identity": [list(item) for item in launcher_identity],
@@ -3520,6 +3528,7 @@ def prepare_refinement_run(
         bound_environment,
         session_payload=session_payload,
         run_id=run_id,
+        contract_path=contract_path,
         runs_reserved_before=(
             int(run_id.split("-")[1]) - 1 if run_id in inventory else len(inventory)
         ),
@@ -4545,6 +4554,7 @@ def _reconstruct_refinement_run_counters(
             contract_path=_CONTRACT_LOCAL_PATH,
         )
         bound_environment = _inspect_bound_environment(package)
+        contract_path = _run_contract_path(session_id, run_id)
         authority = _run_authority_payload(
             project,
             candidate,
@@ -4553,11 +4563,11 @@ def _reconstruct_refinement_run_counters(
             bound_environment,
             session_payload=session_payload,
             run_id=run_id,
+            contract_path=contract_path,
             runs_reserved_before=run_number - 1,
             wall_seconds_used_before=wall_seconds,
             reservation_time=_reservation_time(intent.get("created_at")),
         )
-        contract_path = _run_contract_path(session_id, run_id)
         result_path = _run_result_path(candidate_id)
         _validate_run_intent(
             intent,
@@ -4721,6 +4731,7 @@ def register_refinement_result(
         bound_environment,
         session_payload=session_payload,
         run_id=run_id,
+        contract_path=contract_path,
         runs_reserved_before=int(run_id.split("-")[1]) - 1,
         wall_seconds_used_before=_completed_run_wall_seconds(
             current, prior_inventory

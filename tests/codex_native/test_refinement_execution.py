@@ -155,7 +155,11 @@ def test_prepare_refinement_run_reserves_exact_authoritative_contract_without_ex
 
     assert status.run_id == "run-001"
     assert Path(status.argv[0]).is_absolute()
-    assert status.argv[1:] == ("code/model.py", "--config", "config/config.json")
+    assert status.argv[1:4] == ("code/model.py", "--config", "config/config.json")
+    assert status.argv[-2:] == (
+        "--refinement-run-context",
+        str((project.root / status.contract_path).resolve()),
+    )
     assert status.cwd == str(
         project.root.resolve() / "refinement/candidates/candidate-001"
     )
@@ -227,6 +231,39 @@ def test_prepare_refinement_run_reserves_exact_authoritative_contract_without_ex
     assert (project.root / "experiment/results.json").read_bytes() == (
         baseline_result_before
     )
+
+
+def test_context_bound_refinement_argv_produces_registrable_result(tmp_path):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+
+    run = prepare_refinement_run(project, candidate.candidate_id)
+    completed = subprocess.run(
+        run.argv,
+        cwd=run.cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    contract_path = project.root / run.contract_path
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    result_path = project.root / run.result_path
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert run.argv[-2:] == ("--refinement-run-context", str(contract_path.resolve()))
+    assert result["execution_contract"] == {
+        "path": run.contract_path,
+        "contract_id": contract["contract_id"],
+        "sha256": hashlib.sha256(contract_path.read_bytes()).hexdigest(),
+        "size": len(contract_path.read_bytes()),
+    }
+
+    registered = register_refinement_result(
+        ResearchProject.open(project.root), candidate.candidate_id, run.result_path
+    )
+
+    assert registered.run_id == run.run_id
+    assert registered.result_path == run.result_path
 
 
 def test_prepare_refinement_run_is_idempotent_for_the_exact_pending_reservation(

@@ -1,14 +1,12 @@
 """Synthetic public-CLI proof of the Stage 13 council workflow."""
 
 import json
-import socket
+import os
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
-from researchclaw.llm.client import LLMClient
 from tests.codex_native.helpers import (
     build_stage_thirteen_project,
     immutable_stage_twelve_snapshot,
@@ -20,12 +18,12 @@ from tests.codex_native.test_refinement import (
     valid_envelope,
     valid_rebuttals_record,
 )
-from tests.codex_native.test_refinement_execution import write_refinement_result
 
 
 ROOT = Path(__file__).parents[2]
 REFINEMENT_REFERENCE = ROOT / "skills" / "researchclaw" / "references" / "refinement.md"
 VOTING_ROLES = ("domain", "methodology", "critical_reproducibility")
+NETWORK_GUARD_ROOT = Path(__file__).parent / "fixtures" / "stage13_network_guard"
 
 
 def _write_record(project, relative_path, payload):
@@ -38,6 +36,25 @@ def _write_record(project, relative_path, payload):
 def _run_json(capsys, *argv):
     assert main(list(argv)) == 0
     return json.loads(capsys.readouterr().out)
+
+
+def _guarded_subprocess(argv, *, cwd, attempts_path, probe=None):
+    environment = dict(os.environ)
+    inherited_path = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(NETWORK_GUARD_ROOT), inherited_path) if part
+    )
+    environment["RESEARCHCLAW_STAGE13_NETWORK_GUARD_LOG"] = str(attempts_path)
+    if probe is not None:
+        environment["RESEARCHCLAW_STAGE13_NETWORK_GUARD_PROBE"] = probe
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
 
 
 def _register_assessments(capsys, project, *, submission_prefix, artifacts=None):
@@ -92,24 +109,11 @@ def _decision_for(project, *, action, candidate_id):
 
 
 def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
-    tmp_path, capsys, monkeypatch
+    tmp_path, capsys
 ):
-    """Exercise the documented user-mediated protocol without network or LLM clients."""
+    """Exercise the documented user-mediated protocol through public subprocess argv."""
     # The public user entry must exist before this synthetic workflow is usable.
     assert "researchclaw-codex refinement" in REFINEMENT_REFERENCE.read_text().lower()
-
-    def forbidden_network(*_args, **_kwargs):
-        raise AssertionError("Stage 13 orchestration must not access a network")
-
-    llm_client_calls = []
-
-    def forbidden_llm_client(*_args, **_kwargs):
-        llm_client_calls.append("attempted")
-        raise AssertionError("Stage 13 orchestration must not configure an LLM client")
-
-    monkeypatch.setattr(socket, "create_connection", forbidden_network)
-    monkeypatch.setattr(socket.socket, "connect", forbidden_network)
-    monkeypatch.setattr(LLMClient, "__init__", forbidden_llm_client)
 
     project = build_stage_thirteen_project(tmp_path / "project")
     baseline_before = immutable_stage_twelve_snapshot(project)
@@ -159,14 +163,24 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         "candidate-001",
         "--json",
     )
-    completed = subprocess.run(
+    network_attempts = tmp_path / "subprocess-network-attempts.log"
+    network_attempts.write_text("", encoding="utf-8")
+    completed = _guarded_subprocess(
         self_test["argv"],
         cwd=self_test["cwd"],
-        check=False,
-        capture_output=True,
-        text=True,
+        attempts_path=network_attempts,
     )
     assert completed.returncode == 0, completed.stderr
+    assert network_attempts.read_text(encoding="utf-8") == ""
+    attempted_self_test = _guarded_subprocess(
+        self_test["argv"],
+        cwd=self_test["cwd"],
+        attempts_path=network_attempts,
+        probe="socket",
+    )
+    assert attempted_self_test.returncode != 0
+    assert network_attempts.read_text(encoding="utf-8") == "socket:socket.connect\n"
+    network_attempts.write_text("", encoding="utf-8")
     _run_json(
         capsys,
         "refinement",
@@ -189,7 +203,21 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
         "candidate-001",
         "--json",
     )
-    write_refinement_result(project, SimpleNamespace(**run), elapsed_seconds=1.0)
+    completed = _guarded_subprocess(
+        run["argv"],
+        cwd=run["cwd"],
+        attempts_path=network_attempts,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert network_attempts.read_text(encoding="utf-8") == ""
+    attempted_llm_path = _guarded_subprocess(
+        run["argv"],
+        cwd=run["cwd"],
+        attempts_path=network_attempts,
+        probe="llm",
+    )
+    assert attempted_llm_path.returncode != 0
+    assert network_attempts.read_text(encoding="utf-8") == "llm:socket.connect\n"
     candidate_result = _run_json(
         capsys,
         "refinement",
@@ -254,9 +282,7 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     recorded_selection = json.loads(
         (project.root / "refinement/final_selection.json").read_text(encoding="utf-8")
     )
-    no_network_or_llm_client_was_called = not llm_client_calls
     assert final_project.state.current_stage == 14
     assert baseline_after == baseline_before
     assert candidate_manifest.startswith(".researchclaw/evidence/refinement-manifests/")
     assert recorded_selection["dissenting_roles"] == ["critical_reproducibility"]
-    assert no_network_or_llm_client_was_called
