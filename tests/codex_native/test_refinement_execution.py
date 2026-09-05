@@ -94,6 +94,59 @@ def self_tested_candidate_project(
     return ResearchProject.open(project.root), candidate
 
 
+@pytest.mark.parametrize("root_kind", ["symlink_parent", "relative"])
+@pytest.mark.parametrize("operation", ["prepare_self_test", "register_result"])
+def test_refinement_intent_cli_accepts_noncanonical_project_roots(
+    tmp_path, monkeypatch, capsys, root_kind, operation
+):
+    from researchclaw.codex.cli import main
+
+    canonical_parent = tmp_path / "real"
+    if operation == "prepare_self_test":
+        project, candidate = registered_candidate_project(canonical_parent / "project")
+    else:
+        project, candidate = self_tested_candidate_project(canonical_parent / "project")
+        run = prepare_refinement_run(project, candidate.candidate_id)
+        write_refinement_result(project, run)
+    baseline_before = immutable_stage_twelve_snapshot(project)
+    if root_kind == "symlink_parent":
+        alias = tmp_path / "alias"
+        alias.symlink_to(canonical_parent, target_is_directory=True)
+        supplied_root = alias / "project"
+    else:
+        monkeypatch.chdir(tmp_path)
+        supplied_root = Path("real/project")
+    assert ResearchProject.open_readonly(supplied_root).root == supplied_root
+    if operation == "prepare_self_test":
+        argv = [
+            "refinement", "prepare-self-test", str(supplied_root),
+            "--candidate-id", candidate.candidate_id, "--json",
+        ]
+    else:
+        argv = [
+            "refinement", "register-result", str(supplied_root),
+            "--candidate-id", candidate.candidate_id, "--result", run.result_path,
+            "--confirm-refinement-result", "--json",
+        ]
+
+    assert main(argv) == 0
+    payload = json.loads(capsys.readouterr().out)
+    artifact_path = (
+        payload["intent_path"]
+        if operation == "prepare_self_test"
+        else payload["evidence_manifest_path"]
+    )
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.artifacts[artifact_path] == _current_reference(
+        project, artifact_path
+    )
+    assert os.path.samefile(supplied_root / artifact_path, project.root / artifact_path)
+    assert immutable_stage_twelve_snapshot(reopened) == baseline_before
+    if operation == "register_result":
+        assert payload["runs_used"] == 1
+        assert payload["next_action"] == "register_refinement_assessment"
+
+
 def self_tested_candidate_project_with_envelope(
     path: Path,
     *,

@@ -39,6 +39,22 @@ All commands below ran from this worktree, using the existing installed Python/p
 - `python3 -m compileall -q researchclaw/core tests/codex_native/test_refinement_execution.py tests/codex_native/test_stage13_multi_agent_e2e.py`: exit 0.
 - `git diff --check`: exit 0.
 
+## Installed-release follow-up: noncanonical project roots
+
+Starting from `bf05e730cb4ffcdc4184483e2899526d760f3f53`, the controller reproduced an installed CLI failure with a `/tmp/...` project root on macOS. `_publish_authorized_intent` constructed an `EvidenceStore` whose root was canonicalized to `/private/tmp/...`, then passed the original lexical project root to that store's `_open_directory`. Its deliberate lexical containment check consequently rejected the otherwise valid metadata directory. Relative project roots had the same mismatch.
+
+The minimal repair retains the store instance and opens `.researchclaw` under that instance's canonical `project_root`. The helper's remaining operations use APIs that already handle the supplied project root; there was no second mismatched store-directory call in this helper. CLI arguments and `ResearchProject.root` remain untouched. The evidence-store containment check, no-follow directory traversal, held descriptors, exact byte/inode authority, and no-replace target publication are unchanged.
+
+Added four public CLI regressions, using existing real candidate/self-test fixtures: symlink-parent and relative project roots for both `refinement prepare-self-test` and `refinement register-result`. They assert success, correct durable artifact references, identical physical artifact targets through both roots, unchanged Stage 12 evidence, and one-run accounting for result registration. The symlink-parent case reproduces macOS `/tmp` alias behavior without depending on a platform-specific alias. The tests explicitly preserve the root spelling accepted by `ResearchProject.open_readonly`.
+
+- RED before the production edit: `pytest -q tests/codex_native/test_refinement_execution.py -k refinement_intent_cli_accepts_noncanonical_project_roots`: **4 failed, 149 deselected in 19.16s**. All four commands returned 2 with `refinement_project_invalid` instead of succeeding.
+- GREEN after the minimal edit: `pytest -q tests/codex_native/test_refinement_execution.py -k 'refinement_intent_cli_accepts_noncanonical_project_roots or write_ahead_authority_rejects_replacement_or_linked_publication or anchored_record_rejects_unsafe_components_before_filesystem_access'`: **11 passed, 142 deselected in 30.06s**. Includes authority edits, replaced staged inode, extra hard link, no-clobber target collision, and unsafe path-component rejection.
+- `ruff check researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py`: exit 0.
+- `python3 -m compileall -q researchclaw/core/refinement_execution.py tests/codex_native/test_refinement_execution.py`: exit 0.
+- `git diff --check`: exit 0.
+
+No full-module repeat, main-worktree edit, plugin metadata change, merge, push, or install was performed by the implementer for this follow-up. Existing documented compatibility limitations are unchanged; the controller independently handles installed smoke verification and integration.
+
 ## Controller completion verification
 
 Implementation commits: `5d41d7d` and `6c91d35`. Independent initial review approved the four corrected requirements; the controller's complete module then found the two ordering failures documented in the follow-up section. Following their correction, independent scoped review approved `5d41d7d..6c91d35` with no Critical or Important findings. It checked precommit placement, complete held-evidence equivalence, closed inventories, original deadline enforcement, and authenticated replay.

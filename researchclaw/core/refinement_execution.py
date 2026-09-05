@@ -840,9 +840,8 @@ def _publish_authorized_intent(
     The native no-replace rename preserves the authenticated single-link inode.
     """
     authority_path, staged_path = _intent_authority_paths(intent_path)
-    metadata = EvidenceStore(project.root)._open_directory(
-        project.root / ".researchclaw"
-    )
+    store = EvidenceStore(project.root)
+    metadata = store._open_directory(store.project_root / ".researchclaw")
     authority_name = Path(authority_path).name
     staged_name = Path(staged_path).name
     try:
