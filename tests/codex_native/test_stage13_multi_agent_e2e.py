@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -282,13 +283,6 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     )
     assert completed.returncode == 0, completed.stderr
     assert network_attempts.read_text(encoding="utf-8") == ""
-    _assert_blocked_probe(
-        run["argv"],
-        cwd=run["cwd"],
-        attempts_path=network_attempts,
-        probe="provider",
-        event="socket.create_connection",
-    )
     produced_result = json.loads(
         (project.root / run["result_path"]).read_text(encoding="utf-8")
     )
@@ -311,6 +305,17 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     )
     candidate_manifest = candidate_result["evidence_manifest_path"]
     assert 0.0 < candidate_result["wall_seconds_used"] <= 1
+    # This negative guard probe is independent of the approved one-second run.
+    # Perform it after acceptance so it cannot consume the registration budget.
+    registered_result_bytes = (project.root / run["result_path"]).read_bytes()
+    _assert_blocked_probe(
+        run["argv"],
+        cwd=run["cwd"],
+        attempts_path=network_attempts,
+        probe="provider",
+        event="socket.create_connection",
+    )
+    assert (project.root / run["result_path"]).read_bytes() == registered_result_bytes
 
     reopened = ResearchProject.open(project.root)
     result = reopened.state.artifacts[run["result_path"]]
@@ -365,3 +370,19 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     assert baseline_after == baseline_before
     assert candidate_manifest.startswith(".researchclaw/evidence/refinement-manifests/")
     assert recorded_selection["dissenting_roles"] == ["critical_reproducibility"]
+    handoff = _run_json(capsys, "resume", str(project.root), "--json")
+    assert handoff["stage_name"] == "result_analysis"
+    assert handoff["next_action"] == "await_stage_fourteen_support"
+    assert handoff["write_policy"] == "read_only"
+    assert handoff["milestone_complete"] is False
+    status_command = _guarded_subprocess(
+        shlex.split(handoff["next_command"]), cwd=ROOT,
+        attempts_path=network_attempts,
+    )
+    assert status_command.returncode == 0, status_command.stderr
+    status = json.loads(status_command.stdout)
+    assert status["current_stage"] == 14
+    assert status["boundary_message"] == handoff["boundary_message"]
+    assert "future" in status["boundary_message"]
+    assert ResearchProject.open(project.root).state == final_project.state
+    assert network_attempts.read_text(encoding="utf-8") == ""

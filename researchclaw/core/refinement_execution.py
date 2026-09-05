@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -17,7 +17,7 @@ import sys
 from uuid import uuid4
 
 from .execution_environment import ExecutionEnvironment, inspect_execution_environment
-from .evidence_store import EvidenceSource, EvidenceStore
+from .evidence_store import EvidenceSource, EvidenceStore, _native_rename_noreplace
 from . import experiment_package_contract as package_contract
 from .experiment_package_contract import validate_experiment_package_contract_at
 from .models import ArtifactRef, ProjectState
@@ -767,6 +767,230 @@ def _preparation_intent_path(session_id: str, candidate_id: str) -> str:
     )
 
 
+def _intent_authority_paths(intent_path: str) -> tuple[str, str]:
+    stem = hashlib.sha256(intent_path.encode("utf-8")).hexdigest()
+    return (
+        f".researchclaw/refinement-intent-{stem}.authority.json",
+        f".researchclaw/refinement-intent-{stem}.staged",
+    )
+
+
+def _read_intent_authority(
+    project: ResearchProject, intent_path: str, *, error_code: str
+) -> dict[str, object] | None:
+    authority_path, staged_path = _intent_authority_paths(intent_path)
+    reference = project.state.artifacts.get(authority_path)
+    if reference is None:
+        return None
+    _, encoded = _secure_snapshot(
+        project.root,
+        authority_path,
+        expected=reference,
+        maximum_bytes=_MAX_JSON_BYTES,
+        read_payload=True,
+        error_code=error_code,
+    )
+    authority = _parse_held_json(encoded, error=error_code)
+    _require_closed(
+        authority,
+        {"schema_version", "intent_path", "staged_path", "intent"},
+        error=error_code,
+    )
+    if (
+        authority["schema_version"] != 1
+        or authority["intent_path"] != intent_path
+        or authority["staged_path"] != staged_path
+        or not isinstance(authority["intent"], dict)
+        or encoded != _canonical_json(authority)
+    ):
+        raise ValueError(error_code)
+    return authority["intent"]
+
+
+def _after_refinement_intent_staged() -> None:
+    """Crash seam before any durable acceptance authority."""
+
+
+def _after_refinement_intent_authority_file() -> None:
+    """Crash seam before the complete authority file is anchored in state."""
+
+
+def _after_refinement_intent_authority_state() -> None:
+    """Crash seam after acceptance, before final intent publication."""
+
+
+def _after_refinement_intent_file_publication() -> None:
+    """Crash seam before the final intent reference is registered."""
+
+
+def _publish_authorized_intent(
+    project: ResearchProject,
+    *,
+    intent_path: str,
+    parent_descriptor: int,
+    payload_builder: Callable[[dict[str, int]], dict[str, object]],
+    error_code: str,
+    before_accept: Callable[[], object] | None = None,
+) -> tuple[dict[str, object], bytes]:
+    """Write ahead exact bytes and inode authority before publishing an intent.
+
+    State anchors only complete authority files. An uncommitted staging attempt
+    can be restarted with fresh authority; an already published orphan cannot.
+    The native no-replace rename preserves the authenticated single-link inode.
+    """
+    authority_path, staged_path = _intent_authority_paths(intent_path)
+    metadata = EvidenceStore(project.root)._open_directory(
+        project.root / ".researchclaw"
+    )
+    authority_name = Path(authority_path).name
+    staged_name = Path(staged_path).name
+    try:
+        intended = _read_intent_authority(project, intent_path, error_code=error_code)
+        if intended is None:
+            if os.path.lexists(project.root / intent_path):
+                raise ValueError(error_code)
+            # These exact private attempt paths grant no authority. Validate
+            # regular, unlinked-to-anything-else files before removing them.
+            for path, name in (
+                (staged_path, staged_name),
+                (authority_path, authority_name),
+            ):
+                if os.path.lexists(project.root / path):
+                    snapshot = _secure_snapshot(
+                        project.root,
+                        path,
+                        maximum_bytes=_MAX_JSON_BYTES,
+                        error_code=error_code,
+                    )[0]
+                    held = os.stat(name, dir_fd=metadata, follow_symlinks=False)
+                    if _filesystem_identity(snapshot) != {
+                        **_receipt_filesystem_identity(held),
+                        "size": held.st_size,
+                        "mtime_ns": held.st_mtime_ns,
+                        "ctime_ns": held.st_ctime_ns,
+                    }:
+                        raise ValueError(error_code)
+                    os.unlink(name, dir_fd=metadata)
+            descriptor = os.open(
+                staged_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=metadata,
+            )
+            try:
+                intended = payload_builder(
+                    _receipt_filesystem_identity(os.fstat(descriptor))
+                )
+                encoded = _canonical_json(intended)
+                if len(encoded) > _MAX_JSON_BYTES:
+                    raise ValueError(error_code)
+                offset = 0
+                while offset < len(encoded):
+                    offset += os.write(descriptor, encoded[offset:])
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.fsync(metadata)
+            _after_refinement_intent_staged()
+            authority = _canonical_json(
+                {
+                    "schema_version": 1,
+                    "intent_path": intent_path,
+                    "staged_path": staged_path,
+                    "intent": intended,
+                }
+            )
+            if len(authority) > _MAX_JSON_BYTES:
+                raise ValueError(error_code)
+            descriptor = os.open(
+                authority_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=metadata,
+            )
+            try:
+                offset = 0
+                while offset < len(authority):
+                    offset += os.write(descriptor, authority[offset:])
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            os.fsync(metadata)
+            _after_refinement_intent_authority_file()
+            if before_accept is not None:
+                before_accept()
+            if ResearchProject.open_readonly(project.root).state != project.state:
+                raise ValueError(error_code)
+            committed_state = replace(
+                project.state,
+                artifacts={
+                    **project.state.artifacts,
+                    authority_path: ArtifactRef(
+                        authority_path,
+                        hashlib.sha256(authority).hexdigest(),
+                        len(authority),
+                    ),
+                },
+            )
+            project.persist_state(committed_state)
+            _after_refinement_intent_authority_state()
+            project = ResearchProject.open_readonly(project.root)
+            if (
+                project.state != committed_state
+                or _read_intent_authority(project, intent_path, error_code=error_code)
+                != intended
+            ):
+                raise ValueError(error_code)
+
+        encoded = _canonical_json(intended)
+        target_exists = os.path.lexists(project.root / intent_path)
+        source_path = intent_path if target_exists else staged_path
+        snapshot, payload = _secure_snapshot(
+            project.root,
+            source_path,
+            expected=ArtifactRef(
+                source_path, hashlib.sha256(encoded).hexdigest(), len(encoded)
+            ),
+            maximum_bytes=_MAX_JSON_BYTES,
+            read_payload=True,
+            error_code=error_code,
+        )
+        if (
+            payload != encoded
+            or intended.get("intent_filesystem_identity")
+            != _receipt_filesystem_identity_from_snapshot(snapshot)
+            or (target_exists and os.path.lexists(project.root / staged_path))
+        ):
+            raise ValueError(error_code)
+        if not target_exists:
+            _native_rename_noreplace(
+                metadata, staged_name, parent_descriptor, Path(intent_path).name
+            )
+            os.fsync(parent_descriptor)
+            os.fsync(metadata)
+            _after_refinement_intent_file_publication()
+        snapshot = _secure_snapshot(
+            project.root,
+            intent_path,
+            expected=ArtifactRef(
+                intent_path, hashlib.sha256(encoded).hexdigest(), len(encoded)
+            ),
+            maximum_bytes=_MAX_JSON_BYTES,
+            error_code=error_code,
+        )[0]
+        if intended.get(
+            "intent_filesystem_identity"
+        ) != _receipt_filesystem_identity_from_snapshot(snapshot):
+            raise ValueError(error_code)
+        if ResearchProject.open_readonly(project.root).state != project.state:
+            raise ValueError(error_code)
+        return intended, encoded
+    except OSError as error:
+        raise ValueError(error_code) from error
+    finally:
+        os.close(metadata)
+
+
 @project_mutation
 def prepare_refinement_self_test(
     project: ResearchProject, candidate_id: str
@@ -809,66 +1033,53 @@ def prepare_refinement_self_test(
     if registered_intent is None:
         if os.path.lexists(current.root / preparation_path):
             raise ValueError("refinement_self_test_preparation_invalid")
-        if os.path.lexists(current.root / intent_path):
-            orphan_snapshot = _secure_snapshot(
-                current.root,
-                intent_path,
-                maximum_bytes=_MAX_JSON_BYTES,
+        intent_id = uuid4().hex
+        intent_created_at = datetime.now(timezone.utc).isoformat()
+        preparation_created_at = datetime.now(timezone.utc).isoformat()
+        parent = _open_registration_parent(
+            current, context_before.session_id, candidate_id
+        )
+        try:
+            intent_payload, intent_bytes = _publish_authorized_intent(
+                current,
+                intent_path=intent_path,
+                parent_descriptor=parent,
+                payload_builder=lambda identity: _preparation_intent_payload(
+                    project=current,
+                    candidate=candidate,
+                    context=context_before,
+                    package=package,
+                    bound_environment=bound_environment,
+                    intent_id=intent_id,
+                    created_at=intent_created_at,
+                    preparation_created_at=preparation_created_at,
+                    preparation_path=preparation_path,
+                    report_path=report_path,
+                    filesystem_identity=identity,
+                ),
                 error_code="refinement_self_test_preparation_invalid",
-            )[0]
-            intent_reference = orphan_snapshot.reference
-            intent = _read_and_validate_preparation_intent(
-                project=current,
-                path=intent_path,
-                expected_reference=intent_reference,
-                candidate=candidate,
-                context=context_before,
-                package=package,
-                bound_environment=bound_environment,
             )
-        else:
-            intent_id = uuid4().hex
-            intent_created_at = datetime.now(timezone.utc).isoformat()
-            preparation_created_at = datetime.now(timezone.utc).isoformat()
-            try:
-                intent_payload, intent_bytes = _write_anchored_record(
-                    current,
-                    session_id=context_before.session_id,
-                    candidate_id=candidate_id,
-                    leaf_name=f"{candidate_id}.preparation.intent.json",
-                    payload_builder=lambda identity: _preparation_intent_payload(
-                        project=current,
-                        candidate=candidate,
-                        context=context_before,
-                        package=package,
-                        bound_environment=bound_environment,
-                        intent_id=intent_id,
-                        created_at=intent_created_at,
-                        preparation_created_at=preparation_created_at,
-                        preparation_path=preparation_path,
-                        report_path=report_path,
-                        filesystem_identity=identity,
-                    ),
-                    error_code="refinement_self_test_preparation_invalid",
-                )
-            except FileExistsError as error:
-                raise ValueError("refinement_self_test_preparation_invalid") from error
-            intent_reference = ArtifactRef(
-                intent_path,
-                hashlib.sha256(intent_bytes).hexdigest(),
-                len(intent_bytes),
-            )
-            intent = _read_and_validate_preparation_intent(
-                project=current,
-                path=intent_path,
-                expected_reference=intent_reference,
-                candidate=candidate,
-                context=context_before,
-                package=package,
-                bound_environment=bound_environment,
-            )
-            if intent.payload != intent_payload:
-                raise ValueError("refinement_self_test_preparation_invalid")
+        finally:
+            os.close(parent)
+        current = ResearchProject.open_readonly(current.root)
+        starting_state = current.state
+        state_before = _state_file_snapshot(current)[0]
+        intent_reference = ArtifactRef(
+            intent_path,
+            hashlib.sha256(intent_bytes).hexdigest(),
+            len(intent_bytes),
+        )
+        intent = _read_and_validate_preparation_intent(
+            project=current,
+            path=intent_path,
+            expected_reference=intent_reference,
+            candidate=candidate,
+            context=context_before,
+            package=package,
+            bound_environment=bound_environment,
+        )
+        if intent.payload != intent_payload:
+            raise ValueError("refinement_self_test_preparation_invalid")
         checked_candidate = _revalidate_refinement_candidate(current, candidate_id)
         checked_context = _hold_candidate_context(current, checked_candidate)
         checked_package = validate_experiment_package_contract_at(
@@ -969,8 +1180,7 @@ def prepare_refinement_self_test(
                 baseline_before,
                 _baseline_registration_snapshot(published_intent_state, baseline),
             )
-            or _direct_baseline_result_snapshot(published_intent_state)
-            != result_before
+            or _direct_baseline_result_snapshot(published_intent_state) != result_before
             or _inspect_bound_environment(authoritative_package) != bound_environment
         ):
             raise ValueError("refinement_candidate_identity_changed")
@@ -1047,8 +1257,7 @@ def prepare_refinement_self_test(
         current_state_snapshot = _state_file_snapshot(current)[0]
         if (
             ResearchProject.open_readonly(current.root).state != authority_state
-            or current_state_snapshot.reference
-            != state_before_preparation.reference
+            or current_state_snapshot.reference != state_before_preparation.reference
             or current_state_snapshot.stat_identity
             != state_before_preparation.stat_identity
         ):
@@ -4792,9 +5001,7 @@ def register_refinement_result(
         run_id=run_id,
         contract_path=contract_path,
         runs_reserved_before=int(run_id.split("-")[1]) - 1,
-        wall_seconds_used_before=_completed_run_wall_seconds(
-            current, prior_inventory
-        ),
+        wall_seconds_used_before=_completed_run_wall_seconds(current, prior_inventory),
         reservation_time=reservation_time,
     )
     intent, intent_bytes, intent_snapshot = _read_run_payload(
@@ -4828,20 +5035,32 @@ def register_refinement_result(
     ):
         raise ValueError("refinement_result_reservation_invalid")
     registration_observed_at: datetime | None = None
-    if "registration.intent" not in records:
+    registration_intent_path = _registration_intent_path(session_id, run_id)
+    registered_intent_authority = _read_intent_authority(
+        current,
+        registration_intent_path,
+        error_code="refinement_evidence_registration_invalid",
+    )
+    if (
+        registration_intent_path not in current.state.artifacts
+        and registered_intent_authority is None
+    ):
         registration_observed_at = _utc_now()
         _authoritative_run_wall_seconds(contract, registration_observed_at)
-    result, result_bytes, result_snapshot, _reported_elapsed = (
-        _validate_refinement_result_payload(
-            current,
-            candidate,
-            package,
-            run_id=run_id,
-            contract_path=contract_path,
-            contract=contract,
-            contract_bytes=contract_bytes,
-            result_path=expected_result_path,
-        )
+    (
+        result,
+        result_bytes,
+        result_snapshot,
+        _reported_elapsed,
+    ) = _validate_refinement_result_payload(
+        current,
+        candidate,
+        package,
+        run_id=run_id,
+        contract_path=contract_path,
+        contract=contract,
+        contract_bytes=contract_bytes,
+        result_path=expected_result_path,
     )
     result_reference = ArtifactRef(
         expected_result_path,
@@ -4866,69 +5085,76 @@ def register_refinement_result(
     created_registration_intent = False
     if registration_intent_ref is None:
         adopt_registration_intent = True
-        if os.path.lexists(current.root / registration_intent_path):
-            (
-                registration_intent,
-                registration_intent_bytes,
-                registration_intent_snapshot,
-            ) = _read_run_payload(
-                current,
-                registration_intent_path,
-                error_code="refinement_evidence_registration_invalid",
-            )
-        else:
-            registration_id = uuid4().hex
+        registration_id = uuid4().hex
+        if registered_intent_authority is None:
+            # Acceptance time is sampled by the controller, never supplied by
+            # the result or an uncommitted previous staging attempt.
+            registration_observed_at = _utc_now()
+            _authoritative_run_wall_seconds(contract, registration_observed_at)
+
+        def build_registration(identity):
             if registration_observed_at is None:
                 raise ValueError("refinement_evidence_registration_invalid")
             registration_created_at = registration_observed_at.isoformat()
-            try:
-                registration_intent, registration_intent_bytes = _write_run_record(
-                    current,
-                    session_id=session_id,
-                    leaf_name=f"{run_id}.registration.intent.json",
-                    payload_builder=lambda identity: _registration_intent_payload(
-                        contract=contract,
-                        registration_id=registration_id,
-                        created_at=registration_created_at,
-                        manifest_created_at=registration_created_at,
-                        contract_reference=contract_reference,
-                        result_reference=result_reference,
-                        result_filesystem_identity=_filesystem_identity(result_snapshot),
-                        sources=sources,
-                        manifest_path=manifest_path,
-                        filesystem_identity=identity,
-                    ),
-                    error_code="refinement_evidence_registration_invalid",
-                )
-            except FileExistsError as error:
-                raise ValueError("refinement_evidence_registration_invalid") from error
-            registration_intent_snapshot = _read_run_payload(
+            return _registration_intent_payload(
+                contract=contract,
+                registration_id=registration_id,
+                created_at=registration_created_at,
+                manifest_created_at=registration_created_at,
+                contract_reference=contract_reference,
+                result_reference=result_reference,
+                result_filesystem_identity=_filesystem_identity(result_snapshot),
+                sources=sources,
+                manifest_path=manifest_path,
+                filesystem_identity=identity,
+            )
+
+        parent = _open_run_parent(current, session_id)
+        try:
+            registration_intent, registration_intent_bytes = _publish_authorized_intent(
                 current,
-                registration_intent_path,
+                intent_path=registration_intent_path,
+                parent_descriptor=parent,
+                payload_builder=build_registration,
                 error_code="refinement_evidence_registration_invalid",
-            )[2]
-            created_registration_intent = True
+                before_accept=lambda: _authoritative_run_wall_seconds(
+                    contract, _utc_now()
+                ),
+            )
+        finally:
+            os.close(parent)
+        current = ResearchProject.open_readonly(current.root)
+        registration_intent_snapshot = _read_run_payload(
+            current,
+            registration_intent_path,
+            error_code="refinement_evidence_registration_invalid",
+        )[2]
+        created_registration_intent = True
         registration_intent_ref = ArtifactRef(
             registration_intent_path,
             hashlib.sha256(registration_intent_bytes).hexdigest(),
             len(registration_intent_bytes),
         )
     else:
-        registration_intent, registration_intent_bytes, registration_intent_snapshot = (
-            _read_run_payload(
-                current,
-                registration_intent_path,
-                error_code="refinement_evidence_registration_invalid",
-            )
-        )
-        if registration_intent_snapshot.reference != registration_intent_ref:
-            raise ValueError("refinement_evidence_registration_invalid")
-    registration_intent, registration_intent_bytes, registration_intent_snapshot = (
-        _read_run_payload(
+        (
+            registration_intent,
+            registration_intent_bytes,
+            registration_intent_snapshot,
+        ) = _read_run_payload(
             current,
             registration_intent_path,
             error_code="refinement_evidence_registration_invalid",
         )
+        if registration_intent_snapshot.reference != registration_intent_ref:
+            raise ValueError("refinement_evidence_registration_invalid")
+    (
+        registration_intent,
+        registration_intent_bytes,
+        registration_intent_snapshot,
+    ) = _read_run_payload(
+        current,
+        registration_intent_path,
+        error_code="refinement_evidence_registration_invalid",
     )
     if registration_intent_snapshot.reference != registration_intent_ref:
         raise ValueError("refinement_evidence_registration_invalid")
@@ -5031,7 +5257,10 @@ def register_refinement_result(
             result_payload=result,
         )
         receipt_bytes_expected = _canonical_json(receipt_payload)
-        if persisted_receipt != receipt_payload or receipt_bytes != receipt_bytes_expected:
+        if (
+            persisted_receipt != receipt_payload
+            or receipt_bytes != receipt_bytes_expected
+        ):
             raise ValueError("refinement_evidence_registration_invalid")
     else:
         try:

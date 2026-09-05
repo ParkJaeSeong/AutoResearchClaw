@@ -915,7 +915,404 @@ def test_registered_refinement_manifest_roots_all_candidate_evidence_for_gc(tmp_
     assert refinement_objects.isdisjoint(planned)
 
 
-def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path):
+@pytest.mark.parametrize("tamper", ["remove_objects", "delete", "move_root"])
+def test_gc_rejects_changed_state_anchored_refinement_manifest(tmp_path, tamper):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    path = project.root / registered.evidence_manifest_path
+    store = EvidenceStore(project.root)
+    plan = store.plan_gc()
+    if tamper == "remove_objects":
+        payload = json.loads(path.read_bytes())
+        payload["objects"] = []
+        path.write_bytes(_canonical_bytes(payload))
+    elif tamper == "delete":
+        path.unlink()
+    else:
+        root = project.root / REFINEMENT_EVIDENCE_MANIFEST_ROOT
+        root.rename(root.with_name("moved-refinement-manifests"))
+    with pytest.raises(ValueError, match="GC context"):
+        store.plan_gc()
+    with pytest.raises(ValueError, match="GC context"):
+        store.collect(plan, plan.confirmation_token)
+
+
+def test_gc_confirmation_rejects_changed_trusted_project_state(tmp_path):
+    project, _candidate = registered_candidate_project(tmp_path / "project")
+    store = EvidenceStore(project.root)
+    plan = store.plan_gc()
+    current = ResearchProject.open(project.root)
+    current.persist_state(replace(current.state, topic="changed after GC planning"))
+    with pytest.raises(ValueError, match="changed|stale|token"):
+        store.collect(plan, plan.confirmation_token)
+
+
+@pytest.mark.parametrize("kind", ["self_test", "result"])
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_intent_orphan_cannot_authenticate_rewritten_id_and_timestamps(
+    tmp_path, monkeypatch, kind, authenticated
+):
+    if kind == "self_test":
+        project, candidate = registered_candidate_project(tmp_path / "project")
+
+        def operation():
+            return prepare_refinement_self_test(project, candidate.candidate_id)
+
+        suffix = ".preparation.intent.json"
+    else:
+        project, candidate = self_tested_candidate_project(tmp_path / "project")
+        preparation = prepare_refinement_run(project, candidate.candidate_id)
+        write_refinement_result(project, preparation)
+
+        def operation():
+            return register_refinement_result(
+                project, candidate.candidate_id, preparation.result_path
+            )
+
+        suffix = ".registration.intent.json"
+    original = ResearchProject.persist_state
+
+    def interrupt(current, state):
+        if any(
+            path.endswith(suffix) and path not in current.state.artifacts
+            for path in state.artifacts
+        ):
+            raise RuntimeError("intent state interrupted")
+        return original(current, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", interrupt)
+    with pytest.raises(RuntimeError, match="intent state interrupted"):
+        operation()
+    path = next(project.root.glob(f".researchclaw/**/*{suffix}"))
+    payload = json.loads(path.read_bytes())
+    payload["intent_id" if kind == "self_test" else "registration_id"] = "f" * 32
+    if kind == "self_test":
+        payload["created_at"] = payload[
+            "preparation_created_at"
+        ] = "2020-01-01T00:00:00+00:00"
+    else:
+        from datetime import timedelta
+
+        contract = json.loads((project.root / preparation.contract_path).read_bytes())
+        reserved = refinement_execution._reservation_time(
+            contract["envelope"]["reservation_created_at"]
+        )
+        payload["created_at"] = payload["manifest_created_at"] = (
+            reserved + timedelta(seconds=0.05)
+        ).isoformat()
+        monkeypatch.setattr(
+            refinement_execution, "_utc_now", lambda: reserved + timedelta(days=1)
+        )
+    path.write_bytes(_canonical_bytes(payload))
+    monkeypatch.setattr(ResearchProject, "persist_state", original)
+    if not authenticated:
+        # Simulate an older unanchored orphan: the published intent exists,
+        # but no write-ahead authority was committed for it.
+        pending = ResearchProject.open(project.root)
+        pending.persist_state(replace(pending.state, artifacts={
+            path: reference for path, reference in pending.state.artifacts.items()
+            if not path.endswith(".authority.json")
+        }))
+    with pytest.raises(ValueError, match="invalid|exhausted"):
+        operation()
+
+
+@pytest.mark.parametrize("kind", ["self_test", "result"])
+@pytest.mark.parametrize(
+    "seam,committed",
+    [
+        ("_after_refinement_intent_staged", False),
+        ("_after_refinement_intent_authority_file", False),
+        ("_after_refinement_intent_authority_state", True),
+        ("_after_refinement_intent_file_publication", True),
+    ],
+)
+def test_write_ahead_intent_crash_recovery(
+    tmp_path, monkeypatch, kind, seam, committed
+):
+    from datetime import timedelta
+
+    if kind == "self_test":
+        project, candidate = registered_candidate_project(tmp_path / "project")
+
+        def operation():
+            return prepare_refinement_self_test(project, candidate.candidate_id)
+
+        intent_path = refinement_execution._preparation_intent_path(
+            json.loads((project.root / "refinement/session.json").read_bytes())[
+                "session_id"
+            ],
+            candidate.candidate_id,
+        )
+    else:
+        project, candidate = self_tested_candidate_project(tmp_path / "project")
+        run = prepare_refinement_run(project, candidate.candidate_id)
+        write_refinement_result(project, run)
+
+        def operation():
+            return register_refinement_result(
+                project, candidate.candidate_id, run.result_path
+            )
+
+        intent_path = refinement_execution._registration_intent_path(
+            Path(run.intent_path).parent.name, run.run_id
+        )
+    before = ResearchProject.open(project.root).state
+    authority_path, staged_path = refinement_execution._intent_authority_paths(
+        intent_path
+    )
+
+    def interrupt():
+        raise RuntimeError("write ahead interruption")
+
+    monkeypatch.setattr(refinement_execution, seam, interrupt)
+    with pytest.raises(RuntimeError, match="write ahead interruption"):
+        operation()
+    pending = ResearchProject.open(project.root)
+    assert (authority_path in pending.state.artifacts) is committed
+    intent_file = project.root / (
+        intent_path if seam.endswith("file_publication") else staged_path
+    )
+    prior_payload = json.loads(intent_file.read_bytes())
+    assert intent_path not in pending.state.artifacts
+    assert pending.state.next_action == before.next_action
+    assert {
+        path
+        for path in pending.state.artifacts
+        if path.endswith("/run-001.intent.json")
+    } == {path for path in before.artifacts if path.endswith("/run-001.intent.json")}
+    if committed:
+        # A public durable read must not rewind an authority whose final target
+        # has not been published yet.
+        if kind == "self_test":
+            assert build_handoff(pending).current_stage == 13
+        else:
+            # Existing pending-result handoffs reject the unregistered result;
+            # direct registration recovery remains the supported entry point.
+            with pytest.raises(ValueError, match="refinement_candidate_manifest_open"):
+                build_handoff(pending)
+            assert ResearchProject.open(project.root).state == pending.state
+    if kind == "result" and committed:
+        monkeypatch.setattr(
+            refinement_execution,
+            "_utc_now",
+            lambda: refinement_execution._reservation_time(prior_payload["created_at"])
+            + timedelta(days=1),
+        )
+    monkeypatch.setattr(refinement_execution, seam, lambda: None)
+    recovered = operation()
+    final_payload = json.loads((project.root / intent_path).read_bytes())
+    key = "intent_id" if kind == "self_test" else "registration_id"
+    assert (final_payload[key] == prior_payload[key]) is committed
+    assert not (project.root / staged_path).exists()
+    if kind == "result":
+        replay = operation()
+        assert recovered.run_id == replay.run_id == "run-001"
+        assert recovered.runs_used == replay.runs_used == 1
+        assert recovered.wall_seconds_used == replay.wall_seconds_used
+    else:
+        assert operation().intent_id == recovered.intent_id
+
+
+@pytest.mark.parametrize("anchored", [False, True])
+def test_result_registration_expiry_requires_preexisting_authority(
+    tmp_path, monkeypatch, anchored
+):
+    from datetime import timedelta
+
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    run = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, run)
+    seam = (
+        "_after_refinement_intent_authority_state"
+        if anchored
+        else "_after_refinement_intent_authority_file"
+    )
+    monkeypatch.setattr(
+        refinement_execution,
+        seam,
+        lambda: (_ for _ in ()).throw(RuntimeError("interrupted")),
+    )
+    with pytest.raises(RuntimeError, match="interrupted"):
+        register_refinement_result(project, candidate.candidate_id, run.result_path)
+    monkeypatch.setattr(refinement_execution, seam, lambda: None)
+    contract = json.loads((project.root / run.contract_path).read_bytes())
+    deadline = refinement_execution._reservation_time(
+        contract["envelope"]["session_deadline"]
+    )
+    monkeypatch.setattr(
+        refinement_execution, "_utc_now", lambda: deadline + timedelta(seconds=1)
+    )
+    if anchored:
+        assert (
+            register_refinement_result(
+                project, candidate.candidate_id, run.result_path
+            ).runs_used
+            == 1
+        )
+    else:
+        with pytest.raises(ValueError, match="refinement_run_wall_time_exhausted"):
+            register_refinement_result(project, candidate.candidate_id, run.result_path)
+
+
+@pytest.mark.parametrize(
+    "tamper", ["authority", "staged_identity", "staged_link", "target_collision"]
+)
+def test_write_ahead_authority_rejects_replacement_or_linked_publication(
+    tmp_path, monkeypatch, tamper
+):
+    project = ResearchProject.create(
+        tmp_path / "project", "authority test", "materials_ai"
+    )
+    intent_path = ".researchclaw/test.intent.json"
+    authority_path, staged_path = refinement_execution._intent_authority_paths(
+        intent_path
+    )
+
+    def publish():
+        parent = os.open(project.root / ".researchclaw", os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            return refinement_execution._publish_authorized_intent(
+                ResearchProject.open(project.root),
+                intent_path=intent_path,
+                parent_descriptor=parent,
+                payload_builder=lambda identity: {
+                    "intent_id": "a" * 32,
+                    "intent_filesystem_identity": identity,
+                },
+                error_code="intent_invalid",
+            )
+        finally:
+            os.close(parent)
+
+    monkeypatch.setattr(
+        refinement_execution,
+        "_after_refinement_intent_authority_state",
+        lambda: (_ for _ in ()).throw(RuntimeError("committed")),
+    )
+    with pytest.raises(RuntimeError, match="committed"):
+        publish()
+    if tamper == "authority":
+        target = project.root / authority_path
+        payload = json.loads(target.read_bytes())
+        payload["intent"]["intent_id"] = "b" * 32
+        target.write_bytes(_canonical_bytes(payload))
+    elif tamper == "staged_identity":
+        target = project.root / staged_path
+        original = json.loads(target.read_bytes())
+        target.rename(target.with_suffix(".old"))
+        target.write_bytes(b"")
+        original[
+            "intent_filesystem_identity"
+        ] = refinement_execution._receipt_filesystem_identity(target.stat())
+        target.write_bytes(_canonical_bytes(original))
+    elif tamper == "staged_link":
+        os.link(project.root / staged_path, project.root / "extra-link")
+    else:
+        (project.root / intent_path).write_bytes(b"unrelated collision")
+    monkeypatch.setattr(
+        refinement_execution, "_after_refinement_intent_authority_state", lambda: None
+    )
+    with pytest.raises(ValueError, match="intent_invalid"):
+        publish()
+    if tamper == "target_collision":
+        assert (project.root / intent_path).read_bytes() == b"unrelated collision"
+
+
+def test_gc_requires_state_for_refinement_and_roots_authenticated_inflight_sources(
+    tmp_path
+):
+    project = ResearchProject.create(
+        tmp_path / "project", "GC authority test", "materials_ai"
+    )
+    store = EvidenceStore(project.root)
+    source_path = project.root / "source.bin"
+    source_path.write_bytes(b"in-flight evidence")
+    digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    source = refinement_execution.EvidenceSource(
+        "result", "source.bin", digest, source_path.stat().st_size
+    )
+    published = store.publish(source)
+    authority_path = ".researchclaw/refinement-intent-test.authority.json"
+    encoded = _canonical_bytes(
+        {
+            "sources": [
+                {
+                    "path": "source.bin",
+                    "sha256": digest,
+                    "size": source_path.stat().st_size,
+                }
+            ]
+        }
+    )
+    (project.root / authority_path).write_bytes(encoded)
+    project.persist_state(
+        replace(
+            project.state,
+            artifacts={authority_path: _current_reference(project, authority_path)},
+        )
+    )
+    assert published.path not in {item.path for item in store.plan_gc().objects}
+    (project.root / authority_path).write_bytes(_canonical_bytes({"sources": []}))
+    with pytest.raises(ValueError, match="GC context authority changed"):
+        store.plan_gc()
+    (project.root / ".researchclaw/state.json").unlink()
+    with pytest.raises(ValueError, match="state missing"):
+        store.plan_gc()
+
+
+def test_existing_registered_intents_work_without_write_ahead_records(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    project, candidate = registered_candidate_project(tmp_path / "project")
+    preparation = prepare_refinement_self_test(project, candidate.candidate_id)
+    current = ResearchProject.open(project.root)
+    current.persist_state(replace(current.state, artifacts={
+        path: reference for path, reference in current.state.artifacts.items()
+        if not path.endswith(".authority.json")
+    }))
+    assert prepare_refinement_self_test(project, candidate.candidate_id).intent_id == preparation.intent_id
+    completed = subprocess.run(preparation.argv, cwd=preparation.cwd, capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+    register_refinement_self_test(project, candidate.candidate_id, preparation.report_path)
+    run = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, run)
+    registered = register_refinement_result(project, candidate.candidate_id, run.result_path)
+    current = ResearchProject.open(project.root)
+    current.persist_state(replace(current.state, artifacts={
+        path: reference for path, reference in current.state.artifacts.items()
+        if not path.endswith(".authority.json")
+    }))
+    contract = json.loads((project.root / run.contract_path).read_bytes())
+    deadline = refinement_execution._reservation_time(contract["envelope"]["session_deadline"])
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: deadline + timedelta(days=1))
+    assert register_refinement_result(project, candidate.candidate_id, run.result_path) == registered
+
+
+def test_fresh_result_checks_deadline_immediately_before_authority_commit(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    run = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, run, elapsed_seconds=0.001)
+    contract = json.loads((project.root / run.contract_path).read_bytes())
+    deadline = refinement_execution._reservation_time(contract["envelope"]["session_deadline"])
+    before = ResearchProject.open(project.root).state
+    def expire_before_commit():
+        monkeypatch.setattr(refinement_execution, "_utc_now", lambda: deadline + timedelta(seconds=1))
+    monkeypatch.setattr(refinement_execution, "_after_refinement_intent_authority_file", expire_before_commit)
+    with pytest.raises(ValueError, match="refinement_run_wall_time_exhausted"):
+        register_refinement_result(project, candidate.candidate_id, run.result_path)
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_finalize_select_candidate_retains_verified_refinement_evidence(
+    tmp_path, capsys
+):
     project, candidate = self_tested_candidate_project(tmp_path / "project")
     baseline_before = immutable_stage_twelve_snapshot(project)
     preparation = prepare_refinement_run(project, candidate.candidate_id)
@@ -924,11 +1321,14 @@ def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path
         project, candidate.candidate_id, preparation.result_path
     )
     result = ResearchProject.open(project.root).state.artifacts[registered.result_path]
-    evaluated = [_packet_artifact(project), {
-        "path": result.path,
-        "sha256": result.sha256,
-        "size": result.size,
-    }]
+    evaluated = [
+        _packet_artifact(project),
+        {
+            "path": result.path,
+            "sha256": result.sha256,
+            "size": result.size,
+        },
+    ]
     for role in ("domain", "methodology", "critical_reproducibility"):
         register_one_assessment(project, role=role, artifacts=evaluated)
     register_refinement_rebuttals(project, write_valid_rebuttals(project))
@@ -937,21 +1337,30 @@ def test_finalize_select_candidate_retains_verified_refinement_evidence(tmp_path
     finalize_refinement(project, decision_path)
 
     reopened = ResearchProject.open(project.root)
-    selection = json.loads((project.root / "refinement/final_selection.json").read_text())
+    selection = json.loads(
+        (project.root / "refinement/final_selection.json").read_text()
+    )
     retained = {item["path"] for item in selection["retained_evidence"]}
     assert selection["selected_candidate_id"] == candidate.candidate_id
     assert registered.evidence_manifest_path in retained
     assert immutable_stage_twelve_snapshot(reopened) == baseline_before
     for handoff in (build_handoff(reopened), reopened.build_handoff()):
         assert handoff.current_stage == 14
-        assert handoff.next_action == "prepare_stage"
-        assert shlex.split(handoff.next_command) == [
-            "researchclaw-codex",
-            "stage",
-            "prepare",
-            str(project.root.resolve()),
-            "--json",
-        ]
+        assert handoff.stage_name == "result_analysis"
+        from researchclaw.codex.cli import main
+
+        argv = shlex.split(handoff.next_command)
+        assert main(argv[1:]) == 0
+        capsys.readouterr()
+        assert handoff.next_action == "await_stage_fourteen_support"
+        assert handoff.milestone_complete is False
+        assert handoff.write_policy == "read_only"
+        assert "Stage 14" in handoff.boundary_message
+        assert "future" in handoff.boundary_message
+    assert main(["resume", str(project.root), "--json"]) == 0
+    resumed = json.loads(capsys.readouterr().out)
+    assert main(shlex.split(resumed["next_command"])[1:]) == 0
+    assert ResearchProject.open(project.root).state == reopened.state
 
 
 def test_finalize_select_candidate_requires_council_to_reference_its_result(tmp_path):
@@ -2692,7 +3101,11 @@ def test_candidate_self_test_adopts_only_exact_intent_orphan_before_state_publis
     with pytest.raises(RuntimeError, match="intent state publication interrupted"):
         prepare_refinement_self_test(project, candidate.candidate_id)
 
-    assert ResearchProject.open(project.root).state == state_before
+    pending_state = ResearchProject.open(project.root).state
+    authority_paths = set(pending_state.artifacts) - set(state_before.artifacts)
+    assert len(authority_paths) == 1
+    assert next(iter(authority_paths)).endswith(".authority.json")
+    assert replace(pending_state, artifacts=state_before.artifacts) == state_before
     intent_path = next(
         (project.root / REFINEMENT_SELF_TEST_REGISTRATION_ROOT).glob(
             f"*/{candidate.candidate_id}.preparation.intent.json"
@@ -2713,7 +3126,7 @@ def test_candidate_self_test_adopts_only_exact_intent_orphan_before_state_publis
             prepare_refinement_self_test(
                 ResearchProject.open(project.root), candidate.candidate_id
             )
-        assert ResearchProject.open(project.root).state == state_before
+        assert ResearchProject.open(project.root).state == pending_state
     else:
         resumed = prepare_refinement_self_test(
             ResearchProject.open(project.root), candidate.candidate_id
@@ -2754,6 +3167,12 @@ def test_candidate_self_test_report_cannot_replay_across_intents(tmp_path):
     (project.root / first.report_path).unlink()
     (project.root / first.preparation_path).unlink()
     (project.root / first.intent_path).unlink()
+    authority_path, _staged_path = refinement_execution._intent_authority_paths(
+        first.intent_path
+    )
+    # This fixture deliberately starts a new preparation identity. Revoke the
+    # prior write-ahead authority along with the old preparation and intent.
+    (project.root / authority_path).unlink()
     writable = ResearchProject.open(project.root)
     writable.persist_state(
         replace(
@@ -2761,7 +3180,7 @@ def test_candidate_self_test_report_cannot_replay_across_intents(tmp_path):
             artifacts={
                 path: reference
                 for path, reference in writable.state.artifacts.items()
-                if path not in {first.preparation_path, first.intent_path}
+                if path not in {first.preparation_path, first.intent_path, authority_path}
             },
         )
     )

@@ -146,7 +146,7 @@ Exactly the domain, methodology, and critical-reproducibility roles cast the thr
 2. Register all three independent assessments, then `researchclaw-codex refinement register-deliberation ROOT --rebuttals ... --json` for the single challenge/revision round.
 3. Register the 2–1 council decision. A `refine` decision may register one candidate; the implementation agent registers its returned self-test report only after the user confirms it.
 4. Prepare the one bounded run, have the user run only its returned argv, and register the result only after the user confirms it. Candidate evidence must remain in `.researchclaw/evidence/refinement-manifests/`; never modify the Stage-12 baseline bytes or reuse the generic evidence-manifest namespace.
-5. Repeat the three independent assessments and one challenge/revision round over the registered candidate evidence. Register the 2–1 final selection, retain the dissenting role and rationale, and finalize only after the user confirms it. A successful finalization advances to Stage 14.
+5. Repeat the three independent assessments and one challenge/revision round over the registered candidate evidence. Register the 2–1 final selection, retain the dissenting role and rationale, and finalize only after the user confirms it. A successful finalization advances to the read-only Stage 14 boundary: the returned `status` command preserves completed Stage 13 evidence, while result analysis awaits future Stage 14 support.
 
 If the run, wall-time, candidate-time, path, or scope envelope is exhausted, stop. Report the retained evidence and dissent, then ask the user for an explicit authority escalation; do not loosen the envelope, add a run, or reinterpret a rejection.
 

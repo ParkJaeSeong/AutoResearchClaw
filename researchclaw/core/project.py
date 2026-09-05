@@ -182,8 +182,8 @@ class ResearchProject:
 
         current_project = normalize_durable_project(self)
         if (
-            current_project.state.current_stage == 13
-            and 12 in current_project.state.completed_stages
+            current_project.state.current_stage in {13, 14}
+            and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             readiness, prerequisites, approval_eligible = None, (), False
         else:
@@ -209,6 +209,19 @@ class ResearchProject:
             "unmet_prerequisites": list(prerequisites),
             "approval_eligible": approval_eligible,
         }
+        if (
+            current_project.state.current_stage == 14
+            and 13 in current_project.state.completed_stages
+        ):
+            from .handoff import build_handoff
+
+            boundary = build_handoff(current_project).to_dict()
+            payload.update({
+                key: boundary[key] for key in (
+                    "stage_name", "write_policy", "next_action", "next_command",
+                    "boundary_message", "milestone_complete",
+                )
+            })
         if current_project.state.next_action == "prepare_experiment_self_test":
             payload["next_command"] = shlex.join(
                 (

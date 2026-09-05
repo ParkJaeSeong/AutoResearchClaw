@@ -1015,12 +1015,85 @@ class EvidenceStore:
     ) -> tuple[set[str], tuple[dict[str, object], ...]]:
         referenced: set[str] = set()
         identities: list[dict[str, object]] = []
+        # Project state is the authority for registered manifests, including
+        # manifests no longer present in the directory being scanned below.
+        state_references: dict[str, ArtifactRef] = {}
+        metadata = self._open_directory(self.project_root / ".researchclaw")
+        try:
+            if os.path.lexists(self.project_root / ".researchclaw/state.json"):
+                value, identity = self._read_json_file(
+                    metadata, "state.json", ".researchclaw/state.json"
+                )
+                try:
+                    trusted_state = ProjectState.from_dict(value)
+                except (TypeError, ValueError, KeyError) as error:
+                    raise ValueError(
+                        "invalid project state in evidence GC context"
+                    ) from error
+                identities.append(identity)
+                state_references = {
+                    path: reference
+                    for path, reference in trusted_state.artifacts.items()
+                    if path.startswith((_MANIFEST_PREFIX, _REFINEMENT_MANIFEST_PREFIX))
+                }
+                self._find_references(value, referenced, candidate_paths)
+                for path, reference in trusted_state.artifacts.items():
+                    if not (
+                        (
+                            path.startswith(".researchclaw/refinement-intent-")
+                            and path.endswith(".authority.json")
+                        )
+                        or (
+                            path.startswith(".researchclaw/refinement-runs/")
+                            and path.endswith(".registration.intent.json")
+                        )
+                    ):
+                        continue
+                    if len(identities) >= _MAX_GC_CONTEXT_FILES:
+                        raise ValueError("evidence GC context file limit exceeded")
+                    try:
+                        parent = self._open_directory((self.project_root / path).parent)
+                        try:
+                            authority, authority_identity = self._read_json_file(
+                                parent, Path(path).name, path
+                            )
+                        finally:
+                            os.close(parent)
+                    except OSError as error:
+                        raise ValueError("invalid evidence GC context authority") from error
+                    if (
+                        reference.path != path
+                        or authority_identity["sha256"] != reference.sha256
+                        or authority_identity["size"] != reference.size
+                    ):
+                        raise ValueError(
+                            "state-anchored evidence GC context authority changed"
+                        )
+                    identities.append(authority_identity)
+                    self._find_references(authority, referenced, candidate_paths)
+            elif (
+                os.path.lexists(self.refinement_manifests_root)
+                or os.path.lexists(self.project_root / "refinement")
+                or any(
+                    name.startswith("refinement-")
+                    for name in _bounded_directory_names(
+                        metadata,
+                        limit=_MAX_GC_CONTEXT_FILES,
+                        error_message="evidence GC context file limit exceeded",
+                    )
+                )
+            ):
+                raise ValueError(
+                    "project state missing from refinement evidence GC context"
+                )
+        finally:
+            os.close(metadata)
         manifest_descriptor = self._open_directory(self.manifests_root)
         try:
             manifest_names = sorted(
                 _bounded_directory_names(
                     manifest_descriptor,
-                    limit=_MAX_GC_CONTEXT_FILES,
+                    limit=_MAX_GC_CONTEXT_FILES - len(identities),
                     error_message="evidence GC context file limit exceeded",
                 )
             )
@@ -1034,9 +1107,17 @@ class EvidenceStore:
         finally:
             os.close(manifest_descriptor)
 
-        self._refinement_context_references(
-            candidate_paths, referenced, identities
-        )
+        self._refinement_context_references(candidate_paths, referenced, identities)
+        observed = {str(item["path"]): item for item in identities}
+        for path, reference in state_references.items():
+            identity = observed.get(path)
+            if (
+                reference.path != path
+                or identity is None
+                or identity.get("sha256") != reference.sha256
+                or identity.get("size") != reference.size
+            ):
+                raise ValueError(f"state-anchored evidence GC context changed: {path}")
 
         metadata_root = self.project_root / ".researchclaw"
         metadata_descriptor = self._open_directory(metadata_root)

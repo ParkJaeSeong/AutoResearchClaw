@@ -42,6 +42,7 @@ class HandoffSummary:
     execution_readiness: str | None
     unmet_prerequisites: tuple[str, ...]
     approval_eligible: bool
+    boundary_message: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -61,6 +62,7 @@ class HandoffSummary:
             "execution_readiness": self.execution_readiness,
             "unmet_prerequisites": list(self.unmet_prerequisites),
             "approval_eligible": self.approval_eligible,
+            "boundary_message": self.boundary_message,
         }
 
 
@@ -636,7 +638,8 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     )
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
     stage_thirteen_boundary = state.current_stage == 13 and 12 in state.completed_stages
-    if stage_thirteen_boundary:
+    stage_fourteen_boundary = state.current_stage == 14 and 13 in state.completed_stages
+    if stage_thirteen_boundary or stage_fourteen_boundary:
         milestone_complete = False
         execution_readiness = None
         unmet_prerequisites = ()
@@ -801,13 +804,9 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             next_action = "prepare_refinement_session"
         next_command = _command(current_project.root, "status")
         approval_required = False
-    elif (
-        state.current_stage == 14
-        and 13 in state.completed_stages
-        and state.next_action == "prepare_stage"
-    ):
-        next_action = state.next_action
-        next_command = _command(current_project.root, "stage", "prepare")
+    elif stage_fourteen_boundary:
+        next_action = "await_stage_fourteen_support"
+        next_command = _command(current_project.root, "status")
         approval_required = False
     elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
@@ -843,8 +842,8 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         project_id=state.project_id,
         project_root=str(current_project.root.resolve()),
         write_policy=(
-            "no_undeclared_outputs"
-            if milestone_complete or stage_thirteen_boundary
+            "read_only" if stage_fourteen_boundary else "no_undeclared_outputs"
+            if milestone_complete or stage_thirteen_boundary or stage_fourteen_boundary
             else "declared_outputs_only"
         ),
         topic=state.topic,
@@ -860,6 +859,12 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         execution_readiness=execution_readiness,
         unmet_prerequisites=unmet_prerequisites,
         approval_eligible=approval_eligible,
+        boundary_message=(
+            "Stage 13 refinement is complete and its evidence is retained. "
+            "Stage 14 result analysis awaits future stage support; "
+            "the supported next command only reads project status."
+            if stage_fourteen_boundary else None
+        ),
     )
 
 
