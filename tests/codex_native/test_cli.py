@@ -390,6 +390,29 @@ def test_refinement_cli_rejects_abbreviated_confirmation_options(tmp_path, capsy
     assert captured.err == "error: refinement_argument_invalid\n"
 
 
+def test_refinement_status_rejects_deeply_nested_project_state(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    state_path = project.root / ".researchclaw" / "state.json"
+    nested_state = "[" * 2_000 + "]" * 2_000
+    state_path.write_text(nested_state, encoding="utf-8")
+
+    assert main(["refinement", "status", str(project.root), "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: refinement_project_invalid\n"
+    assert state_path.read_text(encoding="utf-8") == nested_state
+
+
+def test_refinement_status_returns_normal_session_payload(tmp_path, capsys):
+    project = build_stage_thirteen_project(tmp_path / "project")
+    _prepare_refinement_session_with_cli(project, capsys)
+
+    assert main(["refinement", "status", str(project.root), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["phase"] == "awaiting_independent_assessments"
+    assert payload["next_action"] == "register_refinement_assessment"
+
+
 def _run_known_answer_self_test(project):
     package = validate_experiment_package_contract(project)
     result = subprocess.run(

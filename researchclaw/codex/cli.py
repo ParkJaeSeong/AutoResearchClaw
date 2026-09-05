@@ -602,6 +602,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(f"error: {error}", file=sys.stderr)
         return 2
+    except RecursionError:
+        if getattr(args, "command", None) == "refinement":
+            print("error: refinement_project_invalid", file=sys.stderr)
+            return 2
+        raise
     except (OSError, ValueError) as error:
         if getattr(args, "command", None) == "refinement":
             print(f"error: {_refinement_error_code(error)}", file=sys.stderr)
