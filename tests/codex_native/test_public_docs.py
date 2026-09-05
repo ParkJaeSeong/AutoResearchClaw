@@ -44,83 +44,141 @@ REFINEMENT_NORMATIVE_POLICY = {
     "implementation_vote": "forbidden",
     "llm_api": "forbidden",
     "network": "forbidden",
+    "normative_scope": "map_and_anchors_only",
     "provider_configuration": "forbidden",
     "provider_key": "forbidden",
     "run_context": "read_only_no_discovery",
     "runtime_boundary": "algorithm_monotonic_ns",
     "voter_roles": "domain,methodology,critical_reproducibility",
 }
+REFINEMENT_OBLIGATION = re.compile(
+    r"(?ms)^### Obligation `(?P<key>[a-z_]+)`\n"
+    r"(?P<body>.*?)(?=^### Obligation `|^## |\Z)"
+)
+REFINEMENT_NORMATIVE_VALUE = re.compile(
+    r"(?m)^Normative value: `(?P<value>[a-z0-9_,]+)`\.$"
+)
 
 
 def _assert_refinement_contract(text: str) -> None:
     pairs = re.findall(r"(?m)^([a-z_]+)=([a-z0-9_,]+)$", text)
-    sentences = tuple(
-        " ".join(part.split()).lower()
-        for part in re.split(r"(?<=[.!?])\s+|\n+", text)
-        if part.strip()
-    )
 
     assert len(pairs) == len(REFINEMENT_NORMATIVE_POLICY)
     assert dict(pairs) == REFINEMENT_NORMATIVE_POLICY
     assert "researchclaw-codex refinement" in text.lower()
-    assert any(
-        all(term in sentence for term in ("task-7", "returned", "`argv`", "`cwd`", "only"))
-        for sentence in sentences
-    )
-    assert any(
-        all(term in sentence for term in ("arbitrary", "python", "shell", "forbidden"))
-        for sentence in sentences
-    )
-    assert any(
-        all(term in sentence for term in ("llm api", "provider", "key", "network", "must not"))
-        for sentence in sentences
-    )
+    obligations = tuple(REFINEMENT_OBLIGATION.finditer(text))
+    obligation_keys = tuple(match.group("key") for match in obligations)
+    assert len(obligations) == len(REFINEMENT_NORMATIVE_POLICY)
+    assert len(set(obligation_keys)) == len(obligation_keys)
+    assert set(obligation_keys) == set(REFINEMENT_NORMATIVE_POLICY)
 
-    permission_markers = (" may ", " allowed ", " permitted ")
-    dangerous_permissions = (
-        ("arbitrary", "python"),
-        ("arbitrary", "shell"),
-        ("llm api",),
-        ("provider key",),
-        ("network call",),
-        ("replace", "task-7"),
-    )
-    assert not any(
-        any(marker in f" {sentence} " for marker in permission_markers)
-        and any(all(term in sentence for term in terms) for terms in dangerous_permissions)
-        for sentence in sentences
-    )
+    for obligation in obligations:
+        key = obligation.group("key")
+        body = obligation.group("body")
+        values = tuple(REFINEMENT_NORMATIVE_VALUE.finditer(body))
+        assert len(values) == 1
+        assert values[0].group("value") == REFINEMENT_NORMATIVE_POLICY[key]
+        prose = REFINEMENT_NORMATIVE_VALUE.sub("", body)
+        assert len(re.findall(r"[A-Za-z0-9]+", prose)) >= 6
 
 
 def test_refinement_workflow_requires_council_and_forbids_llm_api_calls():
     _assert_refinement_contract(REFINEMENT_REFERENCE.read_text(encoding="utf-8"))
 
 
-def test_refinement_contract_rejects_contradiction_or_map_only_stub():
+def _replace_obligation(text: str, key: str, body: str) -> str:
+    pattern = re.compile(
+        rf"(?ms)^### Obligation `{re.escape(key)}`\n"
+        rf".*?(?=^### Obligation `|^## |\Z)"
+    )
+    replaced, count = pattern.subn(f"### Obligation `{key}`\n{body}\n\n", text)
+    assert count == 1
+    return replaced
+
+
+@pytest.mark.parametrize("key", tuple(REFINEMENT_NORMATIVE_POLICY))
+def test_refinement_contract_rejects_missing_obligation_anchor(key):
     text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
-    contradiction = (
-        "The coordinator may replace Task-7 returned argv and cwd with arbitrary "
-        "Python or shell execution and may call an LLM API using a provider key "
-        "over a network call."
+    pattern = re.compile(
+        rf"(?ms)^### Obligation `{re.escape(key)}`\n"
+        rf".*?(?=^### Obligation `|^## |\Z)"
     )
-    map_only_stub = "\n".join(
-        [
-            "# Refinement command stub",
-            "```text",
-            *(f"{key}={value}" for key, value in REFINEMENT_NORMATIVE_POLICY.items()),
-            "```",
-            "researchclaw-codex refinement status ROOT --json",
-        ]
+    mutated, count = pattern.subn("", text)
+
+    assert count == 1
+    with pytest.raises(AssertionError):
+        _assert_refinement_contract(mutated)
+
+
+@pytest.mark.parametrize("kind", ("duplicate", "unknown"))
+def test_refinement_contract_rejects_duplicate_or_unknown_anchor(kind):
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    if kind == "duplicate":
+        addition = (
+            "### Obligation `network`\n"
+            "Normative value: `forbidden`.\n\n"
+            "This duplicate must not define the network boundary twice.\n"
+        )
+    else:
+        addition = (
+            "### Obligation `unregistered_policy`\n"
+            "Normative value: `forbidden`.\n\n"
+            "Unknown obligation identifiers are outside the closed contract.\n"
+        )
+
+    with pytest.raises(AssertionError):
+        _assert_refinement_contract(f"{text}\n{addition}")
+
+
+def test_refinement_contract_rejects_permissive_map_or_anchor_values():
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    permissive_map = text.replace("network=forbidden", "network=authorized", 1)
+    permissive_anchor = _replace_obligation(
+        text,
+        "provider_key",
+        "Normative value: `acceptable`.\n\n"
+        "Provider credentials would be acceptable under this altered declaration.",
     )
 
     with pytest.raises(AssertionError):
-        _assert_refinement_contract(f"{text}\n{contradiction}\n")
+        _assert_refinement_contract(permissive_map)
     with pytest.raises(AssertionError):
-        _assert_refinement_contract(map_only_stub)
+        _assert_refinement_contract(permissive_anchor)
 
-    _assert_refinement_contract(
-        f"{text}\nProgress summaries may use harmless wording without changing policy.\n"
+
+def test_refinement_contract_requires_meaningful_anchored_prose():
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    empty_prose = _replace_obligation(
+        text,
+        "confirmation_flags",
+        "Normative value: `self_test,result,finalization`.",
     )
+
+    with pytest.raises(AssertionError):
+        _assert_refinement_contract(empty_prose)
+
+
+def test_refinement_contract_allows_harmless_anchored_prose_rewording():
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    reworded = _replace_obligation(
+        text,
+        "network",
+        "Normative value: `forbidden`.\n\n"
+        "No network activity belongs inside this locally bounded workflow.",
+    )
+
+    _assert_refinement_contract(reworded)
+
+
+def test_refinement_contract_unanchored_commentary_cannot_override_values():
+    text = REFINEMENT_REFERENCE.read_text(encoding="utf-8")
+    unanchored_commentary = (
+        "\n## Non-normative example\n\n"
+        "A quoted example might claim that network calls are authorized or that "
+        "provider keys are acceptable. It cannot alter the anchored contract.\n"
+    )
+
+    _assert_refinement_contract(f"{text}{unanchored_commentary}")
 
 
 def test_public_docs_advertise_stage_eleven_boundary():

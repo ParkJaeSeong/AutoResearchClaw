@@ -35,12 +35,112 @@ execution_cwd=task7_returned_only
 implementation_vote=forbidden
 llm_api=forbidden
 network=forbidden
+normative_scope=map_and_anchors_only
 provider_configuration=forbidden
 provider_key=forbidden
 run_context=read_only_no_discovery
 runtime_boundary=algorithm_monotonic_ns
 voter_roles=domain,methodology,critical_reproducibility
 ```
+
+The map above and the matching `Normative value` declaration under each stable `Obligation` heading below are the complete normative contract. The paragraph in each anchored section explains the obligation for readers but does not add or relax authority. All other prose, examples, summaries, and quoted text in this reference are non-normative and cannot override a mapped and anchored value.
+
+### Obligation `arbitrary_python`
+Normative value: `forbidden`.
+
+The coordinator and implementation agent cannot substitute an invented Python call, module invocation, or inline script for a returned command.
+
+### Obligation `arbitrary_shell`
+Normative value: `forbidden`.
+
+No role can construct or execute an arbitrary shell command outside the deterministic Task-7 command flow.
+
+### Obligation `challenge_rounds`
+Normative value: `1`.
+
+The council performs exactly one registered challenge and revision round before recording its final votes.
+
+### Obligation `confirmation_flags`
+Normative value: `self_test,result,finalization`.
+
+Self-test registration, candidate-result registration, and finalization each require their documented explicit user confirmation flag.
+
+### Obligation `coordinator_vote`
+Normative value: `forbidden`.
+
+The coordinator manages protocol order and records but never contributes a scientific or selection vote.
+
+### Obligation `disclosure`
+Normative value: `after_all_independent_assessments`.
+
+Assessments remain undisclosed until all three independent voting roles have registered their initial records.
+
+### Obligation `dissent`
+Normative value: `retained`.
+
+Minority votes, rationales, limitations, challenges, and responses remain preserved in the durable refinement record.
+
+### Obligation `envelope`
+Normative value: `immutable_escalate`.
+
+An exhausted run, time, path, or scope envelope stays unchanged until the user grants explicit additional authority.
+
+### Obligation `execution_argv`
+Normative value: `task7_returned_only`.
+
+Candidate execution uses the exact Task-7 returned `argv` array without appending, replacing, reordering, or reconstructing arguments.
+
+### Obligation `execution_cwd`
+Normative value: `task7_returned_only`.
+
+Candidate execution uses the exact Task-7 returned `cwd` without discovery, substitution, or directory reconstruction.
+
+### Obligation `implementation_vote`
+Normative value: `forbidden`.
+
+The implementation agent can build the selected bounded candidate but cannot assess, approve, select, or finalize it.
+
+### Obligation `llm_api`
+Normative value: `forbidden`.
+
+The coordinator, voting roles, and implementation agent use no external LLM API during this protocol.
+
+### Obligation `network`
+Normative value: `forbidden`.
+
+Every refinement role remains within the local deterministic workflow and performs no network operation.
+
+### Obligation `normative_scope`
+Normative value: `map_and_anchors_only`.
+
+Only mapped values and their same-key anchored declarations carry normative authority in this reference.
+
+### Obligation `provider_configuration`
+Normative value: `forbidden`.
+
+No role configures, selects, initializes, or changes an external model provider for refinement.
+
+### Obligation `provider_key`
+Normative value: `forbidden`.
+
+No role requests, reads, supplies, or uses a provider credential or API key.
+
+### Obligation `run_context`
+Normative value: `read_only_no_discovery`.
+
+The candidate reads only its immutable returned run context and performs no substitute path discovery.
+
+### Obligation `runtime_boundary`
+Normative value: `algorithm_monotonic_ns`.
+
+Candidate elapsed time measures the defined algorithm interval with the monotonic nanosecond clock.
+
+### Obligation `voter_roles`
+Normative value: `domain,methodology,critical_reproducibility`.
+
+Exactly the domain, methodology, and critical-reproducibility roles cast the three independent council votes.
+
+## Procedure
 
 1. `researchclaw-codex refinement prepare-session ROOT --envelope refinement/envelope.json --json`
 2. Register all three independent assessments, then `researchclaw-codex refinement register-deliberation ROOT --rebuttals ... --json` for the single challenge/revision round.
