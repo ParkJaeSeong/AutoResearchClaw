@@ -139,3 +139,27 @@ live project therefore remains under user control at its prior durable state;
 only the isolated source worktree changed here. No package installation or
 deployed release was performed or claimed. Final code review and any deployment
 remain controller-owned follow-up work.
+
+## Review fix round 1: example evidence references
+
+The Task 3 review found four schema examples that used
+`analysis/evidence_packet.json` as a substantive `evidence_refs` value instead
+of demonstrating a path from the packet's `inputs`. The examples now use the
+selected immutable result object or registered design input. Test submission
+fixtures were aligned to the selected-result input as well; the validator and
+canonical packet were not broadened or changed.
+
+```text
+$ /opt/homebrew/bin/python3.11 -m pytest tests/codex_native/test_result_analysis.py::test_analysis_rebuttals_require_all_roles_and_bind_actual_producers tests/codex_native/test_result_analysis.py::test_analysis_result_preserves_dissent_and_publishes_retry_safe_report -q
+..                                                                       [100%]
+2 passed in 4.87s
+
+$ /opt/homebrew/bin/python3.11 /Users/jspark/.codex/skills/.system/skill-creator/scripts/quick_validate.py skills/researchclaw
+Skill is valid!
+
+$ /opt/homebrew/bin/python3.11 -m ruff check tests/codex_native/test_result_analysis.py
+(exit 0, no output)
+
+$ git diff --check
+(exit 0, no output)
+```

@@ -81,6 +81,9 @@ def _analysis_submission_base(project, producer):
 
 
 def _valid_analysis_rebuttals(project):
+    selected_result = analysis_status(ResearchProject.open_readonly(project.root))[
+        "evidence_packet"
+    ]["inputs"]["selected_result"]["path"]
     review_hashes = {
         role: ResearchProject.open_readonly(project.root).state.artifacts[
             f"analysis/reviews/{role}.json"
@@ -99,7 +102,7 @@ def _valid_analysis_rebuttals(project):
                 "review_sha256": review_hashes[role],
                 "challenges": ["Explain the strongest unresolved threat."],
                 "responses": [f"{role} response preserves its original limitation."],
-                "evidence_refs": ["analysis/evidence_packet.json"],
+                "evidence_refs": [selected_result],
             }
             for role in ("domain", "methodology", "critical_reproducibility")
             if role in review_hashes
@@ -186,7 +189,7 @@ def _valid_analysis_result(project, *, uncertainty=None):
             {
                 "role": "critical_reproducibility",
                 "text": "The evidence does not establish real-world superiority.",
-                "evidence_refs": ["analysis/evidence_packet.json"],
+                "evidence_refs": [result_ref],
             }
         ],
     }

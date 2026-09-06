@@ -116,7 +116,7 @@ actual producer and review hash:
       "review_sha256": "DOMAIN_REVIEW_SHA256",
       "challenges": ["State the strongest scope threat."],
       "responses": ["The result has no external-population evidence."],
-      "evidence_refs": ["analysis/evidence_packet.json"]
+      "evidence_refs": [".researchclaw/evidence/objects/SELECTED_RESULT_SHA256"]
     },
     {
       "role": "methodology",
@@ -124,7 +124,7 @@ actual producer and review hash:
       "review_sha256": "METHODOLOGY_REVIEW_SHA256",
       "challenges": ["State the strongest design threat."],
       "responses": ["No uncertainty estimate was registered."],
-      "evidence_refs": ["analysis/evidence_packet.json"]
+      "evidence_refs": ["experiment/design.json"]
     },
     {
       "role": "critical_reproducibility",
@@ -132,7 +132,7 @@ actual producer and review hash:
       "review_sha256": "CRITICAL_REPRODUCIBILITY_REVIEW_SHA256",
       "challenges": ["State the strongest reproducibility threat."],
       "responses": ["Only the registered fixture is supported."],
-      "evidence_refs": ["analysis/evidence_packet.json"]
+      "evidence_refs": [".researchclaw/evidence/objects/SELECTED_RESULT_SHA256"]
     }
   ]
 }
@@ -195,7 +195,7 @@ The staged result has this complete schema:
     {
       "role": "critical_reproducibility",
       "text": "The evidence does not establish real-world superiority.",
-      "evidence_refs": ["analysis/evidence_packet.json"]
+      "evidence_refs": [".researchclaw/evidence/objects/RESULT_SHA256"]
     }
   ]
 }
