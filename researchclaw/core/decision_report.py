@@ -147,15 +147,47 @@ def render_decision_report(payload: Mapping[str, object]) -> str:
     research_evidence = (
         inputs.get("research_evidence") if isinstance(inputs, Mapping) else None
     )
-    source_context = (
-        research_evidence.get("selection_context")
-        if isinstance(research_evidence, Mapping)
-        else None
-    )
+    source_context = payload.get("source_context")
+    if not isinstance(source_context, Mapping):
+        source_context = (
+            research_evidence.get("selection_context")
+            if isinstance(research_evidence, Mapping)
+            else None
+        )
     if isinstance(source_context, Mapping):
+        _text_items(output, "Source rationale", source_context.get("rationale"))
+        supporting = source_context.get("supporting_roles")
+        if isinstance(supporting, list) and supporting:
+            output.append(
+                "Supporting roles: "
+                + ", ".join(f"`{role}`" for role in supporting)
+            )
         dissent = source_context.get("dissenting_roles")
         if isinstance(dissent, list) and dissent:
-            output.append("Dissenting roles: " + ", ".join(map(str, dissent)))
+            output.append(
+                "Dissenting roles: " + ", ".join(f"`{role}`" for role in dissent)
+            )
         _text_items(output, "Source limitation", source_context.get("limitations"))
+        _text_items(
+            output, "Stage 14 question", source_context.get("stage_14_questions")
+        )
+        votes = source_context.get("votes")
+        if isinstance(votes, list):
+            output.extend(("", "### Preserved role votes", ""))
+            for vote in votes:
+                if not isinstance(vote, Mapping):
+                    continue
+                output.extend(
+                    (
+                        f"#### {vote.get('role', '')} — `{vote.get('producer', '')}`",
+                        "",
+                        f"Recorded decision: `{vote.get('decision', '')}`",
+                    )
+                )
+                _text_items(output, "Vote rationale", vote.get("rationale"))
+                evidence_refs = vote.get("evidence_refs")
+                if isinstance(evidence_refs, list):
+                    output.append(f"- Evidence: {_evidence(evidence_refs)}")
+                output.append("")
     output.append("")
     return "\n".join(output)

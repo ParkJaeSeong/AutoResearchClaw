@@ -445,6 +445,12 @@ def test_decision_report_preserves_original_records_and_stage_14_context(tmp_pat
     assert "Noise robustness was not measured" in report
     assert "Preserved Stage 14 scope and limitations" in report
     assert "Preserved source context" in report
+    assert "The registered evidence supports this bounded conclusion." in report
+    assert "Supporting roles: `domain`, `methodology`" in report
+    assert "domain-agent" in report
+    assert "Final position after rebuttal." in report
+    assert "The result remains limited to the registered inputs." in report
+    assert "Does the conclusion survive sensitivity analysis?" in report
     assert "[analysis/results.json](<results.json>)" in report
 
 
@@ -508,6 +514,13 @@ def test_decision_review_recovers_exact_orphan_and_preserves_conflict_bytes(
     submission = write_decision_submission(
         project, "domain.json", review_payload(project, "domain", "proceed")
     )
+    conflict_payload = review_payload(project, "domain", "proceed")
+    conflict_payload["rationale"] = [
+        _decision_statement("Conflicting authored rationale.")
+    ]
+    conflict = write_decision_submission(
+        project, "domain-conflict.json", conflict_payload
+    )
     original = ResearchProject.persist_state
     failed = False
 
@@ -528,13 +541,8 @@ def test_decision_review_recovers_exact_orphan_and_preserves_conflict_bytes(
     with pytest.raises(ValueError, match="decision_integrity_failure"):
         research_decision.research_decision_status(project)
 
-    conflict = review_payload(project, "domain", "proceed")
-    conflict["rationale"] = [_decision_statement("Conflicting authored rationale.")]
     with pytest.raises(ValueError, match="decision_review_conflict"):
-        research_decision.register_decision_review(
-            project,
-            write_decision_submission(project, "domain-conflict.json", conflict),
-        )
+        research_decision.register_decision_review(project, conflict)
     assert target.read_bytes() == orphan
     status = research_decision.register_decision_review(project, submission)
     assert status["registered_roles"] == ["domain"]

@@ -584,6 +584,30 @@ def _analysis_context(project: ResearchProject) -> dict[str, object]:
     return payload
 
 
+def _source_context(project: ResearchProject) -> dict[str, object]:
+    path = "analysis/evidence_packet.json"
+    reference = project.state.artifacts.get(path)
+    if reference is None:
+        raise ValueError("decision_integrity_failure")
+    try:
+        _secure_snapshot(
+            project.root,
+            path,
+            expected=reference,
+            maximum_bytes=reference.size,
+            error_code="decision_integrity_failure",
+        )
+        packet, raw = _read_bounded_json(resolve_project_artifact(project.root, path))
+    except ValueError as error:
+        raise ValueError("decision_integrity_failure") from error
+    if _record_reference(path, raw) != reference:
+        raise ValueError("decision_integrity_failure")
+    context = packet.get("selection_context")
+    if not isinstance(context, Mapping):
+        raise ValueError("decision_integrity_failure")
+    return dict(context)
+
+
 def _report_payload(
     project: ResearchProject,
     result: Mapping[str, object],
@@ -597,6 +621,7 @@ def _report_payload(
         "reviews": [reviews[role][0] for role in ROLES],
         "rebuttals": rebuttals[0],
         "analysis_context": _analysis_context(project),
+        "source_context": _source_context(project),
     }
 
 
