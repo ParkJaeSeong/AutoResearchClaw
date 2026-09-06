@@ -113,6 +113,79 @@ def test_stage_thirteen_handoff_routes_to_phase_specific_refinement_action(tmp_p
     ]
 
 
+def test_stage_fourteen_handoff_routes_to_phase_specific_analysis_commands(tmp_path):
+    from tests.codex_native.test_result_analysis import (
+        _finalized_project,
+        _register_analysis_rebuttals,
+        _register_analysis_reviews,
+    )
+    from researchclaw.core.result_analysis import prepare_analysis
+
+    project = _finalized_project(tmp_path / "project")
+
+    unprepared = build_handoff(project)
+    assert unprepared.current_stage == 14
+    assert unprepared.stage_name == "result_analysis"
+    assert unprepared.next_action == "prepare_analysis"
+    assert shlex.split(unprepared.next_command) == [
+        "researchclaw-codex",
+        "analysis",
+        "prepare",
+        str(project.root.resolve()),
+        "--json",
+    ]
+    assert unprepared.write_policy == "no_undeclared_outputs"
+
+    prepare_analysis(project)
+    awaiting_reviews = build_handoff(ResearchProject.open_readonly(project.root))
+    assert awaiting_reviews.next_action == "register_analysis_review"
+    assert shlex.split(awaiting_reviews.next_command) == [
+        "researchclaw-codex",
+        "analysis",
+        "register-review",
+        str(project.root.resolve()),
+        "--submission",
+        "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+        "--json",
+    ]
+
+    _register_analysis_reviews(project)
+    awaiting_rebuttals = build_handoff(ResearchProject.open_readonly(project.root))
+    assert awaiting_rebuttals.next_action == "register_analysis_rebuttals"
+    assert "register-rebuttals" in shlex.split(awaiting_rebuttals.next_command)
+
+    _register_analysis_rebuttals(project)
+    awaiting_synthesis = build_handoff(ResearchProject.open_readonly(project.root))
+    assert awaiting_synthesis.next_action == "register_analysis_result"
+    assert shlex.split(awaiting_synthesis.next_command) == [
+        "researchclaw-codex",
+        "analysis",
+        "register-result",
+        str(project.root.resolve()),
+        "--submission",
+        "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+        "--json",
+    ]
+
+
+def test_stage_fourteen_generic_validation_cannot_bypass_analysis_registration(
+    tmp_path, capsys
+):
+    from tests.codex_native.test_result_analysis import _finalized_project
+
+    project = _finalized_project(tmp_path / "project")
+    state_before = ResearchProject.open_readonly(project.root).state
+
+    assert cli_main(["stage", "validate", str(project.root), "--json"]) == 2
+    captured = capsys.readouterr()
+
+    assert "Stage 14 uses researchclaw-codex analysis" in captured.err
+    reopened = ResearchProject.open_readonly(project.root)
+    assert reopened.state == state_before
+    assert "analysis/results.json" not in reopened.state.artifacts
+    assert "analysis/report.md" not in reopened.state.artifacts
+
+
 def test_stage_thirteen_handoff_fails_closed_on_tampered_refinement_state(tmp_path):
     project = _registered_stage_thirteen_project(tmp_path / "project")
     prepare_refinement_session(project, valid_envelope())

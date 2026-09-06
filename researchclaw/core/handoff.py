@@ -646,7 +646,8 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     execution_boundary = state.current_stage == 12 and 11 in state.completed_stages
     stage_thirteen_boundary = state.current_stage == 13 and 12 in state.completed_stages
     stage_fourteen_boundary = state.current_stage == 14 and 13 in state.completed_stages
-    if stage_thirteen_boundary or stage_fourteen_boundary:
+    stage_fifteen_boundary = state.current_stage == 15 and 14 in state.completed_stages
+    if stage_thirteen_boundary or stage_fourteen_boundary or stage_fifteen_boundary:
         milestone_complete = False
         execution_readiness = None
         unmet_prerequisites = ()
@@ -694,6 +695,9 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             except (OSError, ValueError):
                 approval_eligible = False
     elif stage_thirteen_boundary:
+        stage_name = get_contract(state.current_stage).name
+        approval_required = False
+    elif stage_fourteen_boundary or stage_fifteen_boundary:
         stage_name = get_contract(state.current_stage).name
         approval_required = False
     elif state.current_stage > 23:
@@ -812,8 +816,54 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         next_command = _command(current_project.root, "status")
         approval_required = False
     elif stage_fourteen_boundary:
-        next_action = "await_stage_fourteen_support"
-        next_command = _command(current_project.root, "status")
+        from .result_analysis import analysis_status
+
+        analysis = analysis_status(current_project)
+        next_action = str(analysis["next_action"])
+        analysis_commands = {
+            "prepare_analysis": ("prepare",),
+            "register_analysis_review": (
+                "register-review",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+            "register_analysis_rebuttals": (
+                "register-rebuttals",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+            "register_analysis_result": (
+                "register-result",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+        }
+        try:
+            command = analysis_commands[next_action]
+        except KeyError as error:
+            raise ValueError("analysis_status_invalid") from error
+        if len(command) == 1:
+            next_command = _command(current_project.root, "analysis", command[0])
+        else:
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "analysis",
+                    command[0],
+                    str(current_project.root.resolve()),
+                    *command[1:],
+                    "--json",
+                )
+            )
+        approval_required = False
+    elif stage_fifteen_boundary:
+        from .result_analysis import analysis_status
+
+        analysis = analysis_status(current_project)
+        if analysis.get("phase") != "complete":
+            raise ValueError("analysis_integrity_failure")
+        next_action = "unsupported_stage_15"
+        next_command = _command(current_project.root, "analysis", "status")
         approval_required = False
     elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
@@ -849,7 +899,7 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         project_id=state.project_id,
         project_root=str(current_project.root.resolve()),
         write_policy=(
-            "read_only" if stage_fourteen_boundary else "no_undeclared_outputs"
+            "read_only" if stage_fifteen_boundary else "no_undeclared_outputs"
             if milestone_complete or stage_thirteen_boundary or stage_fourteen_boundary
             else "declared_outputs_only"
         ),
@@ -867,16 +917,21 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         unmet_prerequisites=unmet_prerequisites,
         approval_eligible=approval_eligible,
         boundary_message=(
-            "Stage 13 refinement is complete and its evidence is retained. "
-            "Stage 14 result analysis awaits future stage support; "
-            "the supported next command only reads project status."
-            if stage_fourteen_boundary else (
+            "Stage 14 analysis is complete and its evidence is retained. "
+            "Stage 15 research decisions are read-only and unsupported; "
+            "analysis status verifies the completed evidence without advancing."
+            if stage_fifteen_boundary else (
+                "Stage 13 refinement is complete and its evidence is retained. "
+                "Stage 14 uses the dedicated analysis prepare, status, and "
+                "registration workflow; follow the reported analysis command."
+                if stage_fourteen_boundary else (
                 "Stage 13 requires an explicit refinement request and envelope. "
                 "Use researchclaw-codex refinement prepare-session PROJECT "
                 "--envelope PROJECT_RELATIVE_PATH --json after reviewing the envelope; "
                 "status does not create a session or authorize execution."
                 if stage_thirteen_boundary and next_action == "prepare_refinement_session"
                 else None
+                )
             )
         ),
     )

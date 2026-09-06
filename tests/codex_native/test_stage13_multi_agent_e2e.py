@@ -372,8 +372,8 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     assert recorded_selection["dissenting_roles"] == ["critical_reproducibility"]
     handoff = _run_json(capsys, "resume", str(project.root), "--json")
     assert handoff["stage_name"] == "result_analysis"
-    assert handoff["next_action"] == "await_stage_fourteen_support"
-    assert handoff["write_policy"] == "read_only"
+    assert handoff["next_action"] == "prepare_analysis"
+    assert handoff["write_policy"] == "no_undeclared_outputs"
     assert handoff["milestone_complete"] is False
     status_command = _guarded_subprocess(
         shlex.split(handoff["next_command"]), cwd=ROOT,
@@ -381,8 +381,10 @@ def test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline(
     )
     assert status_command.returncode == 0, status_command.stderr
     status = json.loads(status_command.stdout)
-    assert status["current_stage"] == 14
-    assert status["boundary_message"] == handoff["boundary_message"]
-    assert "future" in status["boundary_message"]
-    assert ResearchProject.open(project.root).state == final_project.state
+    assert status["stage_id"] == 14
+    assert status["phase"] == "awaiting_independent_assessments"
+    assert status["limits"]["experiment_execution"] is False
+    prepared_project = ResearchProject.open(project.root)
+    assert prepared_project.state.current_stage == 14
+    assert prepared_project.state.artifacts["analysis/evidence_packet.json"]
     assert network_attempts.read_text(encoding="utf-8") == ""

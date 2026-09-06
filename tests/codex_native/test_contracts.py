@@ -40,6 +40,16 @@ def test_stage_twelve_consumes_the_stage_ten_package_manifest():
     assert contract.required_outputs == ("experiment/results.json",)
 
 
+def test_stage_fourteen_contract_declares_structured_and_readable_analysis_outputs():
+    contract = get_contract(14)
+
+    assert contract.name == "result_analysis"
+    assert contract.required_outputs == (
+        "analysis/results.json",
+        "analysis/report.md",
+    )
+
+
 def test_literature_gate_contract_is_hash_approved():
     contract = get_contract(5)
     assert contract.name == "literature_screen"

@@ -182,7 +182,7 @@ class ResearchProject:
 
         current_project = normalize_durable_project(self)
         if (
-            current_project.state.current_stage in {13, 14}
+            current_project.state.current_stage in {13, 14, 15}
             and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             readiness, prerequisites, approval_eligible = None, (), False
@@ -210,7 +210,7 @@ class ResearchProject:
             "approval_eligible": approval_eligible,
         }
         if (
-            current_project.state.current_stage in {13, 14}
+            current_project.state.current_stage in {13, 14, 15}
             and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             from .handoff import build_handoff

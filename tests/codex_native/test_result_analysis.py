@@ -1,4 +1,5 @@
 import json
+import shlex
 from dataclasses import replace
 
 import pytest
@@ -494,8 +495,8 @@ def test_analysis_result_binds_same_metric_to_baseline_and_selected_sources(tmp_
     )
 
     report = (project.root / "analysis/report.md").read_text(encoding="utf-8")
-    assert "`mae_cycles`: 2.5 cycles" in report
-    assert "`mae`: 0.125 absolute_error" in report
+    assert "Baseline result — `mae_cycles`: 2.5 cycles" in report
+    assert "Selected candidate — `mae`: 0.125 absolute_error" in report
 
 
 def test_analysis_result_recovers_exact_publication_after_interrupted_state_save(
@@ -574,6 +575,29 @@ def test_analysis_registration_cli_completes_public_workflow(tmp_path, capsys):
     ) == 0
     captured = capsys.readouterr()
     assert json.loads(captured.out)["current_stage"] == 15
+
+    assert run_cli("resume", str(project.root), "--json") == 0
+    handoff = json.loads(capsys.readouterr().out)
+    assert handoff["current_stage"] == 15
+    assert handoff["stage_name"] == "research_decision"
+    assert handoff["next_action"] == "unsupported_stage_15"
+    assert handoff["write_policy"] == "read_only"
+    assert shlex.split(handoff["next_command"]) == [
+        "researchclaw-codex",
+        "analysis",
+        "status",
+        str(project.root.resolve()),
+        "--json",
+    ]
+    assert not (project.root / "analysis/decision.json").exists()
+
+    state_before = ResearchProject.open_readonly(project.root).state
+    assert run_cli("stage", "validate", str(project.root), "--json") == 2
+    assert "Stage 15 research decisions are read-only and unsupported" in (
+        capsys.readouterr().err
+    )
+    assert ResearchProject.open_readonly(project.root).state == state_before
+    assert not (project.root / "analysis/decision.json").exists()
 
 
 def test_analysis_prepare_cli_builds_packet_from_finalized_refinement(

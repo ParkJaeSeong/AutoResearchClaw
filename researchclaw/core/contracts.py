@@ -142,7 +142,12 @@ _CONTRACT_DATA = (
     ),
     ("experiment_run", "Run the approved experiment", ("experiment/package_manifest.json", "experiment/resources.json"), ("experiment/results.json",)),
     ("iterative_refine", "Refine the experiment from results", ("experiment/results.json",), ("experiment/iterations.jsonl",)),
-    ("result_analysis", "Analyze experimental results", ("experiment/results.json",), ("analysis/results.json",)),
+    (
+        "result_analysis",
+        "Analyze experimental results",
+        ("experiment/results.json",),
+        ("analysis/results.json", "analysis/report.md"),
+    ),
     ("research_decision", "Make a research decision from evidence", ("analysis/results.json",), ("analysis/decision.json",)),
     ("paper_outline", "Build the paper outline", ("knowledge/synthesis.md", "analysis/decision.json"), ("paper/outline.md",)),
     ("paper_draft", "Draft the research paper", ("paper/outline.md",), ("paper/draft.md",)),

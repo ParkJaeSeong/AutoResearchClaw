@@ -28,6 +28,26 @@ def _bullet_section(output: list[str], heading: str, values: object) -> None:
     output.append("")
 
 
+def _metric_source_label(metric: Mapping[str, object], packet: Mapping[str, object]) -> str:
+    inputs = packet.get("inputs")
+    if not isinstance(inputs, Mapping):
+        return "Observed result"
+    baseline = inputs.get("baseline_result")
+    selected = inputs.get("selected_result")
+    if not isinstance(baseline, Mapping) or not isinstance(selected, Mapping):
+        return "Observed result"
+    baseline_path = baseline.get("path")
+    selected_path = selected.get("path")
+    references = metric.get("evidence_refs")
+    if not isinstance(references, list):
+        return "Observed result"
+    if baseline_path in references:
+        return "Baseline result"
+    if selected_path in references and selected_path != baseline_path:
+        return "Selected candidate"
+    return "Observed result"
+
+
 def render_analysis_report(payload: dict) -> str:
     """Render a stable report from already validated structured records."""
     result_value = payload.get("analysis_result", payload)
@@ -51,7 +71,8 @@ def render_analysis_report(payload: dict) -> str:
     for metric in result_value.get("observed_metrics", []):
         if isinstance(metric, Mapping):
             output.append(
-                f"- `{metric.get('name')}`: {metric.get('value')} "
+                f"- {_metric_source_label(metric, packet)} — "
+                f"`{metric.get('name')}`: {metric.get('value')} "
                 f"{metric.get('unit')} — evidence: {_evidence(metric.get('evidence_refs'))}"
             )
     output.append("")

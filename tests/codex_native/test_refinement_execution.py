@@ -1528,15 +1528,26 @@ def test_finalize_select_candidate_retains_verified_refinement_evidence(
         argv = shlex.split(handoff.next_command)
         assert main(argv[1:]) == 0
         capsys.readouterr()
-        assert handoff.next_action == "await_stage_fourteen_support"
+        assert handoff.next_action == "prepare_analysis"
         assert handoff.milestone_complete is False
-        assert handoff.write_policy == "read_only"
+        assert handoff.write_policy == "no_undeclared_outputs"
         assert "Stage 14" in handoff.boundary_message
-        assert "future" in handoff.boundary_message
+        assert "analysis prepare" in handoff.boundary_message
     assert main(["resume", str(project.root), "--json"]) == 0
     resumed = json.loads(capsys.readouterr().out)
-    assert main(shlex.split(resumed["next_command"])[1:]) == 0
-    assert ResearchProject.open(project.root).state == reopened.state
+    assert resumed["next_action"] == "register_analysis_review"
+    assert "register-review" in shlex.split(resumed["next_command"])
+    assert main(["analysis", "status", str(project.root), "--json"]) == 0
+    capsys.readouterr()
+    prepared_state = ResearchProject.open(project.root).state
+    assert prepared_state.current_stage == 14
+    assert all(
+        prepared_state.artifacts[path] == reference
+        for path, reference in reopened.state.artifacts.items()
+    )
+    assert set(prepared_state.artifacts) - set(reopened.state.artifacts) == {
+        "analysis/evidence_packet.json"
+    }
 
 
 def test_finalize_select_candidate_requires_council_to_reference_its_result(tmp_path):
