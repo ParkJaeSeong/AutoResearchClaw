@@ -59,6 +59,7 @@ from researchclaw.core.refinement_execution import (
     register_refinement_result,
     register_refinement_self_test,
 )
+from researchclaw.core.result_analysis import analysis_status, prepare_analysis
 
 
 def _refinement_payload(value: object) -> dict[str, object]:
@@ -397,6 +398,23 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.add_argument("--decision", required=True, metavar="PROJECT_RELATIVE_PATH")
     finalize.add_argument("--confirm-refinement-finalization", action="store_true")
     finalize.add_argument("--json", action="store_true", help="emit JSON")
+
+    analysis = subcommands.add_parser(
+        "analysis", help="prepare and inspect evidence-bound Stage 14 analysis"
+    )
+    analysis_commands = analysis.add_subparsers(
+        dest="analysis_command", required=True
+    )
+    analysis_prepare = analysis_commands.add_parser(
+        "prepare", help="prepare the Stage 14 evidence packet"
+    )
+    analysis_prepare.add_argument("root", metavar="PROJECT")
+    analysis_prepare.add_argument("--json", action="store_true", help="emit JSON")
+    analysis_status_parser = analysis_commands.add_parser(
+        "status", help="show verified Stage 14 analysis status"
+    )
+    analysis_status_parser.add_argument("root", metavar="PROJECT")
+    analysis_status_parser.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -598,6 +616,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             project = ResearchProject.open(args.root)
             resolve_project_artifact(project.root, args.decision)
             payload = _refinement_payload(finalize_refinement(project, args.decision))
+        elif args.command == "analysis" and args.analysis_command == "prepare":
+            project = ResearchProject.open(args.root)
+            payload = prepare_analysis(project)
+        elif args.command == "analysis" and args.analysis_command == "status":
+            project = ResearchProject.open_readonly(args.root)
+            payload = analysis_status(project)
         elif (
             args.command == "evidence"
             and args.evidence_command == "quarantine-operator-cleanup"
@@ -673,6 +697,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "evidence":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         elif args.command == "refinement":
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        elif args.command == "analysis":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
