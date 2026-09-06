@@ -772,6 +772,41 @@ def test_analysis_status_cli_replays_verified_packet(tmp_path, capsys):
     assert payload["next_action"] == "register_analysis_review"
 
 
+def test_validate_completed_analysis_reads_verified_history(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    packet = prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    result_analysis.register_analysis_result(
+        project,
+        _write_analysis_submission(
+            project, "completed-analysis.json", _valid_analysis_result(project)
+        ),
+    )
+    current = ResearchProject.open_readonly(project.root)
+
+    history = result_analysis.validate_completed_analysis(current)
+
+    assert history["evidence_packet"] == packet
+    assert [item["path"] for item in history["references"]] == [
+        "analysis/evidence_packet.json",
+        "analysis/results.json",
+        "analysis/report.md",
+        "analysis/reviews/domain.json",
+        "analysis/reviews/methodology.json",
+        "analysis/reviews/critical_reproducibility.json",
+        "analysis/rebuttals.json",
+    ]
+
+
+def test_validate_completed_analysis_rejects_incomplete_records(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+
+    with pytest.raises(ValueError, match="analysis_incomplete"):
+        result_analysis.validate_completed_analysis(project)
+
+
 def test_analysis_prepare_resolves_selected_candidate_from_immutable_manifest(
     tmp_path,
 ):

@@ -210,7 +210,7 @@ def _target_hypotheses(
 
 def _selection(project: ResearchProject) -> tuple[dict[str, object], ArtifactRef]:
     stage_is_valid = project.state.current_stage == _STAGE_ID or (
-        project.state.current_stage == _STAGE_ID + 1
+        project.state.current_stage >= _STAGE_ID + 1
         and _STAGE_ID in project.state.completed_stages
     )
     if not stage_is_valid or 13 not in project.state.completed_stages:
@@ -441,6 +441,9 @@ def prepare_analysis(project: ResearchProject) -> dict[str, object]:
     packet = _build_packet(current)
     packet_bytes = _canonical_json(packet)
     packet_ref = _packet_reference(packet_bytes)
+    existing_ref = current.state.artifacts.get(ANALYSIS_PACKET_PATH)
+    if existing_ref is None and current.state.current_stage != _STAGE_ID:
+        raise ValueError("analysis_stage_invalid")
     destination = resolve_project_artifact(current.root, ANALYSIS_PACKET_PATH)
     try:
         _write_exclusive(destination, packet_bytes)
@@ -1023,14 +1026,7 @@ def _registered_result(
 def _analysis_registration_status(
     project: ResearchProject, packet: Mapping[str, object]
 ) -> dict[str, object]:
-    packet_ref = project.state.artifacts.get(ANALYSIS_PACKET_PATH)
-    if packet_ref is None:
-        raise ValueError("analysis_packet_unregistered")
-    reviews = _review_records(project, packet, packet_ref)
-    rebuttals = _registered_rebuttals(project, packet, packet_ref, reviews)
-    result = _registered_result(
-        project, packet, packet_ref, reviews, rebuttals
-    )
+    _, reviews, rebuttals, result = _analysis_records(project, packet)
     if result is not None:
         phase, next_action = "complete", "unsupported_stage_15"
     elif rebuttals is not None:
@@ -1068,6 +1064,55 @@ def _analysis_registration_status(
     }
 
 
+def _analysis_records(
+    project: ResearchProject, packet: Mapping[str, object]
+) -> tuple[
+    ArtifactRef,
+    dict[str, tuple[dict[str, object], bytes, str]],
+    tuple[dict[str, object], bytes, str] | None,
+    tuple[dict[str, object], bytes] | None,
+]:
+    packet_ref = project.state.artifacts.get(ANALYSIS_PACKET_PATH)
+    if packet_ref is None:
+        raise ValueError("analysis_packet_unregistered")
+    reviews = _review_records(project, packet, packet_ref)
+    rebuttals = _registered_rebuttals(project, packet, packet_ref, reviews)
+    result = _registered_result(project, packet, packet_ref, reviews, rebuttals)
+    return packet_ref, reviews, rebuttals, result
+
+
+def validate_completed_analysis(project: ResearchProject) -> dict[str, object]:
+    """Verify completed Stage 14 records and their transitive immutable inputs."""
+    current = ResearchProject.open_readonly(project.root)
+    if (
+        current.state.current_stage < _STAGE_ID + 1
+        or _STAGE_ID not in current.state.completed_stages
+    ):
+        raise ValueError("analysis_incomplete")
+    packet = _validate_packet(current)
+    _, reviews, rebuttals, result = _analysis_records(current, packet)
+    if (
+        set(reviews) != set(_REQUIRED_ROLES)
+        or rebuttals is None
+        or result is None
+    ):
+        raise ValueError("analysis_incomplete")
+    paths = (
+        ANALYSIS_PACKET_PATH,
+        ANALYSIS_RESULT_PATH,
+        ANALYSIS_REPORT_PATH,
+        *(f"analysis/reviews/{role}.json" for role in _REQUIRED_ROLES),
+        ANALYSIS_REBUTTALS_PATH,
+    )
+    references = []
+    for path in paths:
+        reference = current.state.artifacts.get(path)
+        if reference is None:
+            raise ValueError("analysis_incomplete")
+        references.append(_artifact_payload(reference))
+    return {"evidence_packet": dict(packet), "references": references}
+
+
 @project_mutation
 def register_analysis_review(
     project: ResearchProject, submission_path: str | Path
@@ -1096,6 +1141,8 @@ def register_analysis_review(
         if source_bytes != existing[1]:
             raise ValueError("analysis_review_conflict")
         return _analysis_registration_status(current, packet)
+    if current.state.current_stage != _STAGE_ID:
+        raise ValueError("analysis_order_invalid")
     if rebuttals is not None:
         raise ValueError("analysis_order_invalid")
     if producer in {value[2] for value in reviews.values()}:
@@ -1144,6 +1191,8 @@ def register_analysis_rebuttals(
         if source_bytes != existing[1]:
             raise ValueError("analysis_rebuttal_conflict")
         return _analysis_registration_status(current, packet)
+    if current.state.current_stage != _STAGE_ID:
+        raise ValueError("analysis_order_invalid")
     if _read_record(current, ANALYSIS_RESULT_PATH) is not None:
         raise ValueError("analysis_order_invalid")
     current = _write_record(

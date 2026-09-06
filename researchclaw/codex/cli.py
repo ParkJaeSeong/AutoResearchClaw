@@ -66,6 +66,10 @@ from researchclaw.core.result_analysis import (
     register_analysis_result,
     register_analysis_review,
 )
+from researchclaw.core.research_decision import (
+    prepare_research_decision,
+    research_decision_status,
+)
 
 
 def _refinement_payload(value: object) -> dict[str, object]:
@@ -445,6 +449,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
     )
     analysis_result.add_argument("--json", action="store_true", help="emit JSON")
+
+    decision = subcommands.add_parser(
+        "decision",
+        help="prepare and inspect evidence-bound Stage 15 research decision",
+        description="prepare and inspect evidence-bound Stage 15 research decision",
+    )
+    decision_commands = decision.add_subparsers(
+        dest="decision_command", required=True
+    )
+    decision_prepare = decision_commands.add_parser(
+        "prepare", help="prepare the Stage 15 decision evidence packet"
+    )
+    decision_prepare.add_argument("root", metavar="PROJECT")
+    decision_prepare.add_argument("--json", action="store_true", help="emit JSON")
+    decision_status_parser = decision_commands.add_parser(
+        "status", help="show verified Stage 15 decision status"
+    )
+    decision_status_parser.add_argument("root", metavar="PROJECT")
+    decision_status_parser.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -664,6 +687,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "analysis" and args.analysis_command == "register-result":
             project = ResearchProject.open(args.root)
             payload = register_analysis_result(project, args.submission)
+        elif args.command == "decision" and args.decision_command == "prepare":
+            project = ResearchProject.open_readonly(args.root)
+            payload = prepare_research_decision(project)
+        elif args.command == "decision" and args.decision_command == "status":
+            project = ResearchProject.open_readonly(args.root)
+            payload = research_decision_status(project)
         elif (
             args.command == "evidence"
             and args.evidence_command == "quarantine-operator-cleanup"
@@ -741,6 +770,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "refinement":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         elif args.command == "analysis":
+            print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        elif args.command == "decision":
             print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         else:
             print(f"{payload['project_id']}: stage {payload['current_stage']} ({payload['status']})")
