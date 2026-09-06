@@ -441,7 +441,7 @@ def prepare_analysis(project: ResearchProject) -> dict[str, object]:
     packet = _build_packet(current)
     packet_bytes = _canonical_json(packet)
     packet_ref = _packet_reference(packet_bytes)
-    destination = current.root / ANALYSIS_PACKET_PATH
+    destination = resolve_project_artifact(current.root, ANALYSIS_PACKET_PATH)
     try:
         _write_exclusive(destination, packet_bytes)
     except FileExistsError:

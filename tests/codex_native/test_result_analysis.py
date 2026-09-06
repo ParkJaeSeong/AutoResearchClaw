@@ -740,6 +740,22 @@ def test_analysis_prepare_rejects_conflicting_existing_packet(tmp_path):
         prepare_analysis(project)
 
 
+def test_analysis_prepare_rejects_symlinked_output_parent_without_escape_or_state_change(
+    tmp_path,
+):
+    project = _finalized_project(tmp_path / "project")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (project.root / "analysis").symlink_to(outside, target_is_directory=True)
+    before = ResearchProject.open_readonly(project.root).state
+
+    with pytest.raises(ValueError, match="unsafe artifact path"):
+        prepare_analysis(project)
+
+    assert not (outside / "evidence_packet.json").exists()
+    assert ResearchProject.open_readonly(project.root).state == before
+
+
 def test_analysis_status_cli_replays_verified_packet(tmp_path, capsys):
     project = _finalized_project(tmp_path / "project")
     expected = prepare_analysis(project)
