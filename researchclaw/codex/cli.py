@@ -59,7 +59,13 @@ from researchclaw.core.refinement_execution import (
     register_refinement_result,
     register_refinement_self_test,
 )
-from researchclaw.core.result_analysis import analysis_status, prepare_analysis
+from researchclaw.core.result_analysis import (
+    analysis_status,
+    prepare_analysis,
+    register_analysis_rebuttals,
+    register_analysis_result,
+    register_analysis_review,
+)
 
 
 def _refinement_payload(value: object) -> dict[str, object]:
@@ -415,6 +421,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     analysis_status_parser.add_argument("root", metavar="PROJECT")
     analysis_status_parser.add_argument("--json", action="store_true", help="emit JSON")
+    analysis_review = analysis_commands.add_parser(
+        "register-review", help="register one independent Stage 14 review"
+    )
+    analysis_review.add_argument("root", metavar="PROJECT")
+    analysis_review.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    analysis_review.add_argument("--json", action="store_true", help="emit JSON")
+    analysis_rebuttals = analysis_commands.add_parser(
+        "register-rebuttals", help="register the Stage 14 response round"
+    )
+    analysis_rebuttals.add_argument("root", metavar="PROJECT")
+    analysis_rebuttals.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    analysis_rebuttals.add_argument("--json", action="store_true", help="emit JSON")
+    analysis_result = analysis_commands.add_parser(
+        "register-result", help="register and publish the Stage 14 synthesis"
+    )
+    analysis_result.add_argument("root", metavar="PROJECT")
+    analysis_result.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    analysis_result.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -622,6 +652,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "analysis" and args.analysis_command == "status":
             project = ResearchProject.open_readonly(args.root)
             payload = analysis_status(project)
+        elif args.command == "analysis" and args.analysis_command == "register-review":
+            project = ResearchProject.open(args.root)
+            payload = register_analysis_review(project, args.submission)
+        elif (
+            args.command == "analysis"
+            and args.analysis_command == "register-rebuttals"
+        ):
+            project = ResearchProject.open(args.root)
+            payload = register_analysis_rebuttals(project, args.submission)
+        elif args.command == "analysis" and args.analysis_command == "register-result":
+            project = ResearchProject.open(args.root)
+            payload = register_analysis_result(project, args.submission)
         elif (
             args.command == "evidence"
             and args.evidence_command == "quarantine-operator-cleanup"

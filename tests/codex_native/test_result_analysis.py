@@ -3,6 +3,7 @@ from dataclasses import replace
 
 import pytest
 
+from researchclaw.core import result_analysis
 from researchclaw.core.result_analysis import analysis_status, prepare_analysis
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.refinement import (
@@ -37,6 +38,463 @@ def _finalized_project(path, action="retain_baseline"):
     return ResearchProject.open_readonly(project.root)
 
 
+def _finalized_selected_project(path, candidate_value=0.125):
+    project, candidate = self_tested_candidate_project(path)
+    preparation = prepare_refinement_run(project, candidate.candidate_id)
+    write_refinement_result(project, preparation, metric_value=candidate_value)
+    registered = register_refinement_result(
+        project, candidate.candidate_id, preparation.result_path
+    )
+    result_ref = ResearchProject.open_readonly(project.root).state.artifacts[
+        registered.result_path
+    ]
+    evaluated = [
+        _packet_artifact(project),
+        {"path": result_ref.path, "sha256": result_ref.sha256, "size": result_ref.size},
+    ]
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        register_one_assessment(project, role=role, artifacts=evaluated)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    finalize_refinement(project, write_final_decision(project, "select_candidate"))
+    return ResearchProject.open_readonly(project.root), candidate, result_ref
+
+
+def _write_analysis_submission(project, name, payload):
+    path = project.root / "submissions" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+    )
+    return path
+
+
+def _analysis_submission_base(project, producer):
+    return {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "evidence_packet_sha256": ResearchProject.open_readonly(
+            project.root
+        ).state.artifacts["analysis/evidence_packet.json"].sha256,
+        "producer": producer,
+    }
+
+
+def _valid_analysis_rebuttals(project):
+    review_hashes = {
+        role: ResearchProject.open_readonly(project.root).state.artifacts[
+            f"analysis/reviews/{role}.json"
+        ].sha256
+        for role in ("domain", "methodology", "critical_reproducibility")
+        if f"analysis/reviews/{role}.json"
+        in ResearchProject.open_readonly(project.root).state.artifacts
+    }
+    return {
+        **_analysis_submission_base(project, "analysis-coordinator"),
+        "review_hashes": review_hashes,
+        "responses": [
+            {
+                "role": role,
+                "producer": f"{role}-analyst",
+                "review_sha256": review_hashes[role],
+                "challenges": ["Explain the strongest unresolved threat."],
+                "responses": [f"{role} response preserves its original limitation."],
+                "evidence_refs": ["analysis/evidence_packet.json"],
+            }
+            for role in ("domain", "methodology", "critical_reproducibility")
+            if role in review_hashes
+        ],
+    }
+
+
+def _valid_analysis_review(project, role, *, producer=None):
+    packet = analysis_status(ResearchProject.open_readonly(project.root))[
+        "evidence_packet"
+    ]
+    return {
+        **_analysis_submission_base(project, producer or f"{role}-analyst"),
+        "role": role,
+        "claims": [
+            {
+                "text": f"{role} found the registered metric interpretable only in scope.",
+                "evidence_refs": [packet["inputs"]["selected_result"]["path"]],
+            }
+        ],
+        "limitations": [f"{role} limitation remains unresolved."],
+        "questions": [f"What would resolve the {role} limitation?"],
+    }
+
+
+def _register_analysis_reviews(project):
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        result_analysis.register_analysis_review(
+            project,
+            _write_analysis_submission(
+                project, f"analysis-{role}.json", _valid_analysis_review(project, role)
+            ),
+        )
+
+
+def _register_analysis_rebuttals(project):
+    payload = _valid_analysis_rebuttals(project)
+    path = _write_analysis_submission(project, "analysis-rebuttals.json", payload)
+    return result_analysis.register_analysis_rebuttals(project, path), path
+
+
+def _valid_analysis_result(project, *, uncertainty=None):
+    current = ResearchProject.open_readonly(project.root)
+    packet = analysis_status(current)["evidence_packet"]
+    review_hashes = {
+        role: current.state.artifacts[f"analysis/reviews/{role}.json"].sha256
+        for role in ("domain", "methodology", "critical_reproducibility")
+    }
+    metric = packet["metrics"]["primary"]
+    result_ref = packet["inputs"]["selected_result"]["path"]
+    return {
+        **_analysis_submission_base(project, "analysis-coordinator"),
+        "review_hashes": review_hashes,
+        "rebuttals_sha256": current.state.artifacts[
+            "analysis/rebuttals.json"
+        ].sha256,
+        "observed_metrics": [
+            {
+                "name": metric["name"],
+                "unit": metric["unit"],
+                "value": metric["value"],
+                "evidence_refs": [result_ref],
+            }
+        ],
+        "hypothesis_assessments": [
+            {
+                "hypothesis_id": hypothesis_id,
+                "verdict": "inconclusive",
+                "explanation": "The bounded observation does not establish generality.",
+                "evidence_refs": [result_ref],
+            }
+            for hypothesis_id in packet["target_hypothesis_ids"]
+        ],
+        "explanations": ["The registered metric is reported without a new verdict."],
+        "alternatives": ["The apparent effect may depend on the synthetic fixture."],
+        "limitations": [
+            "Noise robustness was not measured",
+            *packet["selection_context"]["limitations"],
+        ],
+        "scope": ["Evidence comes from a noiseless synthetic line fixture only."],
+        "uncertainty": uncertainty or ["No uncertainty estimate was registered."],
+        "agreement": ["All roles agree that the registered metric must be preserved."],
+        "disagreements": [
+            {
+                "role": "critical_reproducibility",
+                "text": "The evidence does not establish real-world superiority.",
+                "evidence_refs": ["analysis/evidence_packet.json"],
+            }
+        ],
+    }
+
+
+def test_analysis_rebuttals_reject_registration_before_independent_reviews(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    rebuttals_path = _write_analysis_submission(
+        project, "analysis-rebuttals.json", _valid_analysis_rebuttals(project)
+    )
+
+    with pytest.raises(ValueError, match="analysis_order_invalid"):
+        result_analysis.register_analysis_rebuttals(project, rebuttals_path)
+
+    assert ResearchProject.open(project.root).state.current_stage == 14
+
+
+def test_analysis_review_registration_rejects_duplicate_producer_and_bad_reference(
+    tmp_path,
+):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    first = _write_analysis_submission(
+        project, "analysis-domain.json", _valid_analysis_review(project, "domain")
+    )
+    result_analysis.register_analysis_review(project, first)
+
+    duplicate = _write_analysis_submission(
+        project,
+        "analysis-methodology.json",
+        _valid_analysis_review(
+            project, "methodology", producer="domain-analyst"
+        ),
+    )
+    with pytest.raises(ValueError, match="analysis_producer_duplicate"):
+        result_analysis.register_analysis_review(project, duplicate)
+
+    bad = _valid_analysis_review(project, "methodology")
+    bad["claims"][0]["evidence_refs"] = ["experiment/results.json"]
+    with pytest.raises(ValueError, match="analysis_evidence_reference_invalid"):
+        result_analysis.register_analysis_review(
+            project,
+            _write_analysis_submission(project, "analysis-methodology-bad.json", bad),
+        )
+
+
+def test_analysis_review_registration_rejects_changed_packet(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    (project.root / "analysis/evidence_packet.json").write_text(
+        '{"changed":true}', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="analysis_packet_invalid"):
+        result_analysis.register_analysis_review(
+            project,
+            _write_analysis_submission(
+                project,
+                "analysis-domain.json",
+                {
+                    "schema_version": 1,
+                    "project_id": project.state.project_id,
+                    "evidence_packet_sha256": "0" * 64,
+                    "producer": "domain-analyst",
+                    "role": "domain",
+                    "claims": [],
+                    "limitations": [],
+                    "questions": [],
+                },
+            ),
+        )
+
+
+def test_analysis_rebuttals_require_all_roles_and_bind_actual_producers(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    for role in ("domain", "methodology"):
+        result_analysis.register_analysis_review(
+            project,
+            _write_analysis_submission(
+                project, f"analysis-{role}.json", _valid_analysis_review(project, role)
+            ),
+        )
+    incomplete = _write_analysis_submission(
+        project, "analysis-rebuttals.json", _valid_analysis_rebuttals(project)
+    )
+    with pytest.raises(ValueError, match="analysis_order_invalid"):
+        result_analysis.register_analysis_rebuttals(project, incomplete)
+
+    role = "critical_reproducibility"
+    result_analysis.register_analysis_review(
+        project,
+        _write_analysis_submission(
+            project, f"analysis-{role}.json", _valid_analysis_review(project, role)
+        ),
+    )
+    wrong = _valid_analysis_rebuttals(project)
+    wrong["responses"][0]["producer"] = "fabricated-producer"
+    with pytest.raises(ValueError, match="analysis_rebuttal_producer_invalid"):
+        result_analysis.register_analysis_rebuttals(
+            project,
+            _write_analysis_submission(project, "analysis-rebuttals-wrong.json", wrong),
+        )
+
+
+def test_analysis_result_rejects_early_synthesis_and_metric_mismatch(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    early = {
+        **_analysis_submission_base(project, "analysis-coordinator"),
+        "review_hashes": {},
+        "rebuttals_sha256": "0" * 64,
+        "observed_metrics": [],
+        "hypothesis_assessments": [],
+        "explanations": [],
+        "alternatives": [],
+        "limitations": [],
+        "scope": [],
+        "uncertainty": [],
+        "agreement": [],
+        "disagreements": [],
+    }
+    with pytest.raises(ValueError, match="analysis_order_invalid"):
+        result_analysis.register_analysis_result(
+            project,
+            _write_analysis_submission(project, "analysis-result-early.json", early),
+        )
+
+    _register_analysis_rebuttals(project)
+    mismatch = _valid_analysis_result(project)
+    mismatch["observed_metrics"][0]["value"] = 999
+    with pytest.raises(ValueError, match="analysis_metric_mismatch"):
+        result_analysis.register_analysis_result(
+            project,
+            _write_analysis_submission(project, "analysis-result-mismatch.json", mismatch),
+        )
+
+
+def test_analysis_result_requires_authored_uncertainty(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    missing = _valid_analysis_result(project)
+    missing["uncertainty"] = []
+
+    with pytest.raises(ValueError, match="analysis_uncertainty_missing"):
+        result_analysis.register_analysis_result(
+            project,
+            _write_analysis_submission(project, "analysis-result.json", missing),
+        )
+
+
+def test_analysis_result_preserves_dissent_and_publishes_retry_safe_report(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    packet = prepare_analysis(project)
+    packet_bytes = (project.root / "analysis/evidence_packet.json").read_bytes()
+    _register_analysis_reviews(project)
+    _, rebuttals_path = _register_analysis_rebuttals(project)
+    submission = _write_analysis_submission(
+        project, "analysis-result.json", _valid_analysis_result(project)
+    )
+
+    first = result_analysis.register_analysis_result(project, submission)
+    result_bytes = (project.root / "analysis/results.json").read_bytes()
+    report_bytes = (project.root / "analysis/report.md").read_bytes()
+    first_state = ResearchProject.open_readonly(project.root).state
+    second = result_analysis.register_analysis_result(
+        ResearchProject.open_readonly(project.root), submission
+    )
+    replayed_review = result_analysis.register_analysis_review(
+        ResearchProject.open_readonly(project.root),
+        project.root / "submissions/analysis-domain.json",
+    )
+    replayed_rebuttals = result_analysis.register_analysis_rebuttals(
+        ResearchProject.open_readonly(project.root), rebuttals_path
+    )
+
+    reopened = ResearchProject.open(project.root)
+    report = report_bytes.decode("utf-8")
+    assert reopened.state.current_stage == 15
+    assert 14 in reopened.state.completed_stages
+    assert first == second
+    assert replayed_review == first
+    assert replayed_rebuttals == first
+    assert reopened.state == first_state
+    assert (project.root / "analysis/results.json").read_bytes() == result_bytes
+    assert (project.root / "analysis/report.md").read_bytes() == report_bytes
+    assert (project.root / "analysis/evidence_packet.json").read_bytes() == packet_bytes
+    assert analysis_status(reopened)["evidence_packet"] == packet
+    assert "Noise robustness was not measured" in report
+    assert "critical_reproducibility" in report
+    assert "noiseless synthetic line fixture only" in report
+    assert "No uncertainty estimate was registered" in report
+    assert "real-world superiority" in report
+    assert "critical_reproducibility response preserves its original limitation" in report
+
+
+def test_analysis_result_binds_same_metric_to_baseline_and_selected_sources(tmp_path):
+    project, _, _ = _finalized_selected_project(tmp_path / "project")
+    packet = prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    synthesis = _valid_analysis_result(project)
+    synthesis["observed_metrics"] = [
+        {
+            "name": "mae_cycles",
+            "unit": "cycles",
+            "value": 2.5,
+            "evidence_refs": [packet["inputs"]["baseline_result"]["path"]],
+        },
+        {
+            "name": "mae",
+            "unit": "absolute_error",
+            "value": 0.125,
+            "evidence_refs": [packet["inputs"]["selected_result"]["path"]],
+        },
+    ]
+
+    result_analysis.register_analysis_result(
+        project,
+        _write_analysis_submission(project, "selected-analysis-result.json", synthesis),
+    )
+
+    report = (project.root / "analysis/report.md").read_text(encoding="utf-8")
+    assert "`mae_cycles`: 2.5 cycles" in report
+    assert "`mae`: 0.125 absolute_error" in report
+
+
+def test_analysis_result_recovers_exact_publication_after_interrupted_state_save(
+    tmp_path, monkeypatch
+):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    submission = _write_analysis_submission(
+        project, "interrupted-analysis-result.json", _valid_analysis_result(project)
+    )
+    original = ResearchProject.persist_state
+    interrupted = False
+
+    def fail_completion_once(self, state):
+        nonlocal interrupted
+        if state.current_stage == 15 and not interrupted:
+            interrupted = True
+            raise OSError("simulated interruption")
+        return original(self, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", fail_completion_once)
+    with pytest.raises(OSError, match="simulated interruption"):
+        result_analysis.register_analysis_result(project, submission)
+    monkeypatch.setattr(ResearchProject, "persist_state", original)
+
+    status = result_analysis.register_analysis_result(project, submission)
+
+    assert status["phase"] == "complete"
+    assert ResearchProject.open_readonly(project.root).state.current_stage == 15
+
+
+def test_analysis_registration_cli_completes_public_workflow(tmp_path, capsys):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    for role in ("domain", "methodology", "critical_reproducibility"):
+        relative = f"submissions/cli-{role}.json"
+        _write_analysis_submission(
+            project, f"cli-{role}.json", _valid_analysis_review(project, role)
+        )
+        assert (
+            run_cli(
+                "analysis",
+                "register-review",
+                str(project.root),
+                "--submission",
+                relative,
+                "--json",
+            )
+            == 0
+        )
+        capsys.readouterr()
+    _write_analysis_submission(
+        project, "cli-rebuttals.json", _valid_analysis_rebuttals(project)
+    )
+    assert run_cli(
+        "analysis",
+        "register-rebuttals",
+        str(project.root),
+        "--submission",
+        "submissions/cli-rebuttals.json",
+        "--json",
+    ) == 0
+    capsys.readouterr()
+    _write_analysis_submission(
+        project, "cli-result.json", _valid_analysis_result(project)
+    )
+    assert run_cli(
+        "analysis",
+        "register-result",
+        str(project.root),
+        "--submission",
+        "submissions/cli-result.json",
+        "--json",
+    ) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["current_stage"] == 15
+
+
 def test_analysis_prepare_cli_builds_packet_from_finalized_refinement(
     tmp_path, capsys
 ):
@@ -54,6 +512,16 @@ def test_analysis_prepare_cli_builds_packet_from_finalized_refinement(
     assert packet["stage_id"] == 14
     assert packet["selection_action"] == "retain_baseline"
     assert packet["phase"] == "awaiting_independent_assessments"
+
+
+def test_analysis_status_before_prepare_exposes_next_registration_action(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+
+    status = analysis_status(project)
+
+    assert status["phase"] == "awaiting_preparation"
+    assert status["next_action"] == "prepare_analysis"
+    assert status["current_stage"] == 14
 
 
 def test_analysis_status_rejects_changed_retained_stage_thirteen_packet(tmp_path):
@@ -172,7 +640,10 @@ def test_analysis_status_cli_replays_verified_packet(tmp_path, capsys):
     captured = capsys.readouterr()
 
     assert code == 0, captured.err
-    assert json.loads(captured.out) == expected
+    payload = json.loads(captured.out)
+    assert payload["evidence_packet"] == expected
+    assert payload["phase"] == "awaiting_independent_assessments"
+    assert payload["next_action"] == "register_analysis_review"
 
 
 def test_analysis_prepare_resolves_selected_candidate_from_immutable_manifest(
