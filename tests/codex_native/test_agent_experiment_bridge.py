@@ -938,22 +938,31 @@ def author_candidate(project):
     return sources, changed
 
 
-def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
+@pytest.mark.parametrize("corrected_pretty_manifest", [False, True])
+def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys, corrected_pretty_manifest, monkeypatch):
     from tests.codex_native.test_refinement import valid_envelope, valid_decision_record
     from tests.codex_native.test_stage13_multi_agent_e2e import _register_assessments
 
     project = registered_baseline(tmp_path, capsys)
     original = immutable_stage_twelve_snapshot(project)
     write(project.root, "refinement/envelope.json", valid_envelope())
-    run_cli_json(
-        capsys,
-        "refinement",
-        "prepare-session",
-        str(project.root),
-        "--envelope",
-        "refinement/envelope.json",
-        "--json",
-    )
+    if corrected_pretty_manifest:
+        # Build an honestly expired session through the public API, never by
+        # rewriting registered state. All recovery/run commands below use CLI.
+        import researchclaw.core.refinement as refinement
+        from datetime import datetime, timedelta
+        class EarlierDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.now(tz) - timedelta(hours=2)
+        with monkeypatch.context() as clock:
+            clock.setattr(refinement, "datetime", EarlierDatetime)
+            envelope = valid_envelope()
+            envelope["maximum_candidate_seconds"] = 1
+            refinement.prepare_refinement_session(project, envelope)
+    else:
+        run_cli_json(capsys, "refinement", "prepare-session", str(project.root),
+                     "--envelope", "refinement/envelope.json", "--json")
     # Synthetic council records exercise protocol gates, not scientific endorsement.
     _register_assessments(capsys, project, submission_prefix="synthetic")
     changed = [
@@ -965,7 +974,9 @@ def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
             "package_metadata/package_manifest.json",
         )
     ]
-    decision = valid_decision_record(project, change_paths=changed)
+    requested = changed + (["refinement/candidates/candidate-001/code/model.py"]
+                           if corrected_pretty_manifest else [])
+    decision = valid_decision_record(project, change_paths=requested)
     decision["rationale"] = ["Synthetic protocol test; not scientific approval."]
     for vote in decision["final_votes"]:
         vote["rationale"] = ["Synthetic protocol test; not scientific approval."]
@@ -1038,11 +1049,33 @@ def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
             for p, src in sources.items()
         ],
     }
+    if corrected_pretty_manifest:
+        correction = {
+            "schema_version": 1,
+            "project_id": project.state.project_id,
+            "session_id": manifest["session_id"],
+            "decision": ref(decision_path),
+            "change_request": {"paths": changed},
+            "confirmations": [
+                {"role": role, "producer": f"{role}-agent",
+                 "change_request": {"paths": changed},
+                 "rationale": ["Synthetic reaffirmation: unchanged wrapper excluded."]}
+                for role in ("domain", "methodology")
+            ],
+        }
+        write(project.root, "submissions/path-correction.json", correction)
+        run_cli_json(capsys, "refinement", "register-path-correction", str(project.root),
+                     "--correction", "submissions/path-correction.json", "--json")
+        manifest["path_correction"] = ref(
+            "refinement/deliberations/round-001/path_correction.json"
+        )
     manifest_path = write(
         project.root,
         prefix + "package_metadata/manifest.json",
-        json.dumps(manifest, sort_keys=True, separators=(",", ":")),
+        (json.dumps(manifest, indent=2) + "\n" if corrected_pretty_manifest
+         else json.dumps(manifest, sort_keys=True, separators=(",", ":"))),
     )
+    manifest_bytes_before = (project.root / manifest_path).read_bytes()
     run_cli_json(
         capsys,
         "refinement",
@@ -1081,6 +1114,14 @@ def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
         "--confirm-refinement-self-test",
         "--json",
     )
+    if corrected_pretty_manifest:
+        original_session = (project.root / "refinement/session.json").read_bytes()
+        extension = run_cli_json(
+            capsys, "refinement", "extend-run-window", str(project.root),
+            "--candidate-id", "candidate-001", "--confirm-time-extension", "--json"
+        )
+        assert extension["extension_seconds"] == 3600
+        assert (project.root / "refinement/session.json").read_bytes() == original_session
     prepared = run_cli_json(
         capsys,
         "refinement",
@@ -1100,6 +1141,12 @@ def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
     assert completed.returncode == 0, completed.stderr
     result = json.loads((project.root / prepared["result_path"]).read_text())
     assert result["metrics"]["primary"]["value"] == pytest.approx(0.0, abs=1e-9)
+    if corrected_pretty_manifest:
+        import time
+        assert result["runtime"]["maximum_seconds"] == 1
+        # Real elapsed review delay, also in the external installed-CLI test.
+        # The old reservation-to-registration limit rejected this valid result.
+        time.sleep(2)
     run_cli_json(
         capsys,
         "refinement",
@@ -1116,3 +1163,4 @@ def test_public_candidate_fitted_line_preserves_baseline(tmp_path, capsys):
         immutable_stage_twelve_snapshot(ResearchProject.open(project.root)) == original
     )
     assert ResearchProject.open(project.root).state.current_stage == 13
+    assert (project.root / manifest_path).read_bytes() == manifest_bytes_before

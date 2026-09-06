@@ -2124,7 +2124,126 @@ def _decision_status(
     )
 
 
-def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
+def _validate_path_correction(
+    project: ResearchProject,
+    session: RefinementSessionStatus,
+    decision_path: str,
+    payload: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Validate a narrow, unanimous reaffirmation by the original supporters."""
+    error = "refinement_path_correction_invalid"
+    original = _read_registered_record(project, decision_path)
+    if original is None:
+        raise ValueError(error)
+    decision, decision_bytes = original
+    if (
+        set(payload) != {"schema_version", "project_id", "session_id", "decision",
+                         "change_request", "confirmations"}
+        or not isinstance(payload.get("schema_version"), int)
+        or isinstance(payload.get("schema_version"), bool)
+        or payload["schema_version"] != 1
+        or payload.get("project_id") != project.state.project_id
+        or payload.get("session_id") != session.session_id
+        or payload.get("decision") != _artifact_payload(_record_ref(decision_path, decision_bytes))
+        or decision.get("action") not in {"refine", "request_discriminating_run"}
+    ):
+        raise ValueError(error)
+    request = payload.get("change_request")
+    if not isinstance(request, Mapping) or set(request) != {"paths"}:
+        raise ValueError(error)
+    paths = request["paths"]
+    old_paths = decision.get("change_request", {}).get("paths", [])
+    if (
+        not isinstance(paths, list) or not paths
+        or any(not isinstance(path, str) for path in paths)
+        or len(set(paths)) != len(paths)
+        or not set(paths) < set(old_paths)
+    ):
+        raise ValueError(error)
+    supporters = {
+        vote["role"]: vote["producer"] for vote in decision["final_votes"]
+        if vote["decision"] == decision["action"]
+    }
+    confirmations = payload.get("confirmations")
+    if not isinstance(confirmations, list) or len(confirmations) != len(supporters):
+        raise ValueError(error)
+    seen = set()
+    for confirmation in confirmations:
+        if not isinstance(confirmation, Mapping) or set(confirmation) != {
+            "role", "producer", "change_request", "rationale"
+        }:
+            raise ValueError(error)
+        role = confirmation.get("role")
+        rationale = confirmation.get("rationale")
+        if (
+            not isinstance(role, str) or role not in supporters or role in seen
+            or confirmation.get("producer") != supporters[role]
+            or confirmation.get("change_request") != request
+            or not isinstance(rationale, list) or not rationale
+            or any(not isinstance(text, str) or not text.strip() for text in rationale)
+        ):
+            raise ValueError(error)
+        seen.add(role)
+    return request
+
+
+def _path_correction(
+    project: ResearchProject, session: RefinementSessionStatus, decision_path: str
+) -> tuple[Mapping[str, object], ArtifactRef] | None:
+    target = str(Path(decision_path).with_name("path_correction.json"))
+    record = _read_registered_record(project, target)
+    if record is None:
+        return None
+    request = _validate_path_correction(project, session, decision_path, record[0])
+    return request, _record_ref(target, record[1])
+
+
+@project_mutation
+def register_refinement_path_correction(
+    project: ResearchProject, path: str | Path
+) -> RefinementSessionStatus:
+    """Append one path-only correction, never rewriting votes or permitting runs."""
+    current = ResearchProject.open(project.root)
+    session = _load_prepared_refinement_session(current)
+    round_info = _round_path(current, create=False)
+    if round_info is None:
+        raise ValueError("refinement_path_correction_order_invalid")
+    decision_path = f"{_DELIBERATIONS_PATH}/{round_info[0]}/decision.json"
+    target = str(Path(decision_path).with_name("path_correction.json"))
+    payload, source_bytes = _read_bounded_json(_submission_path(current, path))
+    _validate_path_correction(current, session, decision_path, payload)
+    destination = resolve_project_artifact(current.root, target)
+    if os.path.lexists(destination) and target not in current.state.artifacts:
+        _, orphan_bytes = _read_bounded_json(destination)
+        if orphan_bytes != source_bytes:
+            raise ValueError("refinement_path_correction_conflict")
+        # Revalidate the original council and all existing evidence before adopting
+        # the exact orphan. Only this not-yet-registered sidecar is skipped.
+        status = _deliberation_status(current, pending_correction_path=target)
+        if status.phase != "awaiting_candidate":
+            raise ValueError("refinement_path_correction_order_invalid")
+        _record_state_ref(current, target, source_bytes,
+                          next_action="register_refinement_candidate")
+        current = ResearchProject.open(current.root)
+    session = _deliberation_status(current)
+    existing = _read_registered_record(current, target)
+    if existing is not None:
+        if existing[1] != source_bytes:
+            raise ValueError("refinement_path_correction_conflict")
+        return session
+    if session.phase != "awaiting_candidate":
+        raise ValueError("refinement_path_correction_order_invalid")
+    _write_registered_record(
+        current, target, source_bytes,
+        next_action="register_refinement_candidate",
+        conflict="refinement_path_correction_conflict",
+    )
+    return _deliberation_status(ResearchProject.open(current.root))
+
+
+def _deliberation_status(
+    project: ResearchProject, *, pending_correction_path: str | None = None
+) -> RefinementSessionStatus:
     session = _load_prepared_refinement_session(project)
     current = ResearchProject.open_readonly(project.root)
     baseline = _baseline(current)
@@ -2228,6 +2347,8 @@ def _deliberation_status(project: ResearchProject) -> RefinementSessionStatus:
         vacant_roles=vacancies,
     )
     decision_status = _decision_status(session, council.decision)
+    if pending_correction_path != str(Path(decision_path).with_name("path_correction.json")):
+        _path_correction(current, session, decision_path)
     if council.decision in {"refine", "request_discriminating_run"}:
         decision_sha256 = _sha256(decision[1])
         matching_candidates = tuple(
@@ -3210,7 +3331,10 @@ def _parse_candidate_manifest(
     str,
 ]:
     if (
-        set(manifest) != _CANDIDATE_MANIFEST_FIELDS
+        set(manifest) not in (
+            _CANDIDATE_MANIFEST_FIELDS,
+            _CANDIDATE_MANIFEST_FIELDS | {"path_correction"},
+        )
         or manifest.get("schema_version") != _SCHEMA_VERSION
         or isinstance(manifest.get("schema_version"), bool)
         or manifest.get("project_id") != project.state.project_id
@@ -3252,6 +3376,13 @@ def _parse_candidate_manifest(
     if producer in vote_producers:
         raise ValueError("refinement_candidate_producer_invalid")
     change_request = decision_record[0].get("change_request")
+    correction = _path_correction(project, session, decision_path)
+    if correction is not None:
+        change_request, correction_ref = correction
+        if manifest.get("path_correction") != _artifact_payload(correction_ref):
+            raise ValueError("refinement_candidate_binding_invalid")
+    elif "path_correction" in manifest:
+        raise ValueError("refinement_candidate_binding_invalid")
     if manifest.get("change_request") != change_request:
         raise ValueError("refinement_candidate_binding_invalid")
 

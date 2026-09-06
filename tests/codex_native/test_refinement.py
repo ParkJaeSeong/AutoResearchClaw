@@ -1276,6 +1276,147 @@ def test_candidate_must_bind_council_change_request(tmp_path):
         refinement.register_refinement_candidate(project, manifest)
 
 
+def correction_fixture(tmp_path):
+    project = prepared_refinement_project(tmp_path / "project")
+    register_all_assessments(project)
+    register_refinement_rebuttals(project, write_valid_rebuttals(project))
+    decision = valid_decision_record(project)
+    corrected = json.loads(json.dumps(decision["change_request"]))
+    extra = "refinement/candidates/candidate-001/config/config.json"
+    decision["change_request"]["paths"].append(extra)
+    register_refinement_decision(project, write_record(project, "submissions/decision.json", decision))
+    project = ResearchProject.open(project.root)
+    target = "refinement/deliberations/round-001/decision.json"
+    payload = {
+        "schema_version": 1,
+        "project_id": project.state.project_id,
+        "session_id": load_refinement_session(project).session_id,
+        "decision": refinement._artifact_payload(project.state.artifacts[target]),
+        "change_request": corrected,
+        "confirmations": [
+            {"role": role, "producer": f"{role}-agent", "change_request": corrected,
+             "rationale": ["Remove unchanged config; scientific decision is unchanged."]}
+            for role in ("domain", "methodology")
+        ],
+    }
+    return project, payload
+
+
+def test_correction_preserves_decision_and_unblocks_candidate(tmp_path):
+    project, payload = correction_fixture(tmp_path)
+    original = (project.root / payload["decision"]["path"]).read_bytes()
+    path = write_record(project, "submissions/correction.json", payload)
+    status = refinement.register_refinement_path_correction(project, path)
+    assert status.phase == "awaiting_candidate"
+    assert (project.root / payload["decision"]["path"]).read_bytes() == original
+    correction_path = "refinement/deliberations/round-001/path_correction.json"
+    reopened = ResearchProject.open(project.root)
+    before = reopened.state
+    refinement.register_refinement_path_correction(reopened, path)
+    assert ResearchProject.open(project.root).state == before
+    manifest = write_refinement_candidate(reopened)
+    _rewrite_candidate_manifest(manifest, lambda value: value.update(
+        change_request=payload["change_request"],
+        path_correction=refinement._artifact_payload(reopened.state.artifacts[correction_path]),
+    ))
+    registered = refinement.register_refinement_candidate(reopened, manifest)
+    assert registered.next_action == "prepare_refinement_self_test"
+    assert load_refinement_session(ResearchProject.open(project.root)).phase == "awaiting_self_test"
+    (project.root / correction_path).write_text("{}")
+    with pytest.raises(ValueError):
+        load_refinement_session(ResearchProject.open(project.root))
+
+
+@pytest.mark.parametrize("mutation", ["expand", "missing_vote", "producer", "hash", "empty", "extra_field"])
+def test_invalid_path_correction_does_not_mutate_state(tmp_path, mutation):
+    project, payload = correction_fixture(tmp_path)
+    if mutation == "expand":
+        payload["change_request"]["paths"].append("refinement/candidates/candidate-001/code/new.py")
+    elif mutation == "missing_vote":
+        payload["confirmations"].pop()
+    elif mutation == "producer":
+        payload["confirmations"][0]["producer"] = "coordinator-agent"
+    elif mutation == "hash":
+        payload["decision"]["sha256"] = "0" * 64
+    elif mutation == "empty":
+        payload["change_request"]["paths"].clear()
+    else:
+        payload["action"] = "retain_baseline"
+    before = ResearchProject.open(project.root).state
+    path = write_record(project, "submissions/correction.json", payload)
+    with pytest.raises(ValueError, match="refinement_path_correction"):
+        refinement.register_refinement_path_correction(project, path)
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_correction_requires_candidate_binding_and_rejects_replacement(tmp_path):
+    project, payload = correction_fixture(tmp_path)
+    path = write_record(project, "submissions/correction.json", payload)
+    refinement.register_refinement_path_correction(project, path)
+    project = ResearchProject.open(project.root)
+    manifest = write_refinement_candidate(project)
+    _rewrite_candidate_manifest(manifest, lambda value: value.update(change_request=payload["change_request"]))
+    with pytest.raises(ValueError, match="refinement_candidate_binding_invalid"):
+        refinement.register_refinement_candidate(project, manifest)
+    payload["confirmations"][0]["rationale"] = ["Replacement record"]
+    path = write_record(project, "submissions/replacement.json", payload)
+    with pytest.raises(ValueError, match="refinement_path_correction_conflict"):
+        refinement.register_refinement_path_correction(project, path)
+
+
+def test_first_correction_is_forbidden_after_candidate_registration(tmp_path):
+    project = refinement_project_with_refine_decision(tmp_path / "project")
+    refinement.register_refinement_candidate(project, write_refinement_candidate(project))
+    project = ResearchProject.open(project.root)
+    target = "refinement/deliberations/round-001/decision.json"
+    decision = json.loads((project.root / target).read_text())
+    narrowed = {"paths": decision["change_request"]["paths"][:-1]}
+    payload = {
+        "schema_version": 1, "project_id": project.state.project_id,
+        "session_id": load_refinement_session(project).session_id,
+        "decision": refinement._artifact_payload(project.state.artifacts[target]),
+        "change_request": narrowed,
+        "confirmations": [
+            {"role": role, "producer": f"{role}-agent", "change_request": narrowed,
+             "rationale": ["Late correction must not affect registered evidence."]}
+            for role in ("domain", "methodology")
+        ],
+    }
+    before = project.state
+    with pytest.raises(ValueError, match="refinement_path_correction_order_invalid"):
+        refinement.register_refinement_path_correction(project, write_record(project, "submissions/late.json", payload))
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_cli_registers_path_correction(tmp_path, capsys):
+    from researchclaw.codex.cli import main
+
+    project, payload = correction_fixture(tmp_path)
+    write_record(project, "submissions/correction.json", payload)
+    assert main(["refinement", "register-path-correction", str(project.root),
+                 "--correction", "submissions/correction.json", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["phase"] == "awaiting_candidate"
+
+
+def test_path_correction_exact_replay_recovers_interrupted_publication(tmp_path, monkeypatch):
+    project, payload = correction_fixture(tmp_path)
+    path = write_record(project, "submissions/correction.json", payload)
+    original = refinement._record_state_ref
+    def interrupt(*args, **kwargs):
+        raise RuntimeError("interrupted after file publication")
+    monkeypatch.setattr(refinement, "_record_state_ref", interrupt)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        refinement.register_refinement_path_correction(project, path)
+    monkeypatch.setattr(refinement, "_record_state_ref", original)
+    before = ResearchProject.open(project.root).state
+    altered = json.loads(json.dumps(payload))
+    altered["confirmations"][0]["rationale"] = ["Not the same submission"]
+    with pytest.raises(ValueError):
+        refinement.register_refinement_path_correction(project, write_record(project, "submissions/other.json", altered))
+    assert ResearchProject.open(project.root).state == before
+    assert refinement.register_refinement_path_correction(project, path).phase == "awaiting_candidate"
+
+
 def test_candidate_cannot_bind_outside_candidate_root(tmp_path):
     project = refinement_project_with_refine_decision(tmp_path / "project")
     manifest = write_refinement_candidate(

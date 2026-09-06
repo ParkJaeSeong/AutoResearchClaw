@@ -32,6 +32,8 @@ from .refinement import (
     _canonical_json,
     _created_at,
     _load_prepared_refinement_session,
+    _read_registered_record,
+    _write_registered_record,
     _registered_candidate_statuses,
     _require_closed_candidate_tree,
     _reject_duplicate_keys,
@@ -51,6 +53,7 @@ from .research_execution import (
 REFINEMENT_SELF_TEST_REGISTRATION_ROOT = ".researchclaw/refinement-self-tests"
 REFINEMENT_RUN_REGISTRATION_ROOT = ".researchclaw/refinement-runs"
 REFINEMENT_EVIDENCE_MANIFEST_ROOT = ".researchclaw/evidence/refinement-manifests"
+_TIME_EXTENSION_PATH = "refinement/time_extension.json"
 _REPORT_LOCAL_PATH = "package_metadata/self_test_report.json"
 _CONTRACT_LOCAL_PATH = "package_metadata/package_contract.json"
 _MANIFEST_LOCAL_PATH = "package_metadata/package_manifest.json"
@@ -439,8 +442,9 @@ def _hold_candidate_context(
     manifest = _parse_held_json(
         manifest_bytes, error="refinement_candidate_binding_invalid"
     )
-    if manifest_bytes != _canonical_json(manifest):
-        raise ValueError("refinement_candidate_binding_invalid")
+    # Registration binds the original bytes, not a particular JSON layout.
+    # _secure_snapshot above checks that exact identity; parsing still rejects
+    # duplicate keys. Never rewrite a registered manifest to normalize it.
     try:
         council_decision = _artifact(manifest.get("decision"))
         baseline_manifest = _artifact(manifest.get("baseline_manifest"))
@@ -3046,6 +3050,17 @@ def _authoritative_run_wall_seconds(
     session_deadline = _reservation_time(envelope.get("session_deadline"))
     if observed_at < reservation_created_at:
         raise ValueError("refinement_run_reservation_invalid")
+    if "registration_window_seconds" in envelope or "registration_deadline" in envelope:
+        registration_deadline = _reservation_time(envelope.get("registration_deadline"))
+        if (not isinstance(envelope.get("registration_window_seconds"), int)
+                or envelope.get("registration_window_seconds") != 3600
+                or registration_deadline != reservation_created_at + timedelta(hours=1)):
+            raise ValueError("refinement_run_reservation_invalid")
+        if observed_at >= registration_deadline:
+            raise ValueError("refinement_run_wall_time_exhausted")
+        # Charge the complete reserved compute allowance, not human review time
+        # or an untrusted elapsed-time claim. Runtime validation remains separate.
+        return float(reserved_maximum)
     if (
         observed_at
         >= reservation_created_at + timedelta(seconds=reserved_maximum)
@@ -3397,6 +3412,106 @@ def _current_session_payload(project: ResearchProject) -> dict[str, object]:
     return payload
 
 
+def _validate_time_extension(project, session_payload, payload):
+    error = "refinement_time_extension_invalid"
+    session_ref = project.state.artifacts.get(SESSION_PATH)
+    original_deadline = _reservation_time(session_payload.get("created_at")) + timedelta(
+        seconds=session_payload["envelope"]["maximum_wall_seconds"]
+    )
+    if (
+        set(payload) != {"schema_version", "project_id", "session_id", "session",
+                        "candidate_manifest", "confirmed_by", "created_at",
+                        "previous_deadline", "deadline", "extension_seconds"}
+        or payload.get("schema_version") != 1
+        or isinstance(payload.get("schema_version"), bool)
+        or payload.get("project_id") != project.state.project_id
+        or payload.get("session_id") != session_payload["session_id"]
+        or session_ref is None
+        or payload.get("session") != _artifact_payload(session_ref)
+        or payload.get("confirmed_by") != "user"
+        or payload.get("extension_seconds") != 3600
+        or payload.get("previous_deadline") != original_deadline.isoformat()
+    ):
+        raise ValueError(error)
+    candidate_ref = _artifact(payload.get("candidate_manifest"))
+    if project.state.artifacts.get(candidate_ref.path) != candidate_ref:
+        raise ValueError(error)
+    created_at = _reservation_time(payload.get("created_at"))
+    deadline = _reservation_time(payload.get("deadline"))
+    if created_at < original_deadline or deadline != created_at + timedelta(hours=1):
+        raise ValueError(error)
+    return deadline
+
+
+def _session_run_deadline(project, session_payload):
+    record = _read_registered_record(project, _TIME_EXTENSION_PATH)
+    if record is None:
+        return (_reservation_time(session_payload.get("created_at")) + timedelta(
+            seconds=session_payload["envelope"]["maximum_wall_seconds"]
+        ), None)
+    deadline = _validate_time_extension(project, session_payload, record[0])
+    return deadline, project.state.artifacts[_TIME_EXTENSION_PATH]
+
+
+@project_mutation
+def extend_refinement_run_window(
+    project: ResearchProject, candidate_id: str, *, confirmed: bool = False
+) -> dict[str, object]:
+    """One user-confirmed hour to start an unreserved run; no budget reset."""
+    if confirmed is not True:
+        raise ValueError("refinement_time_extension_confirmation_required")
+    current = ResearchProject.open(project.root)
+    session_payload = _current_session_payload(current)
+    candidate = revalidate_refinement_candidate(current, candidate_id)
+    candidate_ref = current.state.artifacts[candidate.manifest_path]
+    target = current.root / _TIME_EXTENSION_PATH
+    if os.path.lexists(target):
+        _, raw = _secure_snapshot(current.root, _TIME_EXTENSION_PATH,
+                                  maximum_bytes=_MAX_JSON_BYTES, read_payload=True,
+                                  error_code="refinement_time_extension_invalid")
+        payload = _parse_held_json(raw, error="refinement_time_extension_invalid")
+        _validate_time_extension(current, session_payload, payload)
+        if payload["candidate_manifest"] != _artifact_payload(candidate_ref):
+            raise ValueError("refinement_time_extension_invalid")
+        if _TIME_EXTENSION_PATH in current.state.artifacts:
+            _read_registered_record(current, _TIME_EXTENSION_PATH)
+            return {"path": _TIME_EXTENSION_PATH, **payload}
+        # An interrupted publication can only adopt its existing validated bytes.
+    else:
+        if _TIME_EXTENSION_PATH in current.state.artifacts:
+            raise ValueError("refinement_time_extension_invalid")
+        raw = None
+        payload = None
+    if (current.state.next_action != "prepare_refinement_run"
+            or _run_inventory(current, str(session_payload["session_id"]))):
+        raise ValueError("refinement_time_extension_unavailable")
+    _revalidate_registered_self_test_semantics(current, candidate)
+    original_deadline = _reservation_time(session_payload.get("created_at")) + timedelta(
+        seconds=session_payload["envelope"]["maximum_wall_seconds"]
+    )
+    now = _utc_now()
+    if now < original_deadline:
+        raise ValueError("refinement_time_extension_unavailable")
+    if payload is not None and _reservation_time(payload["created_at"]) > now:
+        raise ValueError("refinement_time_extension_invalid")
+    if payload is None:
+        payload = {
+            "schema_version": 1, "project_id": current.state.project_id,
+            "session_id": session_payload["session_id"],
+            "session": _artifact_payload(current.state.artifacts[SESSION_PATH]),
+            "candidate_manifest": _artifact_payload(candidate_ref),
+            "confirmed_by": "user", "created_at": now.isoformat(),
+            "previous_deadline": original_deadline.isoformat(),
+            "deadline": (now + timedelta(hours=1)).isoformat(),
+            "extension_seconds": 3600,
+        }
+        raw = _canonical_json(payload)
+    _write_registered_record(current, _TIME_EXTENSION_PATH, raw,
+                             next_action="prepare_refinement_run",
+                             conflict="refinement_time_extension_conflict")
+    return {"path": _TIME_EXTENSION_PATH, **payload}
+
+
 def _run_authority_payload(
     project: ResearchProject,
     candidate: CandidateStatus,
@@ -3410,7 +3525,21 @@ def _run_authority_payload(
     runs_reserved_before: int,
     wall_seconds_used_before: float,
     reservation_time: datetime | None,
+    review_window_seconds: int = 0,
 ) -> dict[str, object]:
+    # Replaying historical reservations must retain their original policy.
+    intent_path = _run_intent_path(str(session_payload["session_id"]), run_id)
+    if os.path.lexists(project.root / intent_path):
+        intent, _, _ = _read_run_payload(project, intent_path,
+                                         error_code="refinement_run_reservation_invalid")
+        stored_envelope = intent.get("envelope")
+        if not isinstance(stored_envelope, Mapping):
+            raise ValueError("refinement_run_reservation_invalid")
+        review_window_seconds = stored_envelope.get("registration_window_seconds", 0)
+    if (not isinstance(review_window_seconds, int)
+            or isinstance(review_window_seconds, bool)
+            or review_window_seconds not in (0, 3600)):
+        raise ValueError("refinement_run_reservation_invalid")
     baseline = _baseline(project)
     envelope = session_payload.get("envelope")
     if not isinstance(envelope, Mapping):
@@ -3429,10 +3558,7 @@ def _run_authority_payload(
         or not isinstance(allowed_change_roots, list)
     ):
         raise ValueError("refinement_run_reservation_invalid")
-    session_created_at = datetime.fromisoformat(
-        _created_at(session_payload.get("created_at"))
-    )
-    deadline = session_created_at + timedelta(seconds=maximum_wall_seconds)
+    deadline, extension_ref = _session_run_deadline(project, session_payload)
     remaining = maximum_wall_seconds - wall_seconds_used_before
     if runs_reserved_before >= maximum_runs:
         raise ValueError("refinement_run_budget_exhausted")
@@ -3513,6 +3639,7 @@ def _run_authority_payload(
         context.evidence_packet,
         context.baseline_manifest,
         baseline_result,
+        *((extension_ref,) if extension_ref is not None else ()),
         *(ArtifactRef(str(item["path"]), str(item["sha256"]), int(item["size"])) for item in input_items),
     ):
         prior = identity_references.get(reference.path)
@@ -3597,6 +3724,11 @@ def _run_authority_payload(
             "deadline_seconds_remaining": deadline_seconds_remaining,
             "reserved_maximum_seconds": reserved_maximum,
             "session_deadline": deadline.isoformat(),
+            **({"registration_window_seconds": 3600,
+                "registration_deadline": (effective_reservation_time + timedelta(hours=1)).isoformat()}
+               if review_window_seconds else {}),
+            **({"time_extension": _artifact_payload(extension_ref)}
+               if extension_ref is not None else {}),
         },
     }
 
@@ -3760,7 +3892,7 @@ def _after_refinement_run_contract_write() -> None:
 
 @project_mutation
 def prepare_refinement_run(
-    project: ResearchProject, candidate_id: str
+    project: ResearchProject, candidate_id: str, *, review_window_seconds: int = 0
 ) -> RefinementRunStatus:
     """Reserve one bounded candidate run and return its command without executing it."""
     current = ResearchProject.open(project.root)
@@ -3798,9 +3930,7 @@ def prepare_refinement_run(
             or completed_wall_seconds >= maximum_wall_seconds
         ):
             raise ValueError("refinement_run_wall_time_exhausted")
-        session_deadline = _reservation_time(session_payload.get("created_at")) + (
-            timedelta(seconds=maximum_wall_seconds)
-        )
+        session_deadline, _ = _session_run_deadline(current, session_payload)
         if _utc_now() >= session_deadline:
             raise ValueError("refinement_run_wall_time_exhausted")
     if current.state.next_action not in {
@@ -3855,6 +3985,7 @@ def prepare_refinement_run(
         ),
         wall_seconds_used_before=wall_seconds_used,
         reservation_time=reservation_time,
+        review_window_seconds=review_window_seconds,
     )
     intent_reference = current.state.artifacts.get(intent_path)
     contract_reference = current.state.artifacts.get(contract_path)

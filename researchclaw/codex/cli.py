@@ -49,9 +49,11 @@ from researchclaw.core.refinement import (
     register_refinement_assessment,
     register_refinement_candidate,
     register_refinement_decision,
+    register_refinement_path_correction,
     register_refinement_rebuttals,
 )
 from researchclaw.core.refinement_execution import (
+    extend_refinement_run_window,
     prepare_refinement_run,
     prepare_refinement_self_test,
     register_refinement_result,
@@ -328,6 +330,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--decision", required=True, metavar="PROJECT_RELATIVE_PATH"
     )
     register_decision.add_argument("--json", action="store_true", help="emit JSON")
+    correct_paths = refinement_commands.add_parser(
+        "register-path-correction", help="register council-confirmed path-only narrowing"
+    )
+    correct_paths.add_argument("root", metavar="PROJECT")
+    correct_paths.add_argument("--correction", required=True, metavar="PROJECT_RELATIVE_PATH")
+    correct_paths.add_argument("--json", action="store_true", help="emit JSON")
     register_candidate = refinement_commands.add_parser(
         "register-candidate", help="register one decision-bound candidate package"
     )
@@ -336,6 +344,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--manifest", required=True, metavar="PROJECT_RELATIVE_PATH"
     )
     register_candidate.add_argument("--json", action="store_true", help="emit JSON")
+    extend_window = refinement_commands.add_parser(
+        "extend-run-window", help="grant one user-confirmed hour before any run reservation"
+    )
+    extend_window.add_argument("root", metavar="PROJECT")
+    extend_window.add_argument("--candidate-id", required=True)
+    extend_window.add_argument("--confirm-time-extension", action="store_true")
+    extend_window.add_argument("--json", action="store_true")
     prepare_self_test = refinement_commands.add_parser(
         "prepare-self-test", help="prepare one externally run candidate self-test"
     )
@@ -535,10 +550,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             project = ResearchProject.open(args.root)
             resolve_project_artifact(project.root, args.decision)
             payload = _refinement_payload(register_refinement_decision(project, args.decision))
+        elif args.command == "refinement" and args.refinement_command == "register-path-correction":
+            project = ResearchProject.open(args.root)
+            resolve_project_artifact(project.root, args.correction)
+            payload = _refinement_payload(register_refinement_path_correction(project, args.correction))
         elif args.command == "refinement" and args.refinement_command == "register-candidate":
             project = ResearchProject.open(args.root)
             resolve_project_artifact(project.root, args.manifest)
             payload = _refinement_payload(register_refinement_candidate(project, args.manifest))
+        elif args.command == "refinement" and args.refinement_command == "extend-run-window":
+            if not args.confirm_time_extension:
+                raise ValueError("refinement_time_extension_confirmation_required")
+            project = ResearchProject.open(args.root)
+            payload = extend_refinement_run_window(project, args.candidate_id, confirmed=True)
         elif args.command == "refinement" and args.refinement_command == "prepare-self-test":
             project = ResearchProject.open(args.root)
             payload = _refinement_payload(
@@ -554,7 +578,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "refinement" and args.refinement_command == "prepare-run":
             project = ResearchProject.open(args.root)
-            payload = _refinement_payload(prepare_refinement_run(project, args.candidate_id))
+            payload = _refinement_payload(
+                prepare_refinement_run(project, args.candidate_id, review_window_seconds=3600)
+            )
         elif args.command == "refinement" and args.refinement_command == "register-result":
             if not args.confirm_refinement_result:
                 raise ValueError("refinement_result_confirmation_required")

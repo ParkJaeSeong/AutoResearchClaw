@@ -685,6 +685,129 @@ def test_refinement_run_reservation_is_capped_by_actual_session_deadline(
     assert registered.wall_seconds_used == 0.0
 
 
+def test_extend_expired_window_preserves_budget_and_is_one_shot(tmp_path, monkeypatch):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    original = (project.root / "refinement/session.json").read_bytes()
+    session = json.loads(original)
+    now = refinement_execution.datetime.fromisoformat(session["created_at"]) + refinement_execution.timedelta(hours=2)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now)
+    with pytest.raises(ValueError, match="confirmation_required"):
+        refinement_execution.extend_refinement_run_window(project, candidate.candidate_id)
+    renewed = refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+    assert renewed["deadline"] == (now + refinement_execution.timedelta(hours=1)).isoformat()
+    assert (project.root / "refinement/session.json").read_bytes() == original
+    assert refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True) == renewed
+    prepared = prepare_refinement_run(ResearchProject.open(project.root), candidate.candidate_id)
+    contract = json.loads((project.root / prepared.contract_path).read_bytes())
+    assert contract["envelope"]["maximum_runs"] == session["envelope"]["maximum_runs"]
+    assert contract["envelope"]["maximum_candidate_seconds"] == session["envelope"]["maximum_candidate_seconds"]
+    assert contract["envelope"]["session_deadline"] == renewed["deadline"]
+    assert "time_extension" in contract["envelope"]
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now + refinement_execution.timedelta(hours=2))
+    assert refinement_execution.extend_refinement_run_window(ResearchProject.open(project.root), candidate.candidate_id, confirmed=True) == renewed
+    replay = prepare_refinement_run(ResearchProject.open(project.root), candidate.candidate_id)
+    assert replay.contract_sha256 == prepared.contract_sha256
+    result = write_refinement_result(project, prepared)
+    with pytest.raises(ValueError, match="wall_time_exhausted"):
+        register_refinement_result(ResearchProject.open(project.root), candidate.candidate_id,
+                                   result.relative_to(project.root))
+
+
+def test_extension_rejects_unexpired_session_and_tampering(tmp_path, monkeypatch):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    with pytest.raises(ValueError, match="extension_unavailable"):
+        refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+    session = json.loads((project.root / "refinement/session.json").read_bytes())
+    now = refinement_execution.datetime.fromisoformat(session["created_at"]) + refinement_execution.timedelta(hours=2)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now)
+    renewed = refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+    (project.root / renewed["path"]).write_text("{}")
+    with pytest.raises(ValueError):
+        prepare_refinement_run(ResearchProject.open(project.root), candidate.candidate_id)
+
+
+@pytest.mark.parametrize("future_orphan", [False, True])
+def test_extension_recovers_interrupted_write_without_new_deadline(tmp_path, monkeypatch, future_orphan):
+    import researchclaw.core.refinement as refinement
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    session = json.loads((project.root / "refinement/session.json").read_bytes())
+    now = refinement_execution.datetime.fromisoformat(session["created_at"]) + refinement_execution.timedelta(hours=2)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now)
+    original = refinement._record_state_ref
+    def interrupt(*args, **kwargs):
+        raise RuntimeError("interrupted")
+    monkeypatch.setattr(refinement, "_record_state_ref", interrupt)
+    with pytest.raises(RuntimeError):
+        refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+    target = project.root / "refinement/time_extension.json"
+    raw = target.read_bytes()
+    monkeypatch.setattr(refinement, "_record_state_ref", original)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now + refinement_execution.timedelta(seconds=10))
+    if future_orphan:
+        payload = json.loads(raw)
+        payload["created_at"] = (now + refinement_execution.timedelta(days=30)).isoformat()
+        payload["deadline"] = (now + refinement_execution.timedelta(days=30, hours=1)).isoformat()
+        target.write_text(json.dumps(payload))
+        before = ResearchProject.open(project.root).state
+        with pytest.raises(ValueError, match="time_extension_invalid"):
+            refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+        assert ResearchProject.open(project.root).state == before
+        return
+    recovered = refinement_execution.extend_refinement_run_window(project, candidate.candidate_id, confirmed=True)
+    assert target.read_bytes() == raw
+    assert recovered["deadline"] == json.loads(raw)["deadline"]
+    target.unlink()
+    before = ResearchProject.open(project.root).state
+    with pytest.raises(ValueError):
+        refinement_execution.extend_refinement_run_window(ResearchProject.open(project.root), candidate.candidate_id, confirmed=True)
+    assert not target.exists()
+    assert ResearchProject.open(project.root).state == before
+
+
+def test_extension_never_reopens_a_reserved_run(tmp_path, monkeypatch):
+    project, candidate = self_tested_candidate_project(tmp_path / "project")
+    prepare_refinement_run(project, candidate.candidate_id)
+    session = json.loads((project.root / "refinement/session.json").read_bytes())
+    now = refinement_execution.datetime.fromisoformat(session["created_at"]) + refinement_execution.timedelta(hours=2)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now)
+    with pytest.raises(ValueError, match="extension_unavailable"):
+        refinement_execution.extend_refinement_run_window(ResearchProject.open(project.root), candidate.candidate_id, confirmed=True)
+
+
+@pytest.mark.parametrize("wait_seconds,valid", [(90, True), (3601, False)])
+def test_review_wait_is_separate_from_algorithm_budget(tmp_path, monkeypatch, wait_seconds, valid):
+    project, candidate = self_tested_candidate_project_with_envelope(
+        tmp_path / "project", maximum_runs=2, maximum_wall_seconds=120,
+        maximum_candidate_seconds=1,
+    )
+    now = refinement_execution._utc_now()
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now)
+    preparation = prepare_refinement_run(project, candidate.candidate_id, review_window_seconds=3600)
+    contract = json.loads((project.root / preparation.contract_path).read_bytes())
+    assert contract["envelope"]["reserved_maximum_seconds"] == 1
+    assert contract["envelope"]["registration_deadline"] == (now + refinement_execution.timedelta(hours=1)).isoformat()
+    result = write_refinement_result(project, preparation, elapsed_seconds=0.001)
+    monkeypatch.setattr(refinement_execution, "_utc_now", lambda: now + refinement_execution.timedelta(seconds=wait_seconds))
+    if valid:
+        registered = register_refinement_result(ResearchProject.open(project.root), candidate.candidate_id, result.relative_to(project.root))
+        assert registered.wall_seconds_used == 1  # reserve budget, never charge human wait
+        assert load_refinement_session(ResearchProject.open(project.root)).runs_used == 1
+    else:
+        with pytest.raises(ValueError, match="wall_time_exhausted"):
+            register_refinement_result(ResearchProject.open(project.root), candidate.candidate_id, result.relative_to(project.root))
+
+
+def test_review_window_does_not_relax_algorithm_limit(tmp_path):
+    project, candidate = self_tested_candidate_project_with_envelope(
+        tmp_path / "project", maximum_runs=2, maximum_wall_seconds=120,
+        maximum_candidate_seconds=1,
+    )
+    preparation = prepare_refinement_run(project, candidate.candidate_id, review_window_seconds=3600)
+    result = write_refinement_result(project, preparation, elapsed_seconds=2)
+    with pytest.raises(ValueError, match="runtime_invalid"):
+        register_refinement_result(ResearchProject.open(project.root), candidate.candidate_id, result.relative_to(project.root))
+
+
 @pytest.mark.parametrize("deadline_kind", ["reservation", "session"])
 def test_register_refinement_result_rejects_late_authoritative_boundary(
     tmp_path, monkeypatch, deadline_kind
