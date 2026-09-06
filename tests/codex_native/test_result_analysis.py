@@ -260,6 +260,45 @@ def test_analysis_review_registration_rejects_changed_packet(tmp_path):
         )
 
 
+def test_analysis_review_recovers_exact_orphan_and_preserves_conflict_bytes(
+    tmp_path, monkeypatch
+):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    submission = _write_analysis_submission(
+        project, "interrupted-domain.json", _valid_analysis_review(project, "domain")
+    )
+    target = project.root / "analysis/reviews/domain.json"
+    original = ResearchProject.persist_state
+    interrupted = False
+
+    def fail_review_save_once(self, state):
+        nonlocal interrupted
+        if "analysis/reviews/domain.json" in state.artifacts and not interrupted:
+            interrupted = True
+            raise OSError("simulated review state interruption")
+        return original(self, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", fail_review_save_once)
+    with pytest.raises(OSError, match="review state interruption"):
+        result_analysis.register_analysis_review(project, submission)
+    orphan_bytes = target.read_bytes()
+    monkeypatch.setattr(ResearchProject, "persist_state", original)
+    conflicting = json.loads(submission.read_text(encoding="utf-8"))
+    conflicting["claims"][0]["text"] = "Conflicting replacement claim."
+
+    with pytest.raises(ValueError, match="analysis_review_conflict"):
+        result_analysis.register_analysis_review(
+            project,
+            _write_analysis_submission(project, "conflicting-domain.json", conflicting),
+        )
+    assert target.read_bytes() == orphan_bytes
+
+    status = result_analysis.register_analysis_review(project, submission)
+    assert status["registered_roles"] == ["domain"]
+    assert target.read_bytes() == orphan_bytes
+
+
 def test_analysis_rebuttals_require_all_roles_and_bind_actual_producers(tmp_path):
     project = _finalized_project(tmp_path / "project")
     prepare_analysis(project)
@@ -290,6 +329,48 @@ def test_analysis_rebuttals_require_all_roles_and_bind_actual_producers(tmp_path
             project,
             _write_analysis_submission(project, "analysis-rebuttals-wrong.json", wrong),
         )
+
+
+def test_analysis_rebuttals_recovers_exact_orphan_and_preserves_conflict_bytes(
+    tmp_path, monkeypatch
+):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    submission = _write_analysis_submission(
+        project, "interrupted-rebuttals.json", _valid_analysis_rebuttals(project)
+    )
+    target = project.root / "analysis/rebuttals.json"
+    original = ResearchProject.persist_state
+    interrupted = False
+
+    def fail_rebuttal_save_once(self, state):
+        nonlocal interrupted
+        if "analysis/rebuttals.json" in state.artifacts and not interrupted:
+            interrupted = True
+            raise OSError("simulated rebuttal state interruption")
+        return original(self, state)
+
+    monkeypatch.setattr(ResearchProject, "persist_state", fail_rebuttal_save_once)
+    with pytest.raises(OSError, match="rebuttal state interruption"):
+        result_analysis.register_analysis_rebuttals(project, submission)
+    orphan_bytes = target.read_bytes()
+    monkeypatch.setattr(ResearchProject, "persist_state", original)
+    conflicting = _valid_analysis_rebuttals(project)
+    conflicting["responses"][0]["responses"] = ["Conflicting replacement response."]
+
+    with pytest.raises(ValueError, match="analysis_rebuttal_conflict"):
+        result_analysis.register_analysis_rebuttals(
+            project,
+            _write_analysis_submission(
+                project, "conflicting-rebuttals.json", conflicting
+            ),
+        )
+    assert target.read_bytes() == orphan_bytes
+
+    status = result_analysis.register_analysis_rebuttals(project, submission)
+    assert status["phase"] == "awaiting_synthesis"
+    assert target.read_bytes() == orphan_bytes
 
 
 def test_analysis_result_rejects_early_synthesis_and_metric_mismatch(tmp_path):

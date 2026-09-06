@@ -528,6 +528,21 @@ def _read_record(
     return payload, raw
 
 
+def _read_unregistered_record(
+    project: ResearchProject, path: str, *, conflict: str
+) -> bytes | None:
+    if path in project.state.artifacts:
+        return None
+    destination = resolve_project_artifact(project.root, path)
+    if not os.path.lexists(destination):
+        return None
+    try:
+        _, raw = _read_bounded_json(destination)
+    except ValueError as error:
+        raise ValueError(conflict) from error
+    return raw
+
+
 def _write_record(
     project: ResearchProject, path: str, payload: bytes, *, conflict: str
 ) -> ResearchProject:
@@ -671,11 +686,16 @@ def _review_records(
     project: ResearchProject,
     packet: Mapping[str, object],
     packet_ref: ArtifactRef,
+    *,
+    ignore_unregistered_path: str | None = None,
 ) -> dict[str, tuple[dict[str, object], bytes, str]]:
     records: dict[str, tuple[dict[str, object], bytes, str]] = {}
     producers: set[str] = set()
     for role in _REQUIRED_ROLES:
-        record = _read_record(project, f"analysis/reviews/{role}.json")
+        path = f"analysis/reviews/{role}.json"
+        if path == ignore_unregistered_path and path not in project.state.artifacts:
+            continue
+        record = _read_record(project, path)
         if record is None:
             continue
         parsed_role, producer = _parse_review(
@@ -1056,12 +1076,21 @@ def register_analysis_review(
     current = ResearchProject.open_readonly(project.root)
     packet = _validate_packet(current)
     packet_ref = current.state.artifacts[ANALYSIS_PACKET_PATH]
-    reviews = _review_records(current, packet, packet_ref)
-    rebuttals = _read_record(current, ANALYSIS_REBUTTALS_PATH)
     source, source_bytes = _read_submission(current, submission_path)
     role, producer = _parse_review(
         source, project=current, packet=packet, packet_ref=packet_ref
     )
+    target = f"analysis/reviews/{role}.json"
+    orphan = _read_unregistered_record(
+        current, target, conflict="analysis_review_conflict"
+    )
+    reviews = _review_records(
+        current,
+        packet,
+        packet_ref,
+        ignore_unregistered_path=target if orphan is not None else None,
+    )
+    rebuttals = _read_record(current, ANALYSIS_REBUTTALS_PATH)
     existing = reviews.get(role)
     if existing is not None:
         if source_bytes != existing[1]:
@@ -1071,9 +1100,11 @@ def register_analysis_review(
         raise ValueError("analysis_order_invalid")
     if producer in {value[2] for value in reviews.values()}:
         raise ValueError("analysis_producer_duplicate")
+    if orphan is not None and orphan != source_bytes:
+        raise ValueError("analysis_review_conflict")
     current = _write_record(
         current,
-        f"analysis/reviews/{role}.json",
+        target,
         source_bytes,
         conflict="analysis_review_conflict",
     )
@@ -1091,7 +1122,6 @@ def register_analysis_rebuttals(
     reviews = _review_records(current, packet, packet_ref)
     if set(reviews) != set(_REQUIRED_ROLES):
         raise ValueError("analysis_order_invalid")
-    existing = _registered_rebuttals(current, packet, packet_ref, reviews)
     source, source_bytes = _read_submission(current, submission_path)
     _parse_rebuttals(
         source,
@@ -1099,6 +1129,16 @@ def register_analysis_rebuttals(
         packet=packet,
         packet_ref=packet_ref,
         reviews=reviews,
+    )
+    orphan = _read_unregistered_record(
+        current, ANALYSIS_REBUTTALS_PATH, conflict="analysis_rebuttal_conflict"
+    )
+    if orphan is not None and orphan != source_bytes:
+        raise ValueError("analysis_rebuttal_conflict")
+    existing = (
+        None
+        if orphan is not None
+        else _registered_rebuttals(current, packet, packet_ref, reviews)
     )
     if existing is not None:
         if source_bytes != existing[1]:
