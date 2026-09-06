@@ -441,9 +441,8 @@ def prepare_analysis(project: ResearchProject) -> dict[str, object]:
     packet = _build_packet(current)
     packet_bytes = _canonical_json(packet)
     packet_ref = _packet_reference(packet_bytes)
-    existing_ref = current.state.artifacts.get(ANALYSIS_PACKET_PATH)
-    if existing_ref is None and current.state.current_stage != _STAGE_ID:
-        raise ValueError("analysis_stage_invalid")
+    if current.state.current_stage != _STAGE_ID:
+        return _validate_packet(current)
     destination = resolve_project_artifact(current.root, ANALYSIS_PACKET_PATH)
     try:
         _write_exclusive(destination, packet_bytes)

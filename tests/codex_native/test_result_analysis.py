@@ -732,6 +732,49 @@ def test_analysis_prepare_exact_retry_preserves_packet_and_state(tmp_path):
     assert ResearchProject.open_readonly(project.root).state == first_state
 
 
+def test_analysis_prepare_later_stage_exact_retry_is_verification_only(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    packet = prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    result_analysis.register_analysis_result(
+        project,
+        _write_analysis_submission(
+            project, "completed-analysis.json", _valid_analysis_result(project)
+        ),
+    )
+    packet_path = project.root / result_analysis.ANALYSIS_PACKET_PATH
+    before_packet = packet_path.read_bytes()
+    before_state = (project.root / ".researchclaw/state.json").read_bytes()
+
+    assert prepare_analysis(ResearchProject.open_readonly(project.root)) == packet
+
+    assert packet_path.read_bytes() == before_packet
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before_state
+
+
+def test_analysis_prepare_later_stage_does_not_recreate_missing_packet(tmp_path):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    result_analysis.register_analysis_result(
+        project,
+        _write_analysis_submission(
+            project, "completed-analysis.json", _valid_analysis_result(project)
+        ),
+    )
+    packet_path = project.root / result_analysis.ANALYSIS_PACKET_PATH
+    packet_path.unlink()
+    before_state = (project.root / ".researchclaw/state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="analysis_packet_invalid"):
+        prepare_analysis(ResearchProject.open_readonly(project.root))
+
+    assert not packet_path.exists()
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before_state
+
+
 def test_analysis_prepare_rejects_conflicting_existing_packet(tmp_path):
     project = _finalized_project(tmp_path / "project")
     packet_path = project.root / "analysis/evidence_packet.json"
