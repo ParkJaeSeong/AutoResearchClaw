@@ -68,6 +68,9 @@ from researchclaw.core.result_analysis import (
 )
 from researchclaw.core.research_decision import (
     prepare_research_decision,
+    register_decision_rebuttals,
+    register_decision_result,
+    register_decision_review,
     research_decision_status,
 )
 
@@ -468,6 +471,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     decision_status_parser.add_argument("root", metavar="PROJECT")
     decision_status_parser.add_argument("--json", action="store_true", help="emit JSON")
+    decision_review = decision_commands.add_parser(
+        "register-review", help="register one independent Stage 15 recommendation"
+    )
+    decision_review.add_argument("root", metavar="PROJECT")
+    decision_review.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    decision_review.add_argument("--json", action="store_true", help="emit JSON")
+    decision_rebuttals = decision_commands.add_parser(
+        "register-rebuttals", help="register the Stage 15 response round"
+    )
+    decision_rebuttals.add_argument("root", metavar="PROJECT")
+    decision_rebuttals.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    decision_rebuttals.add_argument("--json", action="store_true", help="emit JSON")
+    decision_result = decision_commands.add_parser(
+        "register-result", help="register and report the Stage 15 decision"
+    )
+    decision_result.add_argument("root", metavar="PROJECT")
+    decision_result.add_argument(
+        "--submission", required=True, metavar="PROJECT_RELATIVE_PATH"
+    )
+    decision_result.add_argument("--json", action="store_true", help="emit JSON")
     return parser
 
 
@@ -693,6 +720,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "decision" and args.decision_command == "status":
             project = ResearchProject.open_readonly(args.root)
             payload = research_decision_status(project)
+        elif args.command == "decision" and args.decision_command == "register-review":
+            project = ResearchProject.open_readonly(args.root)
+            payload = register_decision_review(project, args.submission)
+        elif (
+            args.command == "decision"
+            and args.decision_command == "register-rebuttals"
+        ):
+            project = ResearchProject.open_readonly(args.root)
+            payload = register_decision_rebuttals(project, args.submission)
+        elif args.command == "decision" and args.decision_command == "register-result":
+            project = ResearchProject.open_readonly(args.root)
+            payload = register_decision_result(project, args.submission)
         elif (
             args.command == "evidence"
             and args.evidence_command == "quarantine-operator-cleanup"

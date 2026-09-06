@@ -42,6 +42,9 @@ _NEXT_ACTIONS = frozenset(
         "prepare_refinement_run",
         "register_refinement_result",
         "prepare_refinement_self_test",
+        "unsupported_stage_16",
+        "report_research_follow_up",
+        "request_research_direction",
     }
 )
 _EXECUTION_POLICIES = frozenset({"approval_required"})
