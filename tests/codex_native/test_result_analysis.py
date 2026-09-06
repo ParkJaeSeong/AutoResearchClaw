@@ -344,6 +344,8 @@ def test_analysis_rebuttals_recovers_exact_orphan_and_preserves_conflict_bytes(
     submission = _write_analysis_submission(
         project, "interrupted-rebuttals.json", _valid_analysis_rebuttals(project)
     )
+    conflicting = _valid_analysis_rebuttals(project)
+    conflicting["responses"][0]["responses"] = ["Conflicting replacement response."]
     target = project.root / "analysis/rebuttals.json"
     original = ResearchProject.persist_state
     interrupted = False
@@ -360,8 +362,8 @@ def test_analysis_rebuttals_recovers_exact_orphan_and_preserves_conflict_bytes(
         result_analysis.register_analysis_rebuttals(project, submission)
     orphan_bytes = target.read_bytes()
     monkeypatch.setattr(ResearchProject, "persist_state", original)
-    conflicting = _valid_analysis_rebuttals(project)
-    conflicting["responses"][0]["responses"] = ["Conflicting replacement response."]
+    with pytest.raises(ValueError, match="analysis_integrity_failure"):
+        analysis_status(ResearchProject.open_readonly(project.root))
 
     with pytest.raises(ValueError, match="analysis_rebuttal_conflict"):
         result_analysis.register_analysis_rebuttals(
