@@ -1,0 +1,1073 @@
+[
+  {
+    "schema_version": 1,
+    "stage_id": 1,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge User requirement versus assumption, domain value, objectives and non-goals from the domain perspective",
+        "required_questions": [
+          "Are user requirements separated from assumptions?",
+          "Which domain evidence supports or limits the stage 1 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses user requirement versus assumption, domain value, objectives and non-goals.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of user requirement versus assumption, domain value, objectives and non-goals",
+        "required_questions": [
+          "What feasible success criteria match available resources?",
+          "Which methodological evidence would change the stage 1 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: What feasible success criteria match available resources?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge user requirement versus assumption, domain value, objectives and non-goals for alternatives and reproducibility",
+        "required_questions": [
+          "Which unsupported assumptions or alternative objectives could invalidate the framing?",
+          "What evidence could disconfirm the stage 1 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which unsupported assumptions or alternative objectives could invalidate the framing?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 1 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 1 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 2,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Relationships among research questions and alternative problem decompositions from the domain perspective",
+        "required_questions": [
+          "How do questions relate through a causal structure?",
+          "Which domain evidence supports or limits the stage 2 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses relationships among research questions and alternative problem decompositions.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of relationships among research questions and alternative problem decompositions",
+        "required_questions": [
+          "Would an alternative decomposition expose different dependencies?",
+          "Which methodological evidence would change the stage 2 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Would an alternative decomposition expose different dependencies?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge relationships among research questions and alternative problem decompositions for alternatives and reproducibility",
+        "required_questions": [
+          "Which missing causes or confounding factors undermine the structure?",
+          "What evidence could disconfirm the stage 2 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which missing causes or confounding factors undermine the structure?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 2 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 2 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 3,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Domain terminology, synonyms, and literature discovery coverage from the domain perspective",
+        "required_questions": [
+          "Which domain terms and synonyms belong in the search?",
+          "Which domain evidence supports or limits the stage 3 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses domain terminology, synonyms, and literature discovery coverage.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of domain terminology, synonyms, and literature discovery coverage",
+        "required_questions": [
+          "Is the search query reproducible and is its coverage justified?",
+          "Which methodological evidence would change the stage 3 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Is the search query reproducible and is its coverage justified?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge domain terminology, synonyms, and literature discovery coverage for alternatives and reproducibility",
+        "required_questions": [
+          "Where could search bias or publication bias hide relevant evidence?",
+          "What evidence could disconfirm the stage 3 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Where could search bias or publication bias hide relevant evidence?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 3 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 3 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 4,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "work_and_verify",
+    "roles": [
+      {
+        "role_id": "worker",
+        "responsibility": "Collect sources with verified title, source, identifier, duplicates, and access failures",
+        "required_questions": [
+          "Does each source, title, and identifier match, and are duplicates or access failures recorded?",
+          "What stage 4 evidence and limitations must the handoff preserve?"
+        ],
+        "judgment_criteria": [
+          "Collection is complete enough for handoff and collection is not screening.",
+          "The artifact is traceable to authorized inputs and reports unknowns."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot approve its own artifact or replace independent verification."
+        ]
+      },
+      {
+        "role_id": "verifier",
+        "responsibility": "Independently verify stage 4 work and its traceability",
+        "required_questions": [
+          "Can the worker's stage 4 claims be independently crosschecked?",
+          "Which omissions, mismatches, or unsupported inferences require correction?"
+        ],
+        "judgment_criteria": [
+          "Collection is complete enough for handoff and collection is not screening.",
+          "Verification is independent, evidence-linked, and explicit about unresolved issues."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Must be independent of the worker and cannot approve execution or alter the artifact silently."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 5,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Include and exclude decisions for candidate sources and borderline relevance from the domain perspective",
+        "required_questions": [
+          "Why should each source be included or excluded, especially borderline cases?",
+          "Which domain evidence supports or limits the stage 5 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses include and exclude decisions for candidate sources and borderline relevance.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of include and exclude decisions for candidate sources and borderline relevance",
+        "required_questions": [
+          "Does each study method fit the question under consistent screening criteria?",
+          "Which methodological evidence would change the stage 5 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Does each study method fit the question under consistent screening criteria?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge include and exclude decisions for candidate sources and borderline relevance for alternatives and reproducibility",
+        "required_questions": [
+          "Which disconfirming sources or selection bias remain, while preserving user approval?",
+          "What evidence could disconfirm the stage 5 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which disconfirming sources or selection bias remain, while preserving user approval?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 5 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 5 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 6,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "work_and_verify",
+    "roles": [
+      {
+        "role_id": "worker",
+        "responsibility": "Extract claims, values, conditions, and source locations",
+        "required_questions": [
+          "Are claims, values, conditions, and locations captured from the original source?",
+          "What stage 6 evidence and limitations must the handoff preserve?"
+        ],
+        "judgment_criteria": [
+          "Crosschecks distinguish original observation, author interpretation, and agent inference.",
+          "The artifact is traceable to authorized inputs and reports unknowns."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot approve its own artifact or replace independent verification."
+        ]
+      },
+      {
+        "role_id": "verifier",
+        "responsibility": "Independently verify stage 6 work and its traceability",
+        "required_questions": [
+          "Can the worker's stage 6 claims be independently crosschecked?",
+          "Which omissions, mismatches, or unsupported inferences require correction?"
+        ],
+        "judgment_criteria": [
+          "Crosschecks distinguish original observation, author interpretation, and agent inference.",
+          "Verification is independent, evidence-linked, and explicit about unresolved issues."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Must be independent of the worker and cannot approve execution or alter the artifact silently."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 7,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Evidence agreement, conflict, and gaps across sources from the domain perspective",
+        "required_questions": [
+          "Where do claims agree, conflict, or leave gaps?",
+          "Which domain evidence supports or limits the stage 7 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses evidence agreement, conflict, and gaps across sources.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of evidence agreement, conflict, and gaps across sources",
+        "required_questions": [
+          "Are evidence strength and study conditions comparable?",
+          "Which methodological evidence would change the stage 7 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Are evidence strength and study conditions comparable?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge evidence agreement, conflict, and gaps across sources for alternatives and reproducibility",
+        "required_questions": [
+          "Which competing explanations remain, given that source count does not establish a conclusion?",
+          "What evidence could disconfirm the stage 7 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which competing explanations remain, given that source count does not establish a conclusion?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 7 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 7 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 8,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Candidate hypothesis value and rationale from the domain perspective",
+        "required_questions": [
+          "Why is each candidate valuable in the domain?",
+          "Which domain evidence supports or limits the stage 8 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses candidate hypothesis value and rationale.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of candidate hypothesis value and rationale",
+        "required_questions": [
+          "What falsifiable and discriminating observations separate candidates?",
+          "Which methodological evidence would change the stage 8 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: What falsifiable and discriminating observations separate candidates?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge candidate hypothesis value and rationale for alternatives and reproducibility",
+        "required_questions": [
+          "What rejection conditions and competing hypotheses would overturn selection?",
+          "What evidence could disconfirm the stage 8 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: What rejection conditions and competing hypotheses would overturn selection?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 8 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 8 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 9,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Approved objective, controls, and experiment design from the domain perspective",
+        "required_questions": [
+          "Does the design preserve the approved objective and appropriate controls?",
+          "Which domain evidence supports or limits the stage 9 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses approved objective, controls, and experiment design.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of approved objective, controls, and experiment design",
+        "required_questions": [
+          "Are data splits, leakage risks, metrics, and the analysis plan adequate?",
+          "Which methodological evidence would change the stage 9 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Are data splits, leakage risks, metrics, and the analysis plan adequate?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge approved objective, controls, and experiment design for alternatives and reproducibility",
+        "required_questions": [
+          "What failure criteria, reproducibility limits, budget constraints, or user approvals remain?",
+          "What evidence could disconfirm the stage 9 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: What failure criteria, reproducibility limits, budget constraints, or user approvals remain?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 9 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 9 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 10,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "implementation_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Correspondence between approved design and code from the domain perspective",
+        "required_questions": [
+          "Which approved design requirement authorizes each code edit?",
+          "Which domain evidence supports or limits the stage 10 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses correspondence between approved design and code.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of correspondence between approved design and code",
+        "required_questions": [
+          "Do fit and predict remain isolated, and are metrics implemented as approved?",
+          "Which methodological evidence would change the stage 10 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Do fit and predict remain isolated, and are metrics implemented as approved?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge correspondence between approved design and code for alternatives and reproducibility",
+        "required_questions": [
+          "Why does static validity not establish scientific adequacy?",
+          "What evidence could disconfirm the stage 10 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Why does static validity not establish scientific adequacy?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 10 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 10 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Does not claim consensus when disagreement remains."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      },
+      {
+        "role_id": "implementation",
+        "responsibility": "Implement only authorized stage 10 code changes",
+        "required_questions": [
+          "Which approved design or allowed change authorizes each code edit?",
+          "Which checks demonstrate that the code corresponds to the approved change?"
+        ],
+        "judgment_criteria": [
+          "Every edit maps to an approved design or allowed change and has a correspondence check.",
+          "Implementation reports limitations without self-evaluating scientific adequacy."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot self-evaluate, vote, approve, or perform unapproved execution.",
+          "Must not execute experiments."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 11,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "work_and_verify",
+    "roles": [
+      {
+        "role_id": "worker",
+        "responsibility": "Prepare grounded resource estimates and assess input readiness",
+        "required_questions": [
+          "Are resource estimates grounded and required inputs ready?",
+          "What stage 11 evidence and limitations must the handoff preserve?"
+        ],
+        "judgment_criteria": [
+          "Feasibility and alternatives remain within the approved scope.",
+          "The artifact is traceable to authorized inputs and reports unknowns."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot approve its own artifact or replace independent verification."
+        ]
+      },
+      {
+        "role_id": "verifier",
+        "responsibility": "Independently verify stage 11 work and its traceability",
+        "required_questions": [
+          "Can the worker's stage 11 claims be independently crosschecked?",
+          "Which omissions, mismatches, or unsupported inferences require correction?"
+        ],
+        "judgment_criteria": [
+          "Feasibility and alternatives remain within the approved scope.",
+          "Verification is independent, evidence-linked, and explicit about unresolved issues."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Must be independent of the worker and cannot approve execution or alter the artifact silently."
+        ]
+      }
+    ],
+    "existing_protocol": "single_author_validation"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 12,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "work_and_verify",
+    "roles": [
+      {
+        "role_id": "worker",
+        "responsibility": "Support approved execution and register corresponding results",
+        "required_questions": [
+          "Does the approved execution correspond to the result, including missing or failure records?",
+          "What stage 12 evidence and limitations must the handoff preserve?"
+        ],
+        "judgment_criteria": [
+          "Registration respects the user execution confirmation boundary.",
+          "The artifact is traceable to authorized inputs and reports unknowns."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot approve its own artifact or replace independent verification.",
+          "Execution support cannot replace user execution confirmation."
+        ]
+      },
+      {
+        "role_id": "verifier",
+        "responsibility": "Independently verify stage 12 work and its traceability",
+        "required_questions": [
+          "Can the worker's stage 12 claims be independently crosschecked?",
+          "Which omissions, mismatches, or unsupported inferences require correction?"
+        ],
+        "judgment_criteria": [
+          "Registration respects the user execution confirmation boundary.",
+          "Verification is independent, evidence-linked, and explicit about unresolved issues."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Must be independent of the worker and cannot approve execution or alter the artifact silently.",
+          "Cannot replace user execution confirmation or cross the registration boundary."
+        ]
+      }
+    ],
+    "existing_protocol": "user_execution_handoff"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 13,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "implementation_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Bounded refinement candidates and improvement rationale from the domain perspective",
+        "required_questions": [
+          "Why should each improvement candidate be considered?",
+          "Which domain evidence supports or limits the stage 13 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses bounded refinement candidates and improvement rationale.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of bounded refinement candidates and improvement rationale",
+        "required_questions": [
+          "Are allowed changes bounded and compared fairly?",
+          "Which methodological evidence would change the stage 13 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Are allowed changes bounded and compared fairly?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge bounded refinement candidates and improvement rationale for alternatives and reproducibility",
+        "required_questions": [
+          "Which stop criteria, dissent, and preserved budget constrain refinement?",
+          "What evidence could disconfirm the stage 13 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which stop criteria, dissent, and preserved budget constrain refinement?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 13 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 13 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Preserves the existing stage 13 policy requiring at least two matching recommendation votes."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      },
+      {
+        "role_id": "implementation",
+        "responsibility": "Implement only authorized stage 13 code changes",
+        "required_questions": [
+          "Which approved design or allowed change authorizes each code edit?",
+          "Which checks demonstrate that the code corresponds to the approved change?"
+        ],
+        "judgment_criteria": [
+          "Every edit maps to an approved design or allowed change and has a correspondence check.",
+          "Implementation reports limitations without self-evaluating scientific adequacy."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot self-evaluate, vote, approve, or perform unapproved execution."
+        ]
+      }
+    ],
+    "existing_protocol": "registered_refinement_council"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 14,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Evidence-bounded hypothesis assessment from the domain perspective",
+        "required_questions": [
+          "What does the evidence support about each hypothesis?",
+          "Which domain evidence supports or limits the stage 14 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses evidence-bounded hypothesis assessment.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of evidence-bounded hypothesis assessment",
+        "required_questions": [
+          "Are observation, calculation, and interpretation distinguished?",
+          "Which methodological evidence would change the stage 14 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Are observation, calculation, and interpretation distinguished?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge evidence-bounded hypothesis assessment for alternatives and reproducibility",
+        "required_questions": [
+          "Which alternative explanations, uncertainty, and reproducibility limits remain?",
+          "What evidence could disconfirm the stage 14 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which alternative explanations, uncertainty, and reproducibility limits remain?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 14 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 14 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Records analysis synthesis without creating a direction vote."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "registered_analysis_council"
+  },
+  {
+    "schema_version": 1,
+    "stage_id": 15,
+    "protocol_version": 1,
+    "activation": "guidance_only",
+    "mode": "judgment_council",
+    "roles": [
+      {
+        "role_id": "domain",
+        "responsibility": "Judge Proceed, refine, or pivot decision rationale and claim scope from the domain perspective",
+        "required_questions": [
+          "What supports a proceed, refine, or pivot recommendation?",
+          "Which domain evidence supports or limits the stage 15 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The conclusion addresses proceed, refine, or pivot decision rationale and claim scope.",
+          "Claims remain proportional to domain evidence and acknowledge limits."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "methodology",
+        "responsibility": "Judge the methodological adequacy of proceed, refine, or pivot decision rationale and claim scope",
+        "required_questions": [
+          "Is the decision ready, and what evidence is missing?",
+          "Which methodological evidence would change the stage 15 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The method addresses: Is the decision ready, and what evidence is missing?",
+          "Reasoning is reproducible and distinguishes evidence from inference."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "responsibility": "Challenge proceed, refine, or pivot decision rationale and claim scope for alternatives and reproducibility",
+        "required_questions": [
+          "Which unresolved issues remain, and why is mandatory disclosure not unfinished work?",
+          "What evidence could disconfirm the stage 15 conclusion?"
+        ],
+        "judgment_criteria": [
+          "The review addresses: Which unresolved issues remain, and why is mandatory disclosure not unfinished work?",
+          "Uncertainty, counterevidence, and reproducibility limits remain visible."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Cannot implement, coordinate, vote for another role, or approve the stage."
+        ]
+      },
+      {
+        "role_id": "coordinator",
+        "responsibility": "Summarize the stage 15 council without supplying its judgments",
+        "required_questions": [
+          "Which stage 15 conclusions conflict?",
+          "Which evidence resolves the differences or leaves them unresolved?"
+        ],
+        "judgment_criteria": [
+          "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
+          "Preserves the existing stage 15 policy requiring all three final recommendations to match."
+        ],
+        "authority_limits": [
+          "Use only packet-authorized inputs and tools; distinguish observed, calculated, inferred, and unknown evidence.",
+          "Do not change approvals, expand budgets, fabricate evidence, or exceed the assigned role.",
+          "Non-voting; cannot fabricate responses or consensus, inject an initial conclusion, implement, or approve."
+        ]
+      }
+    ],
+    "existing_protocol": "registered_decision_council"
+  }
+]
