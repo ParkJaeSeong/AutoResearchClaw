@@ -72,12 +72,12 @@ def _validate_catalog(raw: object) -> dict[int, dict[str, object]]:
     for stage in raw:
         if not isinstance(stage, dict) or set(stage) != _FIELDS:
             raise _invalid()
-        if type(stage["schema_version"]) is not int or stage["schema_version"] != 1:
+        if type(stage["schema_version"]) is not int or stage["schema_version"] != 1:  # noqa: E721
             raise _invalid()
-        if type(stage["protocol_version"]) is not int or stage["protocol_version"] != 1:
+        if type(stage["protocol_version"]) is not int or stage["protocol_version"] != 1:  # noqa: E721
             raise _invalid()
         stage_id = stage["stage_id"]
-        if type(stage_id) is not int or not 1 <= stage_id <= 15:
+        if type(stage_id) is not int or not 1 <= stage_id <= 15:  # noqa: E721
             raise _invalid()
         if stage_id in indexed:
             raise _invalid()
@@ -120,7 +120,7 @@ def _validate_catalog(raw: object) -> dict[int, dict[str, object]]:
 
 def describe_stage_roles(stage_id: int) -> dict[str, object]:
     """Return a validated guidance-only description for one supported stage."""
-    if type(stage_id) is not int or not 1 <= stage_id <= 15:
+    if type(stage_id) is not int or not 1 <= stage_id <= 15:  # noqa: E721
         raise ValueError("agent_roles_stage_unsupported")
     path = Path(__file__).parent / "data" / "agent_roles.json"
     raw = json.loads(path.read_text(encoding="utf-8"))

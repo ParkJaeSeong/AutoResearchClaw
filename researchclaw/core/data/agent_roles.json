@@ -10,8 +10,8 @@
         "role_id": "domain",
         "responsibility": "Judge User requirement versus assumption, domain value, objectives and non-goals from the domain perspective",
         "required_questions": [
-          "Are user requirements separated from assumptions?",
-          "Which domain evidence supports or limits the stage 1 conclusion?"
+          "Which user requirements are explicit, and which statements are assumptions?",
+          "Which domain value, objective, and non-goal define the requested outcome?"
         ],
         "judgment_criteria": [
           "The conclusion addresses user requirement versus assumption, domain value, objectives and non-goals.",
@@ -27,8 +27,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of user requirement versus assumption, domain value, objectives and non-goals",
         "required_questions": [
-          "What feasible success criteria match available resources?",
-          "Which methodological evidence would change the stage 1 conclusion?"
+          "Which feasible success criteria would test the objective?",
+          "Do available resources support those success criteria without expanding scope?"
         ],
         "judgment_criteria": [
           "The method addresses: What feasible success criteria match available resources?",
@@ -44,8 +44,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge user requirement versus assumption, domain value, objectives and non-goals for alternatives and reproducibility",
         "required_questions": [
-          "Which unsupported assumptions or alternative objectives could invalidate the framing?",
-          "What evidence could disconfirm the stage 1 conclusion?"
+          "Which unsupported assumptions could overturn the framing?",
+          "Which alternative objectives better fit the same user requirements?"
         ],
         "judgment_criteria": [
           "The review addresses: Which unsupported assumptions or alternative objectives could invalidate the framing?",
@@ -61,8 +61,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 1 council without supplying its judgments",
         "required_questions": [
-          "Which stage 1 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about requirements, assumptions, and non-goals conflict?",
+          "Which framing evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -88,8 +88,8 @@
         "role_id": "domain",
         "responsibility": "Judge Relationships among research questions and alternative problem decompositions from the domain perspective",
         "required_questions": [
-          "How do questions relate through a causal structure?",
-          "Which domain evidence supports or limits the stage 2 conclusion?"
+          "Which relationships connect the research questions?",
+          "Do the questions together cover the intended domain problem?"
         ],
         "judgment_criteria": [
           "The conclusion addresses relationships among research questions and alternative problem decompositions.",
@@ -105,8 +105,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of relationships among research questions and alternative problem decompositions",
         "required_questions": [
-          "Would an alternative decomposition expose different dependencies?",
-          "Which methodological evidence would change the stage 2 conclusion?"
+          "Which causal structure is implied by the question set?",
+          "Would an alternative decomposition expose different dependencies?"
         ],
         "judgment_criteria": [
           "The method addresses: Would an alternative decomposition expose different dependencies?",
@@ -122,8 +122,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge relationships among research questions and alternative problem decompositions for alternatives and reproducibility",
         "required_questions": [
-          "Which missing causes or confounding factors undermine the structure?",
-          "What evidence could disconfirm the stage 2 conclusion?"
+          "Which missing causes could change the proposed structure?",
+          "Which confounding factors make causal relationships ambiguous?"
         ],
         "judgment_criteria": [
           "The review addresses: Which missing causes or confounding factors undermine the structure?",
@@ -139,8 +139,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 2 council without supplying its judgments",
         "required_questions": [
-          "Which stage 2 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about question structure or decomposition conflict?",
+          "Which causal evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -166,8 +166,8 @@
         "role_id": "domain",
         "responsibility": "Judge Domain terminology, synonyms, and literature discovery coverage from the domain perspective",
         "required_questions": [
-          "Which domain terms and synonyms belong in the search?",
-          "Which domain evidence supports or limits the stage 3 conclusion?"
+          "Which domain terminology must the search represent?",
+          "Which synonyms or neighboring terms could retrieve relevant sources?"
         ],
         "judgment_criteria": [
           "The conclusion addresses domain terminology, synonyms, and literature discovery coverage.",
@@ -183,8 +183,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of domain terminology, synonyms, and literature discovery coverage",
         "required_questions": [
-          "Is the search query reproducible and is its coverage justified?",
-          "Which methodological evidence would change the stage 3 conclusion?"
+          "Can another reviewer reproduce the complete search query?",
+          "Does the stated database, date, and query coverage match the research question?"
         ],
         "judgment_criteria": [
           "The method addresses: Is the search query reproducible and is its coverage justified?",
@@ -200,8 +200,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge domain terminology, synonyms, and literature discovery coverage for alternatives and reproducibility",
         "required_questions": [
-          "Where could search bias or publication bias hide relevant evidence?",
-          "What evidence could disconfirm the stage 3 conclusion?"
+          "Where could search bias exclude relevant results?",
+          "Where could publication bias distort the available literature?"
         ],
         "judgment_criteria": [
           "The review addresses: Where could search bias or publication bias hide relevant evidence?",
@@ -217,8 +217,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 3 council without supplying its judgments",
         "required_questions": [
-          "Which stage 3 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about terminology, query, or search coverage conflict?",
+          "Which search evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -244,8 +244,8 @@
         "role_id": "worker",
         "responsibility": "Collect sources with verified title, source, identifier, duplicates, and access failures",
         "required_questions": [
-          "Does each source, title, and identifier match, and are duplicates or access failures recorded?",
-          "What stage 4 evidence and limitations must the handoff preserve?"
+          "Does every source title match its identifier and recorded source?",
+          "Which duplicates and access failures must remain in the collection record?"
         ],
         "judgment_criteria": [
           "Collection is complete enough for handoff and collection is not screening.",
@@ -261,8 +261,8 @@
         "role_id": "verifier",
         "responsibility": "Independently verify stage 4 work and its traceability",
         "required_questions": [
-          "Can the worker's stage 4 claims be independently crosschecked?",
-          "Which omissions, mismatches, or unsupported inferences require correction?"
+          "Do independently checked identifiers resolve to the recorded titles and sources?",
+          "Is collection completeness supported, with duplicates and access failures recorded without performing screening?"
         ],
         "judgment_criteria": [
           "Collection is complete enough for handoff and collection is not screening.",
@@ -288,8 +288,8 @@
         "role_id": "domain",
         "responsibility": "Judge Include and exclude decisions for candidate sources and borderline relevance from the domain perspective",
         "required_questions": [
-          "Why should each source be included or excluded, especially borderline cases?",
-          "Which domain evidence supports or limits the stage 5 conclusion?"
+          "Why should each candidate be included or excluded?",
+          "Which borderline sources are relevant to the approved question?"
         ],
         "judgment_criteria": [
           "The conclusion addresses include and exclude decisions for candidate sources and borderline relevance.",
@@ -305,8 +305,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of include and exclude decisions for candidate sources and borderline relevance",
         "required_questions": [
-          "Does each study method fit the question under consistent screening criteria?",
-          "Which methodological evidence would change the stage 5 conclusion?"
+          "Does each source have the methodological fit required by the protocol?",
+          "Were include and exclude criteria applied consistently across candidates?"
         ],
         "judgment_criteria": [
           "The method addresses: Does each study method fit the question under consistent screening criteria?",
@@ -322,8 +322,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge include and exclude decisions for candidate sources and borderline relevance for alternatives and reproducibility",
         "required_questions": [
-          "Which disconfirming sources or selection bias remain, while preserving user approval?",
-          "What evidence could disconfirm the stage 5 conclusion?"
+          "Which disconfirming sources challenge the emerging evidence set?",
+          "Could selection bias explain exclusions, and which decision still requires user approval?"
         ],
         "judgment_criteria": [
           "The review addresses: Which disconfirming sources or selection bias remain, while preserving user approval?",
@@ -339,8 +339,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 5 council without supplying its judgments",
         "required_questions": [
-          "Which stage 5 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about screening or borderline relevance conflict?",
+          "Which inclusion evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -366,8 +366,8 @@
         "role_id": "worker",
         "responsibility": "Extract claims, values, conditions, and source locations",
         "required_questions": [
-          "Are claims, values, conditions, and locations captured from the original source?",
-          "What stage 6 evidence and limitations must the handoff preserve?"
+          "Which claims, values, and conditions appear in the original source?",
+          "Which exact source locations support every extracted item?"
         ],
         "judgment_criteria": [
           "Crosschecks distinguish original observation, author interpretation, and agent inference.",
@@ -383,8 +383,8 @@
         "role_id": "verifier",
         "responsibility": "Independently verify stage 6 work and its traceability",
         "required_questions": [
-          "Can the worker's stage 6 claims be independently crosschecked?",
-          "Which omissions, mismatches, or unsupported inferences require correction?"
+          "Does each extracted claim correspond to an original observation at the cited location?",
+          "Which statements are author interpretation versus agent inference, and are they labeled correctly?"
         ],
         "judgment_criteria": [
           "Crosschecks distinguish original observation, author interpretation, and agent inference.",
@@ -410,8 +410,8 @@
         "role_id": "domain",
         "responsibility": "Judge Evidence agreement, conflict, and gaps across sources from the domain perspective",
         "required_questions": [
-          "Where do claims agree, conflict, or leave gaps?",
-          "Which domain evidence supports or limits the stage 7 conclusion?"
+          "Where do sources show agreement or conflict?",
+          "Which domain claims remain unsupported gaps?"
         ],
         "judgment_criteria": [
           "The conclusion addresses evidence agreement, conflict, and gaps across sources.",
@@ -427,8 +427,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of evidence agreement, conflict, and gaps across sources",
         "required_questions": [
-          "Are evidence strength and study conditions comparable?",
-          "Which methodological evidence would change the stage 7 conclusion?"
+          "What is the evidence strength behind each synthesis claim?",
+          "Are populations, conditions, and measures comparable across sources?"
         ],
         "judgment_criteria": [
           "The method addresses: Are evidence strength and study conditions comparable?",
@@ -444,8 +444,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge evidence agreement, conflict, and gaps across sources for alternatives and reproducibility",
         "required_questions": [
-          "Which competing explanations remain, given that source count does not establish a conclusion?",
-          "What evidence could disconfirm the stage 7 conclusion?"
+          "Which competing explanations fit the same evidence?",
+          "Where is source count being mistaken for support for a conclusion?"
         ],
         "judgment_criteria": [
           "The review addresses: Which competing explanations remain, given that source count does not establish a conclusion?",
@@ -461,8 +461,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 7 council without supplying its judgments",
         "required_questions": [
-          "Which stage 7 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about agreement, conflict, or gaps conflict?",
+          "Which synthesis evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -488,8 +488,8 @@
         "role_id": "domain",
         "responsibility": "Judge Candidate hypothesis value and rationale from the domain perspective",
         "required_questions": [
-          "Why is each candidate valuable in the domain?",
-          "Which domain evidence supports or limits the stage 8 conclusion?"
+          "What domain value does each candidate hypothesis offer?",
+          "What evidence supports the rationale for retaining each candidate?"
         ],
         "judgment_criteria": [
           "The conclusion addresses candidate hypothesis value and rationale.",
@@ -505,8 +505,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of candidate hypothesis value and rationale",
         "required_questions": [
-          "What falsifiable and discriminating observations separate candidates?",
-          "Which methodological evidence would change the stage 8 conclusion?"
+          "Is each hypothesis falsifiable by an available observation?",
+          "Which discriminating observations separate the candidates?"
         ],
         "judgment_criteria": [
           "The method addresses: What falsifiable and discriminating observations separate candidates?",
@@ -522,8 +522,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge candidate hypothesis value and rationale for alternatives and reproducibility",
         "required_questions": [
-          "What rejection conditions and competing hypotheses would overturn selection?",
-          "What evidence could disconfirm the stage 8 conclusion?"
+          "What explicit rejection conditions would defeat each hypothesis?",
+          "Which competing hypotheses explain the same observations?"
         ],
         "judgment_criteria": [
           "The review addresses: What rejection conditions and competing hypotheses would overturn selection?",
@@ -539,8 +539,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 8 council without supplying its judgments",
         "required_questions": [
-          "Which stage 8 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about candidate value or rejection conflict?",
+          "Which hypothesis evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -566,8 +566,8 @@
         "role_id": "domain",
         "responsibility": "Judge Approved objective, controls, and experiment design from the domain perspective",
         "required_questions": [
-          "Does the design preserve the approved objective and appropriate controls?",
-          "Which domain evidence supports or limits the stage 9 conclusion?"
+          "Does the design preserve the approved objective?",
+          "Which controls are necessary for the domain comparison?"
         ],
         "judgment_criteria": [
           "The conclusion addresses approved objective, controls, and experiment design.",
@@ -583,8 +583,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of approved objective, controls, and experiment design",
         "required_questions": [
-          "Are data splits, leakage risks, metrics, and the analysis plan adequate?",
-          "Which methodological evidence would change the stage 9 conclusion?"
+          "Do data splits prevent leakage between fit and evaluation?",
+          "Are metrics and the analysis plan aligned with the approved objective?"
         ],
         "judgment_criteria": [
           "The method addresses: Are data splits, leakage risks, metrics, and the analysis plan adequate?",
@@ -600,8 +600,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge approved objective, controls, and experiment design for alternatives and reproducibility",
         "required_questions": [
-          "What failure criteria, reproducibility limits, budget constraints, or user approvals remain?",
-          "What evidence could disconfirm the stage 9 conclusion?"
+          "Which failure criteria would stop or invalidate the experiment?",
+          "Can the design remain reproducible within the approved budget and user approval?"
         ],
         "judgment_criteria": [
           "The review addresses: What failure criteria, reproducibility limits, budget constraints, or user approvals remain?",
@@ -617,8 +617,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 9 council without supplying its judgments",
         "required_questions": [
-          "Which stage 9 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about controls, leakage, or design readiness conflict?",
+          "Which design evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -644,8 +644,8 @@
         "role_id": "domain",
         "responsibility": "Judge Correspondence between approved design and code from the domain perspective",
         "required_questions": [
-          "Which approved design requirement authorizes each code edit?",
-          "Which domain evidence supports or limits the stage 10 conclusion?"
+          "Which approved design requirement corresponds to each code behavior?",
+          "Where does the code diverge from the approved domain design?"
         ],
         "judgment_criteria": [
           "The conclusion addresses correspondence between approved design and code.",
@@ -661,8 +661,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of correspondence between approved design and code",
         "required_questions": [
-          "Do fit and predict remain isolated, and are metrics implemented as approved?",
-          "Which methodological evidence would change the stage 10 conclusion?"
+          "Are fit and predict operations isolated as approved?",
+          "Do metric implementations measure the approved quantities?"
         ],
         "judgment_criteria": [
           "The method addresses: Do fit and predict remain isolated, and are metrics implemented as approved?",
@@ -678,8 +678,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge correspondence between approved design and code for alternatives and reproducibility",
         "required_questions": [
-          "Why does static validity not establish scientific adequacy?",
-          "What evidence could disconfirm the stage 10 conclusion?"
+          "Which static checks establish code validity?",
+          "Which scientific adequacy questions remain unanswered by static validity?"
         ],
         "judgment_criteria": [
           "The review addresses: Why does static validity not establish scientific adequacy?",
@@ -695,8 +695,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 10 council without supplying its judgments",
         "required_questions": [
-          "Which stage 10 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about design-to-code correspondence conflict?",
+          "Which code evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -712,8 +712,8 @@
         "role_id": "implementation",
         "responsibility": "Implement only authorized stage 10 code changes",
         "required_questions": [
-          "Which approved design or allowed change authorizes each code edit?",
-          "Which checks demonstrate that the code corresponds to the approved change?"
+          "Which approved design statement authorizes each code edit?",
+          "Which focused checks demonstrate correspondence between the edit and approved design?"
         ],
         "judgment_criteria": [
           "Every edit maps to an approved design or allowed change and has a correspondence check.",
@@ -740,8 +740,8 @@
         "role_id": "worker",
         "responsibility": "Prepare grounded resource estimates and assess input readiness",
         "required_questions": [
-          "Are resource estimates grounded and required inputs ready?",
-          "What stage 11 evidence and limitations must the handoff preserve?"
+          "Which evidence grounds each resource estimate?",
+          "Are required inputs ready for the approved execution plan?"
         ],
         "judgment_criteria": [
           "Feasibility and alternatives remain within the approved scope.",
@@ -757,8 +757,8 @@
         "role_id": "verifier",
         "responsibility": "Independently verify stage 11 work and its traceability",
         "required_questions": [
-          "Can the worker's stage 11 claims be independently crosschecked?",
-          "Which omissions, mismatches, or unsupported inferences require correction?"
+          "Can each resource estimate be independently reproduced from cited evidence?",
+          "Does input readiness support feasibility, and what approved-scope alternatives remain?"
         ],
         "judgment_criteria": [
           "Feasibility and alternatives remain within the approved scope.",
@@ -784,8 +784,8 @@
         "role_id": "worker",
         "responsibility": "Support approved execution and register corresponding results",
         "required_questions": [
-          "Does the approved execution correspond to the result, including missing or failure records?",
-          "What stage 12 evidence and limitations must the handoff preserve?"
+          "Does the result correspond to the approved execution and user confirmation?",
+          "Which missing outputs or failure records must be preserved at handoff?"
         ],
         "judgment_criteria": [
           "Registration respects the user execution confirmation boundary.",
@@ -802,8 +802,8 @@
         "role_id": "verifier",
         "responsibility": "Independently verify stage 12 work and its traceability",
         "required_questions": [
-          "Can the worker's stage 12 claims be independently crosschecked?",
-          "Which omissions, mismatches, or unsupported inferences require correction?"
+          "Which missing result records or execution failures are present?",
+          "Does independent comparison confirm approved execution correspondence without crossing the registration boundary?"
         ],
         "judgment_criteria": [
           "Registration respects the user execution confirmation boundary.",
@@ -830,8 +830,8 @@
         "role_id": "domain",
         "responsibility": "Judge Bounded refinement candidates and improvement rationale from the domain perspective",
         "required_questions": [
-          "Why should each improvement candidate be considered?",
-          "Which domain evidence supports or limits the stage 13 conclusion?"
+          "What evidence supports the improvement rationale?",
+          "Which refinement candidates address the identified limitation?"
         ],
         "judgment_criteria": [
           "The conclusion addresses bounded refinement candidates and improvement rationale.",
@@ -847,8 +847,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of bounded refinement candidates and improvement rationale",
         "required_questions": [
-          "Are allowed changes bounded and compared fairly?",
-          "Which methodological evidence would change the stage 13 conclusion?"
+          "Is each allowed change bounded by the registered refinement scope?",
+          "Are baseline and candidate compared fairly under the same conditions?"
         ],
         "judgment_criteria": [
           "The method addresses: Are allowed changes bounded and compared fairly?",
@@ -864,8 +864,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge bounded refinement candidates and improvement rationale for alternatives and reproducibility",
         "required_questions": [
-          "Which stop criteria, dissent, and preserved budget constrain refinement?",
-          "What evidence could disconfirm the stage 13 conclusion?"
+          "Which stop criteria prevent unbounded refinement?",
+          "Which dissent remains unresolved while preserving the approved budget?"
         ],
         "judgment_criteria": [
           "The review addresses: Which stop criteria, dissent, and preserved budget constrain refinement?",
@@ -881,8 +881,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 13 council without supplying its judgments",
         "required_questions": [
-          "Which stage 13 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which conclusions about refinement candidates, stop criteria, or dissent conflict?",
+          "Which refinement evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -898,8 +898,8 @@
         "role_id": "implementation",
         "responsibility": "Implement only authorized stage 13 code changes",
         "required_questions": [
-          "Which approved design or allowed change authorizes each code edit?",
-          "Which checks demonstrate that the code corresponds to the approved change?"
+          "Which registered allowed change authorizes each code edit?",
+          "Which checks demonstrate correspondence and fair comparison for that change?"
         ],
         "judgment_criteria": [
           "Every edit maps to an approved design or allowed change and has a correspondence check.",
@@ -926,7 +926,7 @@
         "responsibility": "Judge Evidence-bounded hypothesis assessment from the domain perspective",
         "required_questions": [
           "What does the evidence support about each hypothesis?",
-          "Which domain evidence supports or limits the stage 14 conclusion?"
+          "Which hypothesis claims exceed the available evidence?"
         ],
         "judgment_criteria": [
           "The conclusion addresses evidence-bounded hypothesis assessment.",
@@ -942,8 +942,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of evidence-bounded hypothesis assessment",
         "required_questions": [
-          "Are observation, calculation, and interpretation distinguished?",
-          "Which methodological evidence would change the stage 14 conclusion?"
+          "Which statements are observation, calculation, or interpretation?",
+          "Can each interpretation be reproduced from the cited observations and calculations?"
         ],
         "judgment_criteria": [
           "The method addresses: Are observation, calculation, and interpretation distinguished?",
@@ -959,8 +959,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge evidence-bounded hypothesis assessment for alternatives and reproducibility",
         "required_questions": [
-          "Which alternative explanations, uncertainty, and reproducibility limits remain?",
-          "What evidence could disconfirm the stage 14 conclusion?"
+          "Which alternative explanations remain compatible with the results?",
+          "How do uncertainty and reproducibility limits constrain the assessment?"
         ],
         "judgment_criteria": [
           "The review addresses: Which alternative explanations, uncertainty, and reproducibility limits remain?",
@@ -976,8 +976,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 14 council without supplying its judgments",
         "required_questions": [
-          "Which stage 14 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which analysis conclusions or interpretations conflict?",
+          "Which analysis evidence resolves those differences or leaves them unresolved without a direction vote?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",
@@ -1003,8 +1003,8 @@
         "role_id": "domain",
         "responsibility": "Judge Proceed, refine, or pivot decision rationale and claim scope from the domain perspective",
         "required_questions": [
-          "What supports a proceed, refine, or pivot recommendation?",
-          "Which domain evidence supports or limits the stage 15 conclusion?"
+          "What evidence supports proceeding, refining, or making a pivot?",
+          "Is the proposed claim scope proportional to that recommendation?"
         ],
         "judgment_criteria": [
           "The conclusion addresses proceed, refine, or pivot decision rationale and claim scope.",
@@ -1020,8 +1020,8 @@
         "role_id": "methodology",
         "responsibility": "Judge the methodological adequacy of proceed, refine, or pivot decision rationale and claim scope",
         "required_questions": [
-          "Is the decision ready, and what evidence is missing?",
-          "Which methodological evidence would change the stage 15 conclusion?"
+          "Is the recommendation ready for a final decision?",
+          "Which missing evidence prevents decision readiness?"
         ],
         "judgment_criteria": [
           "The method addresses: Is the decision ready, and what evidence is missing?",
@@ -1037,8 +1037,8 @@
         "role_id": "critical_reproducibility",
         "responsibility": "Challenge proceed, refine, or pivot decision rationale and claim scope for alternatives and reproducibility",
         "required_questions": [
-          "Which unresolved issues remain, and why is mandatory disclosure not unfinished work?",
-          "What evidence could disconfirm the stage 15 conclusion?"
+          "Which unresolved issues constrain the recommendation?",
+          "Is mandatory disclosure correctly distinguished from unfinished work?"
         ],
         "judgment_criteria": [
           "The review addresses: Which unresolved issues remain, and why is mandatory disclosure not unfinished work?",
@@ -1054,8 +1054,8 @@
         "role_id": "coordinator",
         "responsibility": "Summarize the stage 15 council without supplying its judgments",
         "required_questions": [
-          "Which stage 15 conclusions conflict?",
-          "Which evidence resolves the differences or leaves them unresolved?"
+          "Which final recommendations or claim-scope conclusions conflict?",
+          "Which decision evidence resolves those differences or leaves them unresolved?"
         ],
         "judgment_criteria": [
           "Faithfully summarizes conclusion, evidence, differences, limits, and next action.",

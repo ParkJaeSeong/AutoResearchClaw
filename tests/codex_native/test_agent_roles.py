@@ -180,3 +180,38 @@ def test_coordinator_does_not_vote(stage):
     roles = agent_roles.describe_stage_roles(stage)["roles"]
     coordinator = next(r for r in roles if r["role_id"] == "coordinator")
     assert "non-voting" in " ".join(coordinator["authority_limits"]).lower()
+
+
+PER_ROLE_QUESTION_TERMS = {
+    1: {"domain": ("requirement", "non-goal"), "methodology": ("success", "resource"), "critical_reproducibility": ("assumption", "alternative objective"), "coordinator": ("framing", "evidence")},
+    2: {"domain": ("relationship", "question"), "methodology": ("causal", "decomposition"), "critical_reproducibility": ("missing cause", "confounding"), "coordinator": ("structure", "evidence")},
+    3: {"domain": ("terminology", "synonym"), "methodology": ("query", "coverage"), "critical_reproducibility": ("search bias", "publication bias"), "coordinator": ("search", "evidence")},
+    4: {"worker": ("identifier", "access failure"), "verifier": ("identifier", "collection completeness")},
+    5: {"domain": ("include", "borderline"), "methodology": ("methodological fit", "consistent"), "critical_reproducibility": ("disconfirming", "selection bias"), "coordinator": ("screening", "evidence")},
+    6: {"worker": ("claim", "location"), "verifier": ("observation", "inference")},
+    7: {"domain": ("agreement", "gap"), "methodology": ("strength", "comparab"), "critical_reproducibility": ("competing", "source count"), "coordinator": ("conflict", "evidence")},
+    8: {"domain": ("value", "rationale"), "methodology": ("falsifi", "discriminating"), "critical_reproducibility": ("rejection", "competing"), "coordinator": ("candidate", "evidence")},
+    9: {"domain": ("objective", "control"), "methodology": ("leakage", "metric"), "critical_reproducibility": ("failure", "budget"), "coordinator": ("design", "evidence")},
+    10: {"domain": ("approved design", "code"), "methodology": ("fit", "predict"), "critical_reproducibility": ("static", "scientific"), "coordinator": ("correspondence", "evidence"), "implementation": ("authorizes", "checks")},
+    11: {"worker": ("resource estimate", "input"), "verifier": ("resource", "readiness")},
+    12: {"worker": ("execution", "failure"), "verifier": ("missing", "failure")},
+    13: {"domain": ("improvement", "candidate"), "methodology": ("allowed change", "fair"), "critical_reproducibility": ("stop", "dissent"), "coordinator": ("refinement", "evidence"), "implementation": ("allowed change", "checks")},
+    14: {"domain": ("hypothesis", "evidence"), "methodology": ("observation", "interpretation"), "critical_reproducibility": ("alternative", "uncertainty"), "coordinator": ("analysis", "evidence")},
+    15: {"domain": ("proceed", "pivot"), "methodology": ("readiness", "missing evidence"), "critical_reproducibility": ("unresolved", "disclosure"), "coordinator": ("recommendation", "evidence")},
+}
+
+
+@pytest.mark.parametrize(
+    "stage,role_id,terms",
+    [
+        (stage, role_id, terms)
+        for stage, role_terms in PER_ROLE_QUESTION_TERMS.items()
+        for role_id, terms in role_terms.items()
+    ],
+)
+def test_each_role_questions_are_stage_specific(stage, role_id, terms):
+    roles = agent_roles.describe_stage_roles(stage)["roles"]
+    role = next(role for role in roles if role["role_id"] == role_id)
+    assert len(role["required_questions"]) >= 2
+    questions = " ".join(role["required_questions"]).lower()
+    assert all(term in questions for term in terms)
