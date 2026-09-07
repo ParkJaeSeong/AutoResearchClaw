@@ -398,3 +398,25 @@ def test_stage_sixteen_handoff_remains_an_explicit_read_only_boundary(tmp_path):
         str(project.root.resolve()),
         "--json",
     ]
+
+
+def test_stage_fifteen_handoff_rejects_mismatched_phase_and_action(
+    tmp_path, monkeypatch
+):
+    from tests.codex_native.test_research_decision import analyzed_project
+
+    project = analyzed_project(tmp_path / "project")
+
+    def inconsistent_status(_project):
+        return {
+            "phase": "awaiting_preparation",
+            "next_action": "register_decision_result",
+        }
+
+    monkeypatch.setattr(
+        "researchclaw.core.research_decision.research_decision_status",
+        inconsistent_status,
+    )
+
+    with pytest.raises(ValueError, match="decision_status_invalid"):
+        build_handoff(project)

@@ -866,35 +866,44 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         from .research_decision import research_decision_status
 
         decision = research_decision_status(current_project)
-        next_action = str(decision["next_action"])
-        decision_commands = {
-            "prepare_research_decision": ("prepare",),
-            "register_decision_review": (
-                "register-review",
-                "--submission",
-                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+        decision_phases = {
+            "awaiting_preparation": (
+                "prepare_research_decision",
+                ("prepare",),
             ),
-            "register_decision_rebuttals": (
-                "register-rebuttals",
-                "--submission",
-                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            "awaiting_independent_recommendations": (
+                "register_decision_review",
+                (
+                    "register-review",
+                    "--submission",
+                    "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+                ),
             ),
-            "register_decision_result": (
-                "register-result",
-                "--submission",
-                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            "awaiting_rebuttals": (
+                "register_decision_rebuttals",
+                (
+                    "register-rebuttals",
+                    "--submission",
+                    "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+                ),
             ),
+            "awaiting_decision": (
+                "register_decision_result",
+                (
+                    "register-result",
+                    "--submission",
+                    "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+                ),
+            ),
+            "follow_up_required": ("report_research_follow_up", ("status",)),
+            "needs_direction": ("request_research_direction", ("status",)),
         }
-        if next_action in {
-            "report_research_follow_up",
-            "request_research_direction",
-        }:
-            command = ("status",)
-        else:
-            try:
-                command = decision_commands[next_action]
-            except KeyError as error:
-                raise ValueError("decision_status_invalid") from error
+        try:
+            next_action, command = decision_phases[str(decision["phase"])]
+        except KeyError as error:
+            raise ValueError("decision_status_invalid") from error
+        if decision.get("next_action") != next_action:
+            raise ValueError("decision_status_invalid")
         if len(command) == 1:
             next_command = _command(current_project.root, "decision", command[0])
         else:
