@@ -10,6 +10,7 @@ from dataclasses import asdict
 from collections.abc import Sequence
 
 from researchclaw.core.project import ResearchProject
+from researchclaw.core.agent_roles import describe_stage_roles
 from researchclaw.core.approval import approve_current_gate
 from researchclaw.core.events import build_foundation_report
 from researchclaw.core.experiment_package_contract import (
@@ -123,6 +124,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create and inspect durable Codex-native research projects.",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
+
+    roles = subcommands.add_parser("roles", help="inspect research role guidance")
+    role_commands = roles.add_subparsers(dest="roles_command", required=True)
+    describe = role_commands.add_parser(
+        "describe", help="describe stage roles without a project"
+    )
+    describe.add_argument("--stage", type=int, choices=range(1, 16), required=True)
+    describe.add_argument("--json", action="store_true", help="emit JSON")
 
     init = subcommands.add_parser("init", help="create a research project")
     init.add_argument("root", metavar="ROOT")
@@ -508,7 +517,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as error:
         return int(error.code)
     try:
-        if args.command == "init":
+        if args.command == "roles":
+            payload = describe_stage_roles(args.stage)
+        elif args.command == "init":
             project = ResearchProject.create(args.root, topic=args.topic, profile=args.profile)
             payload = project.status_dict()
         elif args.command == "status":
@@ -777,7 +788,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
-        if args.command == "stage" and args.stage_command == "prepare":
+        if args.command == "roles":
+            print(
+                f"stage {payload['stage_id']}: "
+                f"{payload['mode']} ({payload['activation']})"
+            )
+        elif args.command == "stage" and args.stage_command == "prepare":
             print(f"{payload['project_id']}: stage {payload['stage_id']} ({payload['name']})")
         elif args.command == "approve":
             print(f"stage {payload['stage_id']}: {payload['decision']}")

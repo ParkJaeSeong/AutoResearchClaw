@@ -11,6 +11,7 @@ from dataclasses import replace
 
 import pytest
 
+from researchclaw.codex import cli as codex_cli
 from researchclaw.codex.cli import main
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.models import ArtifactRef
@@ -41,6 +42,78 @@ from tests.codex_native.test_refinement import (
     write_refinement_candidate,
 )
 from tests.codex_native.test_refinement_execution import write_refinement_result
+
+
+@pytest.mark.parametrize("stage", range(1, 16))
+def test_roles_describe_is_projectless_and_readonly(
+    stage, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "sentinel").write_bytes(b"unchanged")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("roles must not load or create a project")
+
+    for name in ("open", "open_readonly", "create"):
+        monkeypatch.setattr(ResearchProject, name, forbidden)
+    before = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+
+    assert main(["roles", "describe", "--stage", str(stage), "--json"]) == 0
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert captured.err == ""
+    assert payload["stage_id"] == stage
+    assert payload["activation"] == "guidance_only"
+    assert before == {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    }
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--stage", "0"],
+        ["--stage", "16"],
+        ["--stage", "23"],
+        ["--stage", "-1"],
+        ["--stage", "abc"],
+        ["--stage", "7.0"],
+        [],
+        ["--stage", "7", "unexpected-root"],
+    ],
+)
+def test_roles_describe_rejects_bad_arguments(args, capsys):
+    assert main(["roles", "describe", *args, "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err
+
+
+def test_roles_describe_text_names_guidance_only(capsys):
+    assert main(["roles", "describe", "--stage", "7"]) == 0
+    captured = capsys.readouterr()
+    assert "stage 7" in captured.out
+    assert "guidance_only" in captured.out
+    assert captured.err == ""
+
+
+def test_roles_describe_reports_catalog_failure(monkeypatch, capsys):
+    def invalid_catalog(stage):
+        raise ValueError("agent_roles_catalog_invalid")
+
+    monkeypatch.setattr(codex_cli, "describe_stage_roles", invalid_catalog, raising=False)
+
+    assert main(["roles", "describe", "--stage", "7", "--json"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "error: agent_roles_catalog_invalid\n"
 
 
 def test_refinement_prepare_session_cli_is_agent_neutral(tmp_path, capsys):

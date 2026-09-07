@@ -1,4 +1,5 @@
 import json
+from importlib import resources
 from pathlib import Path
 import re
 import tomllib
@@ -7,6 +8,7 @@ import pytest
 import yaml
 
 from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
+from researchclaw.core.agent_roles import describe_stage_roles
 
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
@@ -90,6 +92,7 @@ def test_distribution_and_plugin_share_codex_native_identity_and_version():
 
 def test_skill_reference_links_resolve_including_stage_six_and_eleven_guidance():
     expected_skill_references = (
+        SKILL_ROOT / "references" / "agent-roles.md",
         SKILL_ROOT / "references" / "knowledge-extraction.md",
         SKILL_ROOT / "references" / "resource-planning.md",
         SKILL_ROOT / "references" / "refinement.md",
@@ -104,3 +107,14 @@ def test_skill_reference_links_resolve_including_stage_six_and_eleven_guidance()
     assert set(reference.resolve() for reference in expected_skill_references) <= linked_files
     assert all(reference.exists() for reference in expected_skill_references)
     assert all(linked_file.exists() for linked_file in linked_files)
+
+
+def test_distribution_bundles_all_stage_role_profiles():
+    descriptions = [describe_stage_roles(stage) for stage in range(1, 16)]
+
+    assert [description["stage_id"] for description in descriptions] == list(
+        range(1, 16)
+    )
+    assert resources.files("researchclaw.core").joinpath(
+        "data/agent_roles.json"
+    ).is_file()
