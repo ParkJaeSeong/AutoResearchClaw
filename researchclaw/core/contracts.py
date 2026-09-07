@@ -148,7 +148,12 @@ _CONTRACT_DATA = (
         ("experiment/results.json",),
         ("analysis/results.json", "analysis/report.md"),
     ),
-    ("research_decision", "Make a research decision from evidence", ("analysis/results.json",), ("analysis/decision.json",)),
+    (
+        "research_decision",
+        "Make a research decision from evidence",
+        ("analysis/results.json",),
+        ("analysis/decision.json", "analysis/decision.md"),
+    ),
     ("paper_outline", "Build the paper outline", ("knowledge/synthesis.md", "analysis/decision.json"), ("paper/outline.md",)),
     ("paper_draft", "Draft the research paper", ("paper/outline.md",), ("paper/draft.md",)),
     ("peer_review", "Review the draft", ("paper/draft.md",), ("paper/review.json",)),

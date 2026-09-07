@@ -647,7 +647,13 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     stage_thirteen_boundary = state.current_stage == 13 and 12 in state.completed_stages
     stage_fourteen_boundary = state.current_stage == 14 and 13 in state.completed_stages
     stage_fifteen_boundary = state.current_stage == 15 and 14 in state.completed_stages
-    if stage_thirteen_boundary or stage_fourteen_boundary or stage_fifteen_boundary:
+    stage_sixteen_boundary = state.current_stage == 16 and 15 in state.completed_stages
+    if (
+        stage_thirteen_boundary
+        or stage_fourteen_boundary
+        or stage_fifteen_boundary
+        or stage_sixteen_boundary
+    ):
         milestone_complete = False
         execution_readiness = None
         unmet_prerequisites = ()
@@ -697,7 +703,7 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
     elif stage_thirteen_boundary:
         stage_name = get_contract(state.current_stage).name
         approval_required = False
-    elif stage_fourteen_boundary or stage_fifteen_boundary:
+    elif stage_fourteen_boundary or stage_fifteen_boundary or stage_sixteen_boundary:
         stage_name = get_contract(state.current_stage).name
         approval_required = False
     elif state.current_stage > 23:
@@ -857,13 +863,63 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
             )
         approval_required = False
     elif stage_fifteen_boundary:
-        from .result_analysis import analysis_status
+        from .research_decision import research_decision_status
 
-        analysis = analysis_status(current_project)
-        if analysis.get("phase") != "complete":
-            raise ValueError("analysis_integrity_failure")
-        next_action = "unsupported_stage_15"
-        next_command = _command(current_project.root, "analysis", "status")
+        decision = research_decision_status(current_project)
+        next_action = str(decision["next_action"])
+        decision_commands = {
+            "prepare_research_decision": ("prepare",),
+            "register_decision_review": (
+                "register-review",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+            "register_decision_rebuttals": (
+                "register-rebuttals",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+            "register_decision_result": (
+                "register-result",
+                "--submission",
+                "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+            ),
+        }
+        if next_action in {
+            "report_research_follow_up",
+            "request_research_direction",
+        }:
+            command = ("status",)
+        else:
+            try:
+                command = decision_commands[next_action]
+            except KeyError as error:
+                raise ValueError("decision_status_invalid") from error
+        if len(command) == 1:
+            next_command = _command(current_project.root, "decision", command[0])
+        else:
+            next_command = shlex.join(
+                (
+                    "researchclaw-codex",
+                    "decision",
+                    command[0],
+                    str(current_project.root.resolve()),
+                    *command[1:],
+                    "--json",
+                )
+            )
+        approval_required = False
+    elif stage_sixteen_boundary:
+        from .research_decision import research_decision_status
+
+        decision = research_decision_status(current_project)
+        if (
+            decision.get("phase") != "complete"
+            or decision.get("next_action") != "unsupported_stage_16"
+        ):
+            raise ValueError("decision_integrity_failure")
+        next_action = "unsupported_stage_16"
+        next_command = _command(current_project.root, "decision", "status")
         approval_required = False
     elif milestone_complete:
         next_action = "report_computational_package_milestone_only"
@@ -895,12 +951,25 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         next_action = "prepare_stage"
         next_command = _command(current_project.root, "stage", "prepare")
 
+    decision_terminal = (
+        stage_sixteen_boundary
+        or (
+            stage_fifteen_boundary
+            and next_action
+            in {"report_research_follow_up", "request_research_direction"}
+        )
+    )
     return HandoffSummary(
         project_id=state.project_id,
         project_root=str(current_project.root.resolve()),
         write_policy=(
-            "read_only" if stage_fifteen_boundary else "no_undeclared_outputs"
-            if milestone_complete or stage_thirteen_boundary or stage_fourteen_boundary
+            "read_only" if decision_terminal else "no_undeclared_outputs"
+            if (
+                milestone_complete
+                or stage_thirteen_boundary
+                or stage_fourteen_boundary
+                or stage_fifteen_boundary
+            )
             else "declared_outputs_only"
         ),
         topic=state.topic,
@@ -917,10 +986,14 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
         unmet_prerequisites=unmet_prerequisites,
         approval_eligible=approval_eligible,
         boundary_message=(
-            "Stage 14 analysis is complete and its evidence is retained. "
-            "Stage 15 research decisions are read-only and unsupported; "
-            "analysis status verifies the completed evidence without advancing."
-            if stage_fifteen_boundary else (
+            "Stage 15 research decision is complete and its evidence is retained. "
+            "Stage 16 is unsupported; decision status verifies the completed "
+            "decision without advancing or creating paper artifacts."
+            if stage_sixteen_boundary else (
+                "Stage 14 analysis is complete and its evidence is retained. "
+                "Stage 15 uses the dedicated decision prepare, status, and "
+                "registration workflow; follow the reported decision command."
+                if stage_fifteen_boundary else (
                 "Stage 13 refinement is complete and its evidence is retained. "
                 "Stage 14 uses the dedicated analysis prepare, status, and "
                 "registration workflow; follow the reported analysis command."
@@ -931,6 +1004,7 @@ def _build_handoff_locked(project: ResearchProject) -> HandoffSummary:
                 "status does not create a session or authorize execution."
                 if stage_thirteen_boundary and next_action == "prepare_refinement_session"
                 else None
+                )
                 )
             )
         ),

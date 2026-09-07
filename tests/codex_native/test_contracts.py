@@ -50,6 +50,16 @@ def test_stage_fourteen_contract_declares_structured_and_readable_analysis_outpu
     )
 
 
+def test_stage_fifteen_contract_declares_structured_and_readable_decision_outputs():
+    contract = get_contract(15)
+
+    assert contract.name == "research_decision"
+    assert contract.required_outputs == (
+        "analysis/decision.json",
+        "analysis/decision.md",
+    )
+
+
 def test_literature_gate_contract_is_hash_approved():
     contract = get_contract(5)
     assert contract.name == "literature_screen"

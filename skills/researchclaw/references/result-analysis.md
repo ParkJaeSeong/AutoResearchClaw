@@ -214,11 +214,15 @@ that wording as historical source context, but state that the current durable
 authority is the registered final selection and completed Stage 13. Do not
 present an old “finalization pending” note as the current state.
 
-At Stage 15, status must report `complete` / `unsupported_stage_15`. Stop there.
-Do not create `analysis/decision.json`, invoke generic `stage prepare` or `stage
-validate`, rank candidate code, or begin any later-stage work.
+After completion, `analysis status` is a historical verification view and reports
+`complete` / `analysis_complete`; it still revalidates every Stage-14 record and
+transitive input. Root `status` or `resume` owns the current Stage-15 action. Do
+not infer that `analysis_complete` prepares a new analysis task or author a
+decision until the user explicitly requests the ResearchClaw decision workflow.
+Then read [research-decision.md](research-decision.md) and use only its dedicated
+commands. Generic `stage prepare` and `stage validate` cannot advance Stage 15.
 
 Use the top-level analysis `phase` and `next_action`, plus the handoff boundary,
 as the actionable state. The nested immutable evidence packet retains its
 creation-time phase for provenance. A generic durable `status` value of `ready`
-at Stage 15 does not mean Stage 15 is supported.
+at Stage 15 does not authorize decision work by itself.

@@ -12,7 +12,9 @@ the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
 
 Codex-native supported execution boundary: stages 1–11 through generic stage
 commands, plus the dedicated Stage-12 experiment and Stage-13 refinement
-protocols described below. Stage 14 is a read-only waiting boundary. This release continues
+protocols described below. Stages 14 and 15 use dedicated evidence-bound
+analysis and research-decision registration protocols. Stage 16 is the read-only
+unsupported boundary. This release continues
 past the user-approved literature-screen gate to provenance-aware knowledge
 extraction, evidence synthesis, and provenance-linked hypothesis generation
 without an external LLM API key, then creates a reproducible validation design
@@ -29,7 +31,9 @@ contract-bound user-result registration; ResearchClaw never executes the
 experiment from a preparation command. The exact returned command runs the
 repository-owned regression runtime and authored `fit`/`predict` algorithm.
 Stage 13 supports bounded candidate refinement with explicit council decisions,
-self-tests and immutable result registration. Full-paper production remains
+self-tests and immutable result registration. Stage 14 supports independent
+result analysis and Stage 15 records a three-role research direction plus a
+deterministic report without executing follow-up. Full-paper production remains
 roadmap work; later declared contracts are not claims of implemented capability.
 
 Stages 1–11 are implemented planning and validation work. Stage 12 additionally
@@ -288,6 +292,24 @@ non-registerable evidence. Automatic migration is intentionally unsupported.
 Successful registration records the validated result and advances the project
 to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
 not refine or execute research on the user's behalf.
+
+## Evidence-bound Stage-15 research decision
+
+After the explicitly requested Stage-14 analysis protocol completes, root
+`status` or `resume` reports the next dedicated `decision` command. Stage 15
+uses three independent roles, one disclosed response round, and a distinct
+non-voting coordinator to register `proceed`, `refine`, `pivot`, or an
+unresolved null decision. It publishes `analysis/decision.json` and the
+deterministic `analysis/decision.md`; it does not run an experiment, roll back a
+stage, execute follow-up, or create a paper outline.
+
+Use this workflow only after an explicit `$researchclaw` or named ResearchClaw
+decision request. The complete record schemas, exact five permitted submission
+files, commands, and stop conditions are in the
+[Stage-15 decision reference](skills/researchclaw/references/research-decision.md).
+Generic `stage prepare` and `stage validate` reject Stages 15 and 16. A PROCEED
+decision reaches `unsupported_stage_16`; REFINE/PIVOT only report required and
+optional follow-up, and unresolved agreement requests user direction.
 
 Approval is tied to exact validated artifact hashes. Changing an approved
 artifact rewinds the durable workflow to its producing stage; changing the

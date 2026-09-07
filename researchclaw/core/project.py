@@ -182,7 +182,7 @@ class ResearchProject:
 
         current_project = normalize_durable_project(self)
         if (
-            current_project.state.current_stage in {13, 14, 15}
+            current_project.state.current_stage in {13, 14, 15, 16}
             and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             readiness, prerequisites, approval_eligible = None, (), False
@@ -210,7 +210,7 @@ class ResearchProject:
             "approval_eligible": approval_eligible,
         }
         if (
-            current_project.state.current_stage in {13, 14, 15}
+            current_project.state.current_stage in {13, 14, 15, 16}
             and current_project.state.current_stage - 1 in current_project.state.completed_stages
         ):
             from .handoff import build_handoff
@@ -264,7 +264,19 @@ class ResearchProject:
                 _self_test_registration_pending_path,
             )
 
-            if not os.path.lexists(_self_test_registration_pending_path(self)):
+            read_only_decision_terminal = (
+                handoff.current_stage in {15, 16}
+                and handoff.next_action
+                in {
+                    "unsupported_stage_16",
+                    "report_research_follow_up",
+                    "request_research_direction",
+                }
+            )
+            if (
+                not read_only_decision_terminal
+                and not os.path.lexists(_self_test_registration_pending_path(self))
+            ):
                 event_log_for(self.root).append(
                     EvaluationEvent.create(
                         "resume",

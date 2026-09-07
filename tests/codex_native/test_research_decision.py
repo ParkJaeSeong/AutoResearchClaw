@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shlex
 from dataclasses import replace
 
 import pytest
@@ -185,6 +186,109 @@ def _protected_inventory(project):
             research_decision.DECISION_REPORT_PATH,
         }
     }
+
+
+def _file_bytes(root):
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+
+
+def _assert_root_route(project, capsys, next_action, command, *, unchanged=False):
+    for operation in ("status", "resume"):
+        before = _file_bytes(project.root)
+        assert run_cli([operation, str(project.root), "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["next_action"] == next_action
+        assert payload["approval_eligible"] is False
+        expected = [
+            "researchclaw-codex",
+            "decision",
+            command[0],
+        ]
+        expected.extend(
+            [str(project.root.resolve()), *command[1:], "--json"]
+        )
+        assert shlex.split(payload["next_command"]) == expected
+        if unchanged:
+            assert _file_bytes(project.root) == before
+
+
+def test_root_status_and_resume_route_every_stage_fifteen_phase(tmp_path, capsys):
+    project = analyzed_project(tmp_path / "project")
+    _assert_root_route(
+        project, capsys, "prepare_research_decision", ["prepare"]
+    )
+
+    research_decision.prepare_research_decision(project)
+    _assert_root_route(
+        project,
+        capsys,
+        "register_decision_review",
+        ["register-review", "--submission", "<PROJECT_RELATIVE_SUBMISSION_PATH>"],
+    )
+
+    directions = {role: "proceed" for role in research_decision.ROLES}
+    register_decision_roles(project, directions)
+    _assert_root_route(
+        project,
+        capsys,
+        "register_decision_rebuttals",
+        [
+            "register-rebuttals",
+            "--submission",
+            "<PROJECT_RELATIVE_SUBMISSION_PATH>",
+        ],
+    )
+
+    research_decision.register_decision_rebuttals(
+        project,
+        write_decision_submission(
+            project, "rebuttals.json", rebuttal_payload(project, directions)
+        ),
+    )
+    _assert_root_route(
+        project,
+        capsys,
+        "register_decision_result",
+        ["register-result", "--submission", "<PROJECT_RELATIVE_SUBMISSION_PATH>"],
+    )
+
+
+@pytest.mark.parametrize(
+    "decision,next_action",
+    [
+        ("proceed", "unsupported_stage_16"),
+        ("refine", "report_research_follow_up"),
+        ("pivot", "report_research_follow_up"),
+        (None, "request_research_direction"),
+    ],
+)
+def test_root_status_and_resume_terminal_decisions_are_read_only(
+    tmp_path, capsys, decision, next_action
+):
+    project = analyzed_project(tmp_path / "project")
+    complete_decision(project, decision)
+
+    _assert_root_route(project, capsys, next_action, ["status"], unchanged=True)
+
+
+@pytest.mark.parametrize("decision", ["refine", "proceed"])
+@pytest.mark.parametrize("operation", ["prepare", "validate"])
+def test_generic_stage_commands_reject_stages_fifteen_and_sixteen(
+    tmp_path, capsys, decision, operation
+):
+    project = analyzed_project(tmp_path / "project")
+    complete_decision(project, decision)
+    before = _file_bytes(project.root)
+
+    assert run_cli(["stage", operation, str(project.root), "--json"]) == 2
+    error = capsys.readouterr().err
+
+    assert f"Stage {ResearchProject.open_readonly(project.root).state.current_stage}" in error
+    assert _file_bytes(project.root) == before
 
 
 @pytest.mark.parametrize(

@@ -373,3 +373,28 @@ def test_handoff_holds_registration_lock_through_durable_normalization(
         )
         == 1
     )
+
+
+def test_stage_sixteen_handoff_remains_an_explicit_read_only_boundary(tmp_path):
+    from tests.codex_native.test_research_decision import (
+        analyzed_project,
+        complete_decision,
+    )
+
+    project = analyzed_project(tmp_path / "project")
+    complete_decision(project, "proceed")
+
+    handoff = build_handoff(ResearchProject.open_readonly(project.root))
+
+    assert handoff.current_stage == 16
+    assert handoff.stage_name == "paper_outline"
+    assert handoff.next_action == "unsupported_stage_16"
+    assert handoff.write_policy == "read_only"
+    assert handoff.approval_eligible is False
+    assert shlex.split(handoff.next_command) == [
+        "researchclaw-codex",
+        "decision",
+        "status",
+        str(project.root.resolve()),
+        "--json",
+    ]

@@ -1027,7 +1027,7 @@ def _analysis_registration_status(
 ) -> dict[str, object]:
     _, reviews, rebuttals, result = _analysis_records(project, packet)
     if result is not None:
-        phase, next_action = "complete", "unsupported_stage_15"
+        phase, next_action = "complete", "analysis_complete"
     elif rebuttals is not None:
         phase, next_action = "awaiting_synthesis", "register_analysis_result"
     elif len(reviews) == len(_REQUIRED_ROLES):

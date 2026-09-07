@@ -95,8 +95,13 @@ def build_task_packet(project: ResearchProject) -> TaskPacket:
         )
     if state.current_stage == 15:
         raise ValueError(
-            "Stage 15 research decisions are read-only and unsupported; "
-            "generic stage prepare or validate cannot advance the project."
+            "Stage 15 uses researchclaw-codex decision prepare/status and "
+            "decision registration commands, not generic stage prepare or validate."
+        )
+    if state.current_stage == 16:
+        raise ValueError(
+            "Stage 16 is unsupported; generic stage prepare or validate cannot "
+            "advance the project."
         )
     if state.current_stage not in SUPPORTED_STAGE_IDS:
         raise ValueError(f"task packets are not defined for stage: {state.current_stage}")

@@ -464,7 +464,10 @@ def test_analysis_result_preserves_dissent_and_publishes_retry_safe_report(tmp_p
     assert (project.root / "analysis/results.json").read_bytes() == result_bytes
     assert (project.root / "analysis/report.md").read_bytes() == report_bytes
     assert (project.root / "analysis/evidence_packet.json").read_bytes() == packet_bytes
-    assert analysis_status(reopened)["evidence_packet"] == packet
+    historical_status = analysis_status(reopened)
+    assert historical_status["evidence_packet"] == packet
+    assert historical_status["phase"] == "complete"
+    assert historical_status["next_action"] == "analysis_complete"
     assert "Noise robustness was not measured" in report
     assert "critical_reproducibility" in report
     assert "noiseless synthetic line fixture only" in report
@@ -585,12 +588,12 @@ def test_analysis_registration_cli_completes_public_workflow(tmp_path, capsys):
     handoff = json.loads(capsys.readouterr().out)
     assert handoff["current_stage"] == 15
     assert handoff["stage_name"] == "research_decision"
-    assert handoff["next_action"] == "unsupported_stage_15"
-    assert handoff["write_policy"] == "read_only"
+    assert handoff["next_action"] == "prepare_research_decision"
+    assert handoff["write_policy"] == "no_undeclared_outputs"
     assert shlex.split(handoff["next_command"]) == [
         "researchclaw-codex",
-        "analysis",
-        "status",
+        "decision",
+        "prepare",
         str(project.root.resolve()),
         "--json",
     ]
@@ -598,7 +601,7 @@ def test_analysis_registration_cli_completes_public_workflow(tmp_path, capsys):
 
     state_before = ResearchProject.open_readonly(project.root).state
     assert run_cli("stage", "validate", str(project.root), "--json") == 2
-    assert "Stage 15 research decisions are read-only and unsupported" in (
+    assert "Stage 15 uses researchclaw-codex decision" in (
         capsys.readouterr().err
     )
     assert ResearchProject.open_readonly(project.root).state == state_before
@@ -813,6 +816,30 @@ def test_analysis_status_cli_replays_verified_packet(tmp_path, capsys):
     assert payload["evidence_packet"] == expected
     assert payload["phase"] == "awaiting_independent_assessments"
     assert payload["next_action"] == "register_analysis_review"
+
+
+def test_completed_analysis_status_is_historical_and_revalidates_evidence(
+    tmp_path, capsys
+):
+    project = _finalized_project(tmp_path / "project")
+    prepare_analysis(project)
+    _register_analysis_reviews(project)
+    _register_analysis_rebuttals(project)
+    result_analysis.register_analysis_result(
+        project,
+        _write_analysis_submission(
+            project, "completed-analysis.json", _valid_analysis_result(project)
+        ),
+    )
+
+    assert run_cli("analysis", "status", str(project.root), "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["phase"] == "complete"
+    assert payload["next_action"] == "analysis_complete"
+
+    (project.root / "analysis/results.json").write_bytes(b'{"tampered":true}')
+    assert run_cli("analysis", "status", str(project.root), "--json") == 2
+    assert capsys.readouterr().err
 
 
 def test_validate_completed_analysis_reads_verified_history(tmp_path):
