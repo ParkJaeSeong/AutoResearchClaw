@@ -610,6 +610,175 @@ def test_decision_status_rejects_tampered_deterministic_report(tmp_path):
         research_decision.research_decision_status(project)
 
 
+@pytest.mark.parametrize(
+    "record_kind",
+    ["packet", "review", "rebuttals", "result", "report"],
+)
+def test_decision_publication_verifies_bytes_before_state_commit(
+    tmp_path, monkeypatch, record_kind
+):
+    project = analyzed_project(tmp_path / "project")
+    if record_kind == "packet":
+        target_path = research_decision.DECISION_PACKET_PATH
+
+        def operation():
+            return research_decision.prepare_research_decision(project)
+
+    else:
+        research_decision.prepare_research_decision(project)
+        directions = {role: "proceed" for role in research_decision.ROLES}
+        if record_kind == "review":
+            target_path = "analysis/research-decision/reviews/domain.json"
+            submission = write_decision_submission(
+                project, "domain.json", review_payload(project, "domain", "proceed")
+            )
+
+            def operation():
+                return research_decision.register_decision_review(project, submission)
+
+        else:
+            register_decision_roles(project, directions)
+            rebuttals = write_decision_submission(
+                project, "rebuttals.json", rebuttal_payload(project, directions)
+            )
+            if record_kind == "rebuttals":
+                target_path = research_decision.DECISION_REBUTTALS_PATH
+
+                def operation():
+                    return research_decision.register_decision_rebuttals(
+                        project, rebuttals
+                    )
+
+            else:
+                research_decision.register_decision_rebuttals(project, rebuttals)
+                result = write_decision_submission(
+                    project, "result.json", result_payload(project, "proceed")
+                )
+                target_path = (
+                    research_decision.DECISION_RESULT_PATH
+                    if record_kind == "result"
+                    else research_decision.DECISION_REPORT_PATH
+                )
+
+                def operation():
+                    return research_decision.register_decision_result(project, result)
+
+    before_state = ResearchProject.open_readonly(project.root).state
+    before_state_bytes = (project.root / ".researchclaw/state.json").read_bytes()
+    target = project.root / target_path
+    conflicting_bytes = (
+        b"injected report corruption\n"
+        if record_kind == "report"
+        else b'{"fault":"injected"}'
+    )
+    original_write = research_decision._write_exclusive
+
+    def change_after_publication(destination, payload):
+        original_write(destination, payload)
+        if destination == target:
+            destination.write_bytes(conflicting_bytes)
+
+    monkeypatch.setattr(
+        research_decision, "_write_exclusive", change_after_publication
+    )
+    with pytest.raises(ValueError):
+        operation()
+    monkeypatch.setattr(research_decision, "_write_exclusive", original_write)
+
+    current = ResearchProject.open_readonly(project.root)
+    assert current.state == before_state
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before_state_bytes
+    assert target.read_bytes() == conflicting_bytes
+    assert target_path not in current.state.artifacts
+    if record_kind in {"result", "report"}:
+        assert current.state.current_stage == 15
+        assert 15 not in current.state.completed_stages
+        assert research_decision.DECISION_RESULT_PATH not in current.state.artifacts
+        assert research_decision.DECISION_REPORT_PATH not in current.state.artifacts
+
+    with pytest.raises(ValueError):
+        operation()
+    assert target.read_bytes() == conflicting_bytes
+    assert ResearchProject.open_readonly(project.root).state == before_state
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before_state_bytes
+
+
+@pytest.mark.parametrize(
+    ("record_kind", "field", "malformed"),
+    [
+        ("review", "role", []),
+        ("review", "recommendation", {}),
+        ("rebuttals", "role", []),
+        ("rebuttals", "final_recommendation", {}),
+        ("result", "decision", []),
+        ("result", "disagreement_role", {}),
+    ],
+)
+def test_decision_cli_rejects_malformed_enum_fields_without_publication(
+    tmp_path, capsys, record_kind, field, malformed
+):
+    project = analyzed_project(tmp_path / "project")
+    research_decision.prepare_research_decision(project)
+    directions = {role: "proceed" for role in research_decision.ROLES}
+
+    if record_kind == "review":
+        payload = review_payload(project, "domain", "proceed")
+        payload[field] = malformed
+        name = f"malformed-review-{field}.json"
+        output_paths = ["analysis/research-decision/reviews/domain.json"]
+        command = "register-review"
+    else:
+        register_decision_roles(project, directions)
+        if record_kind == "rebuttals":
+            payload = rebuttal_payload(project, directions)
+            payload["responses"][0][field] = malformed
+            name = f"malformed-rebuttals-{field}.json"
+            output_paths = [research_decision.DECISION_REBUTTALS_PATH]
+            command = "register-rebuttals"
+        else:
+            research_decision.register_decision_rebuttals(
+                project,
+                write_decision_submission(
+                    project, "rebuttals.json", rebuttal_payload(project, directions)
+                ),
+            )
+            if field == "disagreement_role":
+                payload = result_payload(project, None)
+                payload["disagreements"][0]["role"] = malformed
+            else:
+                payload = result_payload(project, "proceed")
+                payload[field] = malformed
+            name = f"malformed-result-{field}.json"
+            output_paths = [
+                research_decision.DECISION_RESULT_PATH,
+                research_decision.DECISION_REPORT_PATH,
+            ]
+            command = "register-result"
+
+    submission = write_decision_submission(project, name, payload)
+    before_state = (project.root / ".researchclaw/state.json").read_bytes()
+
+    assert (
+        run_cli(
+            [
+                "decision",
+                command,
+                str(project.root),
+                "--submission",
+                str(submission.relative_to(project.root)),
+                "--json",
+            ]
+        )
+        == 2
+    )
+    error = capsys.readouterr().err
+
+    assert error.startswith("error: decision_")
+    assert "Traceback" not in error
+    assert (project.root / ".researchclaw/state.json").read_bytes() == before_state
+    assert all(not (project.root / path).exists() for path in output_paths)
+
+
 def test_decision_review_recovers_exact_orphan_and_preserves_conflict_bytes(
     tmp_path, monkeypatch
 ):

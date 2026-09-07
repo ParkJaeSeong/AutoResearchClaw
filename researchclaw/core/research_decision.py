@@ -97,6 +97,26 @@ def _record_reference(path: str, payload: bytes) -> ArtifactRef:
     return ArtifactRef(path, hashlib.sha256(payload).hexdigest(), len(payload))
 
 
+def _verify_published_bytes(
+    project: ResearchProject, path: str, payload: bytes, *, error: str
+) -> ArtifactRef:
+    reference = _record_reference(path, payload)
+    try:
+        _, actual = _secure_snapshot(
+            project.root,
+            path,
+            expected=reference,
+            maximum_bytes=reference.size,
+            read_payload=True,
+            error_code=error,
+        )
+    except ValueError as cause:
+        raise ValueError(error) from cause
+    if actual != payload:
+        raise ValueError(error)
+    return reference
+
+
 def _submission_path(project: ResearchProject, value: str | Path) -> Path:
     candidate = Path(value)
     if candidate.is_absolute():
@@ -173,8 +193,10 @@ def _write_record(
             raise ValueError(conflict) from error
         if existing != payload:
             raise ValueError(conflict)
+    reference = _verify_published_bytes(
+        project, path, payload, error=conflict
+    )
     current = ResearchProject.open_readonly(project.root)
-    reference = _record_reference(path, payload)
     if current.state.artifacts.get(path) not in {None, reference}:
         raise ValueError(conflict)
     if current.state.artifacts.get(path) is None:
@@ -305,9 +327,9 @@ def _parse_review(
     )
     role = payload.get("role")
     recommendation = payload.get("recommendation")
-    if role not in ROLES:
+    if not isinstance(role, str) or role not in ROLES:
         raise ValueError("decision_role_invalid")
-    if recommendation not in _RECOMMENDATIONS:
+    if not isinstance(recommendation, str) or recommendation not in _RECOMMENDATIONS:
         raise ValueError("decision_review_schema_invalid")
     _statements(
         payload.get("rationale"),
@@ -405,9 +427,8 @@ def _parse_rebuttals(
         }:
             raise ValueError("decision_rebuttal_schema_invalid")
         role = response.get("role")
-        if role not in reviews or role in seen:
+        if not isinstance(role, str) or role not in reviews or role in seen:
             raise ValueError("decision_rebuttal_role_invalid")
-        role = str(role)
         seen.add(role)
         if response.get("producer") != reviews[role][2]:
             raise ValueError("decision_rebuttal_producer_invalid")
@@ -425,7 +446,9 @@ def _parse_rebuttals(
             require_nonempty=True,
         )
         final = response.get("final_recommendation")
-        if final is not None and final not in _RECOMMENDATIONS:
+        if final is not None and (
+            not isinstance(final, str) or final not in _RECOMMENDATIONS
+        ):
             raise ValueError("decision_rebuttal_schema_invalid")
     if seen != set(ROLES):
         raise ValueError("decision_rebuttal_role_invalid")
@@ -493,7 +516,9 @@ def _parse_result(
         raise ValueError("decision_result_binding_invalid")
 
     decision = payload.get("decision")
-    if decision is not None and decision not in _RECOMMENDATIONS:
+    if decision is not None and (
+        not isinstance(decision, str) or decision not in _RECOMMENDATIONS
+    ):
         raise ValueError("decision_result_schema_invalid")
     _statements(
         payload.get("rationale"),
@@ -534,9 +559,13 @@ def _parse_result(
         }:
             raise ValueError("decision_result_schema_invalid")
         role = disagreement.get("role")
-        if role not in ROLES or role in seen_disagreements:
+        if (
+            not isinstance(role, str)
+            or role not in ROLES
+            or role in seen_disagreements
+        ):
             raise ValueError("decision_result_schema_invalid")
-        seen_disagreements.add(str(role))
+        seen_disagreements.add(role)
         _nonempty_text(disagreement.get("text"), "decision_result_schema_invalid")
         _evidence_refs(disagreement.get("evidence_refs"), packet)
 
@@ -748,7 +777,6 @@ def prepare_research_decision(project: ResearchProject) -> dict[str, object]:
         raise ValueError("decision_stage_invalid")
     packet = _build_packet(history)
     packet_bytes = _canonical_json(packet)
-    packet_ref = _packet_reference(packet_bytes)
     destination = resolve_project_artifact(current.root, DECISION_PACKET_PATH)
     try:
         _write_exclusive(destination, packet_bytes)
@@ -766,6 +794,12 @@ def prepare_research_decision(project: ResearchProject) -> dict[str, object]:
         != packet_bytes
     ):
         raise ValueError("decision_history_changed")
+    packet_ref = _verify_published_bytes(
+        current,
+        DECISION_PACKET_PATH,
+        packet_bytes,
+        error="decision_packet_conflict",
+    )
     existing_ref = current.state.artifacts.get(DECISION_PACKET_PATH)
     if existing_ref not in {None, packet_ref}:
         raise ValueError("decision_packet_conflict")
@@ -1016,7 +1050,19 @@ def register_decision_result(
             raise ValueError("decision_result_conflict") from error
         if existing_bytes != source_bytes:
             raise ValueError("decision_result_conflict")
+    result_ref = _verify_published_bytes(
+        current,
+        DECISION_RESULT_PATH,
+        source_bytes,
+        error="decision_result_conflict",
+    )
     _write_report_exclusive(current, report_bytes)
+    report_ref = _verify_published_bytes(
+        current,
+        DECISION_REPORT_PATH,
+        report_bytes,
+        error="decision_report_conflict",
+    )
 
     # Re-open and revalidate every historical and deliberation binding before state.
     current = ResearchProject.open_readonly(current.root)
@@ -1039,8 +1085,6 @@ def register_decision_result(
     ).encode("utf-8")
     if expected_report_bytes != report_bytes:
         raise ValueError("decision_integrity_failure")
-    result_ref = _record_reference(DECISION_RESULT_PATH, source_bytes)
-    report_ref = _record_reference(DECISION_REPORT_PATH, report_bytes)
     for path, reference in (
         (DECISION_RESULT_PATH, result_ref),
         (DECISION_REPORT_PATH, report_ref),
