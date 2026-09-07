@@ -99,7 +99,6 @@ _PREPARATION_KINDS = frozenset({"preparation", "readiness"})
 _READINESS_VALUES = frozenset({"ready_for_execution", "needs_input"})
 _LICENSE_VALUES = frozenset({"confirmed", "not_required", "unconfirmed"})
 _HASH_CHUNK_SIZE = 1024 * 1024
-_FREE_DISK_SNAPSHOT_TOLERANCE = 16 * 1024 * 1024
 _BYTES_PER_GIB = 1_073_741_824
 _REQUIRED_BINDINGS = MappingProxyType(
     {
@@ -989,17 +988,6 @@ def validate_stage_eleven(
                     "passive hardware fact does not match the current host",
                 )
             )
-    if (
-        observation.free_disk_bytes
-        > current.free_disk_bytes + _FREE_DISK_SNAPSHOT_TOLERANCE
-    ):
-        issues.append(
-            _validation_issue(
-                "hardware_observation_mismatch",
-                "hardware_observation.free_disk_bytes",
-                "declared free disk exceeds the current passive observation",
-            )
-        )
     if observation.gpu_available != current.gpu_available:
         issues.append(
             _validation_issue(
@@ -1029,6 +1017,8 @@ def validate_stage_eleven(
             )
         )
 
+    # Free disk is a historical observation, not a stable host identity fact.
+    # Enforce the declared peak budget against current capacity, not snapshot drift.
     prerequisites = list(_hardware_prerequisites(plan, current))
     for index, input_fact in enumerate(plan.inputs):
         base_path = f"inputs[{index}]"

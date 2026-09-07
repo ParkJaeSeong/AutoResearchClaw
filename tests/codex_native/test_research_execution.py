@@ -26,6 +26,7 @@ from researchclaw.core.research_execution import (
     validate_research_result,
 )
 from researchclaw.core.state import StateStore
+from researchclaw.core.resource_planning import HardwareObservation
 from tests.codex_native.helpers import (
     build_approved_stage_twelve_project,
     load_execution_contract,
@@ -103,6 +104,77 @@ def test_register_result_completes_stage_twelve(tmp_path):
         "metric_count": 1,
         "input_count": 1,
     }
+
+
+def test_execution_accepts_current_disk_budget_without_rewriting_approval(
+    tmp_path, monkeypatch
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    resources_path = project.root / "experiment/resources.json"
+    resources_before = resources_path.read_bytes()
+    resources = json.loads(resources_before)
+    resource_ref = project.state.artifacts["experiment/resources.json"]
+    approval_path = project.root / "approvals/stage-12.json"
+    approval_before = approval_path.read_bytes()
+    current = replace(
+        HardwareObservation(**resources["hardware_observation"]),
+        free_disk_bytes=resources["budget"]["peak_temporary_disk_bytes"],
+    )
+    monkeypatch.setattr(
+        "researchclaw.core.resource_planning.observe_local_hardware",
+        lambda _root: current,
+    )
+
+    prepare_research_execution(project)
+    write_contract_bound_research_result(project, load_execution_contract(project.root))
+    status = register_research_result(project, "experiment/results.json")
+
+    assert status.readiness == "research_result_registered"
+    reopened = ResearchProject.open(project.root)
+    assert reopened.state.current_stage == 13
+    assert reopened.state.artifacts["experiment/resources.json"] == resource_ref
+    assert resources_path.read_bytes() == resources_before
+    assert approval_path.read_bytes() == approval_before
+
+
+@pytest.mark.parametrize("operation", ["prepare", "register"])
+def test_execution_rejects_current_disk_shortage_without_advancing(
+    tmp_path, monkeypatch, operation
+):
+    project = build_approved_stage_twelve_project(tmp_path / "project")
+    if operation == "register":
+        prepare_research_execution(project)
+        write_contract_bound_research_result(
+            project, load_execution_contract(project.root)
+        )
+    resources_path = project.root / "experiment/resources.json"
+    resources_before = resources_path.read_bytes()
+    resources = json.loads(resources_before)
+    assert resources["budget"]["peak_temporary_disk_bytes"] > 0
+    current = replace(
+        HardwareObservation(**resources["hardware_observation"]), free_disk_bytes=0
+    )
+    monkeypatch.setattr(
+        "researchclaw.core.resource_planning.observe_local_hardware",
+        lambda _root: current,
+    )
+    state_path = project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+    approval_path = project.root / "approvals/stage-12.json"
+    approval_before = approval_path.read_bytes()
+
+    with pytest.raises(ValueError, match="^execution_prerequisites_changed$"):
+        if operation == "prepare":
+            prepare_research_execution(project)
+        else:
+            register_research_result(project, "experiment/results.json")
+
+    assert state_path.read_bytes() == state_before
+    assert ResearchProject.open(project.root).state.current_stage == 12
+    assert resources_path.read_bytes() == resources_before
+    assert approval_path.read_bytes() == approval_before
+    if operation == "prepare":
+        assert not (project.root / EXECUTION_CONTRACT_PATH).exists()
 
 
 def test_register_result_rechecks_bytes_immediately_before_persistence(

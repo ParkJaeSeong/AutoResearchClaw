@@ -525,6 +525,54 @@ def test_stage_eleven_requires_truthful_hardware_prerequisites(
     assert "readiness_mismatch" in {issue.code for issue in issues}
 
 
+@pytest.mark.parametrize(
+    ("current_free_bytes", "expected_codes"),
+    [
+        pytest.param(42 * 1024**3, set(), id="space-increased"),
+        pytest.param(38 * 1024**3, set(), id="large-harmless-decrease"),
+        pytest.param(32 * 1024**2, set(), id="exact-budget"),
+        pytest.param(
+            32 * 1024**2 - 1,
+            {"unmet_prerequisites_mismatch", "readiness_mismatch"},
+            id="one-byte-short",
+        ),
+        pytest.param(
+            0,
+            {"unmet_prerequisites_mismatch", "readiness_mismatch"},
+            id="no-space",
+        ),
+    ],
+)
+def test_stage_eleven_checks_current_disk_budget_not_snapshot_drift(
+    stage_11_project, ready_plan, monkeypatch, current_free_bytes, expected_codes
+):
+    ready_plan["hardware_observation"]["free_disk_bytes"] = 40 * 1024**3
+    ready_plan["tasks"][1]["temporary_disk_bytes"] = 32 * 1024**2
+    ready_plan["budget"]["peak_temporary_disk_bytes"] = 32 * 1024**2
+    ready_plan["warnings"] = list(
+        hardware_drift_warnings(
+            ready_plan["saved_hardware_profile"], ready_plan["hardware_observation"]
+        )
+    )
+    current = replace(
+        HardwareObservation(**ready_plan["hardware_observation"]),
+        free_disk_bytes=current_free_bytes,
+    )
+    monkeypatch.setattr(
+        "researchclaw.core.resource_planning.observe_local_hardware",
+        lambda _root: current,
+    )
+    plan_before = copy.deepcopy(ready_plan)
+    state_path = stage_11_project.root / ".researchclaw/state.json"
+    state_before = state_path.read_bytes()
+
+    _plan, issues = validate_stage_eleven(stage_11_project, ready_plan)
+
+    assert {issue.code for issue in issues} == expected_codes
+    assert ready_plan == plan_before
+    assert state_path.read_bytes() == state_before
+
+
 def test_stage_eleven_rejects_preexisting_results(stage_11_project, ready_plan):
     (stage_11_project.root / "experiment/results.json").write_text(
         "{}\n", encoding="utf-8"
