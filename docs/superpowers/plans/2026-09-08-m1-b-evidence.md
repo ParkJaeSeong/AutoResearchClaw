@@ -1,6 +1,6 @@
 # M1 B — Evidence and Durable State Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 신규 M1 프로젝트와 버전별 자료·승인·근거를 지속적으로 보존한다.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python >=3.11, pathlib/hashlib/json, 기존 경로 검증·잠금·원자 저장, pytest/PyYAML.
 
-**Spec:** [총괄 계획](2026-09-08-m1-transition.md). 선행 A 완료.
+**Spec:** [총괄 계획](2026-09-08-m1-transition.md). 선행: A의 UI·호스트·계약 완료와 기존 기준선 분석 확보. 중단된 전체 회귀는 후속 통합 검증에서 다시 확인한다.
 
 ## Global Constraints
 
@@ -18,9 +18,9 @@
 
 **Files:** Create `researchclaw/core/m1/store.py`, `researchclaw/core/m1/project.py`, `researchclaw/codex/m1_cli.py`, `tests/codex_native/m1/test_store.py`, `tests/codex_native/m1/test_project.py`; Modify `researchclaw/codex/cli.py`의 parser/dispatch 진입 연결.
 
-**Interfaces:** `init_project(root: Path, *, topic: str, profile: str, max_returns: int) -> dict`; `read_head(root: Path) -> dict`; `commit_record(root: Path, *, expected_head: str, command_id: str, state: dict, event: dict, objects: dict[str, bytes]) -> dict`. 반환 HEAD는 `id,state,events,objects`를 가진다. `m1 init ROOT --topic ... --profile materials_ai --max-returns 2 --json`, `m1 status ROOT --json`.
+**Interfaces:** `init_project(root: Path, *, topic: str, profile: str, max_returns: int, content_origin: str = 'research') -> dict`; `read_head(root: Path) -> dict`; `commit_record(root: Path, *, expected_head: str, command_id: str, state: dict, event: dict, objects: dict[str, bytes]) -> dict`. 반환 HEAD는 `id,state,events,objects`를 가진다. `m1 init ROOT --topic ... --profile materials_ai --max-returns 2 --json`, `m1 status ROOT --json`. 합성 검사 프로젝트는 선택 인자 `--content-origin synthetic`으로 명시한다.
 
-- [ ] 실제 초기화의 legacy 거부·빈 루트·정상 재열기·조회 무변경 검사를 작성한다.
+- [x] 실제 초기화의 legacy 거부·빈 루트·정상 재열기·조회 무변경 검사를 작성한다.
 
 ```python
 import pytest
@@ -39,24 +39,25 @@ def test_legacy_state_is_not_migrated(tmp_path):
     assert not (meta / 'm1').exists()
 ```
 
-- [ ] `python -m pytest tests/codex_native/m1/test_store.py tests/codex_native/m1/test_project.py -q`로 기능 부재에 따른 실패를 확인한다.
-- [ ] M1 초기화와 커밋 발행을 다음 순서로 구현한다.
+- [x] `python -m pytest tests/codex_native/m1/test_store.py tests/codex_native/m1/test_project.py -q`로 기능 부재에 따른 실패를 확인한다.
+- [x] M1 초기화와 커밋 발행을 다음 순서로 구현한다.
 
 ```text
 validate root and closed record schemas
 acquire existing project_transaction(root) after creating owned metadata
-reload HEAD; reject stale expected_head
-if command_id already committed: return that committed receipt
+reload HEAD
+if command_id already committed: verify identical payload; sync publication; return original receipt
+reject stale expected_head
 write immutable objects; verify size/hash
 write complete new commit in unpublished owned temporary directory
 fsync files; publish complete commit directory; fsync parent
-atomic-write HEAD referencing the complete commit; fsync metadata directory
+atomic-write HEAD referencing the complete commit; fsync store and publication parent directories
 return committed receipt
 ```
 
-- [ ] 같은 command_id·같은 내용은 같은 결과를 반환한다. 같은 ID·다른 내용은 `m1_command_conflict`, 다른 HEAD는 `m1_head_conflict`로 거부한다. 미발행 임시 파일은 UI에서 읽지 않는다. 원문 위치가 symlink로 대체된 입력은 거부한다.
-- [ ] HEAD 교체 전후 장애, 동시 쓰기, 상대 루트·symlink 부모 루트, 디스크 부족을 검사한다. 손상된 HEAD를 임의로 복구하지 않고 `m1_store_corrupt`로 멈춘다.
-- [ ] 기존 `tests/codex_native/test_project.py`, `test_state.py`, `test_cli.py`를 실행한다. 신·구 상태가 섞이지 않는 결과를 기록하고 커밋한다.
+- [x] 같은 command_id·같은 내용은 같은 결과를 반환한다. 같은 ID·다른 내용은 `m1_command_conflict`, 다른 HEAD는 `m1_head_conflict`로 거부한다. 미발행 임시 파일은 UI에서 읽지 않는다. 원문 위치가 symlink로 대체된 입력은 거부한다.
+- [x] HEAD 교체 전후 장애, 동시 쓰기, 상대 루트·symlink 부모 루트, 디스크 부족을 검사한다. 손상된 HEAD를 임의로 복구하지 않고 `m1_store_corrupt`로 멈춘다.
+- [x] 기존 `tests/codex_native/test_project.py`, `test_state.py`, `test_cli.py`를 실행한다. 신·구 상태가 섞이지 않는 결과를 기록하고 커밋한다.
 
 **User check:** 신규 M1을 닫았다 열어도 같은 기록이 나오고 기존 연구는 바뀌지 않는다.
 
@@ -124,7 +125,7 @@ def approval_covers(record, corpus_binding):
 ```
 
 - [ ] 기존 `validate_extraction_shortlist`/`validate_knowledge_extraction`의 실제 signature를 확인해 내용 검사만 호출한다. 기존 stage validate/approve 호출로 새 프로젝트를 전진시키지 않는다. 접근 수준·원문 locator·원문 미접근 제한을 유지한다.
-- [ ] 테스트 helpers.py에 `build_evidence_case(root: Path) -> dict`를 정의한다. 테스트 전용으로 init/commit_record를 이용해 scope~screen의 합성 checkpoint를 주입한 뒤 문헌 승인·추출 공개 API를 실행한다. `root,head_id,artifact_refs,corpus_binding`를 반환한다. 앞 단계 협의는 작업 17에서 연결되므로 이 helper를 전체 공개 경로 검사라고 부르지 않는다. 제품에 seed 또는 승인 우회 명령을 추가하지 않는다.
+- [ ] 테스트 helpers.py에 `build_evidence_case(root: Path) -> dict`를 정의한다. 테스트 전용으로 init_project(content_origin='synthetic')/commit_record를 이용해 scope~screen의 합성 checkpoint를 주입한 뒤 문헌 승인·추출 공개 API를 실행한다. `root,head_id,artifact_refs,corpus_binding`를 반환한다. 앞 단계 협의는 작업 17에서 연결되므로 이 helper를 전체 공개 경로 검사라고 부르지 않는다. 제품에 seed 또는 승인 우회 명령을 추가하지 않는다.
 - [ ] 합성 checkpoint의 실행 출처는 declared_only로 두고 자료에 '합성 검사 자료'를 표시한다. 실사용 품질 증거에 합산하지 않는다.
 - [ ] 미승인 추출, 반려 후 수동적 재개, 문헌 집합 변경, 같은 집합의 승인 재사용 범위를 검사한다. 새로운 binding에는 명시적 사용자 판단이 필요하다.
 - [ ] 기존 knowledge/approval 회귀를 실행하고 문헌 선택→사용자 결정→추출 연결을 보여준 뒤 커밋한다.
