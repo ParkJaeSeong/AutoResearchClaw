@@ -67,8 +67,8 @@ return committed receipt
 
 **Interfaces:** `prepare_node(root: Path, node_id: str, *, command_id: str) -> dict`; `validate_outputs(packet: dict, files: dict[str, bytes]) -> tuple[dict, ...]`; `register_outputs(root: Path, *, packet_id: str, submission: dict, command_id: str) -> dict`; `resume_project(root: Path) -> dict`(project.py에 추가, 읽기 전용). CLI: `m1 node prepare ROOT --node NODE --command-id ID --json`, `m1 node register ROOT --packet ID --submission PATH --command-id ID --json`, `m1 resume ROOT --json`.
 
-- [ ] 패킷에는 attempt ID, 입력 객체, 입력 결합, 출력 allowlist, 역할·도구 범위, 구조 검사·협의 필요 조건을 포함한다.
-- [ ] 외부·절대·미선언 출력, 입력 변경, 과거 패킷 재사용을 거부하는 검사를 먼저 쓴다.
+- [x] 패킷에는 attempt ID, 입력 객체, 입력 결합, 출력 allowlist, 역할·도구 범위, 구조 검사·협의 필요 조건을 포함한다.
+- [x] 외부·절대·미선언 출력, 입력 변경, 과거 패킷 재사용을 거부하는 검사를 먼저 쓴다.
 
 ```python
 from researchclaw.core.m1.artifacts import validate_outputs
@@ -79,8 +79,8 @@ def test_undeclared_output_is_rejected():
     assert any(x['code'] == 'm1_undeclared_output' for x in issues)
 ```
 
-- [ ] `python -m pytest tests/codex_native/m1/test_packets.py tests/codex_native/m1/test_artifacts.py -q`로 실패 확인.
-- [ ] 출력 allowlist와 입력 결합 확인 후 task 05 commit_record로 한 번 등록한다. 등록 뒤 상태는 협의/확인 필요 시 `review_pending`; 단순 파일 유효성으로 다음 노드를 완료하지 않는다.
+- [x] `python -m pytest tests/codex_native/m1/test_packets.py tests/codex_native/m1/test_artifacts.py -q`로 실패 확인.
+- [x] 출력 allowlist와 입력 결합 확인 후 task 05 commit_record로 한 번 등록한다. 등록 뒤 상태는 협의/확인 필요 시 `review_pending`; 단순 파일 유효성으로 다음 노드를 완료하지 않는다.
 
 ```python
 def validate_outputs(packet, files):
@@ -93,8 +93,8 @@ def validate_outputs(packet, files):
 
 `validate_declared_contents(packet, files) -> tuple[dict,...]`는 같은 artifacts.py에 정의한다. 알려진 node에 대해 필수 파일·UTF-8·JSON/YAML 형식 검사를 수행하고 unknown node는 거부한다. 문헌·종합·가설 내용 검사는 각각 task 07~09가 연결한다.
 
-- [ ] `resume_project`는 현재 수행 가능 작업·대기 이유·최신 attempt를 반환한다. head와 모든 파일의 바이트/mtime 전후 대조로 조회 무변경 확인.
-- [ ] 두 번 등록·프로세스 중단 후 동일 명령 재시도 검사와 기존 `test_task_packets.py`를 실행하고 커밋한다.
+- [x] `resume_project`는 현재 수행 가능 작업·대기 이유·최신 attempt를 반환한다. head와 모든 파일의 바이트/mtime 전후 대조로 조회 무변경 확인.
+- [x] 두 번 등록·프로세스 중단 후 동일 명령 재시도 검사와 기존 `test_task_packets.py`를 실행하고 커밋한다.
 
 **User check:** “현재 할 일·왜 대기 중인지·어떤 자료를 읽어야 하는지”가 CLI에 표시된다.
 
