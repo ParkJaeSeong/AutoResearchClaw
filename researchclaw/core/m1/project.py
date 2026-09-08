@@ -94,3 +94,45 @@ def init_project(root: Path, *, topic: str, profile: str, max_returns: int,
         os.replace(staging, base)
         store._fsync_directory(base.parent)
         return result
+
+
+def resume_project(root: Path) -> dict:
+    """Report the current work and gates from verified HEAD, without mutation."""
+    from .packets import PACKET_VERSION, _binding, _current_attempt, _inputs, _packet
+
+    head = store.read_head(root)
+    state = head['state']
+    node_id = state['current_node_id']
+    inputs, missing = _inputs(state, node_id, head['objects'])
+    attempt = _current_attempt(state)
+    status = 'ready' if attempt is None else attempt['status']
+    action = 'prepare_node'
+    reasons = []
+    if missing:
+        reasons = ['Required registered inputs are missing: ' + ', '.join(missing)]
+        action = 'supply_inputs'
+    elif attempt is not None:
+        packet = _packet(state, attempt)
+        if packet['packet_version'] != PACKET_VERSION or packet['input_binding'] != _binding(inputs):
+            reasons = ['Inputs changed; the current packet requires a new authorized attempt.']
+            action = 'await_user'
+        elif status in ('prepared', 'draft_invalid'):
+            action = 'write_outputs' if status == 'prepared' else 'correct_outputs'
+        elif status == 'review_pending':
+            reasons = ['Structural registration is complete; independent review or council is required before progression.']
+            action = 'await_review'
+        elif status == 'awaiting_user':
+            reasons = ['The initial submission and two draft corrections are exhausted. User judgment is required.']
+            action = 'await_user'
+        else:
+            reasons = ['Current attempt requires a recorded transition before further authoring.']
+            action = 'await_transition'
+    elif node_id in ('review', 'handoff'):
+        reasons = ['This node requires its later-task engine.']
+        action = 'await_engine'
+    elif node_id == 'extract':
+        reasons = ['Current corpus approval must be checked by the literature engine.']
+        action = 'await_approval'
+    return {**store._VERSION, 'head_id': head['id'], 'current_node_id': node_id,
+            'status': status, 'action': action, 'wait_reasons': reasons, 'inputs': inputs,
+            'current_attempt': attempt, 'content_origin': state['content_origin']}
