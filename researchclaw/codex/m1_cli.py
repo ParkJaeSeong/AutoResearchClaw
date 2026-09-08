@@ -29,6 +29,14 @@ def add_m1_parser(subcommands) -> None:
     trace.add_argument('--claim', required=True)
     trace.add_argument('--synthesis', help='registered synthesis artifact ID; defaults to latest')
     trace.add_argument('--json', action='store_true')
+    returns = commands.add_parser('return', help='plan an authorized return without changes')
+    return_commands = returns.add_subparsers(dest='return_command', required=True)
+    plan = return_commands.add_parser('plan', help='preview exact dependency and approval impacts')
+    plan.add_argument('root', metavar='ROOT')
+    plan.add_argument('--decision', required=True)
+    plan.add_argument('--target', required=True)
+    plan.add_argument('--issues', nargs='+', required=True)
+    plan.add_argument('--json', action='store_true')
     corpus = commands.add_parser('corpus', help='record explicit user corpus decisions')
     corpus_commands = corpus.add_subparsers(dest='corpus_command', required=True)
     decide = corpus_commands.add_parser('decide', help='approve or reject the current corpus')
@@ -82,6 +90,10 @@ def _dispatch(args) -> dict:
     if args.m1_command == 'trace':
         from researchclaw.core.m1.synthesis import read_trace_head, trace_claim
         return trace_claim(read_trace_head(Path(args.root), synthesis_ref_id=args.synthesis), args.claim)
+    if args.m1_command == 'return':
+        from researchclaw.core.m1.transitions import plan_return
+        return plan_return(Path(args.root), decision_id=args.decision,
+                           target_node_id=args.target, issue_ids=args.issues)
     if args.m1_command == 'corpus':
         from researchclaw.core.m1.approvals import record_corpus_approval
         return record_corpus_approval(Path(args.root), corpus_binding=args.binding,
