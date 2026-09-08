@@ -9,6 +9,7 @@ import sys
 from dataclasses import asdict
 from collections.abc import Sequence
 
+from researchclaw.codex.research_cli import add_research_parser, dispatch as dispatch_research
 from researchclaw.codex.m1_cli import add_m1_parser, dispatch as dispatch_m1
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.agent_roles import describe_stage_roles
@@ -126,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
     add_m1_parser(subcommands)
+    add_research_parser(subcommands)
 
     roles = subcommands.add_parser("roles", help="inspect research role guidance")
     role_commands = roles.add_subparsers(dest="roles_command", required=True)
@@ -519,7 +521,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as error:
         return int(error.code)
     try:
-        if args.command == "m1":
+        if args.command == "research":
+            payload = dispatch_research(args)
+        elif args.command == "m1":
             payload = dispatch_m1(args)
             if args.m1_command == "view":
                 return 0
@@ -785,13 +789,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         raise
     except (OSError, ValueError) as error:
+        if getattr(args, "command", None) == "research":
+            print(json.dumps({"error": {"code": "research_graph_request_failed", "message": "Research request failed validation or storage access."}}), file=sys.stderr)
+            return 2
         if getattr(args, "command", None) == "refinement":
             print(f"error: {_refinement_error_code(error)}", file=sys.stderr)
         else:
             print(f"error: {error}", file=sys.stderr)
         return 2
 
-    if args.json or args.command == "m1":
+    if args.json or args.command in ("m1", "research"):
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
         if args.command == "roles":
