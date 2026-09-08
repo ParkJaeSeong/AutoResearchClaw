@@ -6,6 +6,9 @@ does the reasoning and tool-using work in the active session; a small local
 Python engine provides deterministic task packets, validation, durable state,
 hash-bound approvals, resume, and evaluation records.
 
+For the implemented scope, verification results, and next work, see the
+[Korean development status snapshot (2026-09-08)](docs/CODEX_DEVELOPMENT_STATUS_KO.md).
+
 The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
 the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
