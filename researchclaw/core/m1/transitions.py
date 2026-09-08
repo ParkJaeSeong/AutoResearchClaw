@@ -30,6 +30,7 @@ _BLANKET_RESET = re.compile(
     r'\b(?:reset|restart|redo|clear|delete)\s+'
     r'(?:all\s+(?:stages|nodes)|(?:the\s+)?(?:entire|whole)\s+(?:project|workflow|graph))\b'
     r'|^\s*(?:reset|restart|redo|clear|delete)\s+(?:all|everything)\s*[.!]?\s*$'
+    r'|^\s*start\s+over\s*[.!?]*\s*$'
     r'|^\s*전체\s*초기화\s*[.!]?\s*$|모든\s*단계\s*초기화', re.IGNORECASE)
 
 

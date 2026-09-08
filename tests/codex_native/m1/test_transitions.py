@@ -146,6 +146,7 @@ def test_issues_must_be_unique_nonempty_ids_from_decision_session(case, issues):
 
 @pytest.mark.parametrize('work', [
     ['reset all'], ['Reset all stages and start over.'], ['전체 초기화'],
+    ['Start over.'], ['  start over!  '], ['start over'],
     ['Delete the entire project and rebuild every stage.'],
     ['Restart the whole workflow from the beginning.'],
 ])
