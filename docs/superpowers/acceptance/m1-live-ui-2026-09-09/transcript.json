@@ -2043,7 +2043,7 @@
   "return_plans": [
     {
       "calculation_scope": "read_only_from_registered_decision",
-      "applied": false,
+      "applied": true,
       "plan": {
         "schema_version": 1,
         "workflow_version": "m1-graph-v1",
@@ -2120,5 +2120,134 @@
         "plan_hash": "9c7d826584cf677260ef97a104777f178a9598740d34068ff48602b70685c134"
       }
     }
-  ]
+  ],
+  "transitions": [
+    {
+      "affected_attempt_ids": [
+        "attempt-180a771786414c4d8eef10a255db1a51",
+        "attempt-33dcda400758413da088a315467dc129"
+      ],
+      "approval_effects": {
+        "after_change": {
+          "approval_id": "approval-ddffc5b258fa4a95895b8573c5a46fd9",
+          "approval_required": false,
+          "corpus_binding": "273a19827f80d845b0bbe30c2b648605de1ccee1bea8fe673b7218fa21312374",
+          "screen_required": false
+        },
+        "current": {
+          "approval_id": "approval-ddffc5b258fa4a95895b8573c5a46fd9",
+          "approved": true,
+          "corpus_binding": "273a19827f80d845b0bbe30c2b648605de1ccee1bea8fe673b7218fa21312374"
+        }
+      },
+      "changed_artifact_ids": [
+        "artifact-1ac2654785484630bceb5c9f7d8c9787",
+        "artifact-561763a80b3a46c7a31b74ea642ab0dd"
+      ],
+      "content_origin": "synthetic",
+      "decision_id": "decision-live-r1",
+      "from_attempt_id": "attempt-180a771786414c4d8eef10a255db1a51",
+      "id": "return-9c7d826584cf677260ef97a104777f178a9598740d34068ff48602b70685c134",
+      "input_head": "43c01441a315e2766b672894513cf542c5f6d49ff13f8fbe09a38f12f119c98c",
+      "issue_ids": [
+        "I-critical-1",
+        "I-critical-2",
+        "I-domain-1",
+        "I-domain-2",
+        "I-method-1",
+        "I-method-2"
+      ],
+      "plan_hash": "9c7d826584cf677260ef97a104777f178a9598740d34068ff48602b70685c134",
+      "project_id": "m1-a6e48f0bfc0e49089ad7d819dfb5cf6a",
+      "proposed_work": [
+        "H1의 효과 입증 표현을 제거하고 합성 집계 전제와 미검증 집단별 예측을 구분한다.",
+        "구성비 차이라는 대안과 집단 내 비교·공통 구성비 비교가 구별할 질문을 명시한다.",
+        "집단·지표·시점·개선 기준·불확실성의 미정 사항을 기록하고 관측 부족의 판단 보류를 반증과 구분한다."
+      ],
+      "provenance_status": "declared_only",
+      "rationale": "독립 최종 입장 세 개가 모두 수정 필요를 권고했고 차단 쟁점이 남아 있다. M1에서 필요한 주장 범위와 반증·판단 보류의 구분을 먼저 명료화하도록 가설 작성으로 돌아간다. M2 상세 설계와 실험은 아직 수행하지 않는다.",
+      "reason_code": "hypothesis_revision",
+      "reusable_artifact_ids": [
+        "artifact-2bb0705adbc94eb7be21f6469960451b",
+        "artifact-6bce8fa476c54dceb81cbc7549430c1b",
+        "artifact-9933d9653d7a4a11bb224387ee5e8378",
+        "artifact-9fe155e6829d4390af3af76f2b3850ba",
+        "artifact-c7f8e01225494433a787664ca24e10c3",
+        "artifact-e40c691546974726a42688722c6888b8",
+        "fixture-025639120a144ff3ba5dfa4bf3a33f6b",
+        "fixture-14ee9a25bbf644f09008e0ba2ba148b4",
+        "fixture-3f57f08b81364b89af357aa7402bc5c6",
+        "fixture-582b277831ea4813a4d2e634b5af7f03",
+        "fixture-81b5cdaf7c574a8495797ef840c5b303",
+        "fixture-975be57b76e94ecfb18219a66af05376",
+        "fixture-dd514b8605784c7a80646e88cdf8b37b",
+        "fixture-e10b7b562ce148999ec9210fdf3f6658"
+      ],
+      "reusable_attempt_ids": [
+        "attempt-4aafa1783a774ee7adc3f48bc9e8f0dc",
+        "attempt-98fb9a3786a241889c01b81006b074fd",
+        "attempt-eef0db6c77404d16975ee69c91de994b",
+        "fixture-collect",
+        "fixture-questions",
+        "fixture-scope",
+        "fixture-search"
+      ],
+      "schema_version": 1,
+      "session_id": "session-911e9f6673a04cf78297e48140334847",
+      "target_node_id": "hypothesize",
+      "workflow_version": "m1-graph-v1",
+      "to_attempt_id": "attempt-3e705049f5c9408594327098065e5802",
+      "basis_hash": "578d87fd6b6de032f96ecedbdfcf1024fd962f7368dc0107bbda921e7188590d",
+      "returns_used_before": 0,
+      "returns_used_after": 1
+    }
+  ],
+  "hypothesis_revisions": [
+    {
+      "record": {
+        "id": "H1",
+        "revision": 2,
+        "parent_revision": 1,
+        "author_assignment_id": "author-live-root",
+        "change_reason": "decision-live-r1과 세 역할의 최종 revise 의견을 반영한다. I-domain-1, I-method-1, I-critical-1에서 지적한 집계 개선→모든 집단 효과 입증의 비약을 제거하고, 공통 구성비 비교에서도 개선이 남을 것이라는 미검증 예측으로 범위를 좁힌다. I-domain-2, I-method-2, I-critical-2에 따라 필요한 정의와 불확실성 규칙을 후속 과제로 명시하고 관측 부족의 판단 보류를 반증과 구분한다. 이 개정 자체가 쟁점 해소를 확정하지는 않으며 새 독립 검토를 요청한다.",
+        "statement": "검증할 가설: 사전에 정할 공통 집단 구성비로 표준화해 비교해도, 방법 적용 조건의 평균 결과 지표는 비교 조건보다 개선된 방향을 유지할 것이다. 현재의 합성 집계 전제로 검증된 결론이 아니며 모든 하위 집단의 개선이나 인과효과를 주장하지 않는다.",
+        "claim_refs": [
+          "C1",
+          "C2"
+        ],
+        "gap_refs": [
+          "G1"
+        ],
+        "predicted_observation": "집단별 조건 간 차이를 개선 방향으로 정의한 동일 결과 지표에서 구하고, 사전에 고정할 공통 가중치로 합산하면 표준화 차이가 양수일 것으로 예측한다. 집단별 차이도 함께 보고하여 평균 개선과 효과의 이질성을 구분한다. 현재 집단별 관측은 없다.",
+        "falsification_condition": "사전에 정할 판정 규칙과 충분한 관측 아래 공통 구성비의 표준화 차이가 개선되지 않는 방향(0 이하)으로 판단되면 이 예측을 기각한다. 관측이 없거나 불확실성 때문에 방향을 판정할 수 없으면 판단 보류로 기록한다. 필요한 규칙과 자료의 미정 상태를 실제 반증으로 취급하지 않는다.",
+        "alternatives": [
+          "조건 간 집단 구성비 차이만으로 집계 개선이 나타나며, 공통 구성비로 비교하면 개선이 남지 않을 수 있다.",
+          "일부 집단의 개선과 다른 집단의 악화가 공존하면서 표준화 평균은 개선될 수 있다. 이 경우에도 모든 집단의 효과로 일반화할 수 없다."
+        ],
+        "feasibility_notes": "합성 검증 자료에 대한 M1 연구 질문·가설 개정이다. 새 집단별 자료, 실제 문헌 접근, 실험 또는 분석 결과를 추가하지 않았다. C1·C2의 한계와 G1의 구별 문제를 유지하며, 상세 정의와 분석 절차는 후속 설계에서 정할 과제로 남긴다. 구조적 등록과 과학적 검토를 구분하고 새 세 역할의 판단을 기다린다.",
+        "open_design_questions": [
+          "하위 집단의 정의와 포함 범위, 공통 가중치의 대상 집단·선정 근거를 어떻게 사전에 고정할 것인가?",
+          "결과 지표의 개선 방향, 비교 조건과 시점, 집단별 비교 가능성을 어떻게 정의할 것인가?",
+          "집단별 표본 수·불확실성·결측을 어떻게 보고하고 개선·비개선·판단 보류의 규칙을 사전에 정할 것인가?",
+          "구성 효과와 집단 내 차이를 어떤 비교로 구분하고 인과 해석을 주장하려면 어떤 추가 설계 근거가 필요한가?"
+        ],
+        "disposition": "draft"
+      },
+      "author_scope": "coordinator draft after actual host critique; not a reviewer verdict",
+      "source_artifact_ids": [
+        "artifact-e69b19afc09e4bafada45a3679cd657d",
+        "artifact-fb78a9bd052344b4b18c8480dac9ec65"
+      ]
+    }
+  ],
+  "second_review": {
+    "session_id": "session-6de17ed4c0c648ce805801d5e5eb574a",
+    "status": "collecting_initials",
+    "worker_execution": "not yet launched; declared assignments only",
+    "initials": []
+  },
+  "preservation_check": {
+    "original_objects_unchanged": 32,
+    "original_attempts_unchanged": 9
+  }
 }

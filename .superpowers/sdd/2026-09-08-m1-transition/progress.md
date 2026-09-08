@@ -184,3 +184,5 @@ Task16 root preparatory UI slice: replaced demo fetch with /api/view, serial 3s 
 Task12 complete30413b3: independentreviewApproved aftercanonicalreplayfix. Regression469passed; fixsubset13passed149deselected. FinalCLIactualdecisionexactreceipt/HEADpreserved. Task13freshworkerstarted.
 
 Task13 completed d5d7a78 after2scopedreviewfixes; independentApproved. Mainfocused31 and relevant59passed; finalfix11passed28deselected. Actualplan2affected7reusable, exactCLIandread-onlysnapshotverified. Task14freshworkerstarted; rootwillapplyactualreturnthenauthorr2.
+
+Task14 completebad1104, independentApproved/no findings. 40focused175existing4finalaffected passed, nofullsuiteclaim. Rootactualreturn1/2→H1r2→session6de17initialwaiting, old32objects9attempts preserved; finalCLIreplayexact/latestHEADpreserved; resumepending3+returncontext. Task15freshworkerstarted; rootUIalignment+CLI/browserremaining.
