@@ -38,6 +38,25 @@ def add_m1_parser(subcommands) -> None:
     decide.add_argument('--note', required=True)
     decide.add_argument('--command-id', required=True)
     decide.add_argument('--json', action='store_true')
+    council = commands.add_parser('council', help='collect independent review initials')
+    council_commands = council.add_subparsers(dest='council_command', required=True)
+    for name in ('prepare', 'initial', 'packet', 'replace'):
+        action = council_commands.add_parser(name)
+        action.add_argument('root', metavar='ROOT')
+        action.add_argument('--json', action='store_true')
+        if name == 'prepare':
+            action.add_argument('--attempt', required=True)
+            action.add_argument('--assignments', type=Path, required=True)
+        else:
+            action.add_argument('--session', required=True)
+            action.add_argument('--assignment', required=True)
+        if name == 'initial':
+            action.add_argument('--submission', type=Path, required=True)
+        if name == 'replace':
+            action.add_argument('--replacement', type=Path, required=True)
+            action.add_argument('--reason', required=True)
+        if name != 'packet':
+            action.add_argument('--command-id', required=True)
     node = commands.add_parser('node', help='prepare and register node drafts')
     node_commands = node.add_subparsers(dest='node_command', required=True)
     prepare = node_commands.add_parser('prepare', help='prepare the current eligible node')
@@ -53,7 +72,7 @@ def add_m1_parser(subcommands) -> None:
     register.add_argument('--json', action='store_true')
 
 
-def dispatch(args) -> dict:
+def _dispatch(args) -> dict:
     if args.m1_command == 'init':
         return init_project(Path(args.root), topic=args.topic, profile=args.profile,
                             max_returns=args.max_returns, content_origin=args.content_origin)
@@ -66,6 +85,21 @@ def dispatch(args) -> dict:
         from researchclaw.core.m1.approvals import record_corpus_approval
         return record_corpus_approval(Path(args.root), corpus_binding=args.binding,
                                      decision=args.decision, note=args.note, command_id=args.command_id)
+    if args.m1_command == 'council':
+        from researchclaw.core.m1.council import (prepare_council, register_initial,
+                                                read_reviewer_packet, replace_assignment)
+        def read(path):
+            return json.loads(store._read_file(path), object_pairs_hook=store._unique_pairs)
+        if args.council_command == 'prepare':
+            return prepare_council(Path(args.root), attempt_id=args.attempt,
+                                   assignments=read(args.assignments), command_id=args.command_id)
+        if args.council_command == 'packet':
+            return read_reviewer_packet(Path(args.root), session_id=args.session, assignment_id=args.assignment)
+        if args.council_command == 'replace':
+            return replace_assignment(Path(args.root), session_id=args.session, assignment_id=args.assignment,
+                                      replacement=read(args.replacement), reason=args.reason, command_id=args.command_id)
+        return register_initial(Path(args.root), session_id=args.session, assignment_id=args.assignment,
+                                payload=read(args.submission), command_id=args.command_id)
     if args.m1_command == 'node':
         if args.node_command == 'prepare':
             return prepare_node(Path(args.root), args.node, command_id=args.command_id)
@@ -76,3 +110,8 @@ def dispatch(args) -> dict:
             raise ValueError('m1_output_validation_failed: ' + json.dumps(result, ensure_ascii=False, sort_keys=True))
         return result
     return read_head(Path(args.root))
+
+
+def dispatch(args) -> dict:
+    from researchclaw.core.m1.council import redact_pending_councils
+    return redact_pending_councils(_dispatch(args))

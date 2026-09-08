@@ -103,6 +103,9 @@ def resume_project(root: Path) -> dict:
     head = store.read_head(root)
     state = head['state']
     node_id = state['current_node_id']
+    if node_id == 'review' and _current_attempt(state) is not None:
+        from .council import resume_council
+        return resume_council(root, head)
     inputs, missing = _inputs(state, node_id, head['objects'])
     attempt = _current_attempt(state)
     status = 'ready' if attempt is None else attempt['status']
