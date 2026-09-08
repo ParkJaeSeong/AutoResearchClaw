@@ -40,7 +40,7 @@ def add_m1_parser(subcommands) -> None:
     decide.add_argument('--json', action='store_true')
     council = commands.add_parser('council', help='collect independent review deliberation')
     council_commands = council.add_subparsers(dest='council_command', required=True)
-    for name in ('prepare', 'initial', 'response', 'final', 'packet', 'replace'):
+    for name in ('prepare', 'initial', 'response', 'final', 'decide', 'packet', 'replace'):
         action = council_commands.add_parser(name)
         action.add_argument('root', metavar='ROOT')
         action.add_argument('--json', action='store_true')
@@ -49,8 +49,9 @@ def add_m1_parser(subcommands) -> None:
             action.add_argument('--assignments', type=Path, required=True)
         else:
             action.add_argument('--session', required=True)
-            action.add_argument('--assignment', required=True)
-        if name in ('initial', 'response', 'final'):
+            if name != 'decide':
+                action.add_argument('--assignment', required=True)
+        if name in ('initial', 'response', 'final', 'decide'):
             action.add_argument('--submission', type=Path, required=True)
         if name == 'replace':
             action.add_argument('--replacement', type=Path, required=True)
@@ -101,6 +102,10 @@ def _dispatch(args) -> dict:
                                       replacement=read(args.replacement), reason=args.reason, command_id=args.command_id)
         if args.council_command == 'response':
             return register_response(Path(args.root), session_id=args.session, assignment_id=args.assignment,
+                                     payload=read(args.submission), command_id=args.command_id)
+        if args.council_command == 'decide':
+            from researchclaw.core.m1.decisions import register_decision
+            return register_decision(Path(args.root), session_id=args.session,
                                      payload=read(args.submission), command_id=args.command_id)
         if args.council_command == 'final':
             return register_final_position(Path(args.root), session_id=args.session,

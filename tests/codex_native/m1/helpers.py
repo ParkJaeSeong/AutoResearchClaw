@@ -126,3 +126,92 @@ def build_evidence_case(root: Path) -> dict:
                               command_id='synthesize-register')
     assert result['status'] == 'review_pending', result
     return {**case, 'head_id': result['receipt']['id'], 'artifact_refs': store.read_head(root)['state']['artifacts']}
+
+
+def build_review_case(root: Path, *, outcome: str) -> dict:
+    """Public registration from explicit synthetic checkpoints, never host evidence."""
+    from researchclaw.core.m1.council import (
+        prepare_council, register_initial, register_response, register_final_position,
+    )
+    from researchclaw.core.m1.decisions import register_decision
+    from researchclaw.core.m1.packets import prepare_node, register_outputs
+    if outcome not in ('ready', 'return_hypothesis'):
+        raise ValueError('outcome must be ready or return_hypothesis')
+    ready = outcome == 'ready'
+    build_evidence_case(root)
+    checkpoint(root, node='hypothesize')  # Earlier council advancement is a declared fixture only.
+    packet = prepare_node(root, 'hypothesize', command_id='hypothesis-prepare')['packet']
+    hypothesis = {'id': 'H1', 'revision': 1, 'parent_revision': None,
+        'author_assignment_id': 'synthetic-author', 'change_reason': None,
+        'statement': MARKER + ': the observed difference depends on context.',
+        'claim_refs': ['claim-one'], 'gap_refs': [],
+        'predicted_observation': 'The difference diminishes under a shared context.',
+        'falsification_condition': 'The difference persists under comparable conditions.',
+        'alternatives': ['Selection effects explain the observation.'],
+        'feasibility_notes': MARKER + ': access is not verified.',
+        'open_design_questions': ['Which conditions and measurements should M2 use?'],
+        'disposition': 'draft'}
+    files = {'hypotheses/hypotheses.json': encoded({'schema_version': 1, 'hypotheses': [hypothesis]}),
+             'hypotheses/hypotheses.md': (MARKER + ': H1 is a synthetic unreviewed candidate.').encode()}
+    registered = register_outputs(root, packet_id=packet['id'], submission=submission(root, packet, files),
+                                  command_id='hypothesis-register')
+    assert registered['status'] == 'review_pending', registered
+    assignments = [{'id': 'synthetic-' + role, 'role_id': role, 'host_task_id': 'declared-host-' + role}
+                   for role in ('domain', 'methodology', 'critical_reproducibility')]
+    session = prepare_council(root, attempt_id=packet['attempt_id'], assignments=assignments,
+                              command_id='council-prepare')['session']
+    issue_ids = [] if ready else ['synthetic-issue-H1']
+    evidence = [session['input_refs'][0]['id']]
+    for assignment in assignments:
+        identity = {'schema_version': 1, 'session_id': session['id'],
+            'input_binding': session['input_binding'], 'assignment_id': assignment['id'],
+            'role_id': assignment['role_id'], 'host_task_id': assignment['host_task_id']}
+        issues = []
+        if not ready and assignment['role_id'] == 'domain':
+            issues = [{'id': issue_ids[0], 'raised_by': assignment['id'],
+                'target_refs': [{'id': 'H1', 'revision': 1}], 'evidence_refs': evidence,
+                'question': MARKER + ': does the comparison establish the proposed mechanism?',
+                'impact': 'The causal claim remains unsupported.', 'severity': 'blocking',
+                'resolution_condition': 'Revise the mechanism claim against the observed evidence.'}]
+        register_initial(root, session_id=session['id'], assignment_id=assignment['id'],
+            payload={**identity, 'id': 'initial-' + assignment['id'], 'rationale': [MARKER + ': synthetic initial'],
+                     'evidence_refs': evidence, 'open_issues': issues}, command_id='initial-' + assignment['id'])
+    for assignment in assignments:
+        identity = {'schema_version': 1, 'session_id': session['id'],
+            'input_binding': session['input_binding'], 'assignment_id': assignment['id'],
+            'role_id': assignment['role_id'], 'host_task_id': assignment['host_task_id']}
+        replies = [] if ready else [{'id': 'reply-' + assignment['id'], 'issue_id': issue_ids[0],
+            'assignment_id': assignment['id'], 'stance': 'accept',
+            'rationale': MARKER + ': revision remains necessary.', 'evidence_refs': evidence}]
+        register_response(root, session_id=session['id'], assignment_id=assignment['id'],
+            payload={**identity, 'id': 'response-' + assignment['id'], 'rationale': MARKER + ': synthetic response',
+                     'responses': replies, 'new_issues': []}, command_id='response-' + assignment['id'])
+    for assignment in assignments:
+        identity = {'schema_version': 1, 'session_id': session['id'],
+            'input_binding': session['input_binding'], 'assignment_id': assignment['id'],
+            'role_id': assignment['role_id'], 'host_task_id': assignment['host_task_id']}
+        dispositions = [] if ready else [{'issue_id': issue_ids[0], 'status': 'open',
+            'rationale': MARKER + ': the resolution condition remains unmet.',
+            'response_ids': ['reply-' + a['id'] for a in assignments], 'evidence_refs': evidence}]
+        register_final_position(root, session_id=session['id'], assignment_id=assignment['id'],
+            payload={**identity, 'recommendation': 'ready_with_limits' if ready else 'revise',
+                'change_rationale': MARKER + ': no opinion change after the synthetic response round.',
+                'issue_dispositions': dispositions, 'rationale': MARKER + ': design readiness only.' if ready
+                else MARKER + ': the hypothesis requires revision.', 'evidence_refs': evidence},
+            command_id='final-' + assignment['id'])
+    session = store.read_head(root)['state']['sessions'][session['id']]
+    finals = session['disclosed_final_positions']
+    payload = {'schema_version': 1, 'id': 'synthetic-decision', 'session_id': session['id'],
+        'input_binding': session['input_binding'], 'positions': finals,
+        'hypothesis_dispositions': [{'hypothesis_ref': {'id': 'H1', 'revision': 1},
+            'disposition': 'selected' if ready else 'revise', 'rationale': MARKER + ': all final views considered.',
+            'issue_ids': issue_ids, 'final_assignment_ids': sorted(a['id'] for a in assignments)}],
+        'selected_hypothesis_ids': ['H1'] if ready else [], 'dissent': [] if ready else finals,
+        'limitations': [MARKER + ': abstract-only, declared_only; no actual role execution evidence.'],
+        'issue_ids': issue_ids, 'rationale': MARKER + ': preserve the three synthetic final opinions.',
+        'ready': ready, 'reason_codes': [] if ready else ['no_selected_hypothesis', 'open_blockers', 'opposed_final_role'],
+        'next_action': 'handoff' if ready else 'return', 'return_target': None if ready else 'hypothesize',
+        'proposed_work': [] if ready else ['Revise the mechanism claim against the observation.']}
+    result = register_decision(root, session_id=session['id'], payload=payload, command_id='decision-register')
+    return {'root': root, 'head_id': result['receipt']['id'], 'review_attempt_id': session['review_attempt_id'],
+            'decision_id': result['decision_id'], 'hypothesis_id': 'H1'}

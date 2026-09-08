@@ -281,3 +281,63 @@ gets one final position; a submitted role's later packet is read-only. After all
 three final positions, the session status is `final_positions_complete`. This is
 still deliberation evidence only. A later decision step must separately evaluate
 recommendations, open blockers, hypothesis selection and current approvals.
+
+## Decision input and conservative readiness
+
+After `final_positions_complete`, the coordinator may register one decision:
+
+```sh
+researchclaw-codex m1 council decide ROOT --session SESSION \
+  --submission decision.json --command-id decision-1 --json
+```
+
+The JSON object requires exactly these fields:
+
+- `schema_version`: integer 1; `id`: unique nonempty decision ID;
+  `session_id` and `input_binding`: exact current session values.
+- `positions`: the complete, unchanged `disclosed_final_positions` array.
+- `hypothesis_dispositions`: one object for every latest candidate, with
+  `hypothesis_ref:{id,revision}`, `disposition` (`selected`, `deferred`,
+  `rejected`, or `revise`), a nonempty `rationale`, `issue_ids` containing all
+  issues targeting that candidate, and `final_assignment_ids` containing all
+  three final assignment IDs. These coordinator dispositions do not rewrite
+  hypothesis artifacts or establish scientific truth.
+- `selected_hypothesis_ids`: unique IDs matching the `selected` dispositions.
+- `dissent`: exact frozen final objects, in disclosure order, for every role
+  whose recommendation is `revise`/`defer` or which leaves any issue open.
+  Final views with limits remain preserved in `positions` even without open
+  issues. No coordinator paraphrase can replace an original final opinion.
+- `limitations`: unique nonempty strings (empty array allowed); `issue_ids`:
+  every session issue ID exactly once; `rationale`: a nonempty explanation.
+- `ready`, `reason_codes`, `next_action`: the exact values from
+  `assess_readiness(positions=..., open_blockers=..., selected_ids=...,
+  approval_current=True)`. Registration independently recomputes the policy
+  using current approval, frozen finals and issue resolution threads.
+- `return_target`: a nonempty node string for `return`, otherwise JSON null.
+  Task 13 checks whether that graph destination is permitted.
+- `proposed_work`: unique nonempty strings; at least one is required for
+  `return`, `defer`, or `stop`, preserving concrete next work for return planning.
+
+Readiness collects all reasons; two positive roles cannot override a missing or
+opposing role. Invalid/missing/duplicate roles, a noncurrent approval, invalid
+policy inputs or a `defer` recommendation yield `defer`. Otherwise any `revise`
+recommendation or open blocking issue yields `return`; no selected hypothesis
+alone yields `stop`. All gates passing yields `handoff`, described only as
+**설계로 인계 가능**. Open nonblocking issues remain visible as dissent and limits.
+Changing the proposed policy result raises `m1_decision_conflict`.
+
+The result includes `decision`, `decision_id`, `ready`, `reason_codes`,
+`next_action` and a compact durable receipt. The stored decision retains exact
+finals, every candidate reason, dissent, full issue threads, blockers, source and
+review attempt IDs, approval ID, and `declared_only` provenance. The session and
+review attempt become `decided`; the current node stays `review`. No M2
+execution, graph return, final handoff package or hypothesis edit happens here.
+An exact command replay returns the original receipt; an identical decision
+under a new command acknowledges the existing decision. A changed second
+submission, changed approval or stale registered input is rejected.
+
+`tests/codex_native/m1/helpers.py::build_review_case` is test infrastructure only.
+Its `ready` and `return_hypothesis` outcomes build synthetic hypotheses and all
+three role submission phases through public APIs after explicit earlier
+checkpoints. They retain `declared_only` provenance and never substitute for
+actual host workers' evidence or rewrite a real unsuccessful review.
