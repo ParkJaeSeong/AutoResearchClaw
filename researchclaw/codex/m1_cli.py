@@ -38,9 +38,9 @@ def add_m1_parser(subcommands) -> None:
     decide.add_argument('--note', required=True)
     decide.add_argument('--command-id', required=True)
     decide.add_argument('--json', action='store_true')
-    council = commands.add_parser('council', help='collect independent review initials')
+    council = commands.add_parser('council', help='collect independent review deliberation')
     council_commands = council.add_subparsers(dest='council_command', required=True)
-    for name in ('prepare', 'initial', 'packet', 'replace'):
+    for name in ('prepare', 'initial', 'response', 'final', 'packet', 'replace'):
         action = council_commands.add_parser(name)
         action.add_argument('root', metavar='ROOT')
         action.add_argument('--json', action='store_true')
@@ -50,7 +50,7 @@ def add_m1_parser(subcommands) -> None:
         else:
             action.add_argument('--session', required=True)
             action.add_argument('--assignment', required=True)
-        if name == 'initial':
+        if name in ('initial', 'response', 'final'):
             action.add_argument('--submission', type=Path, required=True)
         if name == 'replace':
             action.add_argument('--replacement', type=Path, required=True)
@@ -86,7 +86,8 @@ def _dispatch(args) -> dict:
         return record_corpus_approval(Path(args.root), corpus_binding=args.binding,
                                      decision=args.decision, note=args.note, command_id=args.command_id)
     if args.m1_command == 'council':
-        from researchclaw.core.m1.council import (prepare_council, register_initial,
+        from researchclaw.core.m1.council import (prepare_council, register_final_position,
+                                                register_initial, register_response,
                                                 read_reviewer_packet, replace_assignment)
         def read(path):
             return json.loads(store._read_file(path), object_pairs_hook=store._unique_pairs)
@@ -98,6 +99,13 @@ def _dispatch(args) -> dict:
         if args.council_command == 'replace':
             return replace_assignment(Path(args.root), session_id=args.session, assignment_id=args.assignment,
                                       replacement=read(args.replacement), reason=args.reason, command_id=args.command_id)
+        if args.council_command == 'response':
+            return register_response(Path(args.root), session_id=args.session, assignment_id=args.assignment,
+                                     payload=read(args.submission), command_id=args.command_id)
+        if args.council_command == 'final':
+            return register_final_position(Path(args.root), session_id=args.session,
+                                           assignment_id=args.assignment, payload=read(args.submission),
+                                           command_id=args.command_id)
         return register_initial(Path(args.root), session_id=args.session, assignment_id=args.assignment,
                                 payload=read(args.submission), command_id=args.command_id)
     if args.m1_command == 'node':

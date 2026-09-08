@@ -1,8 +1,8 @@
-"""Independent initial collection, frozen disclosure and declared role replacement.
+"""Independent initial, response and final-position council records.
 
 This is packet isolation, not a sandbox against a host reading the store. The
 engine records caller declarations only; native execution observations belong in
-separate host evidence. No response, final position, decision or runner exists.
+separate host evidence. This module records deliberation but makes no decision.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from . import store
 from .approvals import CORPUS_PATHS, require_corpus_approval
 from .artifacts import read_registered_inputs
 from .assignments import ASSIGNMENT_INPUT_FIELDS, JUDGING_ROLES, bind_assignments
+from .issues import RESPONSE_FIELDS, RESPONSE_STANCES, build_issue_threads, collect_issues, validate_response
 from .packets import _commit, _current_attempt, _mutation, _replay, _request
 from .roles import describe_roles
 
@@ -25,6 +26,12 @@ _INITIAL_FIELDS = {'schema_version', 'id', 'session_id', 'assignment_id', 'role_
                    'input_binding', 'rationale', 'evidence_refs', 'open_issues'}
 _ISSUE_FIELDS = {'id', 'raised_by', 'target_refs', 'evidence_refs', 'question', 'impact',
                  'severity', 'resolution_condition'}
+_RESPONSE_BUNDLE_FIELDS = {'schema_version', 'id', 'session_id', 'assignment_id', 'role_id',
+                           'host_task_id', 'input_binding', 'rationale', 'responses', 'new_issues'}
+_FINAL_FIELDS = {'schema_version', 'session_id', 'assignment_id', 'role_id', 'host_task_id',
+                 'input_binding', 'recommendation', 'change_rationale', 'issue_dispositions',
+                 'rationale', 'evidence_refs'}
+_DISPOSITION_FIELDS = {'issue_id', 'status', 'rationale', 'response_ids', 'evidence_refs'}
 
 
 def _text(value):
@@ -126,6 +133,18 @@ def _public_result(result: dict) -> dict:
     return result
 
 
+def _record_map(values) -> dict[str, dict]:
+    """Read Task 10's empty-list placeholders and Task 11's keyed records."""
+    if type(values) is dict:
+        return values
+    if type(values) is list:
+        if not values:
+            return {}
+        if all(type(value) is dict and _text(value.get('assignment_id')) for value in values):
+            return {value['assignment_id']: value for value in values}
+    raise ValueError('m1_council_record_invalid')
+
+
 def prepare_council(root: Path, *, attempt_id: str, assignments: list[dict], command_id: str) -> dict:
     request = _request(command_id, {'operation': 'prepare_council', 'attempt_id': attempt_id,
                                     'assignments': assignments})
@@ -149,7 +168,8 @@ def prepare_council(root: Path, *, attempt_id: str, assignments: list[dict], com
             author_host_task_ids=set(inputs['author_host_task_ids']))
         session = {**store._VERSION, 'id': session_id, 'source_attempt_id': attempt_id,
             'review_attempt_id': review_id, **inputs, 'assignments': bound, 'assignment_history': [],
-            'initials': {}, 'responses': [], 'final_positions': [], 'disclosed_initials': [],
+            'initials': {}, 'responses': {}, 'final_positions': [], 'disclosed_initials': [],
+            'disclosed_responses': [], 'disclosed_final_positions': [],
             'status': 'collecting_initials', 'content_origin': state['content_origin']}
         prior = [a for a in state['attempts'] if a['node_id'] == 'review']
         review = {**store._VERSION, 'id': review_id, 'node_id': 'review',
@@ -170,29 +190,109 @@ def reviewer_packet(session: dict, assignment_id: str) -> dict:
     """Return only the selected assignment, shared inputs and permitted disclosure."""
     own = _active(session, assignment_id)
     required = {a['id'] for a in session['assignments'] if a['role_id'] in JUDGING_ROLES}
-    complete = len(required) == 3 and required.issubset(session['initials'])
-    phase = 'response' if complete else 'initial'
+    initials_complete = len(required) == 3 and required.issubset(session['initials'])
+    responses = _record_map(session.get('responses', {}))
+    finals = _record_map(session.get('final_positions', {}))
+    if not initials_complete:
+        phase, phase_outputs, contract = 'initial', ['initial'], _initial_contract()
+    elif session.get('status') == 'collecting_responses':
+        if assignment_id in responses:
+            phase, phase_outputs, contract = 'response_wait', [], {
+                'operation': 'response_already_registered',
+                'guidance': 'This assignment has completed its only response round.'}
+        else:
+            phase, phase_outputs, contract = 'response', ['response'], _response_contract()
+    elif session.get('status') == 'collecting_final_positions':
+        if assignment_id in finals:
+            phase, phase_outputs, contract = 'complete', [], {
+                'operation': 'final_position_already_registered',
+                'guidance': 'This assignment has completed its final position.'}
+        else:
+            phase, phase_outputs, contract = 'final', ['final_position'], _final_contract()
+    else:
+        phase, phase_outputs, contract = 'complete', [], {
+            'operation': 'final_position_already_registered',
+            'guidance': 'The response and final-position rounds are complete.'}
     role = next(r for r in describe_roles('review')['roles'] if r['role_id'] == own['role_id'])
+    disclosed_responses = session.get('disclosed_responses', [])
+    disclosed_finals = session.get('disclosed_final_positions', [])
+    projection = {**session, 'responses': disclosed_responses,
+                  'final_positions': disclosed_finals}
     return deepcopy({**store._VERSION, 'session_id': session['id'], 'phase': phase,
-        'own_assignment': own, 'input_binding': session['input_binding'],
+        'own_assignment': own, 'phase_allowed_outputs': phase_outputs,
+        'input_binding': session['input_binding'],
         'hypothesis_refs': session.get('hypothesis_refs', []),
         'allowed_evidence': session.get('allowed_evidence', []), 'role': role,
-        'disclosed_initials': session.get('disclosed_initials', []) if complete else [],
-        'output_contract': {'operation': 'register_initial' if not complete else 'response_engine_unavailable',
-            'required_fields': sorted(_INITIAL_FIELDS), 'rationale': 'nonempty list of nonempty strings',
-            'evidence_refs': 'unique bound artifact ID strings; empty permitted',
-            'open_issues': {'required_fields': sorted(_ISSUE_FIELDS), 'optional_fields': ['related_issue_ids'],
-                'id': 'unique issue ID; prefer an assignment-scoped identifier',
-                'raised_by': 'must equal own_assignment.id, not role_id',
-                'target_refs': 'nonempty list of exact {id, revision} from hypothesis_refs',
-                'evidence_refs': 'unique bound artifact ID strings; empty permitted',
-                'question': 'nonempty unresolved question in the reviewer own words',
-                'impact': 'nonempty explanation of how the issue affects the hypothesis',
-                'resolution_condition': 'nonempty condition that would resolve the issue',
-                'related_issue_ids': 'optional list referring only to issues in this same initial',
-                'severity': ['blocking', 'major', 'minor'], 'session_id': 'engine-bound',
-                'empty_permitted': True}},
+        'disclosed_initials': session.get('disclosed_initials', []) if initials_complete else [],
+        'disclosed_responses': disclosed_responses,
+        'disclosed_final_positions': disclosed_finals,
+        'issue_threads': list(build_issue_threads(projection)) if initials_complete else [],
+        'output_contract': contract,
         'content_origin': session.get('content_origin'), 'provenance_status': 'declared_only'})
+
+
+def _issue_contract(*, related_scope: str) -> dict:
+    return {'required_fields': sorted(_ISSUE_FIELDS), 'optional_fields': ['related_issue_ids'],
+            'id': 'unique nonempty issue ID; prefer an assignment-scoped identifier',
+            'raised_by': 'must equal own_assignment.id (the assignment ID), never role_id',
+            'target_refs': 'nonempty list of exact {id: string, revision: integer} from hypothesis_refs',
+            'evidence_refs': 'unique list of bound artifact ID strings; empty list permitted',
+            'question': 'nonempty string in the reviewer own words',
+            'impact': 'nonempty string explaining how the issue affects a hypothesis',
+            'resolution_condition': 'nonempty string stating what would resolve the issue',
+            'related_issue_ids': related_scope, 'severity': ['blocking', 'major', 'minor'],
+            'session_id': 'engine-bound; do not include it in submitted issue objects'}
+
+
+def _initial_contract() -> dict:
+    return {'operation': 'register_initial', 'required_fields': sorted(_INITIAL_FIELDS),
+            'field_types': {'schema_version': 'integer 1', 'id': 'nonempty string',
+                'session_id': 'packet session_id', 'assignment_id': 'own_assignment.id',
+                'role_id': 'own_assignment.role_id', 'host_task_id': 'own_assignment.host_task_id',
+                'input_binding': 'packet input_binding',
+                'rationale': 'nonempty list of nonempty strings',
+                'evidence_refs': 'unique list of bound artifact ID strings; empty list permitted',
+                'open_issues': 'list; empty list permitted'},
+            'open_issues': _issue_contract(related_scope='issues in this same initial only')}
+
+
+def _response_contract() -> dict:
+    return {'operation': 'register_response', 'required_fields': sorted(_RESPONSE_BUNDLE_FIELDS),
+            'field_types': {'schema_version': 'integer 1', 'id': 'unique nonempty response bundle ID',
+                'session_id': 'packet session_id',
+                'assignment_id': 'must equal own_assignment.id, never role_id',
+                'role_id': 'own_assignment.role_id', 'host_task_id': 'own_assignment.host_task_id',
+                'input_binding': 'packet input_binding',
+                'rationale': 'nonempty string required even when both lists are empty',
+                'responses': 'list of issue-linked response objects; empty list permitted',
+                'new_issues': 'list of new issue objects; empty list permitted'},
+            'responses': {'required_fields': sorted(RESPONSE_FIELDS),
+                'id': 'unique nonempty response ID', 'issue_id': 'ID of a disclosed initial issue',
+                'assignment_id': 'must equal own_assignment.id, never role_id',
+                'stance': list(RESPONSE_STANCES), 'rationale': 'nonempty string',
+                'evidence_refs': 'unique list of bound artifact ID strings; empty list permitted'},
+            'new_issues': _issue_contract(
+                related_scope='disclosed initial issue IDs or new issue IDs in this same bundle')}
+
+
+def _final_contract() -> dict:
+    return {'operation': 'register_final_position', 'required_fields': sorted(_FINAL_FIELDS),
+            'field_types': {'schema_version': 'integer 1', 'session_id': 'packet session_id',
+                'assignment_id': 'must equal own_assignment.id, never role_id',
+                'role_id': 'own_assignment.role_id', 'host_task_id': 'own_assignment.host_task_id',
+                'input_binding': 'packet input_binding', 'recommendation': 'enum below',
+                'change_rationale': 'nonempty string explaining change or why the view is unchanged',
+                'issue_dispositions': 'list containing every issue ID exactly once',
+                'rationale': 'nonempty string',
+                'evidence_refs': 'unique list of bound artifact ID strings; empty list permitted'},
+            'recommendation': ['ready', 'ready_with_limits', 'revise', 'defer'],
+            'issue_dispositions': {'required_fields': sorted(_DISPOSITION_FIELDS),
+                'issue_id': 'one known initial or response issue ID',
+                'status': ['resolved', 'open'], 'rationale': 'nonempty string',
+                'response_ids': 'unique list of registered response IDs for this issue; empty list permitted',
+                'evidence_refs': 'unique list of bound artifact ID strings; empty list permitted'},
+            'resolution_rule': ('Every issue requires its raiser final confirmation. A response-round issue also '
+                                'requires a resolved disposition from at least one other role.')}
 
 
 def _validate_initial(payload: dict, session: dict, assignment: dict) -> dict:
@@ -275,6 +375,198 @@ def register_initial(root: Path, *, session_id: str, assignment_id: str, payload
         return _public_result(_commit(root, head, command_id, request, result, event_type=event_type, objects=objects))
 
 
+def _evidence_valid(session: dict, value) -> bool:
+    allowed = {ref['id'] for ref in session['input_refs']}
+    return _strings(value) and len(set(value)) == len(value) and set(value).issubset(allowed)
+
+
+def _validate_new_issue(issue: dict, *, session: dict, assignment_id: str,
+                        related_ids: set[str]) -> dict:
+    if (type(issue) is not dict or not _ISSUE_FIELDS.issubset(issue)
+            or set(issue) - _ISSUE_FIELDS - {'related_issue_ids'}
+            or any(not _text(issue.get(key)) for key in ('id', 'question', 'impact', 'resolution_condition'))
+            or issue.get('raised_by') != assignment_id
+            or issue.get('severity') not in ('blocking', 'major', 'minor')
+            or not _evidence_valid(session, issue.get('evidence_refs'))
+            or type(issue.get('target_refs')) is not list or not issue['target_refs']
+            or any(type(target) is not dict or set(target) != {'id', 'revision'}
+                   or type(target['revision']) is not int or target not in session['hypothesis_refs']
+                   for target in issue['target_refs'])
+            or not _strings(issue.get('related_issue_ids', []))
+            or set(issue.get('related_issue_ids', [])) - related_ids):
+        raise ValueError('m1_response_issue_invalid')
+    value = deepcopy(issue)
+    value['session_id'] = session['id']
+    return value
+
+
+def _validate_response_bundle(payload: dict, session: dict, assignment: dict) -> dict:
+    if (type(payload) is not dict or set(payload) != _RESPONSE_BUNDLE_FIELDS
+            or type(payload.get('schema_version')) is not int or payload.get('schema_version') != 1
+            or not _text(payload.get('id')) or not _text(payload.get('rationale'))
+            or type(payload.get('responses')) is not list or type(payload.get('new_issues')) is not list):
+        raise ValueError('m1_response_bundle_invalid')
+    expected = {'session_id': session['id'], 'assignment_id': assignment['id'],
+                'role_id': assignment['role_id'], 'host_task_id': assignment['host_task_id'],
+                'input_binding': session['input_binding']}
+    if any(payload.get(key) != value for key, value in expected.items()):
+        raise ValueError('m1_response_binding_invalid')
+    initial_issue_ids = {issue['id'] for position in session['disclosed_initials']
+                         for issue in position['open_issues']}
+    assignment_ids = {value['id'] for value in session['assignments']}
+    response_ids = []
+    response_issue_ids = []
+    for response in payload['responses']:
+        problems = validate_response(response, issue_ids=initial_issue_ids,
+                                     assignment_ids=assignment_ids)
+        if any(problem['code'] == 'm1_unknown_issue' for problem in problems):
+            raise ValueError('m1_unknown_issue')
+        if problems:
+            raise ValueError('m1_response_invalid')
+        if response['assignment_id'] != assignment['id']:
+            raise ValueError('m1_response_binding_invalid')
+        if not _evidence_valid(session, response['evidence_refs']):
+            raise ValueError('m1_response_evidence_invalid')
+        response_ids.append(response['id'])
+        response_issue_ids.append(response['issue_id'])
+    prior_bundles = _record_map(session.get('responses', {})).values()
+    prior_response_ids = {response['id'] for bundle in prior_bundles for response in bundle['responses']}
+    if (len(set(response_ids)) != len(response_ids) or len(set(response_issue_ids)) != len(response_issue_ids)
+            or set(response_ids) & prior_response_ids):
+        raise ValueError('m1_response_id_duplicate')
+    new_ids = [issue.get('id') for issue in payload['new_issues']]
+    known_ids = {source['issue']['id'] for source in collect_issues(session)}
+    if (any(not _text(issue_id) for issue_id in new_ids) or len(set(new_ids)) != len(new_ids)
+            or set(new_ids) & known_ids):
+        raise ValueError('m1_response_issue_invalid')
+    related_ids = initial_issue_ids | set(new_ids)
+    value = deepcopy(payload)
+    value['new_issues'] = [_validate_new_issue(issue, session=session,
+                                                assignment_id=assignment['id'], related_ids=related_ids)
+                           for issue in payload['new_issues']]
+    return {**value, 'provenance_status': 'declared_only'}
+
+
+def register_response(root: Path, *, session_id: str, assignment_id: str,
+                      payload: dict, command_id: str) -> dict:
+    """Register one caller-authored response bundle for an active role."""
+    request = _request(command_id, {'operation': 'register_response', 'session_id': session_id,
+                                    'assignment_id': assignment_id, 'payload': payload})
+    with _mutation(root) as root:
+        replay = _replay(root, command_id, request)
+        if replay is not None:
+            return _public_result(replay)
+        head = store.read_head(root)
+        session = _session(head['state'], session_id)
+        assignment = _active(session, assignment_id)
+        _current(root, head, session)
+        responses = _record_map(session.get('responses', {}))
+        submission_hash = store._hash(store._canonical(request['payload']))
+        prior = responses.get(assignment_id)
+        if prior is not None:
+            if prior['submission_sha256'] != submission_hash:
+                raise ValueError('m1_response_conflict')
+            event_type = 'council_response_replayed'
+            objects = {}
+        else:
+            if session['status'] != 'collecting_responses':
+                raise ValueError('m1_council_phase')
+            value = _validate_response_bundle(request['payload'], session, assignment)
+            if any(value['id'] == bundle['id'] for bundle in responses.values()):
+                raise ValueError('m1_response_id_duplicate')
+            value['submission_sha256'] = submission_hash
+            responses[assignment_id] = value
+            session['responses'] = responses
+            required = {value['id'] for value in session['assignments']}
+            if required.issubset(responses):
+                session['disclosed_responses'] = [deepcopy(responses[key]) for key in sorted(required)]
+                session['status'] = 'collecting_final_positions'
+                _current_attempt(head['state'])['status'] = 'collecting_final_positions'
+            event_type = 'council_response_registered'
+            objects = {f'councils/{session_id}/responses/{submission_hash}.json': store._canonical(value)}
+        result = {'session_id': session_id, 'assignment_id': assignment_id,
+                  'response_id': responses[assignment_id]['id'], 'status': session['status'],
+                  'submitted_assignment_ids': sorted(responses)}
+        return _public_result(_commit(root, head, command_id, request, result,
+                                     event_type=event_type, objects=objects))
+
+
+def _validate_final(payload: dict, session: dict, assignment: dict) -> dict:
+    if (type(payload) is not dict or set(payload) != _FINAL_FIELDS
+            or type(payload.get('schema_version')) is not int or payload.get('schema_version') != 1
+            or payload.get('recommendation') not in ('ready', 'ready_with_limits', 'revise', 'defer')
+            or not _text(payload.get('change_rationale')) or not _text(payload.get('rationale'))
+            or type(payload.get('issue_dispositions')) is not list
+            or not _evidence_valid(session, payload.get('evidence_refs'))):
+        raise ValueError('m1_final_position_invalid')
+    expected = {'session_id': session['id'], 'assignment_id': assignment['id'],
+                'role_id': assignment['role_id'], 'host_task_id': assignment['host_task_id'],
+                'input_binding': session['input_binding']}
+    if any(payload.get(key) != value for key, value in expected.items()):
+        raise ValueError('m1_final_binding_invalid')
+    issue_ids = {source['issue']['id'] for source in collect_issues(session)}
+    dispositions = payload['issue_dispositions']
+    disposition_ids = [value.get('issue_id') if type(value) is dict else None for value in dispositions]
+    if (any(type(value) is not dict or set(value) != _DISPOSITION_FIELDS for value in dispositions)
+            or any(not _text(issue_id) for issue_id in disposition_ids)
+            or len(set(disposition_ids)) != len(dispositions)
+            or set(disposition_ids) != issue_ids):
+        raise ValueError('m1_final_issue_dispositions_invalid')
+    response_to_issue = {response['id']: response['issue_id']
+                         for bundle in _record_map(session.get('responses', {})).values()
+                         for response in bundle['responses']}
+    for value in dispositions:
+        if (value['status'] not in ('resolved', 'open') or not _text(value['rationale'])
+                or not _strings(value['response_ids'])
+                or len(set(value['response_ids'])) != len(value['response_ids'])
+                or not _evidence_valid(session, value['evidence_refs'])):
+            raise ValueError('m1_final_issue_dispositions_invalid')
+        if any(response_to_issue.get(response_id) != value['issue_id'] for response_id in value['response_ids']):
+            raise ValueError('m1_final_response_ref_invalid')
+    return {**deepcopy(payload), 'provenance_status': 'declared_only'}
+
+
+def register_final_position(root: Path, *, session_id: str, assignment_id: str,
+                            payload: dict, command_id: str) -> dict:
+    """Register one caller-authored final position after the response round."""
+    request = _request(command_id, {'operation': 'register_final_position', 'session_id': session_id,
+                                    'assignment_id': assignment_id, 'payload': payload})
+    with _mutation(root) as root:
+        replay = _replay(root, command_id, request)
+        if replay is not None:
+            return _public_result(replay)
+        head = store.read_head(root)
+        session = _session(head['state'], session_id)
+        assignment = _active(session, assignment_id)
+        _current(root, head, session)
+        finals = _record_map(session.get('final_positions', {}))
+        submission_hash = store._hash(store._canonical(request['payload']))
+        prior = finals.get(assignment_id)
+        if prior is not None:
+            if prior['submission_sha256'] != submission_hash:
+                raise ValueError('m1_final_conflict')
+            event_type = 'council_final_replayed'
+            objects = {}
+        else:
+            if session['status'] != 'collecting_final_positions':
+                raise ValueError('m1_council_phase')
+            value = _validate_final(request['payload'], session, assignment)
+            value['submission_sha256'] = submission_hash
+            finals[assignment_id] = value
+            session['final_positions'] = finals
+            required = {value['id'] for value in session['assignments']}
+            if required.issubset(finals):
+                session['disclosed_final_positions'] = [deepcopy(finals[key]) for key in sorted(required)]
+                session['status'] = 'final_positions_complete'
+                _current_attempt(head['state'])['status'] = 'final_positions_complete'
+            event_type = 'council_final_registered'
+            objects = {f'councils/{session_id}/finals/{submission_hash}.json': store._canonical(value)}
+        result = {'session_id': session_id, 'assignment_id': assignment_id,
+                  'status': session['status'], 'submitted_assignment_ids': sorted(finals)}
+        return _public_result(_commit(root, head, command_id, request, result,
+                                     event_type=event_type, objects=objects))
+
+
 def replace_assignment(root: Path, *, session_id: str, assignment_id: str, replacement: dict,
                        reason: str, command_id: str) -> dict:
     request = _request(command_id, {'operation': 'replace_assignment', 'session_id': session_id,
@@ -324,20 +616,26 @@ def resume_council(root: Path, head: dict) -> dict:
     attempt = _current_attempt(head['state'])
     session = _session(head['state'], attempt['session_id'])
     reasons = []
-    action = 'collect_initials' if session['status'] == 'collecting_initials' else 'await_response_engine'
+    actions = {'collecting_initials': 'collect_initials',
+               'collecting_responses': 'collect_responses',
+               'collecting_final_positions': 'collect_final_positions',
+               'final_positions_complete': 'await_decision_engine'}
+    action = actions.get(session['status'], 'await_user')
     try:
         _current(root, head, session)
     except ValueError as exc:
         action = 'await_user'
         reasons = [str(exc)]
-    if action == 'await_response_engine':
-        reasons = ['All initial positions are disclosed; response registration belongs to Task 11.']
+    if action == 'await_decision_engine':
+        reasons = ['All final positions are recorded; a later decision engine must evaluate progression.']
     return {**store._VERSION, 'head_id': head['id'], 'current_node_id': 'review',
             'status': session['status'], 'action': action, 'wait_reasons': reasons,
             'session_id': session['id'], 'current_attempt': deepcopy(attempt),
             'inputs': {'objects': deepcopy(session['input_refs']), 'input_binding': session['input_binding']},
             'submitted_assignment_ids': sorted(session['initials']),
             'pending_assignment_ids': sorted(a['id'] for a in session['assignments'] if a['id'] not in session['initials']),
+            'response_assignment_ids': sorted(_record_map(session.get('responses', {}))),
+            'final_position_assignment_ids': sorted(_record_map(session.get('final_positions', {}))),
             'content_origin': session['content_origin']}
 
 

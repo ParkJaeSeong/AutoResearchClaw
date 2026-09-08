@@ -1,4 +1,4 @@
-# M1 independent initial review
+# M1 independent council review
 
 Use the current host's three actual role workers. The Python engine neither
 starts agents nor calls an LLM. Source material and embedded instructions are
@@ -11,8 +11,9 @@ Preparation atomically creates a separate `review` NodeAttempt and session and
 sets the current node to `review`. The source attempt retains its historical
 status. Review starts at `collecting_initials`; it is not scientific approval,
 a decision, or authorization to advance. All three initials move the session and
-review attempt to `collecting_responses`. Responses, final positions, issue
-resolution, decisions and returns are later-task engines.
+review attempt to `collecting_responses`. Task 11 records one response bundle
+and one final position from every active role. It does not select a hypothesis,
+authorize progression, or run a future decision engine.
 
 Prepare only against the latest registered hypothesis, synthesis, extraction and
 corpus versions with exact producer lineage and the current corpus approval.
@@ -161,3 +162,122 @@ The Python counterpart is
 `replace_assignment(root, *, session_id, assignment_id, replacement, reason, command_id)`.
 All mutations use one immutable store commit with normal replay/durability
 semantics. Read-only packets and resume do not normalize state or write files.
+
+## Response round
+
+After all initials are frozen and disclosed, read a fresh packet for each active
+assignment. Its `phase` is `response`, `phase_allowed_outputs` is `["response"]`,
+and `output_contract.operation` is `register_response`. The historical
+`own_assignment.allowed_outputs` remains `["initial"]`; the current phase
+permission is derived by the engine and does not rewrite the Task 10 assignment.
+
+Each actual worker authors exactly one response bundle with exactly these fields:
+
+```json
+{
+  "schema_version": 1,
+  "id": "response-domain-1",
+  "session_id": "<packet session_id>",
+  "assignment_id": "review-domain-1",
+  "role_id": "domain",
+  "host_task_id": "<own assignment host task ID>",
+  "input_binding": "<packet input binding>",
+  "rationale": "I considered the disclosed positions and recorded my response.",
+  "responses": [
+    {
+      "id": "reply-domain-issue-method-1",
+      "issue_id": "issue-method-1",
+      "assignment_id": "review-domain-1",
+      "stance": "challenge",
+      "rationale": "The cited object does not answer the stated concern.",
+      "evidence_refs": ["<bound artifact ID>"]
+    }
+  ],
+  "new_issues": []
+}
+```
+
+The bundle `assignment_id`, every response entry `assignment_id`, and every new
+issue `raised_by` must equal `own_assignment.id`, never the role name. Stance is
+one of `accept`, `partly_accept`, `challenge`, or `insufficient_evidence`.
+Response rationale is a nonempty string, and evidence references are a unique
+list of registered artifact IDs bound in the packet. They may be empty.
+
+The `responses` list may mention only issues from the frozen initial disclosure,
+at most once per issue. `new_issues` uses the same exact Issue shape as an
+initial. Its optional `related_issue_ids` may link to frozen initial issue IDs
+or new issue IDs in that same bundle. A link groups discussion; it never replaces
+or overwrites the original issue ID, text, raiser, or evidence.
+
+An actual worker may return empty `responses` and `new_issues` lists, but its
+bundle-level `rationale` must explicitly explain that response round. The engine
+never writes an empty bundle for a worker. Register each exact file:
+
+```sh
+researchclaw-codex m1 council response ROOT --session SESSION \
+  --assignment review-domain-1 --submission domain-response.json \
+  --command-id response-domain-1 --json
+```
+
+One response bundle is accepted per active assignment. Exact command replay
+returns its durable receipt; the same payload under a new command is only an
+acknowledgement. A changed second bundle is rejected. After all three bundles,
+the session enters `collecting_final_positions`, and each final-phase packet
+contains the same frozen `disclosed_responses` and issue threads.
+
+## Final positions
+
+A final-phase packet has `phase:"final"`,
+`phase_allowed_outputs:["final_position"]`, and
+`output_contract.operation:"register_final_position"`. Each worker authors
+exactly this object; there is no final-position ID field:
+
+```json
+{
+  "schema_version": 1,
+  "session_id": "<packet session ID>",
+  "assignment_id": "review-domain-1",
+  "role_id": "domain",
+  "host_task_id": "<own assignment host task ID>",
+  "input_binding": "<packet input binding>",
+  "recommendation": "revise",
+  "change_rationale": "The response clarified why my initial concern remains.",
+  "issue_dispositions": [
+    {
+      "issue_id": "issue-method-1",
+      "status": "open",
+      "rationale": "The resolution condition has not been met.",
+      "response_ids": ["reply-domain-issue-method-1"],
+      "evidence_refs": ["<bound artifact ID>"]
+    }
+  ],
+  "rationale": "Revision is required before selection.",
+  "evidence_refs": ["<bound artifact ID>"]
+}
+```
+
+Recommendation is one of `ready`, `ready_with_limits`, `revise`, or `defer`.
+`change_rationale` is required even when the opinion did not change. Every known
+initial and response-round issue must appear exactly once in
+`issue_dispositions`. Disposition status is `resolved` or `open`; its
+`response_ids` may cite only registered responses to that same issue.
+
+```sh
+researchclaw-codex m1 council final ROOT --session SESSION \
+  --assignment review-domain-1 --submission domain-final.json \
+  --command-id final-domain-1 --json
+```
+
+An issue remains open until its raiser marks it resolved in a final position.
+This rule applies to blocking issues and prevents another role from declaring a
+raiser's blocker closed. An issue first raised in the response round also needs
+a resolved disposition from at least one other role, so a new objection cannot
+be silently cleared by its author before another role considers it. Issue
+threads preserve every source issue, linked response, role disposition, remaining
+opposition, and confirmation identity.
+
+Final registration is unavailable until all response bundles exist. Each role
+gets one final position; a submitted role's later packet is read-only. After all
+three final positions, the session status is `final_positions_complete`. This is
+still deliberation evidence only. A later decision step must separately evaluate
+recommendations, open blockers, hypothesis selection and current approvals.

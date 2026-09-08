@@ -188,7 +188,7 @@ def test_submitted_role_can_be_replaced_before_disclosure_with_initial_retained_
         submit(tmp_path, session, command_id='late')
 
 
-def test_resume_reports_review_session_without_authoring_packet(tmp_path):
+def test_resume_reports_current_council_collection_phase(tmp_path):
     from researchclaw.core.m1.project import resume_project
     session = prepared(tmp_path)['session']
     result = resume_project(tmp_path)
@@ -198,7 +198,7 @@ def test_resume_reports_review_session_without_authoring_packet(tmp_path):
     assert result['session_id'] == session['id']
     for assignment_id in ('A1', 'A2', 'A3'):
         submit(tmp_path, session, assignment_id)
-    assert resume_project(tmp_path)['action'] == 'await_response_engine'
+    assert resume_project(tmp_path)['action'] == 'collect_responses'
 
 
 def test_cli_packet_status_and_replace_do_not_leak_private_initials(tmp_path, capsys):
