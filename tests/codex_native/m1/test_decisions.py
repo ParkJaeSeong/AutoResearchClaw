@@ -280,3 +280,23 @@ def test_open_minor_dissent_is_preserved_even_with_ready_recommendations(tmp_pat
     assert len(value['dissent']) == 3
     assert value['issue_threads'][0]['status'] == 'open'
     assert value['open_blockers'] == []
+
+
+@pytest.mark.parametrize('field', ['schema_version', 'frozen_final_schema_version', 'ready'])
+def test_command_replay_rejects_json_numeric_boolean_changes_without_mutating_state(tmp_path, field):
+    session = completed(tmp_path)
+    payload = decision_payload(session)
+    first = decide(tmp_path, session, payload)
+    before = store._canonical(store.read_head(tmp_path))
+    changed = deepcopy(payload)
+    if field == 'schema_version':
+        changed['schema_version'] = True
+    elif field == 'frozen_final_schema_version':
+        changed['positions'][0]['schema_version'] = True
+    else:
+        changed['ready'] = 0
+    with pytest.raises(ValueError, match='m1_command_conflict'):
+        decide(tmp_path, session, changed)
+    assert store._canonical(store.read_head(tmp_path)) == before
+    assert decide(tmp_path, session, deepcopy(payload)) == first
+    assert store._canonical(store.read_head(tmp_path)) == before

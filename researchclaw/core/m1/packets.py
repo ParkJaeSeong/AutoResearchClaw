@@ -52,7 +52,7 @@ def _replay(root: Path, command_id: str, request: dict) -> dict | None:
         if record['command_id'] != command_id:
             continue
         payload = record['events'][-1]['payload']
-        if payload.get('request') != request or 'result' not in payload:
+        if store._canonical(payload.get('request')) != store._canonical(request) or 'result' not in payload:
             raise ValueError('m1_command_conflict')
         objects = {name: store._read_file(base / 'objects' / digest)
                    for name, digest in record['object_inputs'].items()}

@@ -110,3 +110,32 @@ reason codes and the next action explain why the candidate proceeds or returns.
 The engine validates declared records and references, not scientific truth or
 native worker execution authenticity. Return planning, execution limits and
 M1 finalization remain later tasks.
+
+## Review fix round 1 — Exact JSON command replay
+
+Independent review found that the shared `packets._replay` compared decoded
+request dictionaries with Python equality before decision validation. That
+comparison treated JSON `1` and `true` (or `false` and `0`) as identical and
+replayed an existing receipt for a changed request. The stored decision was
+not rewritten, but the command-conflict contract was violated.
+
+The fix compares both requests using the existing `store._canonical` bytes;
+no new serializer or normalization policy was introduced. Regression cases
+change top-level `schema_version:1` to `true`, frozen final `schema_version:1`
+to `true`, and `ready:false` to `0` under the original command ID. Each must
+raise `m1_command_conflict`, preserve the exact HEAD bytes, and still replay the
+unchanged original request with the original receipt and unchanged HEAD.
+
+- RED: `.venv/bin/python -m pytest
+  tests/codex_native/m1/test_decisions.py::test_command_replay_rejects_json_numeric_boolean_changes_without_mutating_state
+  -q` reported **3 failed in 6.65s**, each because no `ValueError` was raised.
+- GREEN and shared replay regression: `.venv/bin/python -m pytest
+  tests/codex_native/m1/test_decisions.py tests/codex_native/m1/test_council.py
+  tests/codex_native/m1/test_issues.py tests/codex_native/m1/test_artifacts.py
+  tests/codex_native/m1/test_packet_cli.py tests/codex_native/m1/test_packets.py
+  tests/codex_native/m1/test_approvals.py -k 'replay or durable_idempotent or
+  persists_packet_reuses' -q` reported **13 passed, 149 deselected in 14.50s**,
+  zero failures/skips. The earlier 469-test regression was not repeated.
+- The fix changes only the shared request comparison, its three regression
+  cases, and this report. Root-owned UI, live project and acceptance files
+  remain untouched.
