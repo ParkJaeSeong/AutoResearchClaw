@@ -23,8 +23,14 @@ _REASONS = {'scope': 'scope_change', 'questions': 'question_change',
             'search': 'search_change', 'collect': 'source_change',
             'screen': 'corpus_selection_change', 'extract': 'extraction_error',
             'synthesize': 'synthesis_revision', 'hypothesize': 'hypothesis_revision'}
-_BLANKET_RESET = re.compile(r'\b(?:reset|restart|redo|clear|delete)\s+(?:all|everything|the entire)\b'
-                            r'|\bstart\s+over\b|전체\s*초기화|모든\s*단계\s*초기화', re.IGNORECASE)
+# Only reject explicit global reset language. Words such as "delete all"
+# may describe a legitimate edit within one hypothesis. The authorized target
+# and exact artifact dependency closure enforce the actual revision boundary.
+_BLANKET_RESET = re.compile(
+    r'\b(?:reset|restart|redo|clear|delete)\s+'
+    r'(?:all\s+(?:stages|nodes)|(?:the\s+)?(?:entire|whole)\s+(?:project|workflow|graph))\b'
+    r'|^\s*(?:reset|restart|redo|clear|delete)\s+(?:all|everything)\s*[.!]?\s*$'
+    r'|^\s*전체\s*초기화\s*[.!]?\s*$|모든\s*단계\s*초기화', re.IGNORECASE)
 
 
 def affected_attempts(attempts: list[dict], changed_artifact_ids: set[str]) -> tuple[str, ...]:

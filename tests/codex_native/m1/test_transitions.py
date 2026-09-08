@@ -144,11 +144,34 @@ def test_issues_must_be_unique_nonempty_ids_from_decision_session(case, issues):
     assert snapshot(case) == before
 
 
-@pytest.mark.parametrize('work', [['reset all'], ['Reset all stages and start over.'], ['전체 초기화']])
+@pytest.mark.parametrize('work', [
+    ['reset all'], ['Reset all stages and start over.'], ['전체 초기화'],
+    ['Delete the entire project and rebuild every stage.'],
+    ['Restart the whole workflow from the beginning.'],
+])
 def test_blanket_reset_is_not_a_change_plan(case, work):
     register_case(case, target='scope', work=work)
+    before = snapshot(case)
     with pytest.raises(ValueError, match='m1_return_work_required'):
         plan(case, target_node_id='scope')
+    assert snapshot(case) == before
+
+
+@pytest.mark.parametrize('work', [
+    'Delete all unsupported causal claims from H1 and retain the evidence-backed descriptive prediction.',
+    'Redo all predictions in H1 against the registered observation.',
+    'Start over with H1 wording while retaining the registered evidence.',
+])
+def test_scoped_hypothesis_edits_are_not_misread_as_workflow_resets(case, work):
+    register_case(case, work=[work])
+    before = snapshot(case)
+    result = plan(case)
+    attempts = store.read_head(case)['state']['attempts']
+    assert result['proposed_work'] == [work]
+    assert {a['node_id'] for a in attempts if a['id'] in result['affected_attempt_ids']} == {'hypothesize', 'review'}
+    assert {a['node_id'] for a in attempts if a['id'] in result['reusable_attempt_ids']} >= {'collect', 'extract', 'synthesize'}
+    assert result['approval_effects']['after_change']['approval_required'] is False
+    assert snapshot(case) == before
 
 
 def test_ready_decision_cannot_authorize_return(tmp_path):
