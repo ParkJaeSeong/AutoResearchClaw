@@ -24,6 +24,10 @@ def add_m1_parser(subcommands) -> None:
     resume = commands.add_parser('resume', help='show current work, inputs and waits without changes')
     resume.add_argument('root', metavar='ROOT')
     resume.add_argument('--json', action='store_true')
+    inspect = commands.add_parser('inspect', help='read a registered current or historical view')
+    inspect.add_argument('root', metavar='ROOT')
+    inspect.add_argument('--head', help='reachable immutable commit ID')
+    inspect.add_argument('--json', action='store_true')
     trace = commands.add_parser('trace', help='trace a synthesis claim to exact registered evidence')
     trace.add_argument('root', metavar='ROOT')
     trace.add_argument('--claim', required=True)
@@ -100,6 +104,9 @@ def _dispatch(args) -> dict:
                             max_returns=args.max_returns, content_origin=args.content_origin)
     if args.m1_command == 'resume':
         return resume_project(Path(args.root))
+    if args.m1_command == 'inspect':
+        from researchclaw.core.m1.views import build_view
+        return build_view(Path(args.root), head_id=args.head)
     if args.m1_command == 'trace':
         from researchclaw.core.m1.synthesis import read_trace_head, trace_claim
         return trace_claim(read_trace_head(Path(args.root), synthesis_ref_id=args.synthesis), args.claim)
