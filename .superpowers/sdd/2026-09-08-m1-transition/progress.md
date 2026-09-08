@@ -179,3 +179,6 @@ Task11 implemented fee0fcb:348scopedpass63.41s,60focusedpass50.56s. Root3actualr
 Task11 review round1 Needsfixes: Important new_issues:[null] reaches issue.get before dict validation, uncaughtAttributeError instead ofCLIexit2. Purevalidator reproduction byreviewer. Implementerresumed scopedfix round1 BASEfee0fcb withRED/GREEN+CLIstatepreservation; no nexttask untilrereview. Livevalidpayloads unaffected.
 
 Task11 complete at 82fd0ca: independent scoped re-review Approved, no findings. Actual host responses/finals registered; all three revise, six issues open. Task12 fresh implementer started, root continues UI preparatory work.
+Task16 root preparatory UI slice: replaced demo fetch with /api/view, serial 3s feed, selected node/decision retention, disclosure and scroll preservation. RED selection tests 2 failed missing function; GREEN existing8+poll4+selection2=14 pass. Added text-only council rendering and raw/source link rendering; dependent view schema alignment and actual browser acceptance remain pending. No Task16 completion claim.
+
+Task12 complete30413b3: independentreviewApproved aftercanonicalreplayfix. Regression469passed; fixsubset13passed149deselected. FinalCLIactualdecisionexactreceipt/HEADpreserved. Task13freshworkerstarted.

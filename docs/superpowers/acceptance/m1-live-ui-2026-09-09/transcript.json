@@ -766,7 +766,1275 @@
       "submission_sha256": "ef48227e007d74bd72ceed4cfb7c5419477165a80c3514d37772bb09b73f7170"
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "dissent": [
+        {
+          "assignment_id": "review-critical_reproducibility-1",
+          "change_rationale": "초기 검토의 핵심인 집계에서 보편 효과로의 추론 한계와 재현 가능한 반증 판정의 필요성은 유지한다. 응답 단계에서 domain의 연구 질문 범위 조건을 받아들였고, 최종 공개된 R-domain-3과 R-method-2를 검토한 뒤 I-critical-2의 적용 범위를 명확히 한다. M1에서 상세 설계와 실제 표본 수를 모두 확정할 필요는 없으며 필요한 정의·절차와 미정 상태를 후속 과제로 기록하는 경로를 인정한다. 그러나 이는 해소 요건의 명료화일 뿐 H1이 실제 수정되었다는 뜻은 아니다. 새 근거나 가설 개정이 없어 문제를 해결된 것으로 바꿀 이유는 없다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba",
+            "artifact-9933d9653d7a4a11bb224387ee5e8378"
+          ],
+          "host_task_id": "/root/m1_live_critical",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안을 적었다는 사실과 그 대안을 구별하거나 배제했다는 것은 다르다. R-domain-1과 R-method-1의 응답도 이 차이를 확인하며, 새 자료나 수정된 H1은 없다. 합성 집계 전제와 미검증 집단별 예측을 분리하고 대안을 구별할 후속 질문을 기록하는 수정이 필요하므로 제기자로서 해결을 확인하지 않는다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 범위 제한을 수용한다. 연구 질문 단계에서 실제 표본 수나 완성된 분석 절차까지 요구하지는 않는다. 그러나 집단·지표·시점·개선 기준·불확실성 평가를 미해결 설계 과제로 명시하고 판정 불가를 반증과 구분해야 한다. 이 수정은 현재 H1 revision 1에 없으므로 내 해소 조건의 적용 범위를 명료화하되 문제는 열린 상태로 유지한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 논의한 보편 효능 입증과 미검증 예측의 혼동이 남아 있다. 구성 효과와 집단 내 개선은 함께 존재할 수도 있으며 현재 자료는 어느 쪽의 실제 발생도 확정하지 못한다. 집계 개선이 모든 집단의 효과를 보여준다는 H1의 진술이 수정되지 않아 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "R-critical-3과 R-method-4가 제시한 연구 질문 단계의 해소 경로는 타당하다. 다만 응답에서 경로를 제안한 것은 H1에 집단 범위와 개선 판정의 미정 상태 및 판단 보류를 명시한 것과 다르다. 현재 문서의 정의와 설계 질문 보완이 아직 필요하다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "R-critical-2와 R-domain-2의 공통 구성비 비교 제안은 후속 분석 방향이다. 그 비교가 양수라는 가정을 추가하더라도 모든 집단의 개선이나 인과효과가 자동으로 입증되지 않는다. 현재는 집단별 비교나 설계 근거의 추가도, 입증 표현의 수정도 없어 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "R-critical-4와 R-domain-4의 응답에 따라 관측 불충분과 비개선 반례를 구분해야 한다는 판단을 유지한다. 구체적인 기준을 합성 자료에서 임의로 정할 수 없지만, 필요한 기준과 후속 설계 과제 및 판단 보류를 명시하는 수정은 가능하다. 현재 H1의 반증 조건에는 이 보완이 없어 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 revision 1은 집계 평균 개선이라는 합성 가정으로 모든 하위 집단의 효과가 입증되었다고 읽히는 진술을 유지한다. 현재 자료는 집단 내 차이와 구성 효과를 구별하지 못하며 실제 반증이나 인과효과도 확인하지 못한다. 합성 집계 전제와 미검증 집단별 예측을 분리하고, 구성비 대안과 집단별 비교를 연결하는 후속 질문, 집단 범위·측정 지표·시점·개선 기준·불확실성 및 판단 보류에 관한 미해결 과제를 명시하는 수정이 필요하다. 연구 질문 단계에서는 이러한 범위와 한계의 명료화를 요구하며 실제 분석 완료를 선행 조건으로 삼지 않는다. 구체적인 수정 경로가 있으므로 현재 진술의 수정을 권고한다. 검토자들의 응답은 실증 근거를 추가하지 않았고 H1 수정도 없으므로 알려진 여섯 이슈 모두 해결되지 않았다. 이 판단은 제공된 합성 자료에 한정되며 실제 문헌 접근이나 실험 검증을 의미하지 않는다.",
+          "recommendation": "revise",
+          "role_id": "critical_reproducibility",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "3027d3f5d763a0d862f56a05b20a736c92e912bb66e3bfcaf60cd2489cca9ec2"
+        },
+        {
+          "assignment_id": "review-domain-1",
+          "change_rationale": "초기 및 응답 단계의 핵심 판단을 유지한다. 공개된 응답은 집계 가정과 보편 효능 입증을 분리해야 한다는 이유를 확인했지만, 새로운 실증 근거나 H1 수정은 제공하지 않았다. 재현성 요구를 연구 질문 단계의 명료화와 후속 검증 설계의 완성으로 나누는 내 조건은 유지하며, critical 역할이 그 적용 범위를 받아들인 점은 해석상의 정리로 반영한다. 이는 동결된 H1의 문제가 해소되었다는 변화가 아니므로 최종 권고는 revise다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "host_task_id": "/root/m1_live_domain",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안의 제시와 그 대안의 배제는 다르다는 응답에 동의한다. 집단별 비교가 없는 현재의 집계 전제로는 보편 개선을 식별할 수 없으며, H1의 입증 표현도 수정되지 않았다. 따라서 열린 상태다. 이는 실제 비개선 또는 역전이 확인되었다는 뜻은 아니다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "연구 질문 단계에서 완성된 표본 설계와 분석 절차까지 요구할 필요는 없다는 적용 범위를 유지한다. 그러나 필요한 정의와 판정 보류 규칙을 미해결 과제로 명시하는 수정조차 H1 r1에 반영되지 않았다. 응답들이 해결 방향을 명료화했어도 현재 문서의 재현성 문제는 열려 있다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "내가 제기한 보편적 효능 일반화 문제는 해결되지 않았다. 두 응답은 집계 가정과 미검증 예측을 분리해야 한다는 이유를 보강했으며, 구성 효과와 집단 내 개선이 공존할 가능성도 남는다. 새 근거나 수정 없이 의견의 동의만으로 이슈를 닫을 수 없다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "내가 제기한 집단 범위와 개선 판정의 미정의는 유지된다. 두 응답이 수용한 연구 질문 단계의 해결 경로는 필요한 설계 항목과 미검증 상태를 명시하는 것이지만, 현 H1에는 그 수정과 판단 불가의 구분이 충분하지 않다. 구체 설계를 후속 단계에 남길 수 있다는 합의는 수정 완료의 증거가 아니다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "동일 집단 비교와 공통 구성비 비교의 필요성을 수용한다. 공통 가중치의 집계 개선만으로 모든 집단의 개선이나 인과효과가 보장되지 않는다는 한계도 남는다. 해당 비교가 필요한 미검증 예측으로 문장을 정리하고 후속 질문을 구체화하는 수정이 없으므로 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "반증의 논리적 형태는 있으나 실제 적용에 필요한 집단 범위·지표·시점·개선 기준과 불확실성에 따른 보류가 정해지지 않았다. 이를 후속 설계 과제로 남기는 경로는 가능하지만, 현재 문서에서는 예측과 반증 조건을 그 미정 항목에 연결하는 보완이 필요하다. 새 판정 근거는 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 r1은 수정이 필요하다. C1·C2가 제공하는 것은 전체 집계 개선과 조건별 구성 차이라는 합성 전제이며, 모든 하위 집단의 실제 효능을 보여주는 자료는 아니다. 현재 뒷받침되는 연구 기여는 집계 차이와 집단 내 차이 및 구성 효과를 구별하는 미검증 질문을 정리하는 데 있다. 집계 전제와 후속 보편 예측을 분리하고, 구성 효과와 집단 내 개선의 공존 가능성을 열어 두며, 집단 범위·결과 지표·시점·개선 기준·불확실성과 판단 보류를 명시적 설계 과제로 연결해야 한다. 이 수정은 새 실증 자료 없이도 연구 질문의 범위를 정직하게 만드는 방향으로 가능하다. 반면 실제 효능이나 보편 주장의 참거짓은 현 자료로 판단할 수 없다. 모든 이슈를 open으로 유지하며 실제 문헌 접근이나 실험 검증을 수행했다고 주장하지 않는다.",
+          "recommendation": "revise",
+          "role_id": "domain",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "74796a8da7a4ca9630c70640fb850a9f045762f356520b0e6820a0d29c1afe2e"
+        },
+        {
+          "assignment_id": "review-methodology-1",
+          "change_rationale": "초기 검토의 추론 한계와 반증 기준에 대한 판단을 유지한다. 응답 라운드에서 M1의 명료화 요구와 M2의 상세 설계 완료 요구를 구분해야 한다는 논의를 반영하여 해결 경로를 더 분명히 했다. R-critical-3은 재현성 역할 역시 연구 질문 단계의 미정 항목 명시를 허용함을 보여주지만, 그 의견은 H1의 실제 수정이나 신규 증거가 아니다. 따라서 요구 수준을 명료화했어도 기존 여섯 이슈의 해결 상태는 바꾸지 않는다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "host_task_id": "/root/m1_live_method",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "집단별 비교 자료와 구성 효과를 구별할 정보가 여전히 없고 H1의 입증 표현도 수정되지 않았다. R-domain-1과 R-method-1은 근거 부족을 실제 반증과 구분하지만 결여된 정보를 제공하지 않으므로 열린 문제로 유지한다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 단계별 요구 구분은 수용한다. 연구 질문 단계에서는 상세 분석 완료를 요구하기보다 필요한 정의와 판정 보류를 미해결 설계 과제로 명시할 수 있다. 그러나 H1 r1에는 그 명료화가 반영되지 않았다. 해결 조건의 적용 범위가 명료해진 것과 문서상 문제가 해결된 것은 구별하므로 open으로 판단한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 확인한 대로 집계 개선의 합성 전제가 모든 집단의 효능을 보여준다는 결론을 지지하지 않는다. 구성 효과와 집단 내 변화는 동시에 존재할 수도 있다. 미검증 예측으로의 서술 수정이나 보편 주장을 뒷받침할 자료가 없어 문제를 유지한다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "연구 질문 제시에 한정하면 설계의 미정 항목을 명시하는 해결 경로가 타당하다. R-critical-3과 R-method-4는 이 범위를 명확히 하지만 대상·지표·판정 기준·보류 규칙을 H1에 반영한 수정본은 없다. 검증 가능성의 미정 상태를 문서에 명시할 필요가 남아 있다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-2와 R-domain-2가 지적하듯 공통 가중치의 집계 개선만으로 보편 예측은 검증되지 않으며 집단별 비교가 별도로 필요하다. 조건 간 비교 가능성도 별도 문제다. 이 구분을 후속 설계 질문에 반영하고 입증 표현을 제한하는 수정이 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-4와 R-domain-4는 판정 불가능과 반증을 분리하고 구체적 표본 설계를 후속 과제로 둘 수 있다는 방향을 지지한다. 그러나 예측·반증과 집단 범위·지표·시점·기준을 연결할 미해결 질문과 판단 보류의 필요성이 H1 r1에 충분히 명시되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 revision 1의 수정을 권고한다. 집계 평균의 개선이라는 합성 전제로 모든 하위 집단의 효과가 입증되었다고 서술하는 추론은 현재 근거를 넘어선다. 이를 집계 전제와 미검증 집단별 예측으로 분리하고, 구성 효과와 집단 내 차이를 구별할 비교 및 판정 불가를 반증과 구별할 요구를 명시해야 한다. M1에서는 상세 표본 설계를 완성할 필요 없이 집단 범위·공통 지표·시점·개선 기준·조건 간 비교 가능성·불확실성 및 동시 판단을 M2의 구체적 설계 질문으로 기록할 수 있다. 그러한 수정도 아직 제공되지 않았으므로 현재 버전의 준비 완료를 인정하지 않는다. 이는 실제 보편 효과를 반증한 결론이 아니며, 검토 자료는 전부 합성 자료이고 실제 문헌 접근이나 실험 검증은 수행하지 않았다.",
+          "recommendation": "revise",
+          "role_id": "methodology",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "ef48227e007d74bd72ceed4cfb7c5419477165a80c3514d37772bb09b73f7170"
+        }
+      ],
+      "hypothesis_dispositions": [
+        {
+          "disposition": "revise",
+          "final_assignment_ids": [
+            "review-critical_reproducibility-1",
+            "review-domain-1",
+            "review-methodology-1"
+          ],
+          "hypothesis_ref": {
+            "id": "H1",
+            "revision": 1
+          },
+          "issue_ids": [
+            "I-critical-1",
+            "I-critical-2",
+            "I-domain-1",
+            "I-domain-2",
+            "I-method-1",
+            "I-method-2"
+          ],
+          "rationale": "세 역할 모두 H1의 집계 개선에서 모든 하위 집단의 효과 입증으로 이어지는 서술을 수정하라고 권고했다. 구체적인 수정 경로가 있으므로 폐기하거나 인계하지 않고 개정한다."
+        }
+      ],
+      "id": "decision-live-r1",
+      "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+      "issue_ids": [
+        "I-critical-1",
+        "I-critical-2",
+        "I-domain-1",
+        "I-domain-2",
+        "I-method-1",
+        "I-method-2"
+      ],
+      "limitations": [
+        "입력은 합성 자료이며 실제 문헌 접근이나 실험 결과가 아니다.",
+        "세 역할의 논의는 새 실증 근거가 아니며 여섯 쟁점은 모두 미해소 상태다.",
+        "상세 집단 정의·측정·불확실성 규칙은 후속 실험 설계 과제로 남긴다."
+      ],
+      "next_action": "return",
+      "positions": [
+        {
+          "assignment_id": "review-critical_reproducibility-1",
+          "change_rationale": "초기 검토의 핵심인 집계에서 보편 효과로의 추론 한계와 재현 가능한 반증 판정의 필요성은 유지한다. 응답 단계에서 domain의 연구 질문 범위 조건을 받아들였고, 최종 공개된 R-domain-3과 R-method-2를 검토한 뒤 I-critical-2의 적용 범위를 명확히 한다. M1에서 상세 설계와 실제 표본 수를 모두 확정할 필요는 없으며 필요한 정의·절차와 미정 상태를 후속 과제로 기록하는 경로를 인정한다. 그러나 이는 해소 요건의 명료화일 뿐 H1이 실제 수정되었다는 뜻은 아니다. 새 근거나 가설 개정이 없어 문제를 해결된 것으로 바꿀 이유는 없다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba",
+            "artifact-9933d9653d7a4a11bb224387ee5e8378"
+          ],
+          "host_task_id": "/root/m1_live_critical",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안을 적었다는 사실과 그 대안을 구별하거나 배제했다는 것은 다르다. R-domain-1과 R-method-1의 응답도 이 차이를 확인하며, 새 자료나 수정된 H1은 없다. 합성 집계 전제와 미검증 집단별 예측을 분리하고 대안을 구별할 후속 질문을 기록하는 수정이 필요하므로 제기자로서 해결을 확인하지 않는다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 범위 제한을 수용한다. 연구 질문 단계에서 실제 표본 수나 완성된 분석 절차까지 요구하지는 않는다. 그러나 집단·지표·시점·개선 기준·불확실성 평가를 미해결 설계 과제로 명시하고 판정 불가를 반증과 구분해야 한다. 이 수정은 현재 H1 revision 1에 없으므로 내 해소 조건의 적용 범위를 명료화하되 문제는 열린 상태로 유지한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 논의한 보편 효능 입증과 미검증 예측의 혼동이 남아 있다. 구성 효과와 집단 내 개선은 함께 존재할 수도 있으며 현재 자료는 어느 쪽의 실제 발생도 확정하지 못한다. 집계 개선이 모든 집단의 효과를 보여준다는 H1의 진술이 수정되지 않아 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "R-critical-3과 R-method-4가 제시한 연구 질문 단계의 해소 경로는 타당하다. 다만 응답에서 경로를 제안한 것은 H1에 집단 범위와 개선 판정의 미정 상태 및 판단 보류를 명시한 것과 다르다. 현재 문서의 정의와 설계 질문 보완이 아직 필요하다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "R-critical-2와 R-domain-2의 공통 구성비 비교 제안은 후속 분석 방향이다. 그 비교가 양수라는 가정을 추가하더라도 모든 집단의 개선이나 인과효과가 자동으로 입증되지 않는다. 현재는 집단별 비교나 설계 근거의 추가도, 입증 표현의 수정도 없어 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "R-critical-4와 R-domain-4의 응답에 따라 관측 불충분과 비개선 반례를 구분해야 한다는 판단을 유지한다. 구체적인 기준을 합성 자료에서 임의로 정할 수 없지만, 필요한 기준과 후속 설계 과제 및 판단 보류를 명시하는 수정은 가능하다. 현재 H1의 반증 조건에는 이 보완이 없어 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 revision 1은 집계 평균 개선이라는 합성 가정으로 모든 하위 집단의 효과가 입증되었다고 읽히는 진술을 유지한다. 현재 자료는 집단 내 차이와 구성 효과를 구별하지 못하며 실제 반증이나 인과효과도 확인하지 못한다. 합성 집계 전제와 미검증 집단별 예측을 분리하고, 구성비 대안과 집단별 비교를 연결하는 후속 질문, 집단 범위·측정 지표·시점·개선 기준·불확실성 및 판단 보류에 관한 미해결 과제를 명시하는 수정이 필요하다. 연구 질문 단계에서는 이러한 범위와 한계의 명료화를 요구하며 실제 분석 완료를 선행 조건으로 삼지 않는다. 구체적인 수정 경로가 있으므로 현재 진술의 수정을 권고한다. 검토자들의 응답은 실증 근거를 추가하지 않았고 H1 수정도 없으므로 알려진 여섯 이슈 모두 해결되지 않았다. 이 판단은 제공된 합성 자료에 한정되며 실제 문헌 접근이나 실험 검증을 의미하지 않는다.",
+          "recommendation": "revise",
+          "role_id": "critical_reproducibility",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "3027d3f5d763a0d862f56a05b20a736c92e912bb66e3bfcaf60cd2489cca9ec2"
+        },
+        {
+          "assignment_id": "review-domain-1",
+          "change_rationale": "초기 및 응답 단계의 핵심 판단을 유지한다. 공개된 응답은 집계 가정과 보편 효능 입증을 분리해야 한다는 이유를 확인했지만, 새로운 실증 근거나 H1 수정은 제공하지 않았다. 재현성 요구를 연구 질문 단계의 명료화와 후속 검증 설계의 완성으로 나누는 내 조건은 유지하며, critical 역할이 그 적용 범위를 받아들인 점은 해석상의 정리로 반영한다. 이는 동결된 H1의 문제가 해소되었다는 변화가 아니므로 최종 권고는 revise다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "host_task_id": "/root/m1_live_domain",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안의 제시와 그 대안의 배제는 다르다는 응답에 동의한다. 집단별 비교가 없는 현재의 집계 전제로는 보편 개선을 식별할 수 없으며, H1의 입증 표현도 수정되지 않았다. 따라서 열린 상태다. 이는 실제 비개선 또는 역전이 확인되었다는 뜻은 아니다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "연구 질문 단계에서 완성된 표본 설계와 분석 절차까지 요구할 필요는 없다는 적용 범위를 유지한다. 그러나 필요한 정의와 판정 보류 규칙을 미해결 과제로 명시하는 수정조차 H1 r1에 반영되지 않았다. 응답들이 해결 방향을 명료화했어도 현재 문서의 재현성 문제는 열려 있다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "내가 제기한 보편적 효능 일반화 문제는 해결되지 않았다. 두 응답은 집계 가정과 미검증 예측을 분리해야 한다는 이유를 보강했으며, 구성 효과와 집단 내 개선이 공존할 가능성도 남는다. 새 근거나 수정 없이 의견의 동의만으로 이슈를 닫을 수 없다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "내가 제기한 집단 범위와 개선 판정의 미정의는 유지된다. 두 응답이 수용한 연구 질문 단계의 해결 경로는 필요한 설계 항목과 미검증 상태를 명시하는 것이지만, 현 H1에는 그 수정과 판단 불가의 구분이 충분하지 않다. 구체 설계를 후속 단계에 남길 수 있다는 합의는 수정 완료의 증거가 아니다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "동일 집단 비교와 공통 구성비 비교의 필요성을 수용한다. 공통 가중치의 집계 개선만으로 모든 집단의 개선이나 인과효과가 보장되지 않는다는 한계도 남는다. 해당 비교가 필요한 미검증 예측으로 문장을 정리하고 후속 질문을 구체화하는 수정이 없으므로 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "반증의 논리적 형태는 있으나 실제 적용에 필요한 집단 범위·지표·시점·개선 기준과 불확실성에 따른 보류가 정해지지 않았다. 이를 후속 설계 과제로 남기는 경로는 가능하지만, 현재 문서에서는 예측과 반증 조건을 그 미정 항목에 연결하는 보완이 필요하다. 새 판정 근거는 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 r1은 수정이 필요하다. C1·C2가 제공하는 것은 전체 집계 개선과 조건별 구성 차이라는 합성 전제이며, 모든 하위 집단의 실제 효능을 보여주는 자료는 아니다. 현재 뒷받침되는 연구 기여는 집계 차이와 집단 내 차이 및 구성 효과를 구별하는 미검증 질문을 정리하는 데 있다. 집계 전제와 후속 보편 예측을 분리하고, 구성 효과와 집단 내 개선의 공존 가능성을 열어 두며, 집단 범위·결과 지표·시점·개선 기준·불확실성과 판단 보류를 명시적 설계 과제로 연결해야 한다. 이 수정은 새 실증 자료 없이도 연구 질문의 범위를 정직하게 만드는 방향으로 가능하다. 반면 실제 효능이나 보편 주장의 참거짓은 현 자료로 판단할 수 없다. 모든 이슈를 open으로 유지하며 실제 문헌 접근이나 실험 검증을 수행했다고 주장하지 않는다.",
+          "recommendation": "revise",
+          "role_id": "domain",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "74796a8da7a4ca9630c70640fb850a9f045762f356520b0e6820a0d29c1afe2e"
+        },
+        {
+          "assignment_id": "review-methodology-1",
+          "change_rationale": "초기 검토의 추론 한계와 반증 기준에 대한 판단을 유지한다. 응답 라운드에서 M1의 명료화 요구와 M2의 상세 설계 완료 요구를 구분해야 한다는 논의를 반영하여 해결 경로를 더 분명히 했다. R-critical-3은 재현성 역할 역시 연구 질문 단계의 미정 항목 명시를 허용함을 보여주지만, 그 의견은 H1의 실제 수정이나 신규 증거가 아니다. 따라서 요구 수준을 명료화했어도 기존 여섯 이슈의 해결 상태는 바꾸지 않는다.",
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "host_task_id": "/root/m1_live_method",
+          "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+          "issue_dispositions": [
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "집단별 비교 자료와 구성 효과를 구별할 정보가 여전히 없고 H1의 입증 표현도 수정되지 않았다. R-domain-1과 R-method-1은 근거 부족을 실제 반증과 구분하지만 결여된 정보를 제공하지 않으므로 열린 문제로 유지한다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 단계별 요구 구분은 수용한다. 연구 질문 단계에서는 상세 분석 완료를 요구하기보다 필요한 정의와 판정 보류를 미해결 설계 과제로 명시할 수 있다. 그러나 H1 r1에는 그 명료화가 반영되지 않았다. 해결 조건의 적용 범위가 명료해진 것과 문서상 문제가 해결된 것은 구별하므로 open으로 판단한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 확인한 대로 집계 개선의 합성 전제가 모든 집단의 효능을 보여준다는 결론을 지지하지 않는다. 구성 효과와 집단 내 변화는 동시에 존재할 수도 있다. 미검증 예측으로의 서술 수정이나 보편 주장을 뒷받침할 자료가 없어 문제를 유지한다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "연구 질문 제시에 한정하면 설계의 미정 항목을 명시하는 해결 경로가 타당하다. R-critical-3과 R-method-4는 이 범위를 명확히 하지만 대상·지표·판정 기준·보류 규칙을 H1에 반영한 수정본은 없다. 검증 가능성의 미정 상태를 문서에 명시할 필요가 남아 있다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-2와 R-domain-2가 지적하듯 공통 가중치의 집계 개선만으로 보편 예측은 검증되지 않으며 집단별 비교가 별도로 필요하다. 조건 간 비교 가능성도 별도 문제다. 이 구분을 후속 설계 질문에 반영하고 입증 표현을 제한하는 수정이 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-4와 R-domain-4는 판정 불가능과 반증을 분리하고 구체적 표본 설계를 후속 과제로 둘 수 있다는 방향을 지지한다. 그러나 예측·반증과 집단 범위·지표·시점·기준을 연결할 미해결 질문과 판단 보류의 필요성이 H1 r1에 충분히 명시되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "provenance_status": "declared_only",
+          "rationale": "H1 revision 1의 수정을 권고한다. 집계 평균의 개선이라는 합성 전제로 모든 하위 집단의 효과가 입증되었다고 서술하는 추론은 현재 근거를 넘어선다. 이를 집계 전제와 미검증 집단별 예측으로 분리하고, 구성 효과와 집단 내 차이를 구별할 비교 및 판정 불가를 반증과 구별할 요구를 명시해야 한다. M1에서는 상세 표본 설계를 완성할 필요 없이 집단 범위·공통 지표·시점·개선 기준·조건 간 비교 가능성·불확실성 및 동시 판단을 M2의 구체적 설계 질문으로 기록할 수 있다. 그러한 수정도 아직 제공되지 않았으므로 현재 버전의 준비 완료를 인정하지 않는다. 이는 실제 보편 효과를 반증한 결론이 아니며, 검토 자료는 전부 합성 자료이고 실제 문헌 접근이나 실험 검증은 수행하지 않았다.",
+          "recommendation": "revise",
+          "role_id": "methodology",
+          "schema_version": 1,
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "submission_sha256": "ef48227e007d74bd72ceed4cfb7c5419477165a80c3514d37772bb09b73f7170"
+        }
+      ],
+      "proposed_work": [
+        "H1의 효과 입증 표현을 제거하고 합성 집계 전제와 미검증 집단별 예측을 구분한다.",
+        "구성비 차이라는 대안과 집단 내 비교·공통 구성비 비교가 구별할 질문을 명시한다.",
+        "집단·지표·시점·개선 기준·불확실성의 미정 사항을 기록하고 관측 부족의 판단 보류를 반증과 구분한다."
+      ],
+      "rationale": "독립 최종 입장 세 개가 모두 수정 필요를 권고했고 차단 쟁점이 남아 있다. M1에서 필요한 주장 범위와 반증·판단 보류의 구분을 먼저 명료화하도록 가설 작성으로 돌아간다. M2 상세 설계와 실험은 아직 수행하지 않는다.",
+      "ready": false,
+      "reason_codes": [
+        "no_selected_hypothesis",
+        "open_blockers",
+        "opposed_final_role"
+      ],
+      "return_target": "hypothesize",
+      "schema_version": 1,
+      "selected_hypothesis_ids": [],
+      "session_id": "session-911e9f6673a04cf78297e48140334847",
+      "workflow_version": "m1-graph-v1",
+      "issue_threads": [
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b",
+              "artifact-9fe155e6829d4390af3af76f2b3850ba"
+            ],
+            "id": "I-critical-1",
+            "impact": "전체 평균은 조건별 집단 구성의 영향을 받을 수 있으므로 집계 개선만으로 모든 집단의 효과 또는 인과효과가 입증되었다는 H1의 서술을 지지할 수 없다. 다만 이는 H1의 실제 반증이 아니라 현재 근거로는 구별할 수 없다는 문제다.",
+            "question": "집단별 결과가 없는 상태에서 구성비 차이의 대안 설명을 배제하고 모든 집단의 개선을 어떻게 식별하는가?",
+            "raised_by": "review-critical_reproducibility-1",
+            "resolution_condition": "H1의 서술을 현재 자료가 허용하는 합성 집계 전제와 미검증 집단별 예측으로 구분하여 수정하고, 사전에 정의한 집단별 조건 비교와 공통 구성비를 적용한 집계 비교 등으로 구성 효과와 집단 내 차이를 구별할 분석 계획을 제시한다. 모든 집단에 대한 효과 입증을 유지하려면 그 분석을 뒷받침할 집단별 자료 및 인과 해석에 필요한 설계 근거도 제시해야 한다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "blocking",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-domain-1",
+              "issue_id": "I-critical-1",
+              "rationale": "동의한다. C1은 집계 개선의 합성 가정이고 C2는 구성비 차이의 가정이므로, H1의 모든 집단에 대한 입증 표현에는 논리적 간극이 있다. 이 한계는 연구의 기여를 미검증 집단별 예측과 대안 설명의 구별이라는 질문으로 한정하게 한다. 특히 현재 근거 부족을 실제 반증과 구분한 지적에 동의한다. 새 집단별 자료나 수정된 H1이 없으므로 해당 간극은 해소되지 않았다.",
+              "stance": "accept"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-method-1",
+              "issue_id": "I-critical-1",
+              "rationale": "구성 효과와 집단 내 차이를 현재 자료로 식별할 수 없다는 지적에 동의한다. H1이 스스로 구성비 대안을 열거한 것만으로 그 대안이 배제되지는 않는다. 공통 구성비 비교는 구성의 영향을 점검할 방법이지만 모든 집단의 개선을 확인하려면 개별 집단 비교도 필요하며, 표준화 자체가 인과적 비교 가능성을 보장하지 않는다. 이는 H1이 실제로 반증되었다는 결론이 아니라 입증 서술을 유지할 근거가 부족하다는 판단이다.",
+              "stance": "accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안을 적었다는 사실과 그 대안을 구별하거나 배제했다는 것은 다르다. R-domain-1과 R-method-1의 응답도 이 차이를 확인하며, 새 자료나 수정된 H1은 없다. 합성 집계 전제와 미검증 집단별 예측을 분리하고 대안을 구별할 후속 질문을 기록하는 수정이 필요하므로 제기자로서 해결을 확인하지 않는다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "구성비 대안의 제시와 그 대안의 배제는 다르다는 응답에 동의한다. 집단별 비교가 없는 현재의 집계 전제로는 보편 개선을 식별할 수 없으며, H1의 입증 표현도 수정되지 않았다. 따라서 열린 상태다. 이는 실제 비개선 또는 역전이 확인되었다는 뜻은 아니다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-critical-1",
+              "rationale": "집단별 비교 자료와 구성 효과를 구별할 정보가 여전히 없고 H1의 입증 표현도 수정되지 않았다. R-domain-1과 R-method-1은 근거 부족을 실제 반증과 구분하지만 결여된 정보를 제공하지 않으므로 열린 문제로 유지한다.",
+              "response_ids": [
+                "R-domain-1",
+                "R-method-1"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        },
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b"
+            ],
+            "id": "I-critical-2",
+            "impact": "집단 범위, 결과 지표, 비교 시점, 개선 기준과 불확실성 처리 규칙이 정해져 있지 않아 반증 조건을 재현하기 어렵다. 특히 불확실한 추정 또는 자료가 없는 집단을 개선 없음으로 처리하면 관측 불충분과 반증을 혼동할 수 있다.",
+            "question": "독립 검토자가 동일하게 적용할 수 있도록 모든 하위 집단의 범위와 개선·개선 없음의 판정 규칙을 어떻게 고정할 것인가?",
+            "raised_by": "review-critical_reproducibility-1",
+            "resolution_condition": "하위 집단 정의와 포함 범위, 결과 지표·비교 시점·개선 기준, 조건별 표본 수와 불확실성 보고, 불확실하거나 관측되지 않은 집단의 보류 규칙을 사전에 명시한다. 집단 하나의 반증 판정과 모든 집단 개선의 지지 판정을 각각 어떻게 내리는지 재현 가능한 분석 절차로 제시한다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "major",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "id": "R-domain-3",
+              "issue_id": "I-critical-2",
+              "rationale": "재현 가능한 집단 범위와 개선 판정, 관측 불충분을 반증과 구별하는 규칙이 필요하다는 문제 진단에 동의한다. 다만 문서의 기여를 미검증 연구 질문 제시에 한정한다면 현 단계에서 완성된 분석 절차와 실제 표본 수를 모두 요구할 필요는 없다고 본다. 그 경우 필요한 정의와 절차를 미해결 설계 과제로 명시하고 검증 준비가 끝났다는 표현을 제거해야 한다. 반대로 실행 가능한 검증 설계 또는 검증 결과를 제시하려면 제안된 재현성 조건을 충족해야 한다.",
+              "stance": "partly_accept"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "id": "R-method-2",
+              "issue_id": "I-critical-2",
+              "rationale": "집단 범위와 개선·보류 판정의 구별이 필요하다는 문제 제기는 수용한다. 다만 M1의 연구 질문 및 가설 명료화 단계에서 모든 표본 설계와 분석 절차를 확정해야 한다는 뜻으로 해결 조건을 읽지는 않는다. 현재 문서에서 미검증 상태와 판정 불가를 반증과 구별하고, 필요한 집단 정의·지표·시점·개선 기준·불확실성 평가를 M2의 구체적인 미해결 과제로 기록하는 경로도 적절하다. 검증 준비 완료 또는 효과 입증을 주장하려면 실제로 적용 가능한 절차와 자료가 추가되어야 한다. 현재 H1 r1에는 이러한 수정이 없으므로 이 응답 자체가 문제 해결을 뜻하지 않는다.",
+              "stance": "partly_accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 범위 제한을 수용한다. 연구 질문 단계에서 실제 표본 수나 완성된 분석 절차까지 요구하지는 않는다. 그러나 집단·지표·시점·개선 기준·불확실성 평가를 미해결 설계 과제로 명시하고 판정 불가를 반증과 구분해야 한다. 이 수정은 현재 H1 revision 1에 없으므로 내 해소 조건의 적용 범위를 명료화하되 문제는 열린 상태로 유지한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "연구 질문 단계에서 완성된 표본 설계와 분석 절차까지 요구할 필요는 없다는 적용 범위를 유지한다. 그러나 필요한 정의와 판정 보류 규칙을 미해결 과제로 명시하는 수정조차 H1 r1에 반영되지 않았다. 응답들이 해결 방향을 명료화했어도 현재 문서의 재현성 문제는 열려 있다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-critical-2",
+              "rationale": "R-domain-3과 R-method-2의 단계별 요구 구분은 수용한다. 연구 질문 단계에서는 상세 분석 완료를 요구하기보다 필요한 정의와 판정 보류를 미해결 설계 과제로 명시할 수 있다. 그러나 H1 r1에는 그 명료화가 반영되지 않았다. 해결 조건의 적용 범위가 명료해진 것과 문서상 문제가 해결된 것은 구별하므로 open으로 판단한다.",
+              "response_ids": [
+                "R-domain-3",
+                "R-method-2"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        },
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b",
+              "artifact-9fe155e6829d4390af3af76f2b3850ba"
+            ],
+            "id": "I-domain-1",
+            "impact": "H1의 핵심 기여가 현재 증거의 범위를 넘어선 보편적 효능 결론으로 읽힌다. 구성비 차이로 집계 개선이 설명될 가능성도 남아 있으므로 이 진술을 연구 결과로 채택하면 대상 집단에 대한 적용 의미가 왜곡된다.",
+            "question": "집계 평균의 개선만 제시된 상태에서 모든 하위 집단에 효과적임을 보여준다고 진술할 근거는 무엇인가?",
+            "raised_by": "review-domain-1",
+            "resolution_condition": "현재 자료가 허용하는 집계 수준의 합성 가정과 미검증 후속 가설을 분리하여 진술하고, 모든 하위 집단의 효능이 입증되었다는 해석을 제거한다. 보편 주장을 유지하려면 대상 집단의 명시적 범위와 그 범위를 포괄하는 집단별 비교 근거 및 구성 차이와 인과 해석의 한계를 제시하여 재검토받아야 한다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "blocking",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-critical-1",
+              "issue_id": "I-domain-1",
+              "rationale": "집계 가정과 미검증 보편 예측을 분리해야 한다는 지적을 수용한다. C1은 집계 수준의 가정만 제공하고 C2는 구성비 차이라는 대안을 남긴다. 따라서 H1의 입증 표현은 근거보다 강하다. 이 판단은 모든 집단에서의 개선이 실제로 거짓이라는 판단과 구분해야 한다.",
+              "stance": "accept"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-method-3",
+              "issue_id": "I-domain-1",
+              "rationale": "현재 집계 전제와 후속 집단별 예측을 분리해야 한다는 요구에 동의한다. 모든 집단이라는 범위가 정의되지 않은 채 집계 개선을 효능 입증으로 표현하면 검증할 명제와 이미 알려진 사실이 뒤섞인다. 또한 구성 효과와 집단 내 개선은 함께 존재할 수도 있으므로 대안을 단순한 양자택일로 설정해서는 안 된다. 현재 자료에는 어느 설명의 크기나 실제 발생을 판단할 정보가 없다.",
+              "stance": "accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 논의한 보편 효능 입증과 미검증 예측의 혼동이 남아 있다. 구성 효과와 집단 내 개선은 함께 존재할 수도 있으며 현재 자료는 어느 쪽의 실제 발생도 확정하지 못한다. 집계 개선이 모든 집단의 효과를 보여준다는 H1의 진술이 수정되지 않아 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "내가 제기한 보편적 효능 일반화 문제는 해결되지 않았다. 두 응답은 집계 가정과 미검증 예측을 분리해야 한다는 이유를 보강했으며, 구성 효과와 집단 내 개선이 공존할 가능성도 남는다. 새 근거나 수정 없이 의견의 동의만으로 이슈를 닫을 수 없다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-domain-1",
+              "rationale": "R-critical-1과 R-method-3에서 확인한 대로 집계 개선의 합성 전제가 모든 집단의 효능을 보여준다는 결론을 지지하지 않는다. 구성 효과와 집단 내 변화는 동시에 존재할 수도 있다. 미검증 예측으로의 서술 수정이나 보편 주장을 뒷받침할 자료가 없어 문제를 유지한다.",
+              "response_ids": [
+                "R-critical-1",
+                "R-method-3"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        },
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b"
+            ],
+            "id": "I-domain-2",
+            "impact": "현재는 모든 하위 집단이라는 검증 대상과 개선의 의미가 정해지지 않아, 예측 관찰과 반증 조건을 일관되게 적용할 수 없다. 자료의 불확실성 때문에 결론을 유보해야 하는 경우를 개선 부재의 반례로 잘못 취급할 여지도 있다.",
+            "question": "어떤 대상과 하위 집단, 결과 지표 및 개선 판정 규칙으로 보편 예측과 구성 효과라는 대안을 구별하고 반복 검증할 것인가?",
+            "raised_by": "review-domain-1",
+            "resolution_condition": "후속 검증을 주장하려면 대상 범위와 하위 집단 정의, 비교 조건, 결과 지표와 시점, 개선 및 반증의 판정 기준을 사전에 명시한다. 조건별 구성비와 집단별 비교 결과 및 불확실성을 확보해 대안 설명을 구별하는 계획을 제시하고, 판정 불가능한 경우는 결론 유보로 다룬다. 현재 문서를 연구 질문 제시에만 한정한다면 이 항목들을 미해결 설계 과제로 명시해 검증 준비가 완료되었다는 주장을 하지 않는다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "major",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "id": "R-critical-3",
+              "issue_id": "I-domain-2",
+              "rationale": "집단 범위와 개선 판정의 명료화, 판단 불가능 상태의 별도 처리가 재현성에 필요하다는 지적을 수용한다. 연구 질문 제시에만 한정하는 문서라면 구체 설계를 이미 완성하도록 요구할 필요는 없으며, 제시된 조건처럼 미해결 항목과 검증 준비의 한계를 명시하는 방법도 타당하다. 내 초기 I-critical-2의 해소 조건도 그 범위에서는 상세 절차의 완료보다 필요한 절차와 미정 상태를 분명히 기록하는 것으로 구분할 수 있다. 현재 H1 revision 1에는 이 구분과 판정 보류 규칙이 충분히 명시되지 않았다.",
+              "stance": "accept"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-method-4",
+              "issue_id": "I-domain-2",
+              "rationale": "연구 질문 제시에 한정할 때 미해결 설계 과제를 명시하는 경로에 동의한다. 방법론적으로는 사전에 정한 집단 내 조건 비교, 동일 지표와 시점, 공통 구성비 비교, 불확실성에 따른 판단 보류를 함께 설계해야 구별 가능한 관찰과 재현 가능한 판정이 연결된다. 유의한 개선을 관찰하지 못했다는 사실만으로 비개선의 반례를 얻었다고 간주해서는 안 된다. 이 항목들은 제안된 후속 설계 요건이며 수행되거나 확인된 분석 결과가 아니다.",
+              "stance": "accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "R-critical-3과 R-method-4가 제시한 연구 질문 단계의 해소 경로는 타당하다. 다만 응답에서 경로를 제안한 것은 H1에 집단 범위와 개선 판정의 미정 상태 및 판단 보류를 명시한 것과 다르다. 현재 문서의 정의와 설계 질문 보완이 아직 필요하다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "내가 제기한 집단 범위와 개선 판정의 미정의는 유지된다. 두 응답이 수용한 연구 질문 단계의 해결 경로는 필요한 설계 항목과 미검증 상태를 명시하는 것이지만, 현 H1에는 그 수정과 판단 불가의 구분이 충분하지 않다. 구체 설계를 후속 단계에 남길 수 있다는 합의는 수정 완료의 증거가 아니다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-domain-2",
+              "rationale": "연구 질문 제시에 한정하면 설계의 미정 항목을 명시하는 해결 경로가 타당하다. R-critical-3과 R-method-4는 이 범위를 명확히 하지만 대상·지표·판정 기준·보류 규칙을 H1에 반영한 수정본은 없다. 검증 가능성의 미정 상태를 문서에 명시할 필요가 남아 있다.",
+              "response_ids": [
+                "R-critical-3",
+                "R-method-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        },
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b",
+              "artifact-9fe155e6829d4390af3af76f2b3850ba"
+            ],
+            "id": "I-method-1",
+            "impact": "현재 C1·C2로는 구성 차이와 집단 내 개선을 분리할 수 없어 H1의 입증 표현이 근거를 넘어선다. 효과를 인과적으로 해석한다면 배정 방식과 교란 통제 정보도 없어 추가적인 추론 비약이 생긴다.",
+            "question": "조건별 집단 구성비가 다른 상태에서 집계 평균의 개선이 모든 하위 집단의 효과를 보여준다는 추론을 어떤 집단 내 비교와 식별 조건으로 정당화할 것인가?",
+            "raised_by": "review-methodology-1",
+            "resolution_condition": "H1의 현재 근거를 집계 개선의 합성 가정으로 제한하고 모든 집단의 개선은 미검증 예측으로 명시한다. 후속 설계 질문에 조건별 집단 결과·구성비 확보와 동일 집단 비교, 공통 가중치에 의한 구성 효과 점검을 기록하며, 인과효과를 주장할 경우 필요한 배정·교란 통제 조건을 명시한다. 실제 집단별 효과나 구성 효과의 크기가 확인되었다고 서술하지 않는다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "blocking",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-critical-2",
+              "issue_id": "I-method-1",
+              "rationale": "동일 집단 비교와 공통 가중치 비교를 구분해 제시하자는 해결 방향에 동의한다. 다만 공통 가중치로 얻은 집계 차이가 양수여도 모든 집단의 개선을 보증하지 않으므로 집단별 비교 자체가 별도로 필요하다. 구성 효과 점검도 배정과 교란에 관한 정보 없이 인과 해석의 충분조건이 되지 않는다. 현재는 이러한 분석이 수행되었다는 근거가 없으므로 문제는 열린 상태다.",
+              "stance": "accept"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "id": "R-domain-2",
+              "issue_id": "I-method-1",
+              "rationale": "동의한다. 동일 집단 비교와 공통 구성비 비교를 후속 질문으로 명시하면 무엇을 관찰하여 두 설명을 구별할지 분명해진다. 다만 공통 가중치로 계산한 전체 차이가 개선되어도 그것만으로 모든 집단의 개선이 입증되지는 않으므로, 보편 예측에는 정의된 각 집단의 비교가 별도로 필요하다. 제안된 비교는 아직 실행된 분석이나 인과효과의 증거가 아니며, 구성 효과가 실제 설명이라는 결론도 현재 내릴 수 없다.",
+              "stance": "accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "R-critical-2와 R-domain-2의 공통 구성비 비교 제안은 후속 분석 방향이다. 그 비교가 양수라는 가정을 추가하더라도 모든 집단의 개선이나 인과효과가 자동으로 입증되지 않는다. 현재는 집단별 비교나 설계 근거의 추가도, 입증 표현의 수정도 없어 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "동일 집단 비교와 공통 구성비 비교의 필요성을 수용한다. 공통 가중치의 집계 개선만으로 모든 집단의 개선이나 인과효과가 보장되지 않는다는 한계도 남는다. 해당 비교가 필요한 미검증 예측으로 문장을 정리하고 후속 질문을 구체화하는 수정이 없으므로 열린 상태다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b",
+                "artifact-9fe155e6829d4390af3af76f2b3850ba"
+              ],
+              "issue_id": "I-method-1",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-2와 R-domain-2가 지적하듯 공통 가중치의 집계 개선만으로 보편 예측은 검증되지 않으며 집단별 비교가 별도로 필요하다. 조건 간 비교 가능성도 별도 문제다. 이 구분을 후속 설계 질문에 반영하고 입증 표현을 제한하는 수정이 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-2",
+                "R-domain-2"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        },
+        {
+          "issue": {
+            "evidence_refs": [
+              "artifact-1ac2654785484630bceb5c9f7d8c9787",
+              "artifact-2bb0705adbc94eb7be21f6469960451b"
+            ],
+            "id": "I-method-2",
+            "impact": "집단 정의·결과 지표·시점·개선 기준이 미정이어서 서로 다른 분석자가 같은 반증 조건을 다르게 적용할 수 있다. 특히 개선의 증거가 불충분한 경우를 비개선의 증거로 처리하면 H1의 기각 판단도 재현되지 않는다.",
+            "question": "검증 대상인 모든 하위 집단의 범위와 개선의 측정 기준을 어떻게 정하고, 불확실성이 큰 추정치와 실제 비개선을 어떻게 구별해 반증할 것인가?",
+            "raised_by": "review-methodology-1",
+            "resolution_condition": "H1의 예측과 반증 조건을 사전에 정할 집단 범위·공통 지표·측정 시점·개선 기준에 연결하고, 집단별 추정의 불확실성이 커 결론을 낼 수 없는 상태를 반증과 구분한다. 구체적인 표본 설계, 불확실성 평가와 여러 집단의 동시 판단 방식은 M2의 미해결 설계 질문으로 명시한다.",
+            "session_id": "session-911e9f6673a04cf78297e48140334847",
+            "severity": "major",
+            "target_refs": [
+              {
+                "id": "H1",
+                "revision": 1
+              }
+            ]
+          },
+          "origin_phase": "initial",
+          "responses": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "id": "R-critical-4",
+              "issue_id": "I-method-2",
+              "rationale": "반증 조건의 논리적 형태와 실제 추정에서의 판정 규칙을 구분해야 한다는 지적에 동의한다. 불확실하거나 관측되지 않은 집단은 개선 부재가 확인된 반례와 동일하지 않다. 구체적인 표본 설계와 여러 집단의 동시 판단 방식을 후속 설계 질문으로 남기는 것은 허용되지만, 현재 단계에서도 모든 집단의 범위와 판단 보류의 필요성이 미정임을 드러내야 한다. 제공된 합성 자료만으로 임계값이나 표본 수를 정할 수는 없다.",
+              "stance": "accept"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "id": "R-domain-4",
+              "issue_id": "I-method-2",
+              "rationale": "동의한다. 집단 범위·공통 지표·시점·개선 기준에 예측과 반증을 연결하고, 불확실성 때문에 판단할 수 없는 결과를 반례와 분리해야 한다. 구체적인 설계는 후속 단계의 미해결 질문으로 남길 수 있으나, 단순한 개선 관찰의 기대를 이미 판정 가능한 검증 계획으로 표현해서는 안 된다. 현재 자료로 임의의 지표, 집단 또는 유의성 기준을 새로 정할 근거는 없다.",
+              "stance": "accept"
+            }
+          ],
+          "final_dispositions": [
+            {
+              "assignment_id": "review-critical_reproducibility-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "R-critical-4와 R-domain-4의 응답에 따라 관측 불충분과 비개선 반례를 구분해야 한다는 판단을 유지한다. 구체적인 기준을 합성 자료에서 임의로 정할 수 없지만, 필요한 기준과 후속 설계 과제 및 판단 보류를 명시하는 수정은 가능하다. 현재 H1의 반증 조건에는 이 보완이 없어 해결되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-domain-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "반증의 논리적 형태는 있으나 실제 적용에 필요한 집단 범위·지표·시점·개선 기준과 불확실성에 따른 보류가 정해지지 않았다. 이를 후속 설계 과제로 남기는 경로는 가능하지만, 현재 문서에서는 예측과 반증 조건을 그 미정 항목에 연결하는 보완이 필요하다. 새 판정 근거는 제공되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            },
+            {
+              "assignment_id": "review-methodology-1",
+              "evidence_refs": [
+                "artifact-1ac2654785484630bceb5c9f7d8c9787",
+                "artifact-2bb0705adbc94eb7be21f6469960451b"
+              ],
+              "issue_id": "I-method-2",
+              "rationale": "초기 제기자로서 해결을 확인하지 않는다. R-critical-4와 R-domain-4는 판정 불가능과 반증을 분리하고 구체적 표본 설계를 후속 과제로 둘 수 있다는 방향을 지지한다. 그러나 예측·반증과 집단 범위·지표·시점·기준을 연결할 미해결 질문과 판단 보류의 필요성이 H1 r1에 충분히 명시되지 않았다.",
+              "response_ids": [
+                "R-critical-4",
+                "R-domain-4"
+              ],
+              "status": "open"
+            }
+          ],
+          "status": "open",
+          "resolution_confirmed_by": [],
+          "raiser_confirmed": false,
+          "requires_other_role_confirmation": false
+        }
+      ],
+      "open_blockers": [
+        "I-critical-1",
+        "I-domain-1",
+        "I-method-1"
+      ],
+      "message": "설계 인계 보류",
+      "review_attempt_id": "attempt-180a771786414c4d8eef10a255db1a51",
+      "source_attempt_id": "attempt-33dcda400758413da088a315467dc129",
+      "approval_id": "approval-ddffc5b258fa4a95895b8573c5a46fd9",
+      "provenance_status": "declared_only",
+      "content_origin": "synthetic",
+      "submission_sha256": "b61dc8dbe17028d5ee2074074cafda8c9ec179f2c73f8ac645f9e2be746fe684"
+    }
+  ],
   "limitations": [
     "Early transitions were test checkpoints; not a complete M1 research execution.",
     "CLI provenance is declared_only; external native host observations are documented separately.",
