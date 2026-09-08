@@ -61,6 +61,9 @@ def validate_declared_contents(packet: dict, files: dict[str, bytes]) -> tuple[d
 def validate_node_contents(packet: dict, files: dict[str, bytes], inputs: dict[str, bytes]) -> tuple[dict, ...]:
     """Node content checks on snapshots, separate from structural allowlisting."""
     from .literature import validate_literature
+    if packet['node_id'] == 'synthesize':
+        from .synthesis import validate_synthesis_contents
+        return validate_synthesis_contents(files, inputs)
     return validate_literature(packet['node_id'], files, inputs)
 
 

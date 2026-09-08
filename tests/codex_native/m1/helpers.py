@@ -116,4 +116,13 @@ def build_evidence_case(root: Path) -> dict:
     files = extraction_files(store.read_head(root)['state']['project_id'])
     result = register_outputs(root, packet_id=packet['id'], submission=submission(root, packet, files), command_id='extract-register')
     assert result['status'] == 'review_pending', result
+    checkpoint(root, node='synthesize')  # Synthetic declared-only checkpoint; no independent review claimed.
+    packet = prepare_node(root, 'synthesize', command_id='synthesize-prepare')['packet']
+    synthesis = {'claims': ['claim-one'], 'agreements': [], 'conflicts': [], 'gaps': [],
+                 'limitations': [MARKER + ': full text was not accessed; no verified gaps asserted']}
+    files = {'knowledge/synthesis.json': encoded(synthesis),
+             'knowledge/synthesis.md': (MARKER + ': observation [claim-one]; abstract only.').encode()}
+    result = register_outputs(root, packet_id=packet['id'], submission=submission(root, packet, files),
+                              command_id='synthesize-register')
+    assert result['status'] == 'review_pending', result
     return {**case, 'head_id': result['receipt']['id'], 'artifact_refs': store.read_head(root)['state']['artifacts']}

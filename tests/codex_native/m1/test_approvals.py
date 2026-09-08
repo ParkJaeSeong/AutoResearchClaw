@@ -99,7 +99,7 @@ def test_synthetic_evidence_helper_registers_extraction_but_preserves_review_gat
     case = build_evidence_case(tmp_path)
     head = store.read_head(tmp_path)
     assert head['state']['content_origin'] == 'synthetic'
-    assert head['state']['current_node_id'] == 'extract'
+    assert head['state']['current_node_id'] == 'synthesize'
     assert resume_project(tmp_path)['action'] == 'await_review'
     assert any(ref['logical_path'] == 'knowledge/extractions.jsonl' for ref in case['artifact_refs'])
     assert api().current_corpus(tmp_path)['corpus_binding'] == case['corpus_binding']
