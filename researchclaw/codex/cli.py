@@ -9,6 +9,7 @@ import sys
 from dataclasses import asdict
 from collections.abc import Sequence
 
+from researchclaw.codex.m1_cli import add_m1_parser, dispatch as dispatch_m1
 from researchclaw.core.project import ResearchProject
 from researchclaw.core.agent_roles import describe_stage_roles
 from researchclaw.core.approval import approve_current_gate
@@ -124,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Create and inspect durable Codex-native research projects.",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
+    add_m1_parser(subcommands)
 
     roles = subcommands.add_parser("roles", help="inspect research role guidance")
     role_commands = roles.add_subparsers(dest="roles_command", required=True)
@@ -517,7 +519,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as error:
         return int(error.code)
     try:
-        if args.command == "roles":
+        if args.command == "m1":
+            payload = dispatch_m1(args)
+        elif args.command == "roles":
             payload = describe_stage_roles(args.stage)
         elif args.command == "init":
             project = ResearchProject.create(args.root, topic=args.topic, profile=args.profile)
@@ -785,7 +789,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"error: {error}", file=sys.stderr)
         return 2
 
-    if args.json:
+    if args.json or args.command == "m1":
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     else:
         if args.command == "roles":
