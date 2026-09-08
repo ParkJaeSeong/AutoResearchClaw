@@ -2242,9 +2242,110 @@
   ],
   "second_review": {
     "session_id": "session-6de17ed4c0c648ce805801d5e5eb574a",
-    "status": "collecting_initials",
-    "worker_execution": "not yet launched; declared assignments only",
-    "initials": []
+    "status": "collecting_responses",
+    "worker_execution": "Three fresh independent host tasks completed and their original initial submissions were registered.",
+    "initials": [
+      {
+        "schema_version": 1,
+        "id": "initial-domain-r2",
+        "session_id": "session-6de17ed4c0c648ce805801d5e5eb574a",
+        "assignment_id": "review-domain-2",
+        "role_id": "domain",
+        "host_task_id": "/root/m1_live_domain_r2",
+        "input_binding": "4983822e415c61678bc8569beb6f4636b59c3ae16b51cecf56d03e1781ffd3b3",
+        "rationale": [
+          "H1 revision 2의 연구상 기여는 집계 개선을 모든 집단의 효과로 해석하는 데 있지 않고, 공통 집단 구성비에서도 평균 차이의 방향이 유지되는지를 별도로 묻는 데 있다. 이는 C1의 집계 개선 가정과 C2의 구성비 차이, G1의 구별 문제를 연결하는 의미 있는 합성 연구 질문이다. 현재 자료로 방법의 유효성이나 실제 분야의 신규성을 입증했다는 뜻은 아니다.",
+          "예측 관측은 공통 가중치로 합산한 집단별 조건 차이가 양수라는 것으로 제시된다. 공통 구성비에서 개선이 남지 않는 대안과, 집단별 개선·악화가 공존하면서 평균은 개선되는 대안을 구별해 기록한다. 후자는 평균 개선 예측과 양립하므로 모든 집단에 대한 일반화를 막는 해석상 대안이지 이 평균 가설 자체의 반증은 아니다.",
+          "반증 조건은 충분한 관측 및 사전 판정 규칙 아래 표준화 차이가 0 이하로 판단되는 경우이고, 자료 부재나 불확실성에 따른 판단 보류와 구분되어 있다. 따라서 합성 자료가 부족하다는 사실을 가설의 경험적 기각으로 바꾸지 않는다. 실제 관측이나 문헌 검증은 수행되지 않았으며, C1·C2만으로 표준화 차이의 부호를 알 수 없다.",
+          "대상 집단·공통 가중치·결과 지표·비교 시점·집단별 비교 가능성·불확실성 규칙은 아직 고정되지 않았다. 이 선택은 관측의 의미와 재현성을 결정하므로 후속 설계에서 사전에 확정해야 한다. 다만 현재 문서는 이를 미정 질문으로 명시하고 검증된 결론을 주장하지 않으며, M1의 목적이 연구 질문과 증거 한계 및 후속 설계 과제를 분명히 하는 것임을 고려하면 이 미정 상태 자체를 새로운 수정 쟁점으로 제기할 필요는 없다고 판단한다.",
+          "현재의 허용된 자료 범위에서 추가로 제기할 열린 쟁점은 없다. 이는 표준화 개선의 실증적 지지나 실험 실행 준비 완료를 뜻하지 않으며, H1 revision 2가 합성 전제에 대한 미검증 예측으로 범위를 한정한 방식에 관한 초기 검토 판단이다."
+        ],
+        "evidence_refs": [
+          "artifact-2bb0705adbc94eb7be21f6469960451b",
+          "artifact-9fe155e6829d4390af3af76f2b3850ba",
+          "artifact-e69b19afc09e4bafada45a3679cd657d",
+          "fixture-3f57f08b81364b89af357aa7402bc5c6",
+          "fixture-e10b7b562ce148999ec9210fdf3f6658"
+        ],
+        "open_issues": []
+      },
+      {
+        "schema_version": 1,
+        "id": "initial-methodology-2",
+        "session_id": "session-6de17ed4c0c648ce805801d5e5eb574a",
+        "assignment_id": "review-methodology-2",
+        "role_id": "methodology",
+        "host_task_id": "/root/m1_live_method_r2",
+        "input_binding": "4983822e415c61678bc8569beb6f4636b59c3ae16b51cecf56d03e1781ffd3b3",
+        "rationale": [
+          "검토 대상은 H1 개정 2이며, 근거는 제공된 합성 자료에 한정된다. C1은 원래 구성비에서의 집계 개선을 가정하고 C2는 조건별 구성비 차이를 가정할 뿐이다. 집단별 관측·표본 수·불확실성이 없으므로 공통 가중치로 표준화한 차이의 방향을 현재 자료로 계산하거나 확증할 수 없다. H1은 이 한계를 명시하고 있어 예측을 검증된 결론으로 취급하지 않는다.",
+          "방법론적 검증 대상은 같은 결과 지표의 집단별 조건 차이를 사전에 정할 공통 가중치로 합산했을 때 개선 방향이 남는지이다. 이 대상은 모든 하위 집단의 개선 및 인과효과와 구별된다. 양의 표준화 평균과 일부 집단의 악화가 함께 나타날 수 있다는 대안도 명시되어 있어, 평균 비교로 집단 전체의 유효성을 일반화하던 추론은 현재 문장에 남아 있지 않다.",
+          "식별할 관측은 원래 구성비의 집계 개선과 공통 구성비에서의 차이가 같은 방향인지 여부이다. 충분한 관측과 사전 판정 규칙 아래 표준화 차이가 0 이하라고 판단되면 예측을 기각하고, 불확실하여 방향을 정할 수 없으면 판단을 보류한다는 구분은 M1의 반증 가능성을 설명하기에 적절하다. 다만 양의 표준화 차이가 관측되더라도 그것만으로 인과 기제나 집단 내 비교의 편향 부재를 입증하지는 않으며 H1도 그런 주장을 하지 않는다.",
+          "집단의 정의와 포함 범위, 공통 가중치의 대상과 선정 근거, 결과 지표와 비교 시점, 집단별 비교 가능성, 표본 수·불확실성·결측 및 세 가지 판정의 규칙은 후속 설계 질문으로 이미 제시되어 있다. M2에서는 이 질문을 구체화하면서 공통 가중치가 부여된 집단에 두 조건의 비교 가능한 관측이 확보되는지도 확인해야 한다. 현재 단계에서 이를 해결한 분석이나 재현 가능한 실험 절차가 존재한다고 보지는 않지만, 미정 사항을 드러내는 M1 목적상 상세 설계를 지금 완성하지 않은 점을 별도 결함으로 올리지는 않는다.",
+          "현재 개정에는 연구 질문, 조건부 예측, 대안, 반증과 판단 보류의 구분, 후속 설계 과제가 연결되어 있다. 따라서 제공된 자료와 M1 범위에서 새로 제기할 미해결 쟁점은 없다. 이는 실제 자료 검증이나 실험 수행을 의미하지 않으며, 최종 권고는 이 초기 검토에 포함하지 않는다."
+        ],
+        "evidence_refs": [
+          "artifact-2bb0705adbc94eb7be21f6469960451b",
+          "artifact-9fe155e6829d4390af3af76f2b3850ba",
+          "artifact-e69b19afc09e4bafada45a3679cd657d"
+        ],
+        "open_issues": []
+      },
+      {
+        "schema_version": 1,
+        "id": "initial-critical_reproducibility-r2",
+        "session_id": "session-6de17ed4c0c648ce805801d5e5eb574a",
+        "assignment_id": "review-critical_reproducibility-2",
+        "role_id": "critical_reproducibility",
+        "host_task_id": "/root/m1_live_critical_r2",
+        "input_binding": "4983822e415c61678bc8569beb6f4636b59c3ae16b51cecf56d03e1781ffd3b3",
+        "rationale": [
+          "검토 대상은 H1 revision 2이며, 제공된 동결 자료만 읽었다. C1과 C2는 집계 개선 및 조건별 구성 차이를 가정한 합성 전제이다. 출처 기록도 합성 자료이고 전문 확인이나 실제 실험을 뒷받침하지 않으므로, 이 기록의 등록이나 접근 상태를 과학적 검증의 증거로 해석하지 않는다.",
+          "H1 revision 2는 집계 개선에서 모든 하위 집단의 효과를 도출하는 대신, 사전에 고정할 공통 가중치 아래 표준화 평균 차이가 양수라는 별도의 미검증 예측을 제시한다. C1과 C2만으로 그 예측의 참을 판단할 수 없다는 한계를 문서가 명시하고 있어, 현재 전제를 가설의 검증 결과로 오인하는 비약은 이 개정의 주장에 남아 있지 않다.",
+          "구성 차이만으로 원래 집계 개선이 나타났다는 설명은 여전히 가능하며, 공통 가중치에서 표준화 차이가 0 이하로 판단되면 새 예측은 기각된다. 일부 집단의 악화와 표준화 평균 개선이 공존하는 설명도 명시되어 있으므로, 평균의 개선이 관찰되더라도 집단별 보편성이나 인과효과를 입증하지 않는다. 이들 대안은 실제로 검증된 것이 아니라 후속 비교에서 구별할 가능성으로 남아 있다.",
+          "재현 가능한 수치 분석은 현재 수행할 수 없다. 집단 정의와 포함 범위, 가중치의 대상 집단과 선정 근거, 결과 지표·비교 조건·시점, 집단별 비교 가능성, 표본 수·불확실성·결측 및 판정 규칙이 미정이다. 다만 H1 revision 2는 이를 후속 설계 질문으로 드러내고 관측 부족 또는 방향 불확실성을 반증과 분리한다. 분석 이전에 이 선택을 고정하고 자료와 규칙을 공개해야 동일한 예측을 재검토할 수 있다는 조건으로 이해한다.",
+          "M1의 목적이 연구 질문과 증거 한계, 구별할 관측, 반증 및 미해결 설계 질문의 명료화라는 점에서, 이미 명시된 후속 과제를 현재 단계의 새로운 결함으로 중복 제기하지 않는다. 제공된 자료에서는 추가로 제기할 독립적인 쟁점을 발견하지 못했다. 이는 새 경험적 증거, 대안의 배제 또는 가설 검증을 의미하지 않는다."
+        ],
+        "evidence_refs": [
+          "artifact-2bb0705adbc94eb7be21f6469960451b",
+          "artifact-9933d9653d7a4a11bb224387ee5e8378",
+          "artifact-9fe155e6829d4390af3af76f2b3850ba",
+          "artifact-e69b19afc09e4bafada45a3679cd657d"
+        ],
+        "open_issues": []
+      }
+    ],
+    "host_observations": [
+      {
+        "role_id": "domain",
+        "host_task_id": "/root/m1_live_domain_r2",
+        "observation": "actual collaboration.spawn_agent task completed; own file read and publicly registered",
+        "payload_sha256": "1cbfa10c028dde56b26274a7fb68f1f404e4f922f20b88d8509bbd16af20aa86",
+        "packet_sha256": "63b8a1d28c8e31b8141d9aa379ef4766151b7b4d54765e856d06ede0859ad520",
+        "tool_identity_scope": "host task ID observed; no signed host authentication",
+        "head_id": "515361aa271286d106673857f25bd9018afdb4be4fbab079a0a70018c086ca11"
+      },
+      {
+        "role_id": "methodology",
+        "host_task_id": "/root/m1_live_method_r2",
+        "observation": "actual collaboration.spawn_agent task completed; own file read and publicly registered",
+        "payload_sha256": "26184ed0208094ece96ea1580f66905d4938f17a28d00b6883acb5dcec581ee5",
+        "packet_sha256": "75f3ad61b9cee6ae94606f948657cc15e2598064415791a688f19d5ff86f467a",
+        "tool_identity_scope": "host task ID observed; no signed host authentication",
+        "head_id": "54ceb3dbac41d32f8a64c2001503fb2dd0bc2cf925c8b3e7c48196bc03464683"
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "host_task_id": "/root/m1_live_critical_r2",
+        "observation": "actual collaboration.spawn_agent task completed; own file read and publicly registered",
+        "payload_sha256": "ce4d4c328cdb7cd45a4dce6625d8451367a7c222d7b9ecf8ad0687bea0947e76",
+        "packet_sha256": "8333835bf861fc0ac845457d1bbb602f11db08e8c5d268415c33aa38b293b52f",
+        "tool_identity_scope": "host task ID observed; no signed host authentication",
+        "head_id": "9706b83262c13267ed212bf7dcf5e2fa1e4caff175541fb760b7cd73d8d75755"
+      }
+    ],
+    "verification": "HTTP view assertions: first two submissions remained undisclosed; all three disclosed after final registration. Browser visual polling was blocked by ERR_BLOCKED_BY_CLIENT.",
+    "limitation": "No second-round responses, final positions, or ready decision. Zero new initial issues does not imply M1 completion."
   },
   "preservation_check": {
     "original_objects_unchanged": 32,
