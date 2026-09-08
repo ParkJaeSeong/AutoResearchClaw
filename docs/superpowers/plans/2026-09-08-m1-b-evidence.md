@@ -104,7 +104,7 @@ def validate_outputs(packet, files):
 
 **Interfaces:** `validate_literature(node_id: str, files: dict[str, bytes], inputs: dict[str, bytes]) -> tuple[dict,...]`; `record_corpus_approval(root: Path, *, corpus_binding: str, decision: str, note: str, command_id: str) -> dict`; `approval_covers(record: dict, corpus_binding: str) -> bool`. CLI `m1 corpus decide ROOT --binding HASH --decision approve|reject --note TEXT --command-id ID --json`.
 
-- [ ] 검색 기록, 후보·선별 목록의 출처와 사유, 승인 결합·추출 조건을 검사한다.
+- [x] 검색 기록, 후보·선별 목록의 출처와 사유, 승인 결합·추출 조건을 검사한다.
 
 ```python
 from researchclaw.core.m1.approvals import approval_covers
@@ -115,8 +115,8 @@ def test_old_approval_does_not_cover_changed_corpus():
     assert not approval_covers({'decision':'reject','corpus_binding':'a'*64}, 'a'*64)
 ```
 
-- [ ] `python -m pytest tests/codex_native/m1/test_literature.py tests/codex_native/m1/test_approvals.py -q` 초기 실패 확인.
-- [ ] 핵심 결합 비교는 아래처럼 만들고 상위 등록 계층에서 사용자 결정·등록 스키마·현재 corpus를 확인한다.
+- [x] `python -m pytest tests/codex_native/m1/test_literature.py tests/codex_native/m1/test_approvals.py -q` 초기 실패 확인.
+- [x] 핵심 결합 비교는 아래처럼 만들고 상위 등록 계층에서 사용자 결정·등록 스키마·현재 corpus를 확인한다.
 
 ```python
 def approval_covers(record, corpus_binding):
@@ -124,11 +124,11 @@ def approval_covers(record, corpus_binding):
             and record.get('corpus_binding') == corpus_binding)
 ```
 
-- [ ] 기존 `validate_extraction_shortlist`/`validate_knowledge_extraction`의 실제 signature를 확인해 내용 검사만 호출한다. 기존 stage validate/approve 호출로 새 프로젝트를 전진시키지 않는다. 접근 수준·원문 locator·원문 미접근 제한을 유지한다.
-- [ ] 테스트 helpers.py에 `build_evidence_case(root: Path) -> dict`를 정의한다. 테스트 전용으로 init_project(content_origin='synthetic')/commit_record를 이용해 scope~screen의 합성 checkpoint를 주입한 뒤 문헌 승인·추출 공개 API를 실행한다. `root,head_id,artifact_refs,corpus_binding`를 반환한다. 앞 단계 협의는 작업 17에서 연결되므로 이 helper를 전체 공개 경로 검사라고 부르지 않는다. 제품에 seed 또는 승인 우회 명령을 추가하지 않는다.
-- [ ] 합성 checkpoint의 실행 출처는 declared_only로 두고 자료에 '합성 검사 자료'를 표시한다. 실사용 품질 증거에 합산하지 않는다.
-- [ ] 미승인 추출, 반려 후 수동적 재개, 문헌 집합 변경, 같은 집합의 승인 재사용 범위를 검사한다. 새로운 binding에는 명시적 사용자 판단이 필요하다.
-- [ ] 기존 knowledge/approval 회귀를 실행하고 문헌 선택→사용자 결정→추출 연결을 보여준 뒤 커밋한다.
+- [x] 기존 `validate_extraction_shortlist`/`validate_knowledge_extraction`의 실제 signature를 확인해 내용 검사만 호출한다. 기존 stage validate/approve 호출로 새 프로젝트를 전진시키지 않는다. 접근 수준·원문 locator·원문 미접근 제한을 유지한다.
+- [x] 테스트 helpers.py에 `build_evidence_case(root: Path) -> dict`를 정의한다. 테스트 전용으로 init_project(content_origin='synthetic')/commit_record를 이용해 scope~screen의 합성 checkpoint를 주입한 뒤 문헌 승인·추출 공개 API를 실행한다. `root,head_id,artifact_refs,corpus_binding`를 반환한다. 앞 단계 협의는 작업 17에서 연결되므로 이 helper를 전체 공개 경로 검사라고 부르지 않는다. 제품에 seed 또는 승인 우회 명령을 추가하지 않는다.
+- [x] 합성 checkpoint의 실행 출처는 declared_only로 두고 자료에 '합성 검사 자료'를 표시한다. 실사용 품질 증거에 합산하지 않는다.
+- [x] 미승인 추출, 반려 후 수동적 재개, 문헌 집합 변경, 같은 집합의 승인 재사용 범위를 검사한다. 새로운 binding에는 명시적 사용자 판단이 필요하다.
+- [x] 기존 knowledge/approval 회귀를 실행하고 문헌 선택→사용자 결정→추출 연결을 보여준 뒤 커밋한다.
 
 **User check:** 선별 사유와 승인한 자료 집합이 보이며, 자료를 바꾸면 새 승인 필요 상태가 표시된다.
 
