@@ -182,3 +182,5 @@ Task11 complete at 82fd0ca: independent scoped re-review Approved, no findings. 
 Task16 root preparatory UI slice: replaced demo fetch with /api/view, serial 3s feed, selected node/decision retention, disclosure and scroll preservation. RED selection tests 2 failed missing function; GREEN existing8+poll4+selection2=14 pass. Added text-only council rendering and raw/source link rendering; dependent view schema alignment and actual browser acceptance remain pending. No Task16 completion claim.
 
 Task12 complete30413b3: independentreviewApproved aftercanonicalreplayfix. Regression469passed; fixsubset13passed149deselected. FinalCLIactualdecisionexactreceipt/HEADpreserved. Task13freshworkerstarted.
+
+Task13 completed d5d7a78 after2scopedreviewfixes; independentApproved. Mainfocused31 and relevant59passed; finalfix11passed28deselected. Actualplan2affected7reusable, exactCLIandread-onlysnapshotverified. Task14freshworkerstarted; rootwillapplyactualreturnthenauthorr2.

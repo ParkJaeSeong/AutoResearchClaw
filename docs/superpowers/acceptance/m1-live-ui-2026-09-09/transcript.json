@@ -2039,5 +2039,86 @@
     "Early transitions were test checkpoints; not a complete M1 research execution.",
     "CLI provenance is declared_only; external native host observations are documented separately.",
     "No original source or empirical data verification."
+  ],
+  "return_plans": [
+    {
+      "calculation_scope": "read_only_from_registered_decision",
+      "applied": false,
+      "plan": {
+        "schema_version": 1,
+        "workflow_version": "m1-graph-v1",
+        "input_head": "43c01441a315e2766b672894513cf542c5f6d49ff13f8fbe09a38f12f119c98c",
+        "project_id": "m1-a6e48f0bfc0e49089ad7d819dfb5cf6a",
+        "decision_id": "decision-live-r1",
+        "session_id": "session-911e9f6673a04cf78297e48140334847",
+        "from_attempt_id": "attempt-180a771786414c4d8eef10a255db1a51",
+        "target_node_id": "hypothesize",
+        "reason_code": "hypothesis_revision",
+        "issue_ids": [
+          "I-critical-1",
+          "I-critical-2",
+          "I-domain-1",
+          "I-domain-2",
+          "I-method-1",
+          "I-method-2"
+        ],
+        "rationale": "독립 최종 입장 세 개가 모두 수정 필요를 권고했고 차단 쟁점이 남아 있다. M1에서 필요한 주장 범위와 반증·판단 보류의 구분을 먼저 명료화하도록 가설 작성으로 돌아간다. M2 상세 설계와 실험은 아직 수행하지 않는다.",
+        "proposed_work": [
+          "H1의 효과 입증 표현을 제거하고 합성 집계 전제와 미검증 집단별 예측을 구분한다.",
+          "구성비 차이라는 대안과 집단 내 비교·공통 구성비 비교가 구별할 질문을 명시한다.",
+          "집단·지표·시점·개선 기준·불확실성의 미정 사항을 기록하고 관측 부족의 판단 보류를 반증과 구분한다."
+        ],
+        "changed_artifact_ids": [
+          "artifact-1ac2654785484630bceb5c9f7d8c9787",
+          "artifact-561763a80b3a46c7a31b74ea642ab0dd"
+        ],
+        "affected_attempt_ids": [
+          "attempt-180a771786414c4d8eef10a255db1a51",
+          "attempt-33dcda400758413da088a315467dc129"
+        ],
+        "reusable_attempt_ids": [
+          "attempt-4aafa1783a774ee7adc3f48bc9e8f0dc",
+          "attempt-98fb9a3786a241889c01b81006b074fd",
+          "attempt-eef0db6c77404d16975ee69c91de994b",
+          "fixture-collect",
+          "fixture-questions",
+          "fixture-scope",
+          "fixture-search"
+        ],
+        "reusable_artifact_ids": [
+          "artifact-2bb0705adbc94eb7be21f6469960451b",
+          "artifact-6bce8fa476c54dceb81cbc7549430c1b",
+          "artifact-9933d9653d7a4a11bb224387ee5e8378",
+          "artifact-9fe155e6829d4390af3af76f2b3850ba",
+          "artifact-c7f8e01225494433a787664ca24e10c3",
+          "artifact-e40c691546974726a42688722c6888b8",
+          "fixture-025639120a144ff3ba5dfa4bf3a33f6b",
+          "fixture-14ee9a25bbf644f09008e0ba2ba148b4",
+          "fixture-3f57f08b81364b89af357aa7402bc5c6",
+          "fixture-582b277831ea4813a4d2e634b5af7f03",
+          "fixture-81b5cdaf7c574a8495797ef840c5b303",
+          "fixture-975be57b76e94ecfb18219a66af05376",
+          "fixture-dd514b8605784c7a80646e88cdf8b37b",
+          "fixture-e10b7b562ce148999ec9210fdf3f6658"
+        ],
+        "approval_effects": {
+          "current": {
+            "approval_id": "approval-ddffc5b258fa4a95895b8573c5a46fd9",
+            "corpus_binding": "273a19827f80d845b0bbe30c2b648605de1ccee1bea8fe673b7218fa21312374",
+            "approved": true
+          },
+          "after_change": {
+            "approval_required": false,
+            "screen_required": false,
+            "approval_id": "approval-ddffc5b258fa4a95895b8573c5a46fd9",
+            "corpus_binding": "273a19827f80d845b0bbe30c2b648605de1ccee1bea8fe673b7218fa21312374"
+          }
+        },
+        "content_origin": "synthetic",
+        "provenance_status": "declared_only",
+        "id": "return-9c7d826584cf677260ef97a104777f178a9598740d34068ff48602b70685c134",
+        "plan_hash": "9c7d826584cf677260ef97a104777f178a9598740d34068ff48602b70685c134"
+      }
+    }
   ]
 }
