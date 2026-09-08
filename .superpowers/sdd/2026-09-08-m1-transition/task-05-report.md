@@ -47,3 +47,13 @@ Parent separately executed `.superpowers/sdd/2026-09-08-m1-transition/task-05-ac
 - Atomic rename/fsync guarantees rely on the local filesystem's semantics. Directory fsync errors are surfaced. Checks reject existing symlink substitutions but do not claim authentication or complete defense against a malicious owner racing filesystem operations.
 - The low-level store deliberately validates JSON/envelope/storage integrity, not future NodeAttempt/approval/council semantics. Future engines own those domain contracts and may extend state; the documented receipt/event/object format is ready for them.
 - A complete legacy suite was not rerun; only the three assigned legacy files were run. Ruff was unavailable as stated above.
+
+## Independent review round 1 — fresh commit publication durability
+
+Verified the review finding: after initialization publishes `m1/` and `.researchclaw` fsync fails, a fresh command could return success while that same parent fsync fault remained active. Fresh `_publish` had only synced directories within `m1/`; the additional parent sync existed only on replay/reopen.
+
+Added `test_fresh_commit_reestablishes_failed_init_publication_durability`. RED: **1 failed in 0.07 s**, with `DID NOT RAISE OSError` at the fresh-command acknowledgement. The test also checks read-only visibility while sync remains broken, failing same-command retry, successful retry after restoring fsync, and replay of that original receipt after a later commit without rewinding current HEAD.
+
+Fix commit: **`0486946e16abaf9b43495a3a89daa4599979902e`** (`fix(m1): sync store publication parent on fresh commits`). Every fresh public `commit_record` now calls the existing `_sync_publication(base)` after publication and before returning success. This syncs the current store and its metadata parent, surfaces the ongoing failure, and preserves the complete visible commit for idempotent retry. Initialization's internal staging helper and read-only `read_head` are unchanged.
+
+GREEN: `.venv/bin/python -m pytest tests/codex_native/m1/test_store.py tests/codex_native/m1/test_project.py tests/codex_native/m1/test_m1_cli.py -q` — **66 passed in 0.74 s**, zero failed/skipped. `git diff --check` passed. Legacy tests were not repeated for this isolated M1 fix, as instructed. Only the owned store, store test, and this report were changed; root's concurrent documentation changes were left untouched.
