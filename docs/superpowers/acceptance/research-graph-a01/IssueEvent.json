@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "workflow_version": "research-graph-v1",
+  "project_id": "11111111-1111-4111-8111-111111111111",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "event_id": "11111111-1111-4111-8111-111111111111",
+  "producer_id": "synthetic-fixture",
+  "content_origin": "synthetic",
+  "provenance_status": "declared_only",
+  "observation_refs": [],
+  "issue_id": "11111111-1111-4111-8111-111111111111",
+  "from_status": "open",
+  "to_status": "transferred",
+  "actor_assignment_id": "11111111-1111-4111-8111-111111111111",
+  "rationale": "Receiver accepted source verification.",
+  "verification_refs": [
+    {
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_id": "artifact-1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "successor_ids": [],
+  "to_milestone": "M2",
+  "owner_assignment_id": "11111111-1111-4111-8111-111111111111",
+  "verification_id": "11111111-1111-4111-8111-111111111111",
+  "acceptance_event_id": "11111111-1111-4111-8111-111111111111"
+}

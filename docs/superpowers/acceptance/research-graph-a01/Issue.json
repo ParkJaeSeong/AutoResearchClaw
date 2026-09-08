@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "workflow_version": "research-graph-v1",
+  "project_id": "11111111-1111-4111-8111-111111111111",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "event_id": "11111111-1111-4111-8111-111111111111",
+  "producer_id": "synthetic-fixture",
+  "content_origin": "synthetic",
+  "provenance_status": "declared_only",
+  "observation_refs": [],
+  "origin": {
+    "milestone": "M1",
+    "node": "review",
+    "attempt": "22222222-2222-4222-8222-222222222222",
+    "local_issue_id": "r1-issue-1"
+  },
+  "question": "Does the source support the claim?",
+  "category": "source",
+  "target_refs": [
+    {
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_id": "artifact-1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "severity": "blocking",
+  "blocking_scope": [
+    {
+      "kind": "handoff",
+      "milestone": "M1",
+      "target_id": "M2"
+    }
+  ],
+  "resolution_condition": "Compare claim against source passage.",
+  "owner_assignment_id": "11111111-1111-4111-8111-111111111111"
+}

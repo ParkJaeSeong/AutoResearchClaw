@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "workflow_version": "research-graph-v1",
+  "project_id": "11111111-1111-4111-8111-111111111111",
+  "id": "11111111-1111-4111-8111-111111111111",
+  "event_id": "11111111-1111-4111-8111-111111111111",
+  "producer_id": "synthetic-fixture",
+  "content_origin": "synthetic",
+  "provenance_status": "declared_only",
+  "observation_refs": [],
+  "issue_ids": [
+    "11111111-1111-4111-8111-111111111111"
+  ],
+  "position_refs": [
+    {
+      "project_id": "11111111-1111-4111-8111-111111111111",
+      "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifact_id": "artifact-1",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "claim_dispositions": [
+    {
+      "claim_ref": {
+        "project_id": "11111111-1111-4111-8111-111111111111",
+        "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact_id": "artifact-1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "disposition": "limited",
+      "rationale": "Full text still needed."
+    }
+  ],
+  "rationale_links": [
+    {
+      "claim_ref": {
+        "project_id": "11111111-1111-4111-8111-111111111111",
+        "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact_id": "artifact-1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "position_refs": [
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "artifact_id": "artifact-1",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "verification_refs": [
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "artifact_id": "artifact-1",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "acknowledgement_refs": [
+        {
+          "project_id": "11111111-1111-4111-8111-111111111111",
+          "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "artifact_id": "artifact-1",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ]
+    }
+  ],
+  "dissent": [
+    {
+      "position_ref": {
+        "project_id": "11111111-1111-4111-8111-111111111111",
+        "head_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifact_id": "artifact-1",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "issue_ids": [
+        "11111111-1111-4111-8111-111111111111"
+      ],
+      "rationale": "Source coverage remains incomplete."
+    }
+  ],
+  "next_action": {
+    "kind": "verify",
+    "milestone": "M2",
+    "node": "source_check",
+    "attempt": "22222222-2222-4222-8222-222222222222",
+    "rationale": "Inspect full text."
+  },
+  "gate_result": {
+    "ready": false,
+    "reason_codes": [
+      "awaiting_input"
+    ],
+    "required_actions": [
+      "Obtain full text"
+    ],
+    "unresolved_issue_ids": [
+      "11111111-1111-4111-8111-111111111111"
+    ]
+  }
+}
