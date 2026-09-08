@@ -1,7 +1,8 @@
-"""Structural output checks only; scientific validators belong to tasks 07–09."""
+"""Structural allowlisting, immutable input snapshots, and node content adapters."""
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import yaml
 
@@ -55,3 +56,21 @@ def validate_declared_contents(packet: dict, files: dict[str, bytes]) -> tuple[d
         except (ValueError, TypeError, RecursionError, yaml.YAMLError):
             issues.append({'code': 'm1_output_format_invalid', 'path': path})
     return tuple(issues)
+
+
+def validate_node_contents(packet: dict, files: dict[str, bytes], inputs: dict[str, bytes]) -> tuple[dict, ...]:
+    """Node content checks on snapshots, separate from structural allowlisting."""
+    from .literature import validate_literature
+    return validate_literature(packet['node_id'], files, inputs)
+
+
+def read_registered_inputs(root: Path, refs: list[dict]) -> dict[str, bytes]:
+    """Read each immutable input once and verify those exact bytes before use."""
+    files = {}
+    base = store._store_path(root)
+    for ref in refs:
+        data = store._read_file(base / 'objects' / ref['sha256'])
+        if len(data) != ref['size'] or store._hash(data) != ref['sha256']:
+            raise ValueError('m1_input_content_changed')
+        files[ref['logical_path']] = data
+    return files

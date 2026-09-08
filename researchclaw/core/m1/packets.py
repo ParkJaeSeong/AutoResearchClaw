@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from ..transactions import project_transaction
 from . import store
-from .artifacts import validate_outputs
+from .artifacts import read_registered_inputs, validate_node_contents, validate_outputs
 from .contracts import NODE_IDS
 from .roles import describe_roles
 
@@ -82,6 +82,9 @@ def _inputs(state: dict, node_id: str, objects: dict) -> tuple[dict, list[str]]:
     """Bind consumed logical artifacts and scope configuration, not HEAD churn."""
     role = describe_roles(node_id)
     paths = [path for path in role['inputs'] if '/' in path]
+    if node_id == 'extract':
+        from .approvals import CORPUS_PATHS
+        paths = list(CORPUS_PATHS)
     if node_id != 'scope':
         paths = sorted(set(paths) | {'scope/goal.md', 'scope/constraints.json'})
     latest = {ref['logical_path']: ref for ref in state.get('artifacts', [])}
@@ -162,9 +165,9 @@ def prepare_node(root: Path, node_id: str, *, command_id: str) -> dict:
         inputs, missing = _inputs(state, node_id, head['objects'])
         if missing:
             raise ValueError('m1_inputs_missing: ' + ', '.join(missing))
-        # Corpus authorization is supplied by Task07, never inferred from files.
         if node_id == 'extract':
-            raise ValueError('m1_corpus_approval_required')
+            from .approvals import require_corpus_approval
+            require_corpus_approval(root, head)
         attempt = _current_attempt(state)
         if attempt is not None:
             if attempt['status'] not in _DRAFT_STATUSES:
@@ -259,6 +262,9 @@ def register_outputs(root: Path, *, packet_id: str, submission: dict,
         if (attempt is None or packet['node_id'] != state['current_node_id']
                 or attempt['packet_id'] != packet_id):
             raise ValueError('m1_packet_stale')
+        if packet['node_id'] == 'extract':
+            from .approvals import require_corpus_approval
+            require_corpus_approval(root, head)
         inputs, missing = _inputs(state, packet['node_id'], head['objects'])
         if missing or packet['packet_version'] != PACKET_VERSION or packet['input_binding'] != _binding(inputs):
             raise ValueError('m1_input_binding_changed')
@@ -275,7 +281,11 @@ def register_outputs(root: Path, *, packet_id: str, submission: dict,
         if attempt['status'] not in _DRAFT_STATUSES:
             raise ValueError('m1_node_waiting: ' + attempt['status'])
         files = _snapshot(root, submission)
+        input_files = read_registered_inputs(root, inputs['objects'])
+        input_files['project.json'] = store._canonical({'project_id': state['project_id']})
         issues = list(validate_outputs(packet, files))
+        if not issues:
+            issues.extend(validate_node_contents(packet, files, input_files))
         refs = [{**store._VERSION, 'id': f'artifact-{uuid4().hex}', 'logical_path': logical,
                  'sha256': store._hash(data), 'size': len(data),
                  'producer_attempt_id': attempt['id'], 'content_origin': state['content_origin']}

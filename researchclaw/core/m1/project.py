@@ -130,9 +130,18 @@ def resume_project(root: Path) -> dict:
     elif node_id in ('review', 'handoff'):
         reasons = ['This node requires its later-task engine.']
         action = 'await_engine'
-    elif node_id == 'extract':
-        reasons = ['Current corpus approval must be checked by the literature engine.']
-        action = 'await_approval'
+
+    corpus = None
+    if node_id in ('screen', 'extract'):
+        from .approvals import corpus_status
+        try:
+            corpus = corpus_status(root, head)
+        except ValueError as exc:
+            corpus = {'approved': False, 'error': str(exc)}
+        if node_id == 'extract' and not corpus['approved']:
+            action = 'await_approval'
+            reasons = ['Current corpus requires an explicit user approval; prior or rejected decisions do not authorize extraction.']
     return {**store._VERSION, 'head_id': head['id'], 'current_node_id': node_id,
+            'corpus': corpus,
             'status': status, 'action': action, 'wait_reasons': reasons, 'inputs': inputs,
             'current_attempt': attempt, 'content_origin': state['content_origin']}

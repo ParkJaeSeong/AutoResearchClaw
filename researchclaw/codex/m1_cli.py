@@ -24,6 +24,15 @@ def add_m1_parser(subcommands) -> None:
     resume = commands.add_parser('resume', help='show current work, inputs and waits without changes')
     resume.add_argument('root', metavar='ROOT')
     resume.add_argument('--json', action='store_true')
+    corpus = commands.add_parser('corpus', help='record explicit user corpus decisions')
+    corpus_commands = corpus.add_subparsers(dest='corpus_command', required=True)
+    decide = corpus_commands.add_parser('decide', help='approve or reject the current corpus')
+    decide.add_argument('root', metavar='ROOT')
+    decide.add_argument('--binding', required=True)
+    decide.add_argument('--decision', choices=('approve', 'reject'), required=True)
+    decide.add_argument('--note', required=True)
+    decide.add_argument('--command-id', required=True)
+    decide.add_argument('--json', action='store_true')
     node = commands.add_parser('node', help='prepare and register node drafts')
     node_commands = node.add_subparsers(dest='node_command', required=True)
     prepare = node_commands.add_parser('prepare', help='prepare the current eligible node')
@@ -45,6 +54,10 @@ def dispatch(args) -> dict:
                             max_returns=args.max_returns, content_origin=args.content_origin)
     if args.m1_command == 'resume':
         return resume_project(Path(args.root))
+    if args.m1_command == 'corpus':
+        from researchclaw.core.m1.approvals import record_corpus_approval
+        return record_corpus_approval(Path(args.root), corpus_binding=args.binding,
+                                     decision=args.decision, note=args.note, command_id=args.command_id)
     if args.m1_command == 'node':
         if args.node_command == 'prepare':
             return prepare_node(Path(args.root), args.node, command_id=args.command_id)
