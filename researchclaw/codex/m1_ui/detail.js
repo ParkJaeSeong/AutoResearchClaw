@@ -99,5 +99,8 @@ export function renderInspection(container, view, kind, id) {
   if (item.resolution_condition) container.append(element('p', `해소 조건: ${item.resolution_condition}`, 'secondary'));
   if (item.locator) container.append(element('p', `원문 위치: ${item.locator}`, 'secondary'));
   if (item.access_level) container.append(element('p', `접근 수준: ${item.access_level}`, 'secondary'));
-  if (item.assignment_id) container.append(element('p', `배정: ${item.assignment_id} · 이 시안은 실제 실행 기록이 아닙니다.`, 'secondary'));
+  if (item.assignment_id) {
+    const provenance = view.data_origin === 'demo' ? ' · 이 시안은 실제 실행 기록이 아닙니다.' : ' · 실행 확인 범위는 해당 배정 기록에서 확인하세요.';
+    container.append(element('p', `배정: ${item.assignment_id}${provenance}`, 'secondary'));
+  }
 }

@@ -113,7 +113,7 @@ export function renderResearchView(root, view) {
     for (const button of decisionSelect.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.decisionId === id));
   }
   function selectNode(id) {
-    const focusedNode = document.activeElement?.dataset?.nodeId;
+    const focusedNode = graph.contains(document.activeElement);
     renderGraph(graph, view, id, selectNode);
     renderNodeDetail(nodeDetail, view.nodes.find(node => node.id === id));
     decisionSelect.replaceChildren();

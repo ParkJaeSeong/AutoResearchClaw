@@ -2,53 +2,450 @@
   "schema_version": 1,
   "workflow_version": "m1-graph-v1",
   "data_origin": "demo",
-  "project": {"id":"demo-m1","title":"집계된 개선은 모든 집단에 적용될까?","content_origin":"synthetic"},
+  "project": {
+    "id": "demo-m1",
+    "title": "집계된 개선은 모든 집단에 적용될까?",
+    "content_origin": "synthetic"
+  },
   "nodes": [
-    {"id":"scope","title":"연구 목적","status":"completed","question":"어떤 차이를 설명하고 싶은가?","roles":["분야","방법론","비판"],"inputs":["사용자 목적"],"outputs":["목표·제약"],"acceptance":"목표와 가정을 구분한다."},
-    {"id":"questions","title":"연구 질문","status":"completed","question":"평균 개선과 집단별 개선은 같은가?","roles":["분야","방법론","비판"],"inputs":["목표·제약"],"outputs":["세부 질문"],"acceptance":"집계 효과와 집단별 효과를 구분한다."},
-    {"id":"search","title":"검색 전략","status":"completed","question":"집계 결과의 반대 근거도 찾았는가?","roles":["분야","정보 탐색","비판"],"inputs":["세부 질문"],"outputs":["검색 범위"],"acceptance":"검색어·자료원·누락 가능성을 기록한다."},
-    {"id":"collect","title":"자료 수집","status":"completed","question":"비교할 자료의 출처가 확인됐는가?","roles":["정보 탐색","독립 확인"],"inputs":["검색 범위"],"outputs":["검사용 합성 자료 A·B"],"acceptance":"합성 자료와 실제 문헌을 혼동하지 않는다."},
-    {"id":"screen","title":"문헌 선별","status":"completed","question":"포함·제외 이유가 일관적인가?","roles":["분야","방법론","비판"],"inputs":["후보 자료"],"outputs":["선별 사유"],"acceptance":"실제 연구에서는 사용자의 문헌 승인이 필요하다."},
-    {"id":"extract","title":"주장 추출","status":"completed","question":"원문의 조건이 빠지지 않았는가?","roles":["근거 분석","독립 확인"],"inputs":["선별 자료"],"outputs":["C1·C2 근거표"],"acceptance":"주장과 조건을 원문 위치에 연결한다."},
-    {"id":"synthesize","title":"근거 종합","status":"completed","question":"집계 개선과 집단 차이를 어떻게 함께 설명할까?","roles":["분야","방법론","비판"],"inputs":["C1·C2"],"outputs":["집단 구성에 관한 쟁점"],"acceptance":"일치·충돌·열린 질문을 구분한다."},
-    {"id":"hypothesize","title":"가설 작성","status":"needs_revision","question":"가설의 주장 범위를 어디까지 좁혀야 할까?","roles":["가설 작성자"],"inputs":["근거 종합"],"outputs":["H1 v1 → v2"],"acceptance":"예측·반증 조건·경쟁 설명을 명시한다."},
-    {"id":"review","title":"독립 가설 검토","status":"current","question":"어떤 반론 때문에 가설이 수정됐는가?","roles":["분야 연구자","방법론 연구자","비판·재현성 연구자","비투표 조정자"],"inputs":["H1 v1·C1·C2"],"outputs":["쟁점 I1·응답 R1~R3·수정 결정 D1"],"acceptance":"차단 문제를 해소하고 남은 한계를 명시한다."},
-    {"id":"handoff","title":"M1 인계","status":"pending","question":"무엇을 M2에서 구체적으로 검증해야 할까?","roles":["조정자"],"inputs":["검토 완료 가설·근거"],"outputs":["인계 패키지"],"acceptance":"가설 수정 후 새 독립 검토가 필요하다."}
+    {
+      "id": "scope",
+      "title": "연구 목적",
+      "status": "completed",
+      "question": "어떤 차이를 설명하고 싶은가?",
+      "roles": [
+        "분야",
+        "방법론",
+        "비판"
+      ],
+      "inputs": [
+        "사용자 목적"
+      ],
+      "outputs": [
+        "목표·제약"
+      ],
+      "acceptance": "목표와 가정을 구분한다."
+    },
+    {
+      "id": "questions",
+      "title": "연구 질문",
+      "status": "completed",
+      "question": "평균 개선과 집단별 개선은 같은가?",
+      "roles": [
+        "분야",
+        "방법론",
+        "비판"
+      ],
+      "inputs": [
+        "목표·제약"
+      ],
+      "outputs": [
+        "세부 질문"
+      ],
+      "acceptance": "집계 효과와 집단별 효과를 구분한다."
+    },
+    {
+      "id": "search",
+      "title": "검색 전략",
+      "status": "completed",
+      "question": "집계 결과의 반대 근거도 찾았는가?",
+      "roles": [
+        "분야",
+        "정보 탐색",
+        "비판"
+      ],
+      "inputs": [
+        "세부 질문"
+      ],
+      "outputs": [
+        "검색 범위"
+      ],
+      "acceptance": "검색어·자료원·누락 가능성을 기록한다."
+    },
+    {
+      "id": "collect",
+      "title": "자료 수집",
+      "status": "completed",
+      "question": "비교할 자료의 출처가 확인됐는가?",
+      "roles": [
+        "정보 탐색",
+        "독립 확인"
+      ],
+      "inputs": [
+        "검색 범위"
+      ],
+      "outputs": [
+        "검사용 합성 자료 A·B"
+      ],
+      "acceptance": "합성 자료와 실제 문헌을 혼동하지 않는다."
+    },
+    {
+      "id": "screen",
+      "title": "문헌 선별",
+      "status": "completed",
+      "question": "포함·제외 이유가 일관적인가?",
+      "roles": [
+        "분야",
+        "방법론",
+        "비판"
+      ],
+      "inputs": [
+        "후보 자료"
+      ],
+      "outputs": [
+        "선별 사유"
+      ],
+      "acceptance": "실제 연구에서는 사용자의 문헌 승인이 필요하다."
+    },
+    {
+      "id": "extract",
+      "title": "주장 추출",
+      "status": "completed",
+      "question": "원문의 조건이 빠지지 않았는가?",
+      "roles": [
+        "근거 분석",
+        "독립 확인"
+      ],
+      "inputs": [
+        "선별 자료"
+      ],
+      "outputs": [
+        "C1·C2 근거표"
+      ],
+      "acceptance": "주장과 조건을 원문 위치에 연결한다."
+    },
+    {
+      "id": "synthesize",
+      "title": "근거 종합",
+      "status": "completed",
+      "question": "집계 개선과 집단 차이를 어떻게 함께 설명할까?",
+      "roles": [
+        "분야",
+        "방법론",
+        "비판"
+      ],
+      "inputs": [
+        "C1·C2"
+      ],
+      "outputs": [
+        "집단 구성에 관한 쟁점"
+      ],
+      "acceptance": "일치·충돌·열린 질문을 구분한다."
+    },
+    {
+      "id": "hypothesize",
+      "title": "가설 작성",
+      "status": "needs_revision",
+      "question": "가설의 주장 범위를 어디까지 좁혀야 할까?",
+      "roles": [
+        "가설 작성자"
+      ],
+      "inputs": [
+        "근거 종합"
+      ],
+      "outputs": [
+        "H1 v1 → v2"
+      ],
+      "acceptance": "예측·반증 조건·경쟁 설명을 명시한다."
+    },
+    {
+      "id": "review",
+      "title": "독립 가설 검토",
+      "status": "current",
+      "question": "어떤 반론 때문에 가설이 수정됐는가?",
+      "roles": [
+        "분야 연구자",
+        "방법론 연구자",
+        "비판·재현성 연구자",
+        "비투표 조정자"
+      ],
+      "inputs": [
+        "H1 v1·C1·C2"
+      ],
+      "outputs": [
+        "쟁점 I1·응답 R1~R3·수정 결정 D1"
+      ],
+      "acceptance": "차단 문제를 해소하고 남은 한계를 명시한다."
+    },
+    {
+      "id": "handoff",
+      "title": "M1 인계",
+      "status": "pending",
+      "question": "무엇을 M2에서 구체적으로 검증해야 할까?",
+      "roles": [
+        "조정자"
+      ],
+      "inputs": [
+        "검토 완료 가설·근거"
+      ],
+      "outputs": [
+        "인계 패키지"
+      ],
+      "acceptance": "가설 수정 후 새 독립 검토가 필요하다."
+    }
   ],
   "edges": [
-    {"from":"scope","to":"questions","kind":"forward"},
-    {"from":"questions","to":"search","kind":"forward"},
-    {"from":"search","to":"collect","kind":"forward"},
-    {"from":"collect","to":"screen","kind":"forward"},
-    {"from":"screen","to":"extract","kind":"forward"},
-    {"from":"extract","to":"synthesize","kind":"forward"},
-    {"from":"synthesize","to":"hypothesize","kind":"forward"},
-    {"from":"hypothesize","to":"review","kind":"forward"},
-    {"from":"review","to":"handoff","kind":"forward"},
-    {"from":"review","to":"hypothesize","kind":"return","label":"집단 차이 반영 · I1"}
+    {
+      "from": "scope",
+      "to": "questions",
+      "kind": "forward"
+    },
+    {
+      "from": "questions",
+      "to": "search",
+      "kind": "forward"
+    },
+    {
+      "from": "search",
+      "to": "collect",
+      "kind": "forward"
+    },
+    {
+      "from": "collect",
+      "to": "screen",
+      "kind": "forward"
+    },
+    {
+      "from": "screen",
+      "to": "extract",
+      "kind": "forward"
+    },
+    {
+      "from": "extract",
+      "to": "synthesize",
+      "kind": "forward"
+    },
+    {
+      "from": "synthesize",
+      "to": "hypothesize",
+      "kind": "forward"
+    },
+    {
+      "from": "hypothesize",
+      "to": "review",
+      "kind": "forward"
+    },
+    {
+      "from": "review",
+      "to": "handoff",
+      "kind": "forward"
+    },
+    {
+      "from": "review",
+      "to": "hypothesize",
+      "kind": "return",
+      "label": "집단 차이 반영 · I1"
+    },
+    {
+      "from": "review",
+      "to": "collect",
+      "kind": "return",
+      "label": "자료 보완 선택지 · 집단별 관측 미확보"
+    }
   ],
   "attempts": [
-    {"id":"A1","node_id":"hypothesize","revision":1,"input_refs":["C1","C2"],"output_refs":["H1-r1"],"status":"completed"},
-    {"id":"A2","node_id":"hypothesize","revision":2,"parent_attempt_id":"A1","input_refs":["C1","C2"],"output_refs":["H1-r2"],"status":"review_pending"}
+    {
+      "id": "A1",
+      "node_id": "hypothesize",
+      "revision": 1,
+      "input_refs": [
+        "C1",
+        "C2"
+      ],
+      "output_refs": [
+        "H1-r1"
+      ],
+      "status": "completed"
+    },
+    {
+      "id": "A2",
+      "node_id": "hypothesize",
+      "revision": 2,
+      "parent_attempt_id": "A1",
+      "input_refs": [
+        "C1",
+        "C2"
+      ],
+      "output_refs": [
+        "H1-r2"
+      ],
+      "status": "review_pending"
+    }
   ],
   "artifacts": [
-    {"id":"C1","kind":"claim","title":"합성 자료 A · 집계 결과","content":"워크플로 검사용 합성 근거: 전체 평균에서는 개선이 관찰됐다고 가정한다. 이 자료만으로 각 집단의 개선 여부는 알 수 없다.","locator":"검사용 자료 A, 집계 결과 문단","access_level":"합성 자료 전문"},
-    {"id":"C2","kind":"claim","title":"합성 자료 B · 집단 구성","content":"워크플로 검사용 합성 근거: 비교 집단의 구성 비율이 다르다고 가정한다. 집계 차이를 방법 자체의 효과로 해석하려면 집단별 결과와 구성 차이를 구별해야 한다.","locator":"검사용 자료 B, 비교 조건 문단","access_level":"합성 자료 전문"},
-    {"id":"H1-r1","kind":"hypothesis","hypothesis_id":"H1","revision":1,"statement":"집계된 평균 개선은 모든 집단에서의 개선을 의미한다.","disposition":"revise","evidence_refs":["C1"],"change_reason":"최초 제안"},
-    {"id":"H1-r2","kind":"hypothesis","hypothesis_id":"H1","revision":2,"statement":"집계된 개선은 집단별로 다를 수 있으며, 집단 구성 차이를 구별해야 해석할 수 있다.","disposition":"draft","evidence_refs":["C1","C2"],"change_reason":"I1의 집단 구성 차이 지적을 수용해 보편적 개선 주장을 철회했다. 집단별 결과와 구성 효과를 구별하는 방법은 M2의 설계 질문으로 남겼다."},
-    {"id":"H2-r1","kind":"hypothesis","hypothesis_id":"H2","revision":1,"statement":"모든 차이는 집단 구성만으로 설명된다.","disposition":"deferred","evidence_refs":["C2"],"change_reason":"집단별 비교 자료가 없어 단일 원인으로 단정하지 않고 보류했다."}
+    {
+      "id": "C1",
+      "kind": "claim",
+      "title": "합성 자료 A · 집계 결과",
+      "content": "워크플로 검사용 합성 근거: 전체 평균에서는 개선이 관찰됐다고 가정한다. 이 자료만으로 각 집단의 개선 여부는 알 수 없다.",
+      "locator": "검사용 자료 A, 집계 결과 문단",
+      "access_level": "합성 자료 전문"
+    },
+    {
+      "id": "C2",
+      "kind": "claim",
+      "title": "합성 자료 B · 집단 구성",
+      "content": "워크플로 검사용 합성 근거: 비교 집단의 구성 비율이 다르다고 가정한다. 집계 차이를 방법 자체의 효과로 해석하려면 집단별 결과와 구성 차이를 구별해야 한다.",
+      "locator": "검사용 자료 B, 비교 조건 문단",
+      "access_level": "합성 자료 전문"
+    },
+    {
+      "id": "H1-r1",
+      "kind": "hypothesis",
+      "hypothesis_id": "H1",
+      "revision": 1,
+      "statement": "집계된 평균 개선은 모든 집단에서의 개선을 의미한다.",
+      "disposition": "revise",
+      "evidence_refs": [
+        "C1"
+      ],
+      "change_reason": "최초 제안"
+    },
+    {
+      "id": "H1-r2",
+      "kind": "hypothesis",
+      "hypothesis_id": "H1",
+      "revision": 2,
+      "statement": "집계된 개선은 집단별로 다를 수 있으며, 집단 구성 차이를 구별해야 해석할 수 있다.",
+      "disposition": "draft",
+      "evidence_refs": [
+        "C1",
+        "C2"
+      ],
+      "change_reason": "I1의 집단 구성 차이 지적을 수용해 보편적 개선 주장을 철회했다. 집단별 결과와 구성 효과를 구별하는 방법은 M2의 설계 질문으로 남겼다."
+    },
+    {
+      "id": "H2-r1",
+      "kind": "hypothesis",
+      "hypothesis_id": "H2",
+      "revision": 1,
+      "statement": "모든 차이는 집단 구성만으로 설명된다.",
+      "disposition": "deferred",
+      "evidence_refs": [
+        "C2"
+      ],
+      "change_reason": "집단별 비교 자료가 없어 단일 원인으로 단정하지 않고 보류했다."
+    }
   ],
-  "sessions": [{"id":"S1","node_id":"review","status":"decision_recorded","provenance_status":"unavailable","content_origin":"synthetic"}],
-  "issues": [{"id":"I1","session_id":"S1","raised_by":"비판·재현성 연구자","question":"집단 구성이 다른데 모든 집단의 개선으로 일반화할 수 있을까?","evidence_refs":["C1","C2"],"impact":"집계 결과를 보편적 개선으로 해석할 수 없음","severity":"blocker","resolution_condition":"주장을 집단별 검증 가능한 형태로 수정하고 새 버전을 독립 검토한다."}],
+  "sessions": [
+    {
+      "id": "S1",
+      "node_id": "review",
+      "status": "decision_recorded",
+      "provenance_status": "unavailable",
+      "content_origin": "synthetic"
+    }
+  ],
+  "issues": [
+    {
+      "id": "I1",
+      "session_id": "S1",
+      "raised_by": "비판·재현성 연구자",
+      "question": "집단 구성이 다른데 모든 집단의 개선으로 일반화할 수 있을까?",
+      "evidence_refs": [
+        "C1",
+        "C2"
+      ],
+      "impact": "집계 결과를 보편적 개선으로 해석할 수 없음",
+      "severity": "blocker",
+      "resolution_condition": "주장을 집단별 검증 가능한 형태로 수정하고 새 버전을 독립 검토한다."
+    }
+  ],
   "responses": [
-    {"id":"R1","issue_id":"I1","assignment_id":"demo-domain","role_label":"분야 연구자","stance_label":"부분 수용","rationale":"집계 개선은 연구할 가치가 있으나 모든 집단에 적용된다고 말할 근거는 없다. 가설의 의미를 집단별 차이 탐색으로 좁히겠다.","evidence_refs":["C1","C2"]},
-    {"id":"R2","issue_id":"I1","assignment_id":"demo-methodology","role_label":"방법론 연구자","stance_label":"수용","rationale":"전체 평균만으로는 집단 내 개선과 구성 효과를 구별할 수 없다. 집단별 관측을 비교할 수 있는 가설로 수정하고 구체적 설계는 M2에서 정해야 한다.","evidence_refs":["C2"]},
-    {"id":"R3","issue_id":"I1","assignment_id":"demo-critical","role_label":"비판·재현성 연구자","stance_label":"수정 후 재검토 필요","rationale":"보편적 개선 주장을 철회하는 방향에는 동의한다. 다만 새 가설을 아직 검토하지 않았으므로 M1 인계가 준비됐다고 결론 내릴 수 없다.","evidence_refs":["C1","C2"]}
+    {
+      "id": "R1",
+      "issue_id": "I1",
+      "assignment_id": "demo-domain",
+      "role_label": "분야 연구자",
+      "stance_label": "부분 수용",
+      "rationale": "집계 개선은 연구할 가치가 있으나 모든 집단에 적용된다고 말할 근거는 없다. 가설의 의미를 집단별 차이 탐색으로 좁히겠다.",
+      "evidence_refs": [
+        "C1",
+        "C2"
+      ]
+    },
+    {
+      "id": "R2",
+      "issue_id": "I1",
+      "assignment_id": "demo-methodology",
+      "role_label": "방법론 연구자",
+      "stance_label": "수용",
+      "rationale": "전체 평균만으로는 집단 내 개선과 구성 효과를 구별할 수 없다. 집단별 관측을 비교할 수 있는 가설로 수정하고 구체적 설계는 M2에서 정해야 한다.",
+      "evidence_refs": [
+        "C2"
+      ]
+    },
+    {
+      "id": "R3",
+      "issue_id": "I1",
+      "assignment_id": "demo-critical",
+      "role_label": "비판·재현성 연구자",
+      "stance_label": "수정 후 재검토 필요",
+      "rationale": "보편적 개선 주장을 철회하는 방향에는 동의한다. 다만 새 가설을 아직 검토하지 않았으므로 M1 인계가 준비됐다고 결론 내릴 수 없다.",
+      "evidence_refs": [
+        "C1",
+        "C2"
+      ]
+    }
   ],
   "decisions": [
-    {"id":"D1","node_id":"review","session_id":"S1","title":"주장 범위를 좁히고, 가설을 다시 검토한다","short_label":"H1 · 수정 결정","rationale":"집계된 개선을 모든 집단의 개선으로 일반화한 근거가 부족하다. H1을 집단 차이와 구성 효과를 구별하는 가설로 수정하고 새 버전을 독립 검토한다.","selected_hypothesis_ids":[],"issue_ids":["I1"],"response_ids":["R1","R2","R3"],"evidence_refs":["C1","C2"],"hypothesis_versions":["H1-r1","H1-r2"],"dissent":["수정 방향에 대한 동의는 수정된 가설의 검토 완료를 뜻하지 않는다."],"next_action":"return"},
-    {"id":"D2","node_id":"review","session_id":"S1","title":"집단 구성만으로 설명하는 가설은 보류한다","short_label":"H2 · 보류 이유","rationale":"집단 구성이 다르다는 근거만으로 모든 차이의 원인이 구성이라고 결론 내릴 수 없다. 집단별 관측이 확보될 때 다시 검토한다.","selected_hypothesis_ids":[],"issue_ids":["I1"],"response_ids":["R2","R3"],"evidence_refs":["C2"],"dissent":[],"next_action":"defer"}
+    {
+      "id": "D1",
+      "node_id": "review",
+      "session_id": "S1",
+      "title": "주장 범위를 좁히고, 가설을 다시 검토한다",
+      "short_label": "H1 · 수정 결정",
+      "rationale": "집계된 개선을 모든 집단의 개선으로 일반화한 근거가 부족하다. H1을 집단 차이와 구성 효과를 구별하는 가설로 수정하고 새 버전을 독립 검토한다.",
+      "selected_hypothesis_ids": [],
+      "issue_ids": [
+        "I1"
+      ],
+      "response_ids": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "evidence_refs": [
+        "C1",
+        "C2"
+      ],
+      "hypothesis_versions": [
+        "H1-r1",
+        "H1-r2"
+      ],
+      "dissent": [
+        "수정 방향에 대한 동의는 수정된 가설의 검토 완료를 뜻하지 않는다."
+      ],
+      "next_action": "return"
+    },
+    {
+      "id": "D2",
+      "node_id": "review",
+      "session_id": "S1",
+      "title": "집단 구성만으로 설명하는 가설은 보류한다",
+      "short_label": "H2 · 보류 이유",
+      "rationale": "집단 구성이 다르다는 근거만으로 모든 차이의 원인이 구성이라고 결론 내릴 수 없다. 집단별 관측이 확보될 때 다시 검토한다.",
+      "selected_hypothesis_ids": [],
+      "issue_ids": [
+        "I1"
+      ],
+      "response_ids": [
+        "R2",
+        "R3"
+      ],
+      "evidence_refs": [
+        "C2"
+      ],
+      "dissent": [],
+      "next_action": "defer"
+    }
   ],
   "approvals": [],
-  "next_actions": [{"node_id":"hypothesize","action":"revise","reason":"I1에 따라 수정하고 새 독립 검토를 요청한다."}]
+  "next_actions": [
+    {
+      "node_id": "hypothesize",
+      "action": "revise",
+      "reason": "I1에 따라 수정하고 새 독립 검토를 요청한다."
+    }
+  ]
 }

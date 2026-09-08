@@ -58,3 +58,9 @@ test('malformed nested records are rejected before rendering', () => {
   assert.ok(validateView({...fixture, decisions: [{id:'D1', issue_ids:'I1'}]}).length);
   assert.ok(validateView({...fixture, project: []}).length);
 });
+
+test('demo review exposes a labeled evidence return option', () => {
+  const edge = visibleEdges(fixture, 'review').find(e => e.kind === 'return' && e.to === 'collect');
+  assert.ok(edge);
+  assert.match(edge.label, /선택지/);
+});

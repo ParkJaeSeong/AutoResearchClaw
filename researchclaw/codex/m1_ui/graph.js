@@ -34,7 +34,7 @@ export function renderGraph(container, view, selectedId, onSelect) {
   const returns = visibleEdges(view, selectedId).filter(edge => edge.kind === 'return');
   if (returns.length) {
     const title = document.createElement('h3');
-    title.textContent = '이 작업에서 돌아간 경로';
+    title.textContent = '복귀 경로와 선택지';
     container.append(title);
     for (const edge of returns) {
       const button = document.createElement('button');

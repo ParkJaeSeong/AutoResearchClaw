@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M1 UI 경계 사례 검사</title>
+<link rel="stylesheet" href="../../../researchclaw/codex/m1_ui/styles.css">
+<body><nav aria-label="검사 시나리오">
+<button data-case="demo">기본 예시</button><button data-case="empty">빈 기록</button><button data-case="missing">누락된 참조</button><button data-case="long">긴 반론</button><button data-case="registered">등록 출처 표시 검사</button>
+<button id="light">밝게</button><button id="dark">어둡게</button>
+</nav><p>UI 경계 사례 검사 전용 합성 자료입니다. 실제 연구 기록이 아닙니다.</p><main id="test-root"></main>
+<script type="module">
+import {renderResearchView} from '../../../researchclaw/codex/m1_ui/app.js';
+const fixture = await (await fetch('./demo.json')).json();
+const root = document.getElementById('test-root');
+for (const button of document.querySelectorAll('[data-case]')) button.addEventListener('click', () => {
+  const view = structuredClone(fixture);
+  if (button.dataset.case === 'empty') for (const key of Object.keys(view)) if (Array.isArray(view[key])) view[key] = [];
+  if (button.dataset.case === 'missing') view.artifacts = view.artifacts.filter(a => a.id !== 'C2');
+  if (button.dataset.case === 'long') view.issues[0].question = '집단별로 다른 관측을 전체에 일반화할 수 있는가? '.repeat(80);
+  if (button.dataset.case === 'registered') view.data_origin = 'registered';
+  renderResearchView(root, view);
+});
+document.getElementById('light').addEventListener('click', () => document.documentElement.style.colorScheme = 'light');
+document.getElementById('dark').addEventListener('click', () => document.documentElement.style.colorScheme = 'dark');
+renderResearchView(root, fixture);
+</script></body></html>
