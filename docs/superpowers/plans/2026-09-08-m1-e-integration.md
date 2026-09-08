@@ -1,5 +1,7 @@
 # M1 E — Integration and Acceptance Implementation Plan
 
+> 2026-09-09 계획 승계: 미착수 Task17–20은 [공통 운영 확장 작업판](2026-09-09-research-governance.md)의 B03–B07/C01/E04–E08로 분할했다. 이 원문은 이전 계획의 기록이며 두 계획을 중복 실행하지 않는다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 앞 단계 협의까지 연결해 신규 프로젝트에서 M1을 완주하고, 결정 이력·복구·설치본을 검증한다.
