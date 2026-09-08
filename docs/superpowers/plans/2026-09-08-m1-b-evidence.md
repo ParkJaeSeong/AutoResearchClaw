@@ -138,7 +138,7 @@ def approval_covers(record, corpus_binding):
 
 **Interfaces:** `validate_synthesis_record(record: dict, *, known_claim_ids: set[str]) -> tuple[dict,...]`; `trace_claim(head: dict, claim_id: str) -> dict`. M1 synthesis 구조는 `claims,agreements,conflicts,gaps,limitations`; gap은 `id,question,claim_refs`, conflict는 `id,claim_refs,interpretations,open_questions`를 가진다.
 
-- [ ] 모순 근거를 없애지 않아도 유효한 기록, 모르는 주장 참조는 거부, 공백을 임의로 두 개 만들지 않는 검사를 먼저 작성한다.
+- [x] 모순 근거를 없애지 않아도 유효한 기록, 모르는 주장 참조는 거부, 공백을 임의로 두 개 만들지 않는 검사를 먼저 작성한다.
 
 ```python
 from researchclaw.core.m1.synthesis import validate_synthesis_record
@@ -150,11 +150,11 @@ def test_unknown_claim_in_gap_is_rejected():
     assert any(i['code'] == 'm1_unknown_claim' for i in issues)
 ```
 
-- [ ] `python -m pytest tests/codex_native/m1/test_synthesis.py -q`로 기능 부재 확인.
-- [ ] 각 gap/conflict의 claim_refs를 등록 claim 집합에 대조한다. 참조가 없으면 그 이유가 있는 `unverified_question`으로 기록하되 이미 입증된 공백으로 표시하지 않는다. 구조상 gap 0개를 허용하고 downstream 가설·handoff가 불가능한 이유를 별도 상태로 보고한다.
-- [ ] `trace_claim`은 extraction 객체→선별 corpus→승인→원문 locator를 따라간다. 원문 파일이 없으면 URL·접근 수준만 제공하고 전문 확인으로 표시하지 않는다.
-- [ ] 기존 synthesis의 유용한 참조 검사 원리는 재사용하되 고정 섹션·공백 두 개 규칙을 신규 M1에 강제하지 않는다. 기존 함수와 테스트는 그대로 둔다.
-- [ ] helpers.py의 `build_evidence_case`를 합성 synthesis checkpoint까지 확장한다. 결과 artifact_refs에 synthesis를 추가하고 과거 반환 키를 유지한다. 앞 단계의 실제 완료를 조작한 사용자 프로젝트로 내보내지 않는다.
-- [ ] 검사·B 결과 보고·작업 커밋. 자료와 근거 계보를 CLI JSON으로 보여준다.
+- [x] `python -m pytest tests/codex_native/m1/test_synthesis.py -q`로 기능 부재 확인.
+- [x] 각 gap/conflict의 claim_refs를 등록 claim 집합에 대조한다. 참조가 없으면 그 이유가 있는 `unverified_question`으로 기록하되 이미 입증된 공백으로 표시하지 않는다. 구조상 gap 0개를 허용하고 downstream 가설·handoff가 불가능한 이유를 별도 상태로 보고한다.
+- [x] `trace_claim`은 extraction 객체→선별 corpus→승인→원문 locator를 따라간다. 원문 파일이 없으면 URL·접근 수준만 제공하고 전문 확인으로 표시하지 않는다.
+- [x] 기존 synthesis의 유용한 참조 검사 원리는 재사용하되 고정 섹션·공백 두 개 규칙을 신규 M1에 강제하지 않는다. 기존 함수와 테스트는 그대로 둔다.
+- [x] helpers.py의 `build_evidence_case`를 합성 synthesis checkpoint까지 확장한다. 결과 artifact_refs에 synthesis를 추가하고 과거 반환 키를 유지한다. 앞 단계의 실제 완료를 조작한 사용자 프로젝트로 내보내지 않는다.
+- [x] 검사·B 결과 보고·작업 커밋. 자료와 근거 계보를 CLI JSON으로 보여준다.
 
 **User check:** 결론을 선택해 실제 근거·원문 위치로 따라가며 충돌과 접근 한계를 볼 수 있다.
