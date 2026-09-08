@@ -58,7 +58,8 @@ _NODE_WORK = {
     "hypothesize": {
         "title": "Hypothesis authoring",
         "purpose": "Draft evidence-linked hypotheses with predictions, falsification conditions, and alternatives.",
-        "inputs": ["knowledge/synthesis.json"],
+        "inputs": ["knowledge/synthesis.json", "extraction version bound by synthesis",
+                   "prior registered hypothesis revisions when present"],
         "outputs": ["hypotheses/hypotheses.json", "hypotheses/hypotheses.md"],
         "focus": "the candidate claim, predicted observation, falsification condition, and alternatives",
     },
@@ -133,6 +134,14 @@ def _role(role_id: str, node_id: str, *, voting: bool = False) -> dict[str, obje
             f"Are alternatives, blockers, and dissent about {focus} preserved without override?",
         ],
     }[role_id]
+    if node_id == "review":
+        questions += {
+            "domain": ["What contribution is supported by the bound claims, and where is its evidence limited?"],
+            "methodology": ["Which predicted observation distinguishes the hypothesis, and which falsification condition rejects it?",
+                            "Which unresolved measurements or designs belong in open_design_questions for M2?"],
+            "critical_reproducibility": ["Which competing explanation remains plausible, and under which conditions does the hypothesis fail?"],
+            "coordinator": ["Are author and reviewer assignment IDs distinct, with actual provenance checked separately?"],
+        }[role_id]
     return {
         "role_id": role_id,
         "persona": f"{_PERSONAS[role_id]} At this node, focus on {focus}.",

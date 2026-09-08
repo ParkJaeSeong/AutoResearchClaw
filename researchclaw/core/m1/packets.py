@@ -90,6 +90,24 @@ def _inputs(state: dict, node_id: str, objects: dict) -> tuple[dict, list[str]]:
     latest = {ref['logical_path']: ref for ref in state.get('artifacts', [])}
     missing = [path for path in paths if path not in latest]
     refs = [deepcopy(latest[path]) for path in paths if path in latest]
+    if node_id == 'hypothesize' and 'knowledge/synthesis.json' in latest:
+        # A synthesis consumes an exact extraction version, not whichever
+        # extraction happened to be registered most recently at authoring time.
+        synthesis = latest['knowledge/synthesis.json']
+        producers = [attempt for attempt in state['attempts']
+                     if attempt['id'] == synthesis['producer_attempt_id']
+                     and attempt['node_id'] == 'synthesize'
+                     and synthesis in attempt.get('output_refs', [])]
+        if len(producers) != 1:
+            raise ValueError('m1_hypothesis_synthesis_producer_missing')
+        extractions = [ref for ref in producers[0]['input_refs']
+                       if ref['logical_path'] == 'knowledge/extractions.jsonl']
+        if len(extractions) != 1 or extractions[0] not in state.get('artifacts', []):
+            raise ValueError('m1_hypothesis_extraction_ref_missing')
+        refs.append(deepcopy(extractions[0]))
+        previous = latest.get('hypotheses/hypotheses.json')
+        if previous is not None:
+            refs.append(deepcopy(previous))
     for ref in refs:
         if (not isinstance(ref.get('id'), str) or not ref['id'].strip()
                 or not store._is_digest(ref.get('sha256'))
