@@ -31,7 +31,7 @@ A01에서 `validate_record`는 `{code,path,message}` 오류 tuple을 반환한�
 
 ## Task A01: 공통 기록·참조 계약
 
-**선행:** 없음. **상태:** 미착수.
+**선행:** 없음. **상태:** 완료 · `d82bce2` · 독립 검토 승인.
 
 **Files:**
 - Create: `researchclaw/core/research_graph/contracts.py`
@@ -43,7 +43,7 @@ A01에서 `validate_record`는 `{code,path,message}` 오류 tuple을 반환한�
 
 **산출물·구현 범위:** Issue/IssueEvent/Verification/Result/Position/Decision/Handoff/Dependency 닫힌 필드와 enum, 버전·참조 계약을 고정한다. 객체별 필수·선택 필드를 spec 표에서 명시적으로 분리한다.
 
-- [ ] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
+- [x] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
 
 ```text
 case: IssueEvent transferred에서 수신 수락 참조 누락 → transfer_acceptance_missing; confidence=90만으로 ready를 표시하는 필드는 거부
@@ -52,8 +52,8 @@ assert on rejected mutation: head_after == head_before
 assert on accepted mutation: old_referenced_object_bytes_after == before
 ```
 
-- [ ] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_contracts.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
-- [ ] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
+- [x] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_contracts.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
+- [x] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
 
 ```text
 read one verified snapshot
@@ -63,15 +63,15 @@ reject with the specified reason if the case above violates the rule
 return projection or a transition plan to commands.apply_command
 ```
 
-- [ ] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_contracts.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
-- [ ] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A01 공통 기록·참조 계약` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
+- [x] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_contracts.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
+- [x] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A01 공통 기록·참조 계약` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
 
 **사용자 확인물:** 어떤 기록으로 쟁점·검증·결정을 연결할지 JSON 예제를 확인한다.
 **완료 조건:** 이 확인물, 거부 사례, 정상 사례 및 영향 범위 회귀가 검토를 통과함. 구조 검사와 실제 연구 검증의 범위를 구분해 표시함.
 
 ## Task A02: 저장 공통부와 신규 버전 격리
 
-**선행:** A01. **상태:** 미착수.
+**선행:** A01. **상태:** 완료 · `599dcd3` · 독립 검토 승인.
 
 **Files:**
 - Create: `researchclaw/core/research_graph/store.py`
@@ -85,7 +85,7 @@ return projection or a transition plan to commands.apply_command
 
 **산출물·구현 범위:** m1/store.py의 바이트·atomic 저장 공통부만 core/immutable_records.py로 추출한다. 기존 m1 경로/버전 래퍼 유지; 새 root의 research_graph 저장소와 단일 HEAD를 추가한다.
 
-- [ ] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
+- [x] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
 
 ```text
 case: 동일 command_id의 다른 payload·stale HEAD·공개 전 종료 → 충돌/이전 HEAD; M1 root에 신규 버전 쓰기 거부
@@ -94,8 +94,8 @@ assert on rejected mutation: head_after == head_before
 assert on accepted mutation: old_referenced_object_bytes_after == before
 ```
 
-- [ ] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_store.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
-- [ ] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
+- [x] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_store.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
+- [x] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
 
 ```text
 read one verified snapshot
@@ -105,15 +105,15 @@ reject with the specified reason if the case above violates the rule
 return projection or a transition plan to commands.apply_command
 ```
 
-- [ ] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_store.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
-- [ ] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A02 저장 공통부와 신규 버전 격리` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
+- [x] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_store.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
+- [x] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A02 저장 공통부와 신규 버전 격리` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
 
 **사용자 확인물:** 기존 M1 기록이 그대로 열리고 신규 기록은 다른 root에서만 생성된다.
 **완료 조건:** 이 확인물, 거부 사례, 정상 사례 및 영향 범위 회귀가 검토를 통과함. 구조 검사와 실제 연구 검증의 범위를 구분해 표시함.
 
 ## Task A03: M1 기록의 명시적 가져오기
 
-**선행:** A02. **상태:** 미착수.
+**선행:** A02. **상태:** 완료 · `663fd12` · 독립 검토 승인.
 
 **Files:**
 - Create: `researchclaw/core/research_graph/migration.py`
@@ -124,7 +124,7 @@ return projection or a transition plan to commands.apply_command
 
 **산출물·구현 범위:** reachable 이력과 객체를 검증 복사하고 source ID→global ID 대응표 및 provenance 한계를 기록한다. 활성 과거 council은 재해석하지 않고 읽기 전용 이력으로 보존한다.
 
-- [ ] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
+- [x] **1. 실패 검사 작성:** 아래 입력 상황을 유효 fixture로 만들고 실제 함수/CLI의 결과·HEAD·원문 보존을 assert한다. 테스트 이름에 거부 이유를 포함한다.
 
 ```text
 case: r1 열린6개+r2 새0개 → 6개 유지; 복사 중 오류 → 완료 HEAD 없음; 원본 bytes/mtime 불변
@@ -133,8 +133,8 @@ assert on rejected mutation: head_after == head_before
 assert on accepted mutation: old_referenced_object_bytes_after == before
 ```
 
-- [ ] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_migration.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
-- [ ] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
+- [x] **2. RED 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_migration.py -q`. 기대: 해당 기능 부재/정책 불일치로 실패. 다른 fixture 오류는 먼저 보완한다.
+- [x] **3. 최소 구현:** 위 인터페이스를 노출하고 아래 순서로 처리한다. 순수 조회에서는 마지막 저장을 수행하지 않는다.
 
 ```text
 read one verified snapshot
@@ -144,8 +144,8 @@ reject with the specified reason if the case above violates the rule
 return projection or a transition plan to commands.apply_command
 ```
 
-- [ ] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_migration.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
-- [ ] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A03 M1 기록의 명시적 가져오기` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
+- [x] **4. GREEN·회귀 확인:** `.venv/bin/python -m pytest tests/codex_native/research_graph/test_migration.py -q`. 영향을 받는 선행 기능 검사만 추가 실행한다. 실제 역할/브라우저/실행 확인은 해당 수용 작업에서 별도 기록하며 fixture 통과로 대신하지 않는다.
+- [x] **5. 독립 검토·기록·작업 커밋:** 위 Create/Modify/Test 파일 중 실제 변경 파일만 명시적으로 stage한다. 검토 결과·명령·수용 사례를 총괄 작업판에 기록하고 `feat(research-graph): A03 M1 기록의 명시적 가져오기` 커밋을 남긴다. 전체 계획 완료로 보고하지 않는다.
 
 **사용자 확인물:** 현재 실제 검토 사례를 새 프로젝트에서 동일하게 조회한다. 기존 심사/승인 완료를 새 정책 통과로 간주하지 않는다.
 **완료 조건:** 이 확인물, 거부 사례, 정상 사례 및 영향 범위 회귀가 검토를 통과함. 구조 검사와 실제 연구 검증의 범위를 구분해 표시함.
@@ -383,3 +383,5 @@ return projection or a transition plan to commands.apply_command
 
 **사용자 확인물:** 무한 토론 대신 무엇이 필요해서 멈췄는지 확인한다.
 **완료 조건:** 이 확인물, 거부 사례, 정상 사례 및 영향 범위 회귀가 검토를 통과함. 구조 검사와 실제 연구 검증의 범위를 구분해 표시함.
+
+실제 구현의 schema 결정·init API·가져오기 정책과 검사 결과는 [A 검증 기록](2026-09-09-research-governance-a-verification.md)에 기록했다. A04 이후는 미착수다.

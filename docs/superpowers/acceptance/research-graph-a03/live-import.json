@@ -1,0 +1,45 @@
+{
+  "source_head": "9706b83262c13267ed212bf7dcf5e2fa1e4caff175541fb760b7cd73d8d75755",
+  "target_head": "1196a857f7dff7f5ecbeca51d91011a5ef81445a56ce8eb101faacfc54592cac",
+  "source_commits_preserved": 33,
+  "source_objects_preserved": 40,
+  "open_issues_preserved": 6,
+  "native_sessions": 0,
+  "native_issue_events": 0,
+  "target_ref_counts": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "cli_replay_same_head": true,
+  "inspection": {
+    "content_origin": "synthetic",
+    "event_count": 1,
+    "head_id": "1196a857f7dff7f5ecbeca51d91011a5ef81445a56ce8eb101faacfc54592cac",
+    "import": {
+      "archive_project_id": "ced4d75a-573b-51a8-8f52-6e6fb1795d7a",
+      "archive_read_only": true,
+      "archived_session_count": 2,
+      "import_state": "pending_policy_revalidation",
+      "issue_count": 6,
+      "issue_status_counts": {
+        "open": 6
+      },
+      "limitations": [
+        "Legacy provenance is declared only; host independence is not inferred.",
+        "Imported councils are read-only archives; policy and approvals require revalidation."
+      ],
+      "source_head": "9706b83262c13267ed212bf7dcf5e2fa1e4caff175541fb760b7cd73d8d75755",
+      "source_project_id": "m1-a6e48f0bfc0e49089ad7d819dfb5cf6a"
+    },
+    "object_count": 73,
+    "project_id": "16806514-8299-5726-a99b-8898f7207766",
+    "schema_version": 1,
+    "workflow_version": "research-graph-v1"
+  },
+  "content_origin": "synthetic",
+  "limitation": "Imported actual host dialogue on synthetic research premises. No new review verdict, issue resolution, M1 completion, or M2 execution."
+}
