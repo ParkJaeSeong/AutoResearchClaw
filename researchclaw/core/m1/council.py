@@ -434,6 +434,8 @@ def _validate_response_bundle(payload: dict, session: dict, assignment: dict) ->
     if (len(set(response_ids)) != len(response_ids) or len(set(response_issue_ids)) != len(response_issue_ids)
             or set(response_ids) & prior_response_ids):
         raise ValueError('m1_response_id_duplicate')
+    if any(type(issue) is not dict for issue in payload['new_issues']):
+        raise ValueError('m1_response_issue_invalid')
     new_ids = [issue.get('id') for issue in payload['new_issues']]
     known_ids = {source['issue']['id'] for source in collect_issues(session)}
     if (any(not _text(issue_id) for issue_id in new_ids) or len(set(new_ids)) != len(new_ids)

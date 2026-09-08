@@ -101,3 +101,22 @@ remains. Final records are caller declarations with `declared_only` provenance;
 the engine validates bindings and registered evidence IDs but does not
 authenticate native host execution. Task 12 must evaluate the three final
 positions, open blockers and approvals separately.
+
+## Review fix round 1
+
+Review found that a non-object element in `new_issues` reached `issue.get('id')`
+before element validation, raising `AttributeError` instead of the public
+`m1_response_issue_invalid` error. The regression covers JSON `null`, a string,
+and a list through the Python registration API, plus JSON `null` through the
+public CLI. Every case checks that HEAD remains unchanged; the CLI case also
+requires exit 2 and the stable validation code on stderr.
+
+- RED: `.venv/bin/python -m pytest
+  tests/codex_native/m1/test_issues.py::test_response_rejects_nonobject_new_issue_without_mutating_state
+  tests/codex_native/m1/test_issues.py::test_response_cli_reports_nonobject_new_issue_as_validation_error
+  -q` reported **4 failed in 3.76s**, all at the pre-validation `.get()` call.
+- GREEN and affected response regression: `.venv/bin/python -m pytest
+  tests/codex_native/m1/test_issues.py -k response -q` reported **17 passed,
+  10 deselected in 15.74s**, zero failures/skips.
+- The fix validates every list element is an object before extracting IDs; no
+  response schema, state transition, or unrelated code changed.

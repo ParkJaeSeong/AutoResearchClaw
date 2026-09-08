@@ -174,6 +174,32 @@ def test_response_validation_binds_issue_identity_evidence_and_new_issue_links(t
         assert store.read_head(tmp_path)['id'] == before
 
 
+@pytest.mark.parametrize('malformed_issue', [None, 'not-an-object', []])
+def test_response_rejects_nonobject_new_issue_without_mutating_state(tmp_path, malformed_issue):
+    session = disclosed(tmp_path)
+    before = store.read_head(tmp_path)['id']
+    with pytest.raises(ValueError, match='m1_response_issue_invalid'):
+        register_response(tmp_path, session, 'A1',
+                          payload=response_payload(session, new_issues=[malformed_issue]),
+                          command_id='malformed-new-issue')
+    assert store.read_head(tmp_path)['id'] == before
+
+
+def test_response_cli_reports_nonobject_new_issue_as_validation_error(tmp_path, capsys):
+    from researchclaw.codex.cli import main
+    session = disclosed(tmp_path)
+    submission = tmp_path / 'malformed-response.json'
+    submission.write_text(json.dumps(response_payload(session, new_issues=[None])))
+    before = store.read_head(tmp_path)['id']
+    assert main(['m1', 'council', 'response', str(tmp_path), '--session', session['id'],
+                 '--assignment', 'A1', '--submission', str(submission),
+                 '--command-id', 'cli-malformed-new-issue', '--json']) == 2
+    captured = capsys.readouterr()
+    assert not captured.out
+    assert 'm1_response_issue_invalid' in captured.err
+    assert store.read_head(tmp_path)['id'] == before
+
+
 def test_final_is_blocked_until_every_role_responds_and_must_disposition_every_issue(tmp_path):
     session = disclosed(tmp_path)
     register_response(tmp_path, session, 'A1')
