@@ -231,3 +231,45 @@ def test_targets_resolve_only_exact_session_artifact_and_revision(tmp_path):
         'snapshot_ref': expected, 'source_json_pointer': '/hypotheses/0'}]
     assert len(metadata['limitations']) == 1
     assert 'revision' in metadata['limitations'][0]
+
+
+@pytest.mark.parametrize('field', ['disclosed_initials', 'disclosed_responses', 'disclosed_final_positions'])
+@pytest.mark.parametrize('value', ['malformed', None, {}, [None], [{}]])
+def test_malformed_disclosed_round_rejected_without_source_change(tmp_path, field, value):
+    migration = api()
+    source, target = tmp_path / 'source', tmp_path / 'target'
+    head = source_fixture(source)
+    state = head['state']
+    state['sessions']['r1'][field] = value
+    selected = legacy.commit_record(source, expected_head=head['id'], command_id='bad-disclosure',
+        state=state, event={**legacy._VERSION, 'type': 'fixture', 'payload': {}}, objects={})
+    before = snapshot(source)
+    with pytest.raises(ValueError, match='import_source_invalid'):
+        migration.import_m1(source, target, source_head=selected['id'], command_id='import')
+    assert not target.exists()
+    assert snapshot(source) == before
+
+
+@pytest.mark.parametrize('field,value', [
+    ('disclosed_initials', [{'open_issues': {}}]),
+    ('disclosed_initials', [{'open_issues': [None]}]),
+    ('disclosed_responses', [{'responses': [], 'new_issues': {}}]),
+    ('disclosed_responses', [{'responses': [None], 'new_issues': []}]),
+    ('disclosed_responses', [{'responses': [{}], 'new_issues': []}]),
+    ('disclosed_final_positions', [{'assignment_id': 'reviewer', 'issue_dispositions': {}}]),
+    ('disclosed_final_positions', [{'assignment_id': 'reviewer', 'issue_dispositions': [None]}]),
+    ('disclosed_final_positions', [{'assignment_id': 'reviewer', 'issue_dispositions': [{'issue_id': 'old-0', 'status': 'invalid'}]}]),
+])
+def test_malformed_disclosed_nested_members_rejected(tmp_path, field, value):
+    migration = api()
+    source, target = tmp_path / 'source', tmp_path / 'target'
+    head = source_fixture(source)
+    state = head['state']
+    state['sessions']['r1'][field] = value
+    selected = legacy.commit_record(source, expected_head=head['id'], command_id='bad-disclosure',
+        state=state, event={**legacy._VERSION, 'type': 'fixture', 'payload': {}}, objects={})
+    before = snapshot(source)
+    with pytest.raises(ValueError, match='import_source_invalid'):
+        migration.import_m1(source, target, source_head=selected['id'], command_id='import')
+    assert not target.exists()
+    assert snapshot(source) == before

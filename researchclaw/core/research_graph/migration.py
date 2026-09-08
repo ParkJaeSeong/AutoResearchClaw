@@ -66,6 +66,35 @@ def _targets(original, session, selected, namespace, source_head, objects):
     return refs, mappings, limitations
 
 
+def _validate_disclosures(session):
+    """Reject shapes legacy projection helpers would silently treat as empty.
+
+    Validate the disclosed boundary only; do not rewrite accepted source data
+    or read private submissions into the native issue projection.
+    """
+    def records(value):
+        if type(value) is not list or any(type(member) is not dict for member in value):
+            raise ValueError('research_graph_import_source_invalid')
+        return value
+
+    def text(value):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('research_graph_import_source_invalid')
+
+    for initial in records(session.get('disclosed_initials')):
+        records(initial.get('open_issues'))
+    for bundle in records(session.get('disclosed_responses')):
+        records(bundle.get('new_issues'))
+        for response in records(bundle.get('responses')):
+            text(response.get('issue_id'))
+    for position in records(session.get('disclosed_final_positions')):
+        text(position.get('assignment_id'))
+        for disposition in records(position.get('issue_dispositions')):
+            text(disposition.get('issue_id'))
+            if disposition.get('status') not in ('open', 'resolved'):
+                raise ValueError('research_graph_import_source_invalid')
+
+
 def _projection(selected, source_root, source_head, commits, objects):
     old = selected['state']
     if (type(old.get('sessions', {})) is not dict
@@ -99,6 +128,7 @@ def _projection(selected, source_root, source_head, commits, objects):
             'source_status': session['status'], 'source_attempt_id': session['source_attempt_id'],
             'review_attempt_id': session['review_attempt_id'],
             'source_content_origin': session.get('content_origin', old['content_origin'])}
+        _validate_disclosures(session)
         # Never let collect_issues' legacy fallback expose unpublished initials.
         disclosed = {**session, 'initials': {}, 'responses': session.get('disclosed_responses', []),
                      'final_positions': session.get('disclosed_final_positions', [])}
