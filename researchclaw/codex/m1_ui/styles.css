@@ -485,3 +485,24 @@ strong {
     min-height:44px;
   }
 }
+
+.connection-status { margin:0; padding:.5rem 1rem; background:var(--soft); color:var(--muted); font-size:.8rem; }
+.connection-status.warning { color:var(--warm); }
+.council-panel:not(:empty),.attempt-history { margin-top:1.4rem; padding-top:1.2rem; border-top:1px solid var(--line); }
+details { min-width:0; }
+summary { cursor:pointer; overflow-wrap:anywhere; padding:.65rem 0; }
+summary:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+.session-record { margin-top:.7rem; }
+.role-record { margin-top:1rem; padding:1rem; background:var(--bg); border-radius:8px; }
+.role-record .record-content { margin:.6rem 0; }
+.opinion-record { border-top:1px solid var(--line); }
+.artifact-link { display:inline-block; margin-top:.6rem; color:var(--accent); overflow-wrap:anywhere; }
+
+.candidate-disposition { margin:.8rem 0 1.2rem; padding:.8rem 1rem; border-left:3px solid var(--accent); background:var(--bg); }
+
+.progress-overview { max-width:1256px; margin:0 auto 1.5rem; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:1rem; padding:1rem 1.2rem; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface); }
+.progress-overview[hidden] { display:none; }
+@media(max-width:1320px) { .progress-overview { margin-left:2rem; margin-right:2rem; } }
+@media(max-width:850px) { .progress-overview { margin-left:1rem; margin-right:1rem; } }
+@media(max-width:600px) { .progress-overview { grid-template-columns:1fr; } }
+h1,h2,h3,strong,summary { overflow-wrap:anywhere; }

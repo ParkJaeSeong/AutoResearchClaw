@@ -2,7 +2,15 @@ export function visibleEdges(view, selectedId) {
   return view.edges.filter(edge => edge.kind !== 'return' || edge.from === selectedId);
 }
 
-const STATUS = {completed:'완료', current:'검토 중', pending:'진행 전', needs_revision:'수정 필요', awaiting_user:'사용자 결정 대기'};
+export function returnLinkLabel(edge, target) {
+  return `↶ ${target?.title ?? edge.to} · ${edge.label ?? '가능한 복귀 경로'}`;
+}
+
+export function isCurrentNode(view, node) {
+  return view.current_node_id ? node.id === view.current_node_id : node.current === true || node.status === 'current';
+}
+
+const STATUS = {collecting_initials:'최초 의견 대기', collecting_responses:'의견 교환 중', prepared:'작업 준비됨', registered:'등록됨', completed:'완료', current:'검토 중', pending:'진행 전', needs_revision:'수정 필요', awaiting_user:'사용자 결정 대기'};
 
 export function renderGraph(container, view, selectedId, onSelect) {
   container.replaceChildren();
@@ -24,7 +32,8 @@ export function renderGraph(container, view, selectedId, onSelect) {
     name.textContent = node.title;
     const status = document.createElement('span');
     status.className = 'node-status';
-    status.textContent = STATUS[node.status] ?? node.status;
+    status.textContent = `${isCurrentNode(view, node) ? '현재 · ' : ''}${STATUS[node.status] ?? node.status}`;
+    if (isCurrentNode(view, node)) button.setAttribute('aria-current', 'step');
     button.append(number, name, status);
     button.addEventListener('click', () => onSelect(node.id));
     item.append(button);
@@ -41,7 +50,7 @@ export function renderGraph(container, view, selectedId, onSelect) {
       button.type = 'button';
       button.className = 'return-link';
       const target = view.nodes.find(node => node.id === edge.to);
-      button.textContent = `↶ ${target?.title ?? edge.to} · ${edge.label}`;
+      button.textContent = returnLinkLabel(edge, target);
       button.addEventListener('click', () => onSelect(edge.to));
       container.append(button);
     }

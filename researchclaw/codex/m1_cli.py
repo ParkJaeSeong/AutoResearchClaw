@@ -18,6 +18,9 @@ def add_m1_parser(subcommands) -> None:
     init.add_argument('--max-returns', type=int, default=2)
     init.add_argument('--content-origin', choices=('research', 'synthetic'), default='research')
     init.add_argument('--json', action='store_true')
+    view = commands.add_parser('view', help='open a read-only loopback viewer for this project')
+    view.add_argument('root', metavar='ROOT')
+    view.add_argument('--port', type=int, default=0, help='loopback port; 0 chooses an available port')
     status = commands.add_parser('status', help='read verified M1 HEAD without changes')
     status.add_argument('root', metavar='ROOT')
     status.add_argument('--json', action='store_true')
@@ -98,7 +101,11 @@ def add_m1_parser(subcommands) -> None:
     register.add_argument('--json', action='store_true')
 
 
-def _dispatch(args) -> dict:
+def _dispatch(args) -> dict | None:
+    if args.m1_command == 'view':
+        from researchclaw.codex.m1_viewer import serve_view
+        serve_view(Path(args.root), port=args.port)
+        return None
     if args.m1_command == 'init':
         return init_project(Path(args.root), topic=args.topic, profile=args.profile,
                             max_returns=args.max_returns, content_origin=args.content_origin)
@@ -163,6 +170,7 @@ def _dispatch(args) -> dict:
     return read_head(Path(args.root))
 
 
-def dispatch(args) -> dict:
+def dispatch(args) -> dict | None:
     from researchclaw.core.m1.council import redact_pending_councils
-    return redact_pending_councils(_dispatch(args))
+    result = _dispatch(args)
+    return None if result is None else redact_pending_councils(result)

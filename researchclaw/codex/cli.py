@@ -521,6 +521,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "m1":
             payload = dispatch_m1(args)
+            if args.m1_command == "view":
+                return 0
         elif args.command == "roles":
             payload = describe_stage_roles(args.stage)
         elif args.command == "init":
