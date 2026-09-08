@@ -29,7 +29,7 @@ def add_m1_parser(subcommands) -> None:
     trace.add_argument('--claim', required=True)
     trace.add_argument('--synthesis', help='registered synthesis artifact ID; defaults to latest')
     trace.add_argument('--json', action='store_true')
-    returns = commands.add_parser('return', help='plan an authorized return without changes')
+    returns = commands.add_parser('return', help='plan and apply an authorized return')
     return_commands = returns.add_subparsers(dest='return_command', required=True)
     plan = return_commands.add_parser('plan', help='preview exact dependency and approval impacts')
     plan.add_argument('root', metavar='ROOT')
@@ -37,6 +37,19 @@ def add_m1_parser(subcommands) -> None:
     plan.add_argument('--target', required=True)
     plan.add_argument('--issues', nargs='+', required=True)
     plan.add_argument('--json', action='store_true')
+    apply = return_commands.add_parser('apply', help='apply an exact current return plan')
+    apply.add_argument('root', metavar='ROOT')
+    apply.add_argument('--plan', type=Path, required=True)
+    apply.add_argument('--command-id', required=True)
+    apply.add_argument('--json', action='store_true')
+    budget = commands.add_parser('budget', help='record an explicit user return ceiling')
+    budget_commands = budget.add_subparsers(dest='budget_command', required=True)
+    budget_set = budget_commands.add_parser('set')
+    budget_set.add_argument('root', metavar='ROOT')
+    budget_set.add_argument('--max-returns', type=int, required=True)
+    budget_set.add_argument('--note', required=True)
+    budget_set.add_argument('--command-id', required=True)
+    budget_set.add_argument('--json', action='store_true')
     corpus = commands.add_parser('corpus', help='record explicit user corpus decisions')
     corpus_commands = corpus.add_subparsers(dest='corpus_command', required=True)
     decide = corpus_commands.add_parser('decide', help='approve or reject the current corpus')
@@ -91,9 +104,15 @@ def _dispatch(args) -> dict:
         from researchclaw.core.m1.synthesis import read_trace_head, trace_claim
         return trace_claim(read_trace_head(Path(args.root), synthesis_ref_id=args.synthesis), args.claim)
     if args.m1_command == 'return':
-        from researchclaw.core.m1.transitions import plan_return
+        from researchclaw.core.m1.transitions import plan_return, apply_return
+        if args.return_command == 'apply':
+            plan = json.loads(store._read_file(args.plan), object_pairs_hook=store._unique_pairs)
+            return apply_return(Path(args.root), plan=plan, command_id=args.command_id)
         return plan_return(Path(args.root), decision_id=args.decision,
                            target_node_id=args.target, issue_ids=args.issues)
+    if args.m1_command == 'budget':
+        from researchclaw.core.m1.budgets import set_return_budget
+        return set_return_budget(Path(args.root), limit=args.max_returns, note=args.note, command_id=args.command_id)
     if args.m1_command == 'corpus':
         from researchclaw.core.m1.approvals import record_corpus_approval
         return record_corpus_approval(Path(args.root), corpus_binding=args.binding,

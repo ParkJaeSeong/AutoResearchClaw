@@ -1,4 +1,4 @@
-"""Immutable, prospective return plans bound to one verified current HEAD.
+"""Immutable return plans and atomic applications bound to verified current HEAD.
 
 The authorized target's current output artifacts are the proposed revision
 boundary. Consumers are found by exact artifact identity, never node order or
@@ -164,3 +164,83 @@ def plan_return(root: Path, *, decision_id: str, target_node_id: str, issue_ids:
     if store.read_head(root)['id'] != head['id']:
         raise ValueError('m1_head_conflict')
     return {**body, 'id': 'return-' + digest, 'plan_hash': digest}
+
+
+def _return_basis(state: dict, plan: dict, inputs: dict) -> str:
+    """Ignore new record IDs when research inputs, issue substance and work repeat.
+
+    Consumed prior hypotheses count by content, never their new ArtifactRef ID.
+    Text is compared exactly; scientific novelty is not inferred from prose.
+    """
+    evidence = sorted([ref['logical_path'], ref['sha256']] for ref in inputs['objects'])
+    decision = next(d for d in state['decisions'] if d['id'] == plan['decision_id'])
+    registry = {ref['id']: ref for ref in state['artifacts']}
+    issues = []
+    for thread in decision['issue_threads']:
+        issue = thread['issue']
+        if issue['id'] in plan['issue_ids']:
+            detail = {key: issue[key] for key in ('question', 'impact', 'severity', 'resolution_condition')}
+            detail['target_refs'] = sorted(issue['target_refs'], key=store._canonical)
+            detail['evidence'] = sorted([registry[ref_id]['logical_path'], registry[ref_id]['sha256']]
+                                        for ref_id in issue['evidence_refs'])
+            issues.append(detail)
+    issues.sort(key=store._canonical)
+    return store._hash(store._canonical({'target_node_id': plan['target_node_id'],
+        'inputs': evidence, 'configuration': inputs['configuration'],
+        'issues': issues, 'proposed_work': sorted(plan['proposed_work'])}))
+
+
+def apply_return(root: Path, *, plan: dict, command_id: str) -> dict:
+    """Atomically publish a validated plan, new draft and one budget debit."""
+    from .budgets import budget_status
+    from .packets import (_commit, _inputs, _mutation, _new_draft, _packet, _replay, _request,
+                          _work_directory)
+
+    request = _request(command_id, {'operation': 'apply_return', 'plan': plan})
+    plan = request['plan']
+    with _mutation(root) as root:
+        replay = _replay(root, command_id, request)
+        if replay is not None:
+            _work_directory(root, replay['packet'])
+            return replay
+        head = store.read_head(root)
+        state = head['state']
+        if type(plan) is not dict or not all(key in plan for key in
+                ('input_head', 'decision_id', 'target_node_id', 'issue_ids')):
+            raise ValueError('m1_return_plan_invalid')
+        if plan['input_head'] != head['id']:
+            raise ValueError('m1_head_conflict')
+        current = plan_return(root, decision_id=plan['decision_id'],
+                              target_node_id=plan['target_node_id'], issue_ids=plan['issue_ids'])
+        if store._canonical(current) != store._canonical(plan):
+            raise ValueError('m1_return_plan_invalid')
+        if budget_status(state)['exhausted']:
+            raise ValueError('m1_return_budget_exhausted')
+        node = plan['target_node_id']
+        inputs, missing = _inputs(state, node, head['objects'])
+        if missing:
+            raise ValueError('m1_inputs_missing: ' + ', '.join(missing))
+        basis = _return_basis(state, plan, inputs)
+        attempts = {attempt['id']: attempt for attempt in state['attempts']}
+        for previous in state.get('transitions', []):
+            # The committed packet pins historical input refs AND configuration.
+            # Cached hashes are audit data, never a substitute for that basis.
+            previous_inputs = _packet(state, attempts[previous['to_attempt_id']])['inputs']
+            if _return_basis(state, previous, previous_inputs) == basis:
+                raise ValueError('m1_no_new_basis')
+        prior = [a for a in state['attempts'] if a['node_id'] == node][-1]
+        attempt, packet = _new_draft(state, node, inputs, prior=prior)
+        transition = {**deepcopy(plan), 'to_attempt_id': attempt['id'], 'basis_hash': basis,
+                      'returns_used_before': state['returns_used'],
+                      'returns_used_after': state['returns_used'] + 1}
+        attempt['return_transition_id'] = transition['id']
+        state.setdefault('transitions', []).append(transition)
+        state['current_node_id'] = node
+        state['returns_used'] += 1
+        _work_directory(root, packet)
+        return _commit(root, head, command_id, request,
+            {'transition': deepcopy(transition), 'attempt': deepcopy(attempt),
+             'packet': deepcopy(packet), 'budget': budget_status(state)},
+            event_type='return_applied', objects={
+                f"transitions/{transition['id']}.json": store._canonical(transition),
+                f"packets/{packet['id']}.json": store._canonical(packet)})

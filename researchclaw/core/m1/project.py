@@ -96,11 +96,10 @@ def init_project(root: Path, *, topic: str, profile: str, max_returns: int,
         return result
 
 
-def resume_project(root: Path) -> dict:
+def _resume_project(root: Path, head: dict) -> dict:
     """Report the current work and gates from verified HEAD, without mutation."""
     from .packets import PACKET_VERSION, _binding, _current_attempt, _inputs, _packet
 
-    head = store.read_head(root)
     state = head['state']
     node_id = state['current_node_id']
     if node_id == 'review' and _current_attempt(state) is not None:
@@ -116,7 +115,16 @@ def resume_project(root: Path) -> dict:
         action = 'supply_inputs'
     elif attempt is not None:
         packet = _packet(state, attempt)
-        if packet['packet_version'] != PACKET_VERSION or packet['input_binding'] != _binding(inputs):
+        binding_inputs = inputs
+        if node_id == 'hypothesize' and status == 'review_pending':
+            # The newly registered cumulative hypotheses are the output of this
+            # packet. Its consumed prior hypotheses remain pinned; upstream
+            # inputs must still match before advertising independent review.
+            binding_inputs = {**inputs, 'objects': sorted(
+                [r for r in inputs['objects'] if r['logical_path'] != 'hypotheses/hypotheses.json']
+                + [r for r in packet['inputs']['objects'] if r['logical_path'] == 'hypotheses/hypotheses.json'],
+                key=lambda r: (r['id'], r['sha256']))}
+        if packet['packet_version'] != PACKET_VERSION or packet['input_binding'] != _binding(binding_inputs):
             reasons = ['Inputs changed; the current packet requires a new authorized attempt.']
             action = 'await_user'
         elif status in ('prepared', 'draft_invalid'):
@@ -148,3 +156,38 @@ def resume_project(root: Path) -> dict:
             'corpus': corpus,
             'status': status, 'action': action, 'wait_reasons': reasons, 'inputs': inputs,
             'current_attempt': attempt, 'content_origin': state['content_origin']}
+
+
+def resume_project(root: Path) -> dict:
+    """Expose work, historical return rationale and all current gates together."""
+    from copy import deepcopy
+    from .budgets import budget_status
+
+    head = store.read_head(root)
+    state = head['state']
+    result = _resume_project(root, head)
+    result['budget'] = budget_status(state)
+    transitions = state.get('transitions', [])
+    result['return_context'] = deepcopy(transitions[-1]) if transitions else None
+    attempt = result['current_attempt']
+    decision_id = attempt.get('decision_id') if attempt else None
+    decision = next((d for d in state.get('decisions', []) if d['id'] == decision_id), None)
+    result['decision'] = deepcopy(decision)
+    context_decision = decision
+    if context_decision is None and transitions:
+        context_decision = next(d for d in state['decisions'] if d['id'] == transitions[-1]['decision_id'])
+    result['unresolved_issues'] = deepcopy([t for t in context_decision['issue_threads']
+        if t.get('status') != 'resolved']) if context_decision else []
+    if decision is not None and result['status'] == 'decided':
+        if decision['next_action'] == 'return':
+            if not result['wait_reasons']:
+                result['action'] = 'plan_return'
+            result['wait_reasons'].append(decision['rationale'])
+            if result['budget']['exhausted']:
+                result['action'] = 'await_user'
+                result['wait_reasons'].append('m1_return_budget_exhausted')
+        else:
+            result['wait_reasons'].append(decision['rationale'])
+    if result['action'] == 'await_user' and not result['wait_reasons']:
+        result['wait_reasons'] = ['Current role/session status requires user action: ' + result['status']]
+    return result

@@ -164,6 +164,34 @@ def _work_directory(root: Path, packet: dict) -> None:
         pass
 
 
+def _new_draft(state: dict, node_id: str, inputs: dict, *, prior: dict | None = None) -> tuple[dict, dict]:
+    """Append one draft in memory so callers can atomically publish its transition."""
+    attempt_id = f'attempt-{uuid4().hex}'
+    packet_id = f'packet-{uuid4().hex}'
+    roles = describe_roles(node_id)
+    packet = {**store._VERSION, 'id': packet_id, 'packet_version': PACKET_VERSION,
+              'attempt_id': attempt_id, 'node_id': node_id, 'inputs': inputs,
+              'input_binding': _binding(inputs), 'allowed_outputs': roles['outputs'],
+              'required_outputs': roles['outputs'], 'roles': roles['roles'],
+              'work_dir': f'm1/work/{attempt_id}',
+              'tool_scope': {'read': 'declared_inputs', 'write': f'm1/work/{attempt_id}',
+                             'execute_agents': False},
+              'requirements': {'structural_validation': True,
+                               'independent_check': node_id in ('collect', 'extract'),
+                               'council': node_id in ('scope', 'questions', 'search', 'screen', 'synthesize'),
+                               'scientific_validation': 'not_performed'},
+              'max_draft_corrections': DRAFT_CORRECTIONS,
+              'content_origin': state['content_origin']}
+    attempt = {**store._VERSION, 'id': attempt_id, 'node_id': node_id, 'revision': prior['revision'] + 1 if prior else 1,
+               'parent_attempt_id': prior['id'] if prior else None, 'packet_id': packet_id,
+               'input_refs': inputs['objects'], 'status': 'prepared', 'output_refs': [],
+               'validation_history': [], 'structural_validation': 'not_performed',
+               'scientific_validation': 'not_performed'}
+    state['attempts'].append(attempt)
+    state.setdefault('packets', {})[packet_id] = packet
+    return attempt, packet
+
+
 def prepare_node(root: Path, node_id: str, *, command_id: str) -> dict:
     """Prepare only the eligible current draft or record an active-draft alias."""
     request = _request(command_id, {'operation': 'prepare_node', 'node_id': node_id})
@@ -194,29 +222,7 @@ def prepare_node(root: Path, node_id: str, *, command_id: str) -> dict:
             if packet['packet_version'] != PACKET_VERSION or packet['input_binding'] != _binding(inputs):
                 raise ValueError('m1_input_binding_changed')
         else:
-            attempt_id = f'attempt-{uuid4().hex}'
-            packet_id = f'packet-{uuid4().hex}'
-            roles = describe_roles(node_id)
-            packet = {**store._VERSION, 'id': packet_id, 'packet_version': PACKET_VERSION,
-                      'attempt_id': attempt_id, 'node_id': node_id, 'inputs': inputs,
-                      'input_binding': _binding(inputs), 'allowed_outputs': roles['outputs'],
-                      'required_outputs': roles['outputs'], 'roles': roles['roles'],
-                      'work_dir': f'm1/work/{attempt_id}',
-                      'tool_scope': {'read': 'declared_inputs', 'write': f'm1/work/{attempt_id}',
-                                     'execute_agents': False},
-                      'requirements': {'structural_validation': True,
-                                       'independent_check': node_id in ('collect', 'extract'),
-                                       'council': node_id in ('scope', 'questions', 'search', 'screen', 'synthesize'),
-                                       'scientific_validation': 'not_performed'},
-                      'max_draft_corrections': DRAFT_CORRECTIONS,
-                      'content_origin': state['content_origin']}
-            attempt = {**store._VERSION, 'id': attempt_id, 'node_id': node_id, 'revision': 1,
-                       'parent_attempt_id': None, 'packet_id': packet_id,
-                       'input_refs': inputs['objects'], 'status': 'prepared', 'output_refs': [],
-                       'validation_history': [], 'structural_validation': 'not_performed',
-                       'scientific_validation': 'not_performed'}
-            state['attempts'].append(attempt)
-            state.setdefault('packets', {})[packet_id] = packet
+            attempt, packet = _new_draft(state, node_id, inputs)
         _work_directory(root, packet)
         return _commit(root, head, command_id, request,
                        {'packet': deepcopy(packet), 'attempt': deepcopy(attempt)},
