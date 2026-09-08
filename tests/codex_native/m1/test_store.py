@@ -247,3 +247,28 @@ def test_retry_reestablishes_durability_after_head_fsync_failure(tmp_path, monke
             command(tmp_path, initial)
         assert store.read_head(tmp_path) == visible
     assert command(tmp_path, initial) == visible
+
+
+def test_fresh_commit_reestablishes_failed_init_publication_durability(tmp_path, monkeypatch):
+    store = api()
+    original = store._fsync_directory
+    def fail_metadata_directory(path):
+        if Path(path) == tmp_path / '.researchclaw':
+            raise OSError(errno.EIO, 'init publication parent sync failed')
+        return original(path)
+    with monkeypatch.context() as patch:
+        patch.setattr(store, '_fsync_directory', fail_metadata_directory)
+        with pytest.raises(OSError, match='init publication parent sync failed'):
+            initialize(tmp_path)
+        initial = store.read_head(tmp_path)
+        with pytest.raises(OSError, match='init publication parent sync failed'):
+            command(tmp_path, initial)
+        current = store.read_head(tmp_path)
+        assert len(current['events']) == 2
+        with pytest.raises(OSError, match='init publication parent sync failed'):
+            command(tmp_path, initial)
+        assert store.read_head(tmp_path) == current
+    assert command(tmp_path, initial) == current
+    later = command(tmp_path, current, 'later-command')
+    assert command(tmp_path, initial) == current
+    assert store.read_head(tmp_path) == later

@@ -332,5 +332,8 @@ def commit_record(root: Path, *, expected_head: str, command_id: str, state: dic
                 return _receipt(commit_id, record)
         if history[-1][0] != expected_head:
             raise ValueError('m1_head_conflict')
-        return _publish(base, parent=history[-1], command_id=command_id,
-                        state=state, event=event, objects=objects, inputs=inputs)
+        result = _publish(base, parent=history[-1], command_id=command_id,
+                          state=state, event=event, objects=objects, inputs=inputs)
+        # A visible store can still need its init-publication parent synced.
+        _sync_publication(base)
+        return result
