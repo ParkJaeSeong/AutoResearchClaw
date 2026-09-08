@@ -135,3 +135,39 @@ def test_init_publication_during_preflight_replays(tmp_path, monkeypatch):
     monkeypatch.setattr(store, '_check_new_root', raced)
     receipt = commands.init_project(tmp_path, topic='same', content_origin='synthetic')
     assert receipt == store.read_head(tmp_path)
+
+
+def test_dispatch_replay_after_new_head_does_not_invoke_handler(tmp_path, monkeypatch):
+    head = init(tmp_path)
+    calls = []
+    def handler(snapshot, payload):
+        calls.append(payload['topic'])
+        return dict(state_patch={'topic': payload['topic']}, event=event('changed'), object_inputs={})
+    monkeypatch.setitem(commands._HANDLERS, 'test.replay', handler)
+    first_args = dict(operation='test.replay', payload={'topic': 'first'}, expected_head=head['id'], command_id='first')
+    first = commands.apply_command(tmp_path, **first_args)
+    latest = commands.apply_command(tmp_path, operation='test.replay', payload={'topic': 'later'}, expected_head=first['id'], command_id='later')
+    assert commands.apply_command(tmp_path, **first_args) == first
+    assert calls == ['first', 'later']
+    assert store.read_head(tmp_path) == latest
+
+
+def test_initializer_retry_reestablishes_parent_sync_after_rename(tmp_path, monkeypatch):
+    args = dict(command_id='import', state=state(), event=event(), objects={'source': b'original'})
+    original = store._fsync_directory
+    base = tmp_path / '.researchclaw/research_graph'
+    def fail(path):
+        if path == base.parent and base.exists():
+            raise OSError('parent sync failed')
+        original(path)
+    monkeypatch.setattr(store, '_fsync_directory', fail)
+    with pytest.raises(OSError): store.initialize_record(tmp_path, **args)
+    published = store.read_head(tmp_path)
+    with pytest.raises(OSError): store.initialize_record(tmp_path, **args)
+    synced = []
+    def observe(path):
+        synced.append(path)
+        original(path)
+    monkeypatch.setattr(store, '_fsync_directory', observe)
+    assert store.initialize_record(tmp_path, **args) == published
+    assert base in synced and base.parent in synced
