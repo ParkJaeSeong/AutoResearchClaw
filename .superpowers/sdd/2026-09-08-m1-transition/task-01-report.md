@@ -54,7 +54,7 @@ researchclaw.__file__=/Users/jspark/orca/AutoResearchClaw/researchclaw/__init__.
 
 종료 코드: 0. 실패 0, 건너뜀 0, 경고 0.
 
-## 전체 기준선 진행 상태
+## 전체 기준선 중단 결과
 
 ```sh
 PYTHONPATH=/Users/jspark/orca/AutoResearchClaw \
@@ -62,21 +62,46 @@ PYTHONPATH=/Users/jspark/orca/AutoResearchClaw \
   -m pytest -q
 ```
 
-2026-09-08 21:50:52 KST 현재 unified execution session `63907`에서 계속 실행 중이다. 마지막 확인은 75%, 실패 마커 2개다. skip 마커도 보였으나 완료 전이므로 정확한 수를 제시하지 않는다. `-q` 출력 특성상 실패 테스트 이름과 traceback은 최종 요약 전에는 확인되지 않았다.
-
-관측된 진행 출력의 마지막 구간:
+unified execution session `63907`은 75%에서 SSL 읽기를 장시간 기다렸다. 사용자 지시에 따라 이 pytest 프로세스에만 Ctrl-C를 한 번 보내 요약을 받았다.
 
 ```text
-...F.... [ 35%]
-........................................................................ [ 37%]
-...........................................s............................ [ 38%]
-...
-........................................................................ [ 72%]
-...
-....................................... [ 75%]
+=================================== FAILURES ===================================
+FAILED tests/codex_native/test_execution_environment.py::test_generated_runner_revalidates_its_copied_venv_launcher_path
+FAILED tests/codex_native/test_stage13_multi_agent_e2e.py::test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ssl.py:1103: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+2 failed, 3639 passed, 43 skipped, 1 deselected in 2917.13s (0:48:37)
 ```
 
-이 발췌는 전체 실행의 완료 출력이 아니다. 현재 상태를 통과로 주장하지 않으며 통과·실패·건너뜀·경고의 최종 count도 아직 없다. 실행 완료 뒤 pytest 최종 출력과 실패 이름을 후속 반영하고, 실패 원인은 환경 범위에서만 조사한다. Task 01은 legacy 제품 수정을 하지 않는다.
+종료 코드: 2. 전체 suite는 완료되지 않았고 전체 통과로 주장하지 않는다. 중단된 출력에는 경고의 최종 count와 대기 중이던 테스트 이름이 없으므로 각각 미확인으로 남긴다. SSL 위치만으로 특정 테스트를 추정하지 않는다.
+
+첫 실패의 핵심 stderr:
+
+```text
+ModuleNotFoundError: No module named 'yaml'
+```
+
+테스트가 `venv.EnvBuilder(with_pip=False, symlinks=False, system_site_packages=True)`로 만든 중첩 venv는 Homebrew base Python 환경을 사용한다. base `/opt/homebrew/bin/python3.12`에서는 `yaml` import가 실패했고 작업공간 `.venv`에서는 성공했다.
+
+둘째 실패의 핵심 예외:
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: 'researchclaw-codex'
+```
+
+현재 shell의 `PATH`에는 `researchclaw-codex`가 없지만 실행 파일은 작업공간 `.venv/bin/researchclaw-codex`에 설치돼 있었다.
+
+환경 원인 확인을 위해 원본 경로를 첫 `PYTHONPATH` 항목으로 유지하고, 작업공간 `.venv`의 site-packages와 `bin`을 추가한 뒤 실패한 두 테스트만 다시 실행했다.
+
+```text
+researchclaw=/Users/jspark/orca/AutoResearchClaw/researchclaw/__init__.py
+yaml=/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/.venv/lib/python3.12/site-packages/yaml/__init__.py
+..                                                                       [100%]
+2 passed in 15.26s
+```
+
+두 실패는 기준선 호출 환경 원인으로 확인됐다. 제품 수정은 하지 않았으며 새 전체 suite 재실행도 하지 않았다. 전체 기본 회귀 상태는 여전히 미완료다.
 
 ## 범위 확인
 

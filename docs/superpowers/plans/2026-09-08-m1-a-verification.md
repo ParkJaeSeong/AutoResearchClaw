@@ -72,18 +72,26 @@ PYTHONPATH=/Users/jspark/orca/AutoResearchClaw python -m pytest \
 PYTHONPATH=/Users/jspark/orca/AutoResearchClaw python -m pytest -q
 ```
 
-2026-09-08 21:50:52 KST 현재 실행 중이다. 실행 세션은 `63907`이며 마지막으로 확인된 진행률은 75%다. pytest 진행 출력에서 실패 마커 `F` 2개와 skip 마커가 관측됐지만, `-q`가 최종 요약까지 테스트 이름과 traceback을 내지 않았으므로 실패 이름·원인, 정확한 통과·건너뜀·경고 수는 아직 확인되지 않았다. 이 상태를 통과로 기록하지 않는다.
+장시간 SSL 대기 상태에서 더 진행하지 않아, 사용자 지시에 따라 이 pytest 프로세스에만 Ctrl-C를 한 번 보냈다. 실행은 75%에서 중단됐으며 완료된 전체 회귀가 아니다.
 
 ```text
-...F... [약 15%]
-...F.... [35%]
-...
-................................... [75%]
+FAILED tests/codex_native/test_execution_environment.py::test_generated_runner_revalidates_its_copied_venv_launcher_path
+FAILED tests/codex_native/test_stage13_multi_agent_e2e.py::test_stage13_council_cli_e2e_refines_selects_and_preserves_baseline
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/lib/python3.12/ssl.py:1103: KeyboardInterrupt
+2 failed, 3639 passed, 43 skipped, 1 deselected in 2917.13s (0:48:37)
 ```
 
-위 블록은 장시간 실행의 관측 지점을 요약한 것이며 완료 출력이 아니다. 전체 실행이 끝나면 같은 문서에 최종 pytest 요약과 환경 원인 조사 결과를 후속 기록한다. 현재 확인된 실패 마커는 M1 변경 실패로 분류하지 않았고, 제품 수정도 하지 않았다.
+경고 수는 중단된 출력에 최종 요약되지 않아 확인할 수 없다. 대기 중이던 테스트 이름도 pytest가 출력하지 않았으므로 SSL 위치만 기록하고 특정 테스트로 추정하지 않는다.
 
-이 실행의 현재 수치를 과거의 `4,797 passed` 기록으로 대체하지 않는다. 기존 실패가 나오면 M1 기능 실패와 분리하고 환경 원인만 조사한다.
+두 실패는 설치한 의존성과 console script가 기준선 subprocess에 보이지 않은 실행 환경 문제로 확인했다.
+
+- 첫 실패의 복사된 중첩 venv는 Homebrew base Python의 site-packages를 보지만 작업공간 `.venv`의 `yaml`을 보지 못했다. `/opt/homebrew/bin/python3.12 -c 'import yaml'`은 `ModuleNotFoundError`였고 `.venv/bin/python -c 'import yaml'`은 성공했다.
+- 둘째 실패가 실행한 `researchclaw-codex`는 현재 `PATH`에서 발견되지 않았지만 `.venv/bin/researchclaw-codex`에는 설치돼 있었다.
+
+원본 체크아웃을 `PYTHONPATH`의 첫 항목으로 유지하면서 `.venv`의 site-packages와 `bin`을 각각 `PYTHONPATH`와 `PATH`에 추가해 두 실패만 다시 실행했다. `researchclaw.__file__`이 계속 원본을 가리키는 것을 확인했고 결과는 `2 passed in 15.26s`였다. 제품 코드는 수정하지 않았고 전체 suite를 다시 실행하지 않았다.
+
+이 중단된 수치를 과거의 `4,797 passed` 기록이나 전체 통과 결과로 대체하지 않는다. Task 01의 전체 기본 회귀 상태는 미완료다.
 
 ## Task 01 범위와 다음 작업
 
