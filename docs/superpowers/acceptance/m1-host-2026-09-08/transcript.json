@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "content_origin": "synthetic",
+  "verification_scope": "host_observed_only",
+  "engine_registered": false,
+  "coordinator_and_author": "/root",
+  "inputs": {
+    "C1": "어떤 방법을 적용한 전체 표본의 집계 평균은 비교 조건보다 개선되었다고 가정한다. 집단별 결과는 없다.",
+    "C2": "비교 조건 사이에서 집단 구성 비율이 다르다고 가정한다. 집단별 효과나 표본 크기는 제시되지 않는다.",
+    "H1-r1": "집계 평균의 개선은 모든 하위 집단에 방법이 효과적임을 보여준다.",
+    "H1-r2": "방법에 따른 집단별 변화와 집단 구성에 따른 집계 차이를 구별해야 하며, 일부 집단에서는 집계 결과와 다른 변화가 나타날 수 있다.",
+    "S1": "domain: 집계에서 전체 집단으로 과잉 일반화(C1), 구성비 교란(C2), 집단별 효과/불확실성과 보정 요구. methodology: 집계-집단 추론 오류, 구성비 교란, 집단별 효과/표본크기 및 동일 구성 비교 요구. critical: 심슨의 역설 가능성, 조건별 집단 표본수/평균/분산 공개와 재계산 요구."
+  },
+  "host_support": {"task_id": true, "separate_initial_inputs": true, "resume_assignment": true},
+  "observed_assignments": [
+    {
+      "host_task_id": "/root/m1_host_domain", "role": "domain", "provenance_status": "host_observed",
+      "initial_input_ids": ["C1", "C2", "H1-r1"], "response_input_ids": ["C1", "C2", "S1", "H1-r2"],
+      "initial_submission": {"initial_position":"H1-r1은 지지되지 않는다. C1은 전체 표본의 집계 평균만 관측하므로 모든 하위 집단의 효과를 말할 수 없다.","issues":[{"쟁점":"집계에서 집단별 효과로의 과잉 일반화","근거ID":["C1"],"해소조건":"집단별 효과 추정치와 불확실성 제시"},{"쟁점":"구성비 차이에 따른 교란 가능성","근거ID":["C2"],"해소조건":"집단별 표본 크기와 조건 간 구성비를 보정한 분석"}],"proposed_revision":"관측된 집계 평균은 개선되었으나, 하위 집단별 효과와 구성비 영향은 자료 부족으로 판단할 수 없다."},
+      "response": {"response":"수정안에 동의한다. C1의 집계 평균만으로 집단별 효과를 확정하지 않고, C2의 구성비 차이를 별도 설명으로 반영했다.","unresolved":"집단별 평균·표본 크기·불확실성이 없어 실제 방향과 구성 효과의 크기는 판단할 수 없다.","final_position":"ready_with_limits","next_direction":"후속 검증에서는 조건별 집단 표본수와 평균을 제시하고 동일 구성비로 재집계해 비교한다."}
+    },
+    {
+      "host_task_id": "/root/m1_host_method", "role": "methodology", "provenance_status": "host_observed",
+      "initial_input_ids": ["C1", "C2", "H1-r1"], "response_input_ids": ["C1", "C2", "S1", "H1-r2"],
+      "initial_submission": {"initial_position":"H1-r1은 지지되지 않는다. 집계 평균만으로 모든 하위 집단의 효과를 식별할 수 없다.","issues":[{"쟁점":"집계-집단 추론 오류","근거_ID":["C1"],"해소조건":"집단별 효과·표본크기 제시"},{"쟁점":"구성비 교란","근거_ID":["C2"],"해소조건":"동일 구성 비교 또는 구성비 보정"}],"proposed_revision":"집계 평균은 개선되었으나, 각 하위 집단의 효과와 인과성은 미확인이다."},
+      "response": {"response":"수정안에 동의한다. C1의 집계 개선과 C2의 구성비 차이를 분리하며, 집단별 방향이 다를 가능성을 열어 과잉 일반화를 해소했다.","unresolved":["집단별 효과·표본크기 부재","조건별 구성비 보정 및 불확실성 평가 미정","인과효과 식별 불가"],"final_position":"ready_with_limits","next_direction":"조건별 집단 표본수·평균·분산을 확보하고 동일 구성으로 표준화해 집계와 집단별 결과를 재계산한다."}
+    },
+    {
+      "host_task_id": "/root/m1_host_critical", "role": "critical_reproducibility", "provenance_status": "host_observed",
+      "initial_input_ids": ["C1", "C2", "H1-r1"], "response_input_ids": ["C1", "C2", "S1", "H1-r2"],
+      "initial_submission": {"initial_position":"H1-r1은 지지되지 않는다. 집계 개선은 모든 집단의 효과를 함의하지 않는다.","issues":[{"쟁점":"심슨의 역설 가능성","근거ID":["C1","C2"],"해소조건":"조건별 집단 표본수·평균·분산과 동일 집단 내 효과를 공개해 재계산"}],"proposed_revision":"집단 구성 차이로 생긴 집계 개선일 수 있으므로, 자료가 없는 현재는 전체 평균에서 관찰된 연관으로만 제한한다."},
+      "response": {"response":"대체로 동의한다. H1-r2는 C1의 집계-집단 추론 오류와 C2의 구성비 교란 가능성을 반영한다.","unresolved":"집단별 효과의 방향·크기·불확실성은 여전히 판단할 수 없고, ‘일부 집단’은 가능성일 뿐 확인된 사실이 아니다.","final_position":"ready_with_limits","next_direction":"조건별 집단 표본수·평균·분산을 공개하고 동일한 집단 구성으로 표준화해 재계산한 뒤 집단별 효과를 검토한다."}
+    }
+  ],
+  "limitations": ["실제 별도 호스트 작업과 재개 응답을 관측했지만 과학적 독립성이나 모델 다양성 인증이 아니다.", "최초 역할 입력은 다른 제출을 포함하지 않았다. 후속 입력은 동일한 조정자 요약 S1이며 최초 제출 전체 원문은 아니다.", "원본 도구 반환 JSON을 구조화하여 보존했다. 별도의 서명된 호스트 감사 로그나 실행 UUID는 제공되지 않았다.", "세 ready_with_limits는 검토용 수정안에 대한 입장이다. M1 문헌 승인·쟁점 해소·handoff 완료를 뜻하지 않는다."]
+}
