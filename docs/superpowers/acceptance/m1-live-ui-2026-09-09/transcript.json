@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "content_origin": "synthetic",
+  "engine_registered": true,
+  "verification_scope": "real_host_roles_on_synthetic_checkpoint",
+  "host": {
+    "schema_version": 1,
+    "content_origin": "synthetic",
+    "engine_assignments_provenance": "declared_only",
+    "host_observations": [
+      {
+        "role_id": "domain",
+        "host_task_id": "/root/m1_live_domain",
+        "provenance_status": "host_observed",
+        "observation_scope": "native collaboration spawn result; no independent identity signature",
+        "initial_packet_sha256": "5825f95897a9ffea83789d230d421bb83e2da1fb327055f10378230595f91305",
+        "initial_return_observed": true,
+        "initial_payload_sha256": "f8c224e9740b9f5602eeb6eb3f15f1245b96dcc6e9e2643f55cf760da64e84ce"
+      },
+      {
+        "role_id": "methodology",
+        "host_task_id": "/root/m1_live_method",
+        "provenance_status": "host_observed",
+        "observation_scope": "native collaboration spawn result; no independent identity signature",
+        "initial_packet_sha256": "580ace2fe1a6301f4908ae05ee2752615860a86293d537adcfb92fd3d2cc354f",
+        "initial_return_observed": true,
+        "initial_payload_sha256": "31ad0e2e6827eccff9ab14214506ed68f10cce87537cacd74e825525efab7ed3"
+      },
+      {
+        "role_id": "critical_reproducibility",
+        "host_task_id": "/root/m1_live_critical",
+        "provenance_status": "host_observed",
+        "observation_scope": "native collaboration spawn result; no independent identity signature",
+        "initial_packet_sha256": "a1d5e4cff04877723f701a8ca3cc388ed8f5713b91b9c2590324b1d70b1858ff",
+        "initial_return_observed": true,
+        "initial_payload_sha256": "7ce887e73e7ecf89260e75a9f4b23fa8e225ea844b12dda3bfe26aef1eea11c3"
+      }
+    ],
+    "limitations": [
+      "Only host tool task identities and exact supplied/returned files are observed; no signed execution attestation.",
+      "Earlier graph transitions use declared synthetic test checkpoints."
+    ],
+    "all_initials_registered": true,
+    "same_disclosure_verified": true
+  },
+  "hypothesis_r1": {
+    "id": "H1",
+    "revision": 1,
+    "parent_revision": null,
+    "author_assignment_id": "author-live-root",
+    "change_reason": null,
+    "statement": "검토용 가설: 집계 평균의 개선은 이 방법이 모든 하위 집단에 효과적임을 보여준다.",
+    "claim_refs": [
+      "C1",
+      "C2"
+    ],
+    "gap_refs": [
+      "G1"
+    ],
+    "predicted_observation": "하위 집단별 자료를 확보하면 모든 집단에서 방법 적용 조건의 개선이 관찰될 것이다.",
+    "falsification_condition": "적어도 한 하위 집단에서 개선이 없거나 방향이 반대로 나타나면 모든 집단에 대한 주장은 기각한다.",
+    "alternatives": [
+      "집단 구성비 차이가 전체 집계 개선을 설명할 수 있다."
+    ],
+    "feasibility_notes": "합성 검증 자료의 초안이다. 현재 하위 집단별 결과·표본 수·불확실성이 없으므로 세 역할의 독립 검토가 필요하다.",
+    "open_design_questions": [
+      "하위 집단은 어떻게 정의하고 조건별 구성 차이를 어떻게 다룰 것인가?"
+    ],
+    "disposition": "draft"
+  },
+  "session_id": "session-911e9f6673a04cf78297e48140334847",
+  "initials": [
+    {
+      "assignment_id": "review-critical_reproducibility-1",
+      "evidence_refs": [
+        "artifact-1ac2654785484630bceb5c9f7d8c9787",
+        "artifact-2bb0705adbc94eb7be21f6469960451b",
+        "artifact-9fe155e6829d4390af3af76f2b3850ba",
+        "artifact-9933d9653d7a4a11bb224387ee5e8378"
+      ],
+      "host_task_id": "/root/m1_live_critical",
+      "id": "initial-critical-r1",
+      "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+      "open_issues": [
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "id": "I-critical-1",
+          "impact": "전체 평균은 조건별 집단 구성의 영향을 받을 수 있으므로 집계 개선만으로 모든 집단의 효과 또는 인과효과가 입증되었다는 H1의 서술을 지지할 수 없다. 다만 이는 H1의 실제 반증이 아니라 현재 근거로는 구별할 수 없다는 문제다.",
+          "question": "집단별 결과가 없는 상태에서 구성비 차이의 대안 설명을 배제하고 모든 집단의 개선을 어떻게 식별하는가?",
+          "raised_by": "review-critical_reproducibility-1",
+          "resolution_condition": "H1의 서술을 현재 자료가 허용하는 합성 집계 전제와 미검증 집단별 예측으로 구분하여 수정하고, 사전에 정의한 집단별 조건 비교와 공통 구성비를 적용한 집계 비교 등으로 구성 효과와 집단 내 차이를 구별할 분석 계획을 제시한다. 모든 집단에 대한 효과 입증을 유지하려면 그 분석을 뒷받침할 집단별 자료 및 인과 해석에 필요한 설계 근거도 제시해야 한다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "blocking",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        },
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b"
+          ],
+          "id": "I-critical-2",
+          "impact": "집단 범위, 결과 지표, 비교 시점, 개선 기준과 불확실성 처리 규칙이 정해져 있지 않아 반증 조건을 재현하기 어렵다. 특히 불확실한 추정 또는 자료가 없는 집단을 개선 없음으로 처리하면 관측 불충분과 반증을 혼동할 수 있다.",
+          "question": "독립 검토자가 동일하게 적용할 수 있도록 모든 하위 집단의 범위와 개선·개선 없음의 판정 규칙을 어떻게 고정할 것인가?",
+          "raised_by": "review-critical_reproducibility-1",
+          "resolution_condition": "하위 집단 정의와 포함 범위, 결과 지표·비교 시점·개선 기준, 조건별 표본 수와 불확실성 보고, 불확실하거나 관측되지 않은 집단의 보류 규칙을 사전에 명시한다. 집단 하나의 반증 판정과 모든 집단 개선의 지지 판정을 각각 어떻게 내리는지 재현 가능한 분석 절차로 제시한다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "major",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        }
+      ],
+      "provenance_status": "declared_only",
+      "rationale": [
+        "이 검토는 제공된 합성 전제와 초안만을 대상으로 한다. C1은 실제로 확인된 결과가 아니라 집계 개선의 가정이며, 자료의 abstract 표기와 검색·추출 기록은 실제 문헌 접근이나 독립 검증의 증거가 아니다.",
+        "H1은 모든 하위 집단에서 개선을 예상하고 반대 방향 또는 개선 없음이라는 반증 가능성을 명시한다. 그러나 현재 C1·C2로는 그 예측과 구성비 차이에 의한 집계 개선을 구별할 수 없다. 구성비 설명은 여전히 가능한 대안이며, 실제로 역전이나 무효과가 발생했다고 판단할 근거도 없다.",
+        "재현 가능한 검토에는 어떤 집단과 어떤 개선을 판정하는지, 조건 간 비교와 불확실성을 어떻게 처리하는지가 필요하다. 현재의 하위 집단 정의 질문과 표본 수·불확실성의 부재 때문에 독립 검토자가 같은 반증 판정에 도달할 절차가 정해져 있지 않다."
+      ],
+      "role_id": "critical_reproducibility",
+      "schema_version": 1,
+      "session_id": "session-911e9f6673a04cf78297e48140334847",
+      "submission_sha256": "41cfd2619dd3a0466693108856445304b9abd47926a48179fbab1466942f66c5"
+    },
+    {
+      "assignment_id": "review-domain-1",
+      "evidence_refs": [
+        "artifact-1ac2654785484630bceb5c9f7d8c9787",
+        "artifact-2bb0705adbc94eb7be21f6469960451b",
+        "artifact-9fe155e6829d4390af3af76f2b3850ba"
+      ],
+      "host_task_id": "/root/m1_live_domain",
+      "id": "initial-domain-r1",
+      "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+      "open_issues": [
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "id": "I-domain-1",
+          "impact": "H1의 핵심 기여가 현재 증거의 범위를 넘어선 보편적 효능 결론으로 읽힌다. 구성비 차이로 집계 개선이 설명될 가능성도 남아 있으므로 이 진술을 연구 결과로 채택하면 대상 집단에 대한 적용 의미가 왜곡된다.",
+          "question": "집계 평균의 개선만 제시된 상태에서 모든 하위 집단에 효과적임을 보여준다고 진술할 근거는 무엇인가?",
+          "raised_by": "review-domain-1",
+          "resolution_condition": "현재 자료가 허용하는 집계 수준의 합성 가정과 미검증 후속 가설을 분리하여 진술하고, 모든 하위 집단의 효능이 입증되었다는 해석을 제거한다. 보편 주장을 유지하려면 대상 집단의 명시적 범위와 그 범위를 포괄하는 집단별 비교 근거 및 구성 차이와 인과 해석의 한계를 제시하여 재검토받아야 한다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "blocking",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        },
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b"
+          ],
+          "id": "I-domain-2",
+          "impact": "현재는 모든 하위 집단이라는 검증 대상과 개선의 의미가 정해지지 않아, 예측 관찰과 반증 조건을 일관되게 적용할 수 없다. 자료의 불확실성 때문에 결론을 유보해야 하는 경우를 개선 부재의 반례로 잘못 취급할 여지도 있다.",
+          "question": "어떤 대상과 하위 집단, 결과 지표 및 개선 판정 규칙으로 보편 예측과 구성 효과라는 대안을 구별하고 반복 검증할 것인가?",
+          "raised_by": "review-domain-1",
+          "resolution_condition": "후속 검증을 주장하려면 대상 범위와 하위 집단 정의, 비교 조건, 결과 지표와 시점, 개선 및 반증의 판정 기준을 사전에 명시한다. 조건별 구성비와 집단별 비교 결과 및 불확실성을 확보해 대안 설명을 구별하는 계획을 제시하고, 판정 불가능한 경우는 결론 유보로 다룬다. 현재 문서를 연구 질문 제시에만 한정한다면 이 항목들을 미해결 설계 과제로 명시해 검증 준비가 완료되었다는 주장을 하지 않는다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "major",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        }
+      ],
+      "provenance_status": "declared_only",
+      "rationale": [
+        "이 검토는 제공된 합성 전제의 논리와 연구 의미만을 대상으로 한다. 실제 문헌 접근이나 실험 검증은 수행하지 않았다. C1이 허용하는 내용은 조건 간 전체 집계 평균의 개선을 가정한다는 것까지이며, 방법의 실제 효능이나 모든 하위 집단의 개선은 확인되지 않았다.",
+        "H1의 연구상 의미는 전체 평균과 집단별 결과가 일치하는지 검증한다는 데 있다. 그러나 현재 문장은 그 검증을 이미 마친 결론처럼 표현한다. C2의 구성비 차이는 집계 개선에 대한 대안 설명을 남기며, 제공된 근거로는 이 대안이 맞는지 또는 집단 내 개선과 함께 나타나는지 판별할 수 없다.",
+        "모든 집단에서의 개선을 예측하고 반례 하나로 보편 주장을 기각한다는 구조는 논리적으로 구별 가능하다. 다만 하위 집단의 범위, 결과 지표, 관찰 시점과 개선 판정 기준이 없어 서로 다른 연구자가 같은 명제를 재현 가능하게 검사하기 어렵다. 결과가 불확실한 경우와 실제 개선 부재가 입증된 경우도 구분해야 한다.",
+        "자료가 현재 뒷받침하는 기여는 집계 수준의 관찰 가정과 집단별 효과의 미확인 상태를 명시하고, G1에 따라 구성 효과와 집단 내 차이를 구별하는 후속 연구 질문을 정리하는 것이다. 조건별 구성 차이를 분석하는 방향과 사전에 정의한 집단에서 이질성을 검토하는 방향은 모두 열려 있다."
+      ],
+      "role_id": "domain",
+      "schema_version": 1,
+      "session_id": "session-911e9f6673a04cf78297e48140334847",
+      "submission_sha256": "d80b97932c14a15559f788feae80c15b7bfac0486d3645f5c481d02fc4c99c5d"
+    },
+    {
+      "assignment_id": "review-methodology-1",
+      "evidence_refs": [
+        "artifact-1ac2654785484630bceb5c9f7d8c9787",
+        "artifact-2bb0705adbc94eb7be21f6469960451b",
+        "artifact-9fe155e6829d4390af3af76f2b3850ba"
+      ],
+      "host_task_id": "/root/m1_live_method",
+      "id": "initial-methodology-r1",
+      "input_binding": "a836391da91c7d974aa121710be45e243395951dc2e732d2955225e98d4aecb0",
+      "open_issues": [
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b",
+            "artifact-9fe155e6829d4390af3af76f2b3850ba"
+          ],
+          "id": "I-method-1",
+          "impact": "현재 C1·C2로는 구성 차이와 집단 내 개선을 분리할 수 없어 H1의 입증 표현이 근거를 넘어선다. 효과를 인과적으로 해석한다면 배정 방식과 교란 통제 정보도 없어 추가적인 추론 비약이 생긴다.",
+          "question": "조건별 집단 구성비가 다른 상태에서 집계 평균의 개선이 모든 하위 집단의 효과를 보여준다는 추론을 어떤 집단 내 비교와 식별 조건으로 정당화할 것인가?",
+          "raised_by": "review-methodology-1",
+          "resolution_condition": "H1의 현재 근거를 집계 개선의 합성 가정으로 제한하고 모든 집단의 개선은 미검증 예측으로 명시한다. 후속 설계 질문에 조건별 집단 결과·구성비 확보와 동일 집단 비교, 공통 가중치에 의한 구성 효과 점검을 기록하며, 인과효과를 주장할 경우 필요한 배정·교란 통제 조건을 명시한다. 실제 집단별 효과나 구성 효과의 크기가 확인되었다고 서술하지 않는다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "blocking",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        },
+        {
+          "evidence_refs": [
+            "artifact-1ac2654785484630bceb5c9f7d8c9787",
+            "artifact-2bb0705adbc94eb7be21f6469960451b"
+          ],
+          "id": "I-method-2",
+          "impact": "집단 정의·결과 지표·시점·개선 기준이 미정이어서 서로 다른 분석자가 같은 반증 조건을 다르게 적용할 수 있다. 특히 개선의 증거가 불충분한 경우를 비개선의 증거로 처리하면 H1의 기각 판단도 재현되지 않는다.",
+          "question": "검증 대상인 모든 하위 집단의 범위와 개선의 측정 기준을 어떻게 정하고, 불확실성이 큰 추정치와 실제 비개선을 어떻게 구별해 반증할 것인가?",
+          "raised_by": "review-methodology-1",
+          "resolution_condition": "H1의 예측과 반증 조건을 사전에 정할 집단 범위·공통 지표·측정 시점·개선 기준에 연결하고, 집단별 추정의 불확실성이 커 결론을 낼 수 없는 상태를 반증과 구분한다. 구체적인 표본 설계, 불확실성 평가와 여러 집단의 동시 판단 방식은 M2의 미해결 설계 질문으로 명시한다.",
+          "session_id": "session-911e9f6673a04cf78297e48140334847",
+          "severity": "major",
+          "target_refs": [
+            {
+              "id": "H1",
+              "revision": 1
+            }
+          ]
+        }
+      ],
+      "provenance_status": "declared_only",
+      "rationale": [
+        "이 검토는 제공된 합성 전제 C1·C2와 H1 revision 1에 한정된다. 실제 문헌 전문, 실험 결과 또는 하위 집단 자료를 확인한 것이 아니다.",
+        "H1은 모든 하위 집단에서 개선을 예측하고 한 집단의 비개선으로 보편 주장을 기각하도록 하므로 논리적 반례의 형태는 제시한다. 그러나 C1은 전체 집계 개선만 가정하고 C2는 조건별 구성비 차이를 가정하므로, 현재 관측은 집단 내 차이와 구성 효과를 구별하지 못한다. 구성 효과가 실제 원인이라고 단정할 수도 없다.",
+        "방법론적 기여를 분명히 하려면 집계 관찰을 이미 입증된 보편 효과로 표현하는 부분과 앞으로 검증할 집단별 예측을 구분해야 한다. 조건별 동일 집단의 결과와 구성비를 측정하고 공통 구성비로 표준화한 비교를 함께 계획하면 두 설명을 구별하는 데 도움이 된다. 이러한 비교만으로 인과효과가 자동으로 식별되는 것은 아니다.",
+        "M2의 open_design_questions에는 대상 모집단과 하위 집단 정의, 조건 간 비교 가능성 및 배정 방식, 결과 지표·측정 시점·개선 기준, 집단별 표본 수와 불확실성, 구성비 처리 방법 및 판단 보류 규칙을 포함해야 한다. 현재 제공된 자료에는 이 항목을 결정할 정보가 없다."
+      ],
+      "role_id": "methodology",
+      "schema_version": 1,
+      "session_id": "session-911e9f6673a04cf78297e48140334847",
+      "submission_sha256": "700f57e3af348164f332124f60e09ed23191c28970f9dcbdfdd2fcb3dceacdbf"
+    }
+  ],
+  "responses": [],
+  "final_positions": [],
+  "decisions": [],
+  "limitations": [
+    "Early transitions were test checkpoints; not a complete M1 research execution.",
+    "CLI provenance is declared_only; external native host observations are documented separately.",
+    "No original source or empirical data verification."
+  ]
+}
