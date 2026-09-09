@@ -44,3 +44,18 @@ network access or scientific correctness. Independent review and broader final
 integration verification belong to the parent task.
 
 Final focused verification: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_m1_evidence.py -q` — **14 passed in 99.25s**. `git diff --check` passed. No broad suite was run.
+
+## Independent review correction
+
+The reviewer confirmed one P2: assign_evidence read node_ref.artifact_id before
+validating the full closed reference, allowing list/null values to raise
+AttributeError. The handler now validates _REF before accessing artifact_id.
+A six-case native command regression covers non-mapping refs, missing fields,
+list/null artifact IDs, invalid head type and extra fields; every rejection
+returns m1_evidence_setup_invalid and preserves HEAD.
+
+Focused RED: 5 failed, 1 passed, 14 deselected (0.23s).
+Focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_m1_evidence.py -q -k assignment_malformed_node_ref`
+— **6 passed, 14 deselected in 0.10s**. The prior full 14-case run remains the
+lifecycle verification; this correction changes only malformed-input validation.
+No broader suite or additional feature scope was added.

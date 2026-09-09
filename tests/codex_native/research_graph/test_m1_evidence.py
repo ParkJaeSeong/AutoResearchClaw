@@ -267,3 +267,20 @@ def test_prior_inconclusive_check_resolves_by_explicit_a05_recheck_of_replacemen
     assert api().current_evidence(f.snapshot())['ready'] is True
     assert f.head['state']['issues'][old_issue['id']] == old_issue
     assert all(f.snapshot()['_issue_context']['objects'][digest] == data for digest, data in old_bytes.items())
+
+
+@pytest.mark.parametrize('fault', ['nonmapping', 'missing_fields', 'list_artifact', 'null_artifact', 'invalid_head', 'extra_field'])
+def test_assignment_malformed_node_ref_rejected_and_head_preserved(tmp_path, fault):
+    root = tmp_path / 'project'
+    head = commands.init_project(root, topic='Malformed assignment reference', content_origin='synthetic')
+    ref = dict(project_id=head['state']['project_id'], head_id=head['id'], artifact_id='m1/nodes/collect', sha256='0' * 64)
+    if fault == 'nonmapping': ref = []
+    if fault == 'missing_fields': ref = {'artifact_id': 'm1/nodes/collect'}
+    if fault == 'list_artifact': ref['artifact_id'] = []
+    if fault == 'null_artifact': ref['artifact_id'] = None
+    if fault == 'invalid_head': ref['head_id'] = []
+    if fault == 'extra_field': ref['unexpected'] = True
+    with pytest.raises(ValueError, match='^m1_evidence_setup_invalid$'):
+        commands.apply_command(root, operation='m1.evidence.assign', expected_head=head['id'], command_id=uid(),
+            payload=dict(setup_id=uid(), node_ref=ref, checker_assignment={}, resolver_assignment={}))
+    assert store.read_head(root)['id'] == head['id']

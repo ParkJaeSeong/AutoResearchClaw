@@ -165,7 +165,8 @@ def assign_evidence(snapshot, payload):
     _require(type(payload) is dict and set(payload) == {'setup_id', 'node_ref', 'checker_assignment', 'resolver_assignment'},
              'm1_evidence_setup_invalid')
     _require(_valid('uuid', payload['setup_id']), 'm1_evidence_setup_invalid')
-    node = payload['node_ref'].get('artifact_id', '').removeprefix('m1/nodes/') if type(payload['node_ref']) is dict else None
+    _require(_valid(_REF, payload['node_ref']), 'm1_evidence_setup_invalid')
+    node = payload['node_ref']['artifact_id'].removeprefix('m1/nodes/')
     _require(node in ('collect', 'extract'), 'm1_evidence_setup_invalid')
     artifact, ref = current_node(inputs, node)
     _require(payload['node_ref'] == ref and _setup(inputs, artifact, ref) is None, 'm1_evidence_setup_invalid')
