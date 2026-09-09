@@ -338,6 +338,64 @@ def test_claim_rejects_empty_role_and_verification_links_and_unknown_dissent_iss
     assert codes(errors).count("ref_unknown") == 1
 
 
+def test_duplicate_claim_disposition_is_closed_error_and_does_not_mutate(tmp_path):
+    f = Fixture(tmp_path / "p")
+    position = f.position()
+    position_ref = f.register("positions", position)[0]
+    claim_ref = f.register(
+        "fixture_claims", {**envelope(f.project), "text": "The effect applies to everyone."}
+    )[0]
+    _, verification_ref = f.verification_result()
+    decision = f.decision(position_ref, claim_ref, verification_ref)
+    decision["claim_dispositions"].append(
+        {
+            "claim_ref": claim_ref,
+            "disposition": "limited",
+            "rationale": "The effect applies only to the sampled population.",
+        }
+    )
+    snapshot = f.snapshot()
+    before_snapshot, before_decision = deepcopy(snapshot), deepcopy(decision)
+    before_head = store.read_head(f.root)
+
+    errors = validate_rationale_links(snapshot, decision)
+
+    assert [error for error in errors if error["code"] == "claim_disposition_duplicate"] == [
+        {
+            "code": "claim_disposition_duplicate",
+            "path": "$.claim_dispositions[1].claim_ref",
+            "message": "Claim disposition is duplicated.",
+        }
+    ]
+    assert snapshot == before_snapshot and decision == before_decision
+    assert store.read_head(f.root) == before_head
+
+
+def test_malformed_frozen_session_participants_fail_closed_in_both_validators(tmp_path):
+    f = Fixture(tmp_path / "p")
+    position = f.position()
+    position_ref = f.register("positions", position)[0]
+    claim_ref = f.register(
+        "fixture_claims", {**envelope(f.project), "text": "The effect applies to everyone."}
+    )[0]
+    _, verification_ref = f.verification_result()
+    malformed = {
+        **f.session,
+        "participant_assignment_ids": [f.assignment["id"], {}],
+    }
+    f.register("review_sessions", malformed)
+    snapshot = f.snapshot()
+
+    assert "position_session_missing" in codes(
+        validate_position_change(snapshot, f.position())
+    )
+    assert "position_session_missing" in codes(
+        validate_rationale_links(
+            snapshot, f.decision(position_ref, claim_ref, verification_ref)
+        )
+    )
+
+
 def test_validators_are_pure_after_verified_snapshot_read(tmp_path, monkeypatch):
     f = Fixture(tmp_path / "p")
     position = f.position()

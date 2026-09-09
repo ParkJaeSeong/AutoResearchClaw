@@ -7,7 +7,8 @@ frozen review session with the exact closed shape `{id, project_id, input_bindin
 participant_assignment_ids, frozen}`. The position assignment must be a session
 participant, its producer must be that assignment's actor, and its input binding
 must equal the session's immutable input binding. Missing later assignment or
-session producers are prerequisites and fail closed; A06 creates neither.
+session producers are prerequisites and fail closed; every participant ID must
+name a backed active assignment. A06 creates none of these records.
 
 An initial position has both `changed_from` and `change_kind` null. A changed
 position uses a new position ID and event ID and names the exact immutable prior
@@ -23,6 +24,8 @@ exact registered `Position` records; verification refs are exact registered
 `VerificationResult` records. Each claim rationale has at least one role position
 and one verification result. Decision and dissent issue IDs name exact registered
 issues, and dissent positions are exact positions declared by the decision.
+Each exact claim ref occurs only once in `claim_dispositions`; duplicates return
+`claim_disposition_duplicate` rather than selecting one conflicting summary.
 Unknown, stale, or mismatched references return `ref_unknown`.
 
 Each linked position needs a registered acknowledgement with the exact closed

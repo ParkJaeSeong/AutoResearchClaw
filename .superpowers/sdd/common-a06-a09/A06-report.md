@@ -25,6 +25,13 @@ TDD evidence:
 - GREEN: the same focused command passed `7 passed in 0.59s`.
 - `git diff --check` passed before staging.
 
+Independent review follow-up added two focused regressions. Duplicate exact
+claim dispositions now return `claim_disposition_duplicate`, and malformed
+frozen-session participant arrays fail closed with `position_session_missing`
+in both public validators rather than raising `TypeError`. The focused RED run
+showed those two failures with 7 passing tests; the subsequent GREEN run passed
+`9 passed in 0.61s`.
+
 The fixtures are synthetic structural/linkage examples. Passing them does not
 establish that a verification result or scientific claim is substantively
 sufficient. No producer, mutation operation, CLI, UI, network, or experiment

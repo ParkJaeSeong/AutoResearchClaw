@@ -59,15 +59,17 @@ def _assignment(context, identity):
 
 def _session(context, identity):
     session = context.registered("review_sessions", identity)
+    participants = session.get("participant_assignment_ids") if type(session) is dict else None
     if (
         type(session) is not dict
         or set(session)
         != {"id", "project_id", "input_binding", "participant_assignment_ids", "frozen"}
         or session.get("frozen") is not True
-        or type(session.get("participant_assignment_ids")) is not list
-        or not session["participant_assignment_ids"]
-        or len(set(session["participant_assignment_ids"]))
-        != len(session["participant_assignment_ids"])
+        or type(participants) is not list
+        or not participants
+        or any(type(item) is not str for item in participants)
+        or len(set(participants)) != len(participants)
+        or any(_assignment(context, item) is None for item in participants)
         or context.reference(session.get("input_binding")) is None
     ):
         return None
@@ -216,7 +218,11 @@ def validate_rationale_links(snapshot: dict, decision: dict) -> tuple[dict, ...]
         ref = disposition["claim_ref"]
         if context.reference(ref) is None:
             errors.append(_error("ref_unknown", f"$.claim_dispositions[{index}].claim_ref", "Claim reference is not exact and verified."))
-        dispositions[tuple(sorted(ref.items()))] = disposition
+        key = tuple(sorted(ref.items()))
+        if key in dispositions:
+            errors.append(_error("claim_disposition_duplicate", f"$.claim_dispositions[{index}].claim_ref", "Claim disposition is duplicated."))
+        else:
+            dispositions[key] = disposition
 
     linked_claims = set()
     linked_positions = set()
