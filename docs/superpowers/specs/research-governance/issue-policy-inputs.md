@@ -55,7 +55,13 @@ requires checking first, a supported result first registered after checking, and
 an evidence-linked resolver event. Resolver actor must differ from current issue
 owner, original issue producer, verification owner/producer and result producer.
 A new refuted result first registered after resolution may reopen that issue;
-existing conflicting evidence cannot be relabeled as new. Supersession preserves
+existing conflicting evidence cannot be relabeled as new. Reopening also requires
+at least one output's content to be absent from the objects at that resolution
+ancestor. Common research-graph envelope metadata is excluded when comparing
+JSON evidence, so new result/output UUIDs or producer metadata do not establish
+novelty. This is deterministic content comparison, not a claim to detect semantic
+paraphrases. Old-evidence reinterpretation needs a future explicit correction
+contract and currently fails closed. Supersession preserves
 the original and names existing unresolved successor issues; it is not resolution.
 
 Imported `source_status` and `pending_policy_revalidation` remain immutable

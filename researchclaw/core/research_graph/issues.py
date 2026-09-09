@@ -4,6 +4,7 @@ Prerequisite creation is outside A04; see issue-policy-inputs.md. This checks
 recorded policy/evidence linkage, not scientific truth or host authentication.
 """
 from copy import deepcopy
+import json
 from .contracts import validate_record
 from . import store
 
@@ -15,6 +16,20 @@ _TRANSITIONS = {None: {'open'}, 'open': {'checking', 'deferred', 'transferred', 
 def _require(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+def _evidence_content(data):
+    """Compare bytes/content, not a fresh research-graph identity envelope."""
+    try:
+        value = json.loads(data)
+        if (type(value) is dict and value.get('workflow_version') == store._VERSION['workflow_version']
+                and value.get('schema_version') == 1):
+            envelope = {'schema_version', 'workflow_version', 'project_id', 'id', 'event_id',
+                        'producer_id', 'content_origin', 'provenance_status', 'observation_refs'}
+            return store._canonical({key: item for key, item in value.items() if key not in envelope})
+    except (ValueError, UnicodeDecodeError):
+        pass
+    return data
 
 
 class _Inputs:
@@ -169,6 +184,11 @@ def propose_issue_event(snapshot: dict, payload: dict) -> dict:
             for _, historical in inputs.history:
                 historical_events = historical['state'].get('issue_events', [])
                 if boundary in historical_events:
+                    if target == 'reopened':
+                        old_content = {_evidence_content(inputs.objects[digest])
+                                       for digest in historical['objects']}
+                        _require(any(_evidence_content(inputs.objects[ref['sha256']]) not in old_content
+                                     for ref in result['output_refs']), 'new_conflict_required')
                     break
                 _require(result['id'] not in historical['state'].get('verification_results', {}), reason)
     elif target == 'transferred':

@@ -64,7 +64,7 @@ class Fixture:
         return verification, self.register('verifications', verification)[0]
 
     def result(self, verification, outcome='supported'):
-        output = {**envelope(self.project), 'observation': 'synthetic source comparison'}
+        output = {**envelope(self.project), 'observation': f'synthetic source comparison: {outcome}'}
         output_ref = self.register('fixture_outputs', output)[0]
         result = {**envelope(self.project), 'verification_id': verification['id'], 'output_refs': [output_ref],
                   'outcome': outcome, 'checked_scope': [self.issue['resolution_condition']], 'limitations': ['synthetic']}
@@ -264,3 +264,17 @@ def test_transfer_rejects_verification_changed_after_acceptance(tmp_path):
     f.register('verifications', {**verification, 'question': 'Changed after acceptance'})
     reject(f, f.event('open', 'transferred', to_milestone='M2', owner_assignment_id=f.destination['id'],
         verification_id=verification['id'], acceptance_event_id=acceptance['id']), 'transfer_acceptance_stale')
+
+
+@pytest.mark.parametrize('clone_output', [False, True])
+def test_reopen_rejects_old_conflict_cloned_with_new_id_and_preserves_head(tmp_path, clone_output):
+    f = Fixture(tmp_path / 'p'); verification = f.checking()
+    old_conflict, _ = f.result(verification, 'refuted')
+    _, supported = f.result(verification)
+    f.apply(f.event('checking', 'resolved', f.resolver, verification_refs=[supported]))
+    clone = {**old_conflict, 'id': uid(), 'event_id': uid()}
+    if clone_output:
+        old_output = f.head['state']['fixture_outputs'][old_conflict['output_refs'][0]['artifact_id']]
+        clone['output_refs'] = f.register('fixture_outputs', {**old_output, 'id': uid(), 'event_id': uid()})
+    ref = f.register('verification_results', clone)[0]
+    reject(f, f.event('resolved', 'reopened', verification_refs=[ref]), 'new_conflict_required')

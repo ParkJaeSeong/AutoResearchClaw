@@ -34,3 +34,24 @@ All new cases are synthetic policy fixtures under temporary roots. No live M1
 or imported acceptance project was read or mutated by this implementer. Parent
 owns baseline preservation checks, independent review, final impacted regression,
 and user acceptance documentation. No claim of whole-plan completion.
+
+## Independent-review correction: repeated old conflict
+
+Reviewer found that a pre-resolution refuted result could be copied with a fresh
+id/event_id after resolution and reopen an issue using identical old output refs.
+Added public apply_command regressions for both a cloned result with unchanged
+refs and a cloned output differing only in envelope identity. Both initially
+failed by accepting the transition (RED: 2 failed, 25 passed).
+
+Reopening now requires output content absent from the immutable object set at
+the latest resolution ancestor, in addition to result publication ordering.
+Known common research-graph envelope metadata is excluded from JSON comparison;
+UUIDs and producers alone cannot make evidence fresh. This is deterministic
+content comparison, not semantic or scientific novelty detection. Reinterpretation
+of old evidence without an explicit future correction contract fails closed.
+The positive fixture now records a different observation for a refuted outcome.
+
+Focused validation: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_issues.py -q`
+→ **27 passed in 1.81s**. Rejections assert `new_conflict_required` and unchanged
+HEAD through the public mutation dispatcher. No broad regression was run here;
+parent retains the final impacted-suite step.
