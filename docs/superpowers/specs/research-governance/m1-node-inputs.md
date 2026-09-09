@@ -23,6 +23,19 @@ Old revision bytes are preserved. IDs/attempts cannot be reused. Current inputs
 and observations must be exact and current; old council results do not review
 new bytes or a new attempt.
 
+Replacement validates the predecessor's exact registered identity separately
+from its old consumed inputs: obsolete scope inputs may be replaced by reviewed
+current scope inputs in a questions revision. The replacement's own input_refs
+still undergo all currentness and upstream-review checks.
+
+Before replacing a revision, every disclosed nonoptional proposal from its
+council must already be published as the same native Issue via issue.event.
+Otherwise registration rejects `m1_issue_publication_required` and preserves
+HEAD. This publication boundary prevents a fresh council from erasing old
+obligations and permits publication while original target refs are current.
+Publication, not resolution, is required for editing: unresolved native issues
+remain preserved and governed by scoped blocking after the new revision.
+
 Stored lineage uses `previous_ref_key`, a canonical JSON string encoding the
 validated previous_ref, in place of the request's previous_ref. This intentional
 historical linkage is not current evidence: B02 traverses embedded four-field

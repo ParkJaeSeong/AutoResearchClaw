@@ -279,3 +279,34 @@ def test_malformed_node_discriminator_refused_as_policy_error(tmp_path, node):
     with pytest.raises(ValueError, match='^m1_node_invalid$'):
         f.register(artifact)
     assert store.read_head(tmp_path)['id'] == head
+
+
+def test_questions_revision_can_replace_obsolete_scope_input_with_reviewed_current_scope(tmp_path):
+    f = Fixture(tmp_path); f.register(); f.council_prepare(); f.complete(); scope_v1 = f.check()['node_ref']
+    f.register(f.node('questions', input_refs={'scope': scope_v1})); f.council_prepare(); f.complete()
+    questions_v1 = f.check()['node_ref']
+    f.register(f.node(previous_ref=scope_v1, revision_reason='Update scope after review'))
+    f.council_prepare(); f.complete(); scope_v2 = f.check()['node_ref']
+    f.register(f.node('questions', previous_ref=questions_v1, input_refs={'scope': scope_v2},
+        revision_reason='Update questions for the reviewed scope'))
+    f.council_prepare(); f.complete()
+    assert f.check()['ready'] is True and f.check()['next_node'] == 'search'
+    assert f.head['state']['m1_node_revisions'][f.artifact['id']]['input_refs'] == {'scope': scope_v2}
+
+
+def test_revision_cannot_erase_disclosed_issue_publication_but_published_issue_allows_edit(tmp_path):
+    f = Fixture(tmp_path); f.register(); f.council_prepare(); proposal = f.issue()
+    f.submit(0, 'initial', issue_proposals=[proposal])
+    for i in (1, 2): f.submit(i, 'initial')
+    for phase in ('response', 'final'):
+        for i in range(3): f.submit(i, phase, **({'recommendation': 'revise'} if phase == 'final' else {}))
+    prior = f.check()['node_ref']; head = f.head['id']
+    revision = f.node(previous_ref=prior, revision_reason='Clarify the proposed ambiguity')
+    with pytest.raises(ValueError, match='^m1_issue_publication_required$'):
+        f.register(revision)
+    assert store.read_head(tmp_path)['id'] == head
+    f.publish(proposal)
+    f.register(revision)
+    assert f.head['state']['m1_node_heads']['scope'] == revision['id']
+    assert f.head['state']['issues'][proposal['id']] == proposal
+    assert f.check()['unresolved_issue_ids'] == [proposal['id']]

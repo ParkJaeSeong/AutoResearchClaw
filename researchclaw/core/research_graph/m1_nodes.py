@@ -4,7 +4,7 @@ from copy import deepcopy
 from . import store
 from .contracts import _COMMON
 from .councils import (_common, _context as council_context, _fresh_ids, _valid,
-                      _COUNCIL_FIELDS, _record_ref, _session, _submissions, reviewer_packet)
+                      _COUNCIL_FIELDS, _disclosed, _record_ref, _session, _submissions, reviewer_packet)
 from .dependencies import _node
 from .gates import _status
 from .issues import _require
@@ -43,8 +43,8 @@ def _shape(record, project):
             and (record['node'] != 'questions' or bool(record['content']['questions'])))
 
 
-def current_node(inputs, node_id):
-    """Read the actual current registered node and exact immutable alias ref."""
+def _node_identity(inputs, node_id):
+    """Read the current revision identity without requiring its old inputs current."""
     _require(type(node_id) is str and node_id in _PARENTS, 'm1_node_invalid')
     identity = inputs.state.get('m1_node_heads', {}).get(node_id)
     _require(type(identity) is str, 'm1_node_missing')
@@ -56,6 +56,12 @@ def current_node(inputs, node_id):
     ref = dict(project_id=inputs.project, head_id=head, artifact_id=f'm1/nodes/{node_id}',
                sha256=store._hash(store._canonical(record)))
     inputs.reference(ref)
+    return record, ref
+
+
+def current_node(inputs, node_id):
+    """Read the actual current node, requiring its consumed inputs current."""
+    record, ref = _node_identity(inputs, node_id)
     for source in [*record['input_refs'].values(), *record['observation_refs']]:
         inputs.reference(source)
     return record, ref
@@ -77,9 +83,12 @@ def register_node(snapshot: dict, payload: dict) -> dict:
     _require(all(type(old) is dict and old.get('attempt') != artifact['attempt']
                  and old.get('event_id') != artifact['event_id'] for old in old_records), 'm1_revision_invalid')
     if node in inputs.state.get('m1_node_heads', {}):
-        _, current = current_node(inputs, node)
+        predecessor, current = _node_identity(inputs, node)
         _require(type(previous) is dict and previous == current and _valid('text', artifact['revision_reason']),
                  'm1_revision_invalid')
+        prior_council = _council(inputs, predecessor, current)
+        if prior_council:
+            _require(not _unpublished_proposals(inputs, prior_council), 'm1_issue_publication_required')
     else:
         _require(previous is None and artifact['revision_reason'] is None, 'm1_revision_invalid')
     for parent, ref in artifact['input_refs'].items():
@@ -130,6 +139,27 @@ def _bound_refs(inputs, values):
     for ref in values:
         inputs.reference(ref, 'council_submissions')
     return {_node(ref) for ref in values}
+
+
+def _unpublished_proposals(inputs, council):
+    """Require publication while old targets are still current, without rereview."""
+    records = _submissions(inputs, council)
+    disclosed = _disclosed(inputs, council, records)
+    unpublished = set()
+    for phase in ('initial', 'response'):
+        for item in disclosed[phase]:
+            record = item['submission']
+            _native(inputs, 'council_submissions', record, 'council_submission_registered',
+                    {'submission_id': record['id'], 'session_id': council['session_id'], 'phase': phase})
+            for proposal in record['issue_proposals']:
+                if proposal['severity'] == 'optional':
+                    continue
+                if inputs.state.get('issues', {}).get(proposal['id']) != proposal:
+                    unpublished.add(proposal['id'])
+                else:
+                    issue = inputs.registered('issues', proposal['id'], 'Issue')
+                    _status(inputs, issue)
+    return unpublished
 
 
 def _judgments(inputs, council, records, reasons):

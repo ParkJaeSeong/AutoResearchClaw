@@ -48,3 +48,22 @@ raw synthetic tampering is limited to refusal regressions.
 Synthetic policy checks are not actual research, host independence, user-input
 authentication, scientific correctness or user acceptance. Parent owns
 independent review, acceptance and shared task-board updates before B04 proceeds.
+
+## Independent review correction wave
+
+Confirmed both P2 findings with native command regressions: an obsolete scope
+input prevented a legitimate questions replacement; a new scope revision could
+drop its predecessor's disclosed major proposal. Focused RED: 2 failed,
+23 passed (10.43s).
+
+Predecessor lookup now validates exact current revision identity without requiring
+its consumed inputs to remain current; replacement inputs still require current
+reviewed parents. Before replacement, disclosed nonoptional proposals must be
+published as native Issues while original target refs remain current. Publication
+does not require resolution and does not forbid legitimate edits: the same
+unresolved native issue remains visible/scoped after replacement. The refusal
+regression asserts HEAD preservation, then publishes and successfully edits.
+
+Focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_m1_scope.py -q`
+→ 25 passed (14.16s). Only m1_nodes.py, the focused test, this report and the
+node-input supplement changed; no broad suite or additional feature scope.
