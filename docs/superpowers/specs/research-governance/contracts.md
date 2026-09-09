@@ -2,6 +2,8 @@
 
 [설계 목차](../2026-09-09-research-governance-design.md) · 이 문서의 해당 기준만 읽고, 다른 항목은 필요한 경우에만 참조한다.
 
+A04의 등록 배정·검증 결과·이관 수락 연결은 [쟁점 정책 입력 계약](issue-policy-inputs.md)에 정의한다. A05/B02 구현에서 이 계약을 이어받는다.
+
 ## 4. 공통 데이터 계약
 
 모든 기록은 schema_version=1, workflow_version=research-graph-v1, project_id, id, event/producer 식별자와 content_origin(real|synthetic|mixed)을 가진다. content_origin과 provenance_status(declared_only|host_observed)는 별개다. host_observed는 관측 증거 참조가 있을 때만 사용하며 서명 인증을 뜻하지 않는다.
