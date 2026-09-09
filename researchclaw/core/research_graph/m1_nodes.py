@@ -86,9 +86,16 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         predecessor, current = _node_identity(inputs, node)
         _require(type(previous) is dict and previous == current and _valid('text', artifact['revision_reason']),
                  'm1_revision_invalid')
-        prior_council = _council(inputs, predecessor, current)
-        if prior_council:
-            _require(not _unpublished_proposals(inputs, prior_council), 'm1_issue_publication_required')
+        # Repair may replace an invalid council setup. Preserve native disclosed
+        # proposals without requiring that predecessor's review policy to pass.
+        for identity, declared in inputs.state.get('councils', {}).items():
+            if (type(declared) is dict and declared.get('milestone') == 'M1'
+                    and declared.get('node') == node and declared.get('attempt') == predecessor['attempt']):
+                prior_council = inputs.registered('councils', identity)
+                _require(_common(prior_council, _COUNCIL_FIELDS, inputs.project), 'm1_council_invalid')
+                _native(inputs, 'councils', prior_council, 'council_prepared',
+                        {'council_id': identity, 'session_id': prior_council['session_id']})
+                _require(not _unpublished_proposals(inputs, prior_council), 'm1_issue_publication_required')
     else:
         _require(previous is None and artifact['revision_reason'] is None, 'm1_revision_invalid')
     for parent, ref in artifact['input_refs'].items():

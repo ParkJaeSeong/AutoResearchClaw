@@ -310,3 +310,13 @@ def test_revision_cannot_erase_disclosed_issue_publication_but_published_issue_a
     assert f.head['state']['m1_node_heads']['scope'] == revision['id']
     assert f.head['state']['issues'][proposal['id']] == proposal
     assert f.check()['unresolved_issue_ids'] == [proposal['id']]
+
+
+def test_new_revision_repairs_mismatched_prior_council_author_without_reusing_its_review(tmp_path):
+    f = Fixture(tmp_path); f.register(); prior = f.check()['node_ref']; f.council_prepare(author='wrong-author')
+    with pytest.raises(ValueError, match='^m1_council_author_mismatch$'):
+        f.check()
+    f.register(f.node(previous_ref=prior, revision_reason='Repair incorrectly declared council author'))
+    assert f.check()['reason_codes'] == ['council_required']
+    f.council_prepare(); f.complete()
+    assert f.check()['ready'] is True

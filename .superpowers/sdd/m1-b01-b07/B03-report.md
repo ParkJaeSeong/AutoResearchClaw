@@ -67,3 +67,17 @@ regression asserts HEAD preservation, then publishes and successfully edits.
 Focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_m1_scope.py -q`
 → 25 passed (14.16s). Only m1_nodes.py, the focused test, this report and the
 node-input supplement changed; no broad suite or additional feature scope.
+
+## Re-review repair-path correction
+
+Confirmed the induced P2 with a native incorrectly declared council author:
+focused RED was 1 failed, 25 deselected (0.12s). Replacement had inadvertently
+required old council readiness validation through `_council`. Publication
+prechecking now reads backed native councils/proposals scoped to the predecessor
+node/attempt without imposing old author/independence/readiness success. Existing
+disclosed publication obligations still apply; a fresh revision and correctly
+authored new council can repair setup mistakes.
+
+Focused full B03 GREEN: 26 passed (14.65s). The regression exercises registration,
+refused old readiness, successful revision and successful fresh three-phase
+council. No broad suites or other feature changes. `git diff --check`: clean.

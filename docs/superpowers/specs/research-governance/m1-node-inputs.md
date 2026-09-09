@@ -35,6 +35,10 @@ HEAD. This publication boundary prevents a fresh council from erasing old
 obligations and permits publication while original target refs are current.
 Publication, not resolution, is required for editing: unresolved native issues
 remain preserved and governed by scoped blocking after the new revision.
+This precheck reads native councils/proposals scoped to the prior node/attempt;
+it does not require the old council's author, independence or readiness policy
+to succeed. A new revision can therefore repair an incorrectly declared setup
+while preserving any disclosed nonoptional publication obligations.
 
 Stored lineage uses `previous_ref_key`, a canonical JSON string encoding the
 validated previous_ref, in place of the request's previous_ref. This intentional
