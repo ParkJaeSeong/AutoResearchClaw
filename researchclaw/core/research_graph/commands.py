@@ -7,8 +7,9 @@ import json
 from pathlib import Path
 from ..transactions import project_transaction
 from . import store
+from .issues import propose_issue_event
 
-_HANDLERS = {}
+_HANDLERS = {'issue.event': propose_issue_event}
 
 
 def register_operation(operation, handler):
@@ -39,7 +40,13 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         if snapshot['id'] != expected_head:
             raise ValueError('research_graph_head_conflict')
         # A handler cannot mutate the original snapshot used for the patch.
-        plan = _HANDLERS[operation](json.loads(store._canonical(snapshot)), payload)
+        handler_snapshot = json.loads(store._canonical(snapshot))
+        if operation == 'issue.event':
+            handler_snapshot['_issue_context'] = {
+                'history': json.loads(store._canonical([[head, record] for head, record in history])),
+                'objects': {digest: store._read_file(base / 'objects' / digest)
+                            for digest in snapshot['objects']}}
+        plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))
         event['payload']['_command_request'] = fingerprint
         return store.commit_record(root, expected_head=expected_head, command_id=command_id,
