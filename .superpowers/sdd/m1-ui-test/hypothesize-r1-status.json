@@ -1,0 +1,82 @@
+{
+  "ready": false,
+  "reason_codes": [
+    "revision_required",
+    "blocking_issue_unresolved"
+  ],
+  "required_actions": [
+    "Address revision_required before advancing this node.",
+    "Address blocking_issue_unresolved before advancing this node."
+  ],
+  "node_ref": {
+    "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+    "head_id": "8dabd473bcad9012165ceacbd131d3b2a73cb761783acbf4567dab46097e634d",
+    "artifact_id": "m1/nodes/hypothesize",
+    "sha256": "50901ac0e9ee615a4c6f664197fc3e9fad332aeae9eb47863d60ec2726916da4"
+  },
+  "council_binding": {
+    "milestone": "M1",
+    "node": "hypothesize",
+    "attempt": "56becf13-e88e-4535-8800-95ddddf703a8",
+    "input_binding": {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "8dabd473bcad9012165ceacbd131d3b2a73cb761783acbf4567dab46097e634d",
+      "artifact_id": "m1/nodes/hypothesize",
+      "sha256": "50901ac0e9ee615a4c6f664197fc3e9fad332aeae9eb47863d60ec2726916da4"
+    },
+    "author_actor_id": "case-author",
+    "required_roles": [
+      "critical",
+      "domain",
+      "methodology"
+    ]
+  },
+  "council_id": "06a949ea-a80d-434e-8a18-3a2bd59243a9",
+  "phase": "complete",
+  "unresolved_issue_ids": [
+    "21abae19-0fbf-4754-8631-02681f40a60b",
+    "2c54b3ba-cea1-4a15-b10b-e7f157e0581c",
+    "67eb224f-d7f8-4125-ac81-d8ade563f5dc",
+    "6b23a1e0-cd29-4e09-9bb4-9329508a307c",
+    "d283f582-66cf-480a-be6b-71a9c8d32abe",
+    "e1fcc471-8044-4cc2-9e74-09290cc810fb",
+    "ff74b472-5f71-4bac-8bd0-9b704923e277"
+  ],
+  "unpublished_issue_ids": [],
+  "next_node": null,
+  "content": {
+    "hypotheses": [
+      {
+        "alternative_ids": [
+          "A1"
+        ],
+        "evidence_refs": [
+          {
+            "artifact_id": "m1/claims/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "d3250f94115a098e842d4fb570ecdff71046f00e6c65f343563731f0121573fd"
+          },
+          {
+            "artifact_id": "m1/claims/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "98c4dab795ce7a1fd7622c8c66fbdcfea1001ea5ee8c5b097644b554fa824eaf"
+          }
+        ],
+        "falsification_condition": "전체 집계 평균이 개선되지 않으면 기각한다.",
+        "hypothesis_id": "H1",
+        "limitations": [
+          "합성 전제의 논리 검토이며 실제 효과·유의성·인과효과가 검증되지 않았다."
+        ],
+        "population": "조건에 포함된 모든 하위집단",
+        "prediction": "모든 하위집단에서 평균이 개선된다.",
+        "statement": "집계 평균이 개선되었으므로 모든 하위집단에서도 개선이 입증되었다."
+      }
+    ],
+    "limitations": [
+      "합성 전제의 논리 검토이며 실제 효과·유의성·인과효과가 검증되지 않았다.",
+      "검토자의 교차 검증을 받는 초안이다. 이 문서의 주장은 승인된 결론이 아니다."
+    ]
+  }
+}

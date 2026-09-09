@@ -1,0 +1,85 @@
+{
+  "head_id": "23e00ee20dc06c1ae2a55268765ccd0b01954270c109b250c147866d1d126fce",
+  "content_origin": "synthetic",
+  "native_nodes": 9,
+  "registered_revisions": 10,
+  "actual_fresh_host_sessions": 90,
+  "actual_host_tool_calls": 0,
+  "councils": 8,
+  "public_submissions": 72,
+  "issue_states": [
+    {
+      "id": "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+      "node": "questions",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "21abae19-0fbf-4754-8631-02681f40a60b",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "2c54b3ba-cea1-4a15-b10b-e7f157e0581c",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "67eb224f-d7f8-4125-ac81-d8ade563f5dc",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "6b23a1e0-cd29-4e09-9bb4-9329508a307c",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0",
+      "node": "questions",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "c0655e8d-5ca7-5fc0-b4bd-ac0de1a042c4",
+      "node": "extract",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "d283f582-66cf-480a-be6b-71a9c8d32abe",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "e1fcc471-8044-4cc2-9e74-09290cc810fb",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "e9af50db-1cbd-57ae-bbe6-94a8d267d795",
+      "node": "collect",
+      "severity": "major",
+      "status": "resolved"
+    },
+    {
+      "id": "ff74b472-5f71-4bac-8bd0-9b704923e277",
+      "node": "hypothesize",
+      "severity": "major",
+      "status": "resolved"
+    }
+  ],
+  "historical_partial_initial_hidden": true,
+  "selected_head_preserved": true,
+  "model_identity": "unverified configured Codex CLI default",
+  "isolation_level": "instructions_only",
+  "synthetic_authority_only": true,
+  "real_corpus_approval": false,
+  "M2_experiments_executed": false
+}

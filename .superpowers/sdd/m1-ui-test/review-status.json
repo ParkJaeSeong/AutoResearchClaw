@@ -1,0 +1,177 @@
+{
+  "ready": true,
+  "reason_codes": [],
+  "required_actions": [],
+  "node_refs": {
+    "synthesize": {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "a4391348fed41b68fa7b8375656b1e5103719ed7ddeb640931bbd95997b6a98c",
+      "artifact_id": "m1/nodes/synthesize",
+      "sha256": "5f4eb35872ee68efa32455e51d01ab82417d005aef5119f395ce76fd4c5ce5bc"
+    },
+    "hypothesize": {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "323165244f186fc3b76aad98631fce4f1c9074d3d7b44f4cb9e4ff310530ad2b",
+      "artifact_id": "m1/nodes/hypothesize",
+      "sha256": "97b798b3849c4cd8703f23994e2a7cd9261bdae4b75776b0751fb06663640d70"
+    },
+    "review": {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "ab9a11a869ca5db8fd80c8e32ce186483028e8790500645f086c26ceddb7721c",
+      "artifact_id": "m1/nodes/review",
+      "sha256": "daeb45362fc2fe0ce437ad53d8d04c3653ed3a08941837c1c64b5563ab59f125"
+    }
+  },
+  "corpus_ref": {
+    "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+    "head_id": "1e97b70f2b2e61e25a487d57312529cd5cf1e8e6e57bc4a14c4726b67a03bf8c",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "d1c11daf20254a59a10e64be8ed90142d8ab610e5b632604ef5e8dba119cc5c7"
+  },
+  "source_groups": {
+    "source_count": 2,
+    "origin_group_count": 1,
+    "origin_groups": [
+      {
+        "origin_group_id": "synthetic-case",
+        "source_refs": [
+          {
+            "artifact_id": "m1/sources/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+            "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "0f41614bd49eb5a4b9727d56aee27f84bde945257b922dc0f8701d9d76f2fd4d"
+          },
+          {
+            "artifact_id": "m1/sources/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+            "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "60bf3e0bf44f8d625ba59e1ebb7864b7749a0e4757089ae37ae5d5d39390dc6e"
+          }
+        ]
+      }
+    ],
+    "unknown_refs": [],
+    "reason_codes": []
+  },
+  "prior_issues": [
+    {
+      "issue_id": "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+      "question": "‘집단 내 변화’는 동일 하위집단의 두 조건 간 결과 차이를 뜻하는가, 시간에 따른 변화를 뜻하는가?",
+      "category": "scope",
+      "severity": "optional",
+      "native_status": "open",
+      "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+      "disposition": "carry_forward"
+    },
+    {
+      "issue_id": "21abae19-0fbf-4754-8631-02681f40a60b",
+      "question": "‘모든 하위집단에서 개선된다’는 예측을 왜 전체 집계 평균의 비개선으로 반증하도록 정했는가?",
+      "category": "methodology",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "2c54b3ba-cea1-4a15-b10b-e7f157e0581c",
+      "question": "H1은 집단별 결과가 없는 C1·C2로 어떻게 ‘모든 하위집단에서도 개선이 입증되었다’고 결론 내리는가?",
+      "category": "logic",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "67eb224f-d7f8-4125-ac81-d8ade563f5dc",
+      "question": "H1은 하위집단별 결과가 없는 C1·C2에서 어떻게 ‘모든 하위집단의 개선이 입증되었다’고 결론 내리는가?",
+      "category": "logic",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "6b23a1e0-cd29-4e09-9bb4-9329508a307c",
+      "question": "H1은 왜 집계 개선이라는 합성 전제를 모든 하위집단 개선이 ‘입증되었다’는 결론으로 전환하는가?",
+      "category": "logic",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0",
+      "question": "두 번째 질문에서 집단 구성 효과와 집단 내 차이를 상호 배타적인 대안으로 읽지 않도록, 두 요인의 동시 기여 가능성과 조건 간 비교임을 명시할 필요가 있는가?",
+      "category": "methodology",
+      "severity": "optional",
+      "native_status": "open",
+      "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+      "disposition": "carry_forward"
+    },
+    {
+      "issue_id": "c0655e8d-5ca7-5fc0-b4bd-ac0de1a042c4",
+      "question": "Do the supplied captures and extracted spans satisfy the fixed source-check criterion?",
+      "category": "source",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "d283f582-66cf-480a-be6b-71a9c8d32abe",
+      "question": "모든 하위집단의 개선이라는 예측을 왜 전체 집계 평균의 비개선만으로 기각하도록 정의했는가?",
+      "category": "methodology",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "e1fcc471-8044-4cc2-9e74-09290cc810fb",
+      "question": "모든 하위집단의 개선이라는 예측을 왜 전체 집계 평균의 미개선으로 반증하도록 설정했는가?",
+      "category": "methodology",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "e9af50db-1cbd-57ae-bbe6-94a8d267d795",
+      "question": "Do the supplied captures and extracted spans satisfy the fixed source-check criterion?",
+      "category": "source",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "d411bb2b-1376-4730-b6b1-b4b8fc8f4994",
+      "disposition": "native_resolved"
+    },
+    {
+      "issue_id": "ff74b472-5f71-4bac-8bd0-9b704923e277",
+      "question": "H1의 alternative_ids가 H1과 같은 주장인 A1을 가리키는데, 실제 경쟁 설명은 무엇인가?",
+      "category": "methodology",
+      "severity": "major",
+      "native_status": "resolved",
+      "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+      "disposition": "native_resolved"
+    }
+  ],
+  "unaccounted_issue_ids": [],
+  "unresolved_issue_ids": [
+    "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+    "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0"
+  ],
+  "transfer_obligations": [],
+  "limitations": [
+    "C1: 제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+    "C2: 제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+    "제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+    "합성 전제의 논리 검토이며 실제 효과·유의성·인과효과가 검증되지 않았다.",
+    "단일 합성 사례의 두 전제이며 독립적인 재현 연구 2개가 아니다.",
+    "원문·표본이 없는 합성 개발 사례다.",
+    "개정 자체는 쟁점 해결이 아니다. 기존 일곱 major 쟁점의 독립 검증과 해소 기록을 별도로 요구한다.",
+    "합성 개발 수용 테스트이다. 실제 연구 문헌 승인이나 실험이 아니다.",
+    "H1은 미검증 가설이다. 논리적 정합성의 회복이 경험적 입증을 뜻하지 않는다.",
+    "선택적 쟁점은 열린 상태로 보존하며 모든 원문과 이전 가설 버전을 유지한다."
+  ],
+  "council_id": "ef0bed5c-db7e-480a-a02b-b7fd92f2c923",
+  "phase": "complete"
+}

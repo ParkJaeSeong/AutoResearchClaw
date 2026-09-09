@@ -1,0 +1,522 @@
+{
+  "status": "issued_awaiting_acceptance",
+  "gate_ready": false,
+  "reason_codes": [
+    "handoff_acceptance_required"
+  ],
+  "required_actions": [
+    "Address handoff_acceptance_required before completing handoff."
+  ],
+  "handoff_ref": {
+    "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+    "head_id": "23e00ee20dc06c1ae2a55268765ccd0b01954270c109b250c147866d1d126fce",
+    "artifact_id": "646068d6-b48d-46bc-9fc8-1daf7113ccc1",
+    "sha256": "c0f41132de2770c10ea2cf636cade0f5be8671f664cb6c587c898b2b7a5f712e"
+  },
+  "gate_id": "5d2bcef1-bd69-552c-91bf-2bf97694161f",
+  "manifest": {
+    "corpus_ref": {
+      "artifact_id": "m1/nodes/screen",
+      "head_id": "1e97b70f2b2e61e25a487d57312529cd5cf1e8e6e57bc4a14c4726b67a03bf8c",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "d1c11daf20254a59a10e64be8ed90142d8ab610e5b632604ef5e8dba119cc5c7"
+    },
+    "handoff_id": "646068d6-b48d-46bc-9fc8-1daf7113ccc1",
+    "hypotheses": [
+      {
+        "alternative_ids": [],
+        "evidence_refs": [
+          {
+            "artifact_id": "m1/claims/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "d3250f94115a098e842d4fb570ecdff71046f00e6c65f343563731f0121573fd"
+          },
+          {
+            "artifact_id": "m1/claims/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "98c4dab795ce7a1fd7622c8c66fbdcfea1001ea5ee8c5b097644b554fa824eaf"
+          }
+        ],
+        "falsification_condition": "동일하게 정의된 하위집단 중 하나라도 조건 간 평균 차이가 0 이하이면 보편 예측의 논리적 반례다. 실제 표본으로 판단하려면 집단별 평균·표본 수·불확실성·사전 판정 기준이 필요하며, 비유의성만으로 비개선을 확정하지 않는다. 구성비가 다를 때 집계 개선은 일부 집단의 미개선을 숨길 수 있고 집계 미개선도 모든 집단의 개선과 양립할 수 있어 집계 방향이 이 조건을 대신하지 않는다.",
+        "hypothesis_id": "H1",
+        "limitations": [
+          "합성 전제에 대한 미검증 가설이며 실제 관찰·실험 결과가 아니다.",
+          "synthesize의 A1은 집계 개선으로 집단별 개선을 입증했다는 추론을 기각한 것이다. H1은 같은 입증 추론을 철회하고 검증 가능한 가능성만 남긴다. 따라서 A1을 경쟁 설명 ID로 잘못 연결하지 않는다.",
+          "경쟁 설명으로 구성비 차이에 의한 집계 개선, 일부 집단만의 개선, 구성비와 집단별 차이의 동시 기여를 보존한다. 이들은 현재 전제로 배제되지 않았다.",
+          "후속 구별에는 조건별 집단 평균·구성비 비교와 공통 가중치 표준화가 필요하다. 이는 검증 방향이며 실행된 분석이나 확정 실험 설계가 아니다. 표준화 비교만으로 인과효과가 식별되지는 않는다."
+        ],
+        "population": "조건 A와 B에서 동일한 기준으로 정의할 하위집단. 집단 정의와 집단별 자료는 아직 제공되지 않아 특정 집단을 만들어내지 않는다.",
+        "prediction": "개선 방향을 높은 평균으로 정한 동일 지표에서, 모든 하위집단 g의 조건 간 평균 차이 μ(A,g)−μ(B,g)가 양수이다. 이는 시간 변화나 인과효과의 주장이 아니다.",
+        "statement": "미검증 가설: 동일한 기준으로 정의된 각 하위집단에서 적용 조건 A의 평균이 비교 조건 B보다 높다. C1·C2의 집계 개선만으로 이 보편 가설이 입증되거나 기각된 것은 아니다."
+      }
+    ],
+    "id": "d506f5c0-8ea0-5d37-9c5a-294abbb8f7f9",
+    "limitations": [
+      "C1: 제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+      "C2: 제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+      "제공된 합성 검사 자료이며 실제 문헌·실험이나 출처 진위를 인증하지 않는다.",
+      "합성 전제의 논리 검토이며 실제 효과·유의성·인과효과가 검증되지 않았다.",
+      "단일 합성 사례의 두 전제이며 독립적인 재현 연구 2개가 아니다.",
+      "원문·표본이 없는 합성 개발 사례다.",
+      "개정 자체는 쟁점 해결이 아니다. 기존 일곱 major 쟁점의 독립 검증과 해소 기록을 별도로 요구한다.",
+      "합성 개발 수용 테스트이다. 실제 연구 문헌 승인이나 실험이 아니다.",
+      "H1은 미검증 가설이다. 논리적 정합성의 회복이 경험적 입증을 뜻하지 않는다.",
+      "선택적 쟁점은 열린 상태로 보존하며 모든 원문과 이전 가설 버전을 유지한다."
+    ],
+    "node_refs": {
+      "collect": {
+        "artifact_id": "m1/nodes/collect",
+        "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "f1df7f8f8d012254d83b7f99009a3b769db9150306c354b4207bd99c3ff24770"
+      },
+      "extract": {
+        "artifact_id": "m1/nodes/extract",
+        "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "ab478f6c4a39b4f5d82ccb5420b3003ccf0c4953c5d4a96016bf7fc2d9ed2392"
+      },
+      "hypothesize": {
+        "artifact_id": "m1/nodes/hypothesize",
+        "head_id": "323165244f186fc3b76aad98631fce4f1c9074d3d7b44f4cb9e4ff310530ad2b",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "97b798b3849c4cd8703f23994e2a7cd9261bdae4b75776b0751fb06663640d70"
+      },
+      "questions": {
+        "artifact_id": "m1/nodes/questions",
+        "head_id": "01dbee017ddb33354996a57841e16e06b1bff85785149b77e2ad284cd47756ea",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "0cd4d1fa6abfc114712a1c495cb013949a44a031239fdef2a22127b6b0f905d2"
+      },
+      "review": {
+        "artifact_id": "m1/nodes/review",
+        "head_id": "ab9a11a869ca5db8fd80c8e32ce186483028e8790500645f086c26ceddb7721c",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "daeb45362fc2fe0ce437ad53d8d04c3653ed3a08941837c1c64b5563ab59f125"
+      },
+      "scope": {
+        "artifact_id": "m1/nodes/scope",
+        "head_id": "1d6040f9e2e6f69aaf871f0d0837e9b36acddb08492322086d9e76dd8a961158",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "74eeccd2831b5c5331cf41e4c3d79c06be396b59c817ba33fe5585481ef56e73"
+      },
+      "screen": {
+        "artifact_id": "m1/nodes/screen",
+        "head_id": "1e97b70f2b2e61e25a487d57312529cd5cf1e8e6e57bc4a14c4726b67a03bf8c",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "d1c11daf20254a59a10e64be8ed90142d8ab610e5b632604ef5e8dba119cc5c7"
+      },
+      "search": {
+        "artifact_id": "m1/nodes/search",
+        "head_id": "cf6ea036f768729025043ba9cc5a8f00d0b5da3b0af3a1c8ed2421763328b27c",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "031e86e2e9db39c3cd130de4ab7465e4ad525e2a18ec96eb2b1cd2d54e738b8e"
+      },
+      "synthesize": {
+        "artifact_id": "m1/nodes/synthesize",
+        "head_id": "a4391348fed41b68fa7b8375656b1e5103719ed7ddeb640931bbd95997b6a98c",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "5f4eb35872ee68efa32455e51d01ab82417d005aef5119f395ce76fd4c5ce5bc"
+      }
+    },
+    "open_questions": [
+      {
+        "budget_ref": null,
+        "issue_id": "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+        "limitations": [
+          "선택적 표현 명확화 과제로 남긴다. 실험 실행이나 M2 이관 승인이 아니다."
+        ],
+        "method": "logic_check",
+        "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+        "question": "‘집단 내 변화’는 동일 하위집단의 두 조건 간 결과 차이를 뜻하는가, 시간에 따른 변화를 뜻하는가?",
+        "resolution_condition": "시간 비교가 제공되지 않았으므로 ‘동일하게 정의된 하위집단에서의 조건 간 결과 차이’로 표현하거나, 의도한 비교 축을 명시한다.",
+        "to_milestone": "M1"
+      },
+      {
+        "budget_ref": null,
+        "issue_id": "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0",
+        "limitations": [
+          "선택적 표현 명확화 과제로 남긴다. 실험 실행이나 M2 이관 승인이 아니다."
+        ],
+        "method": "logic_check",
+        "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+        "question": "두 번째 질문에서 집단 구성 효과와 집단 내 차이를 상호 배타적인 대안으로 읽지 않도록, 두 요인의 동시 기여 가능성과 조건 간 비교임을 명시할 필요가 있는가?",
+        "resolution_condition": "‘집단 내 변화’를 ‘조건 간 집단별 결과 차이’로 명확히 하고, 구성비 차이와 집단별 결과 차이가 함께 기여할 가능성을 질문에 포함한다.",
+        "to_milestone": "M1"
+      }
+    ],
+    "prior_issue_dispositions": [
+      {
+        "disposition": "carry_forward",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+        "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+        "rationale": "선택적 해석 명확화 쟁점을 자동으로 지우지 않고 다음 검토에 보존한다.",
+        "verification_refs": []
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "21abae19-0fbf-4754-8631-02681f40a60b",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "def880c7-ef13-4b5e-ae78-b43ba5132757",
+            "head_id": "24ef5d9a6f555917ee2e5c215d50020a538bf99e48625c9dfc7cc03dcfe22350",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "d04ebc4a140f679249a78dfecfad4d81e82449c9a70f68652ad637f6205ae967"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "2c54b3ba-cea1-4a15-b10b-e7f157e0581c",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "6b60dbec-e077-4de5-bcd5-c89e08b9d647",
+            "head_id": "2b5a039bec397d3bcfdd1d180f5f2b1699587dd19a9face6e4eded2ec52ed576",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "57f13b569fc8de3ee7c927b7c0667d67a3d96b3969a64d6bec8d683b2adf20c0"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "67eb224f-d7f8-4125-ac81-d8ade563f5dc",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "9667317c-31ad-496c-854b-0ec5e40c7460",
+            "head_id": "47ab62fd99ef1fa0aa52b98d2de3d2c2c027f381e3e04de8303b9b27ae5a6853",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "897778e7bd4d4f802ac5348f9c46ec0f8a5016cfb034f6433c3b1b3be28937fe"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "6b23a1e0-cd29-4e09-9bb4-9329508a307c",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "b4884ab6-d74a-4341-97ad-78b908e472f7",
+            "head_id": "209c838c128562d8f689e6afb9d227a73e68fe7156e9265abff908f8dcd34220",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "3b852d94d3fa7dd4a383d96f911ff7f3b69df95467c5c21b6e04725066f650bb"
+          }
+        ]
+      },
+      {
+        "disposition": "carry_forward",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0",
+        "owner_assignment_id": "a8726ef6-b3a3-472a-9cda-221a99a28030",
+        "rationale": "선택적 해석 명확화 쟁점을 자동으로 지우지 않고 다음 검토에 보존한다.",
+        "verification_refs": []
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "c0655e8d-5ca7-5fc0-b4bd-ac0de1a042c4",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "0a00c5c5-5b9a-45e6-9263-e4c17f608779",
+            "head_id": "b4f0d1d41a137169e4be48dce3745cc30b7957a70203fbae9b764ccefff24c05",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "28db1ecdbf44733e7d4f22fe40a49367d91baa422070bf0e8354b89d1a6a3145"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "d283f582-66cf-480a-be6b-71a9c8d32abe",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "042a99fd-f477-45e3-9705-2918e44ec8ff",
+            "head_id": "7b80a5385a0637e88df7becc0097d515a219afd27330555945de1176ad4343b0",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "723ddbab6e86db8cd2f67c15d32d9e5d1af3175018459df0dce7dfb2193aa3fb"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "e1fcc471-8044-4cc2-9e74-09290cc810fb",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "98f3d0b2-f44f-4334-a616-70bd9ae8c01f",
+            "head_id": "a6a836344a1d5a710ca91908d22ac620b101f24888d0911d4c98d16706cba576",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "5626621ac8542c307bd5ac1e8198b9b752a5bb103e163591423ea4e93d234f48"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "e9af50db-1cbd-57ae-bbe6-94a8d267d795",
+        "owner_assignment_id": "d411bb2b-1376-4730-b6b1-b4b8fc8f4994",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "4500abd1-e045-4df1-b090-eef4c810e512",
+            "head_id": "0288e80a2b8c3b68f4e7c5a22b660c9bd80bbe7716e5ff027de6a36fc042b8ce",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "3c5e7b33a920bac51e0fe57057d8531d0d8e391ff788c9b13c5fcd7ac5eada29"
+          }
+        ]
+      },
+      {
+        "disposition": "native_resolved",
+        "hypothesis_ids": [
+          "H1"
+        ],
+        "issue_id": "ff74b472-5f71-4bac-8bd0-9b704923e277",
+        "owner_assignment_id": "b9cb1b1d-c3cc-4a51-af2a-5e06d3e5e212",
+        "rationale": "고정된 기존 해소 조건의 독립 검증 및 실제 해소 기록을 인용한다.",
+        "verification_refs": [
+          {
+            "artifact_id": "db7382db-17a4-4bce-aaa1-686d131db7b1",
+            "head_id": "8d9fc32dc27e9c06f067a5275ed8cb42b3d7d9a661ced2827624fa732d4dba91",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "83c4df83f3cb67896909e4ab484afe24dab08ba6cb5bde15d0ba403bbc2af307"
+          }
+        ]
+      }
+    ],
+    "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+    "rejected_alternatives": [
+      {
+        "alternative_id": "A1",
+        "description": "집계 개선 자체가 모든 하위집단 내 개선을 입증한다.",
+        "evidence_refs": [
+          {
+            "artifact_id": "m1/claims/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "d3250f94115a098e842d4fb570ecdff71046f00e6c65f343563731f0121573fd"
+          },
+          {
+            "artifact_id": "m1/claims/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+            "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+            "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+            "sha256": "98c4dab795ce7a1fd7622c8c66fbdcfea1001ea5ee8c5b097644b554fa824eaf"
+          }
+        ],
+        "reason": "집계 평균은 집단별 평균과 구성비에 함께 의존한다. 주어진 두 전제에 집단별 방향이 없으므로 해당 일반화는 도출되지 않는다."
+      }
+    ],
+    "source_groups": {
+      "origin_group_count": 1,
+      "origin_groups": [
+        {
+          "origin_group_id": "synthetic-case",
+          "source_refs": [
+            {
+              "artifact_id": "m1/sources/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+              "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+              "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+              "sha256": "0f41614bd49eb5a4b9727d56aee27f84bde945257b922dc0f8701d9d76f2fd4d"
+            },
+            {
+              "artifact_id": "m1/sources/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+              "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+              "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+              "sha256": "60bf3e0bf44f8d625ba59e1ebb7864b7749a0e4757089ae37ae5d5d39390dc6e"
+            }
+          ]
+        }
+      ],
+      "reason_codes": [],
+      "source_count": 2,
+      "unknown_refs": []
+    },
+    "source_refs": [
+      {
+        "artifact_id": "m1/sources/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+        "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "60bf3e0bf44f8d625ba59e1ebb7864b7749a0e4757089ae37ae5d5d39390dc6e"
+      },
+      {
+        "artifact_id": "m1/source-text/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+        "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "02f29444df20352591c864e5597ad49befb64be4db7cc19d9036d1cf9ad2f567"
+      },
+      {
+        "artifact_id": "m1/sources/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+        "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "0f41614bd49eb5a4b9727d56aee27f84bde945257b922dc0f8701d9d76f2fd4d"
+      },
+      {
+        "artifact_id": "m1/source-text/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+        "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "525926122d62558e5bdf5faf43442bead06a530d904d9a4d2987037ab8fcbed5"
+      },
+      {
+        "artifact_id": "m1/claims/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+        "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "d3250f94115a098e842d4fb570ecdff71046f00e6c65f343563731f0121573fd"
+      },
+      {
+        "artifact_id": "m1/claims/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+        "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+        "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+        "sha256": "98c4dab795ce7a1fd7622c8c66fbdcfea1001ea5ee8c5b097644b554fa824eaf"
+      }
+    ]
+  },
+  "receiver_assignment_id": "b7b31da8-ed39-5025-bcf8-fe397eea197b",
+  "transfer_proposals": [],
+  "transfer_acceptance_ids": {},
+  "verification_input_refs": [
+    {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "23e00ee20dc06c1ae2a55268765ccd0b01954270c109b250c147866d1d126fce",
+      "artifact_id": "646068d6-b48d-46bc-9fc8-1daf7113ccc1",
+      "sha256": "c0f41132de2770c10ea2cf636cade0f5be8671f664cb6c587c898b2b7a5f712e"
+    },
+    {
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "head_id": "23e00ee20dc06c1ae2a55268765ccd0b01954270c109b250c147866d1d126fce",
+      "artifact_id": "d506f5c0-8ea0-5d37-9c5a-294abbb8f7f9",
+      "sha256": "1944b60cd277b949752f95502ca19721fdc319c19cdc94364611913033273587"
+    },
+    {
+      "artifact_id": "m1/nodes/scope",
+      "head_id": "1d6040f9e2e6f69aaf871f0d0837e9b36acddb08492322086d9e76dd8a961158",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "74eeccd2831b5c5331cf41e4c3d79c06be396b59c817ba33fe5585481ef56e73"
+    },
+    {
+      "artifact_id": "m1/nodes/questions",
+      "head_id": "01dbee017ddb33354996a57841e16e06b1bff85785149b77e2ad284cd47756ea",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "0cd4d1fa6abfc114712a1c495cb013949a44a031239fdef2a22127b6b0f905d2"
+    },
+    {
+      "artifact_id": "m1/nodes/search",
+      "head_id": "cf6ea036f768729025043ba9cc5a8f00d0b5da3b0af3a1c8ed2421763328b27c",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "031e86e2e9db39c3cd130de4ab7465e4ad525e2a18ec96eb2b1cd2d54e738b8e"
+    },
+    {
+      "artifact_id": "m1/nodes/screen",
+      "head_id": "1e97b70f2b2e61e25a487d57312529cd5cf1e8e6e57bc4a14c4726b67a03bf8c",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "d1c11daf20254a59a10e64be8ed90142d8ab610e5b632604ef5e8dba119cc5c7"
+    },
+    {
+      "artifact_id": "m1/nodes/collect",
+      "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "f1df7f8f8d012254d83b7f99009a3b769db9150306c354b4207bd99c3ff24770"
+    },
+    {
+      "artifact_id": "m1/nodes/extract",
+      "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "ab478f6c4a39b4f5d82ccb5420b3003ccf0c4953c5d4a96016bf7fc2d9ed2392"
+    },
+    {
+      "artifact_id": "m1/nodes/synthesize",
+      "head_id": "a4391348fed41b68fa7b8375656b1e5103719ed7ddeb640931bbd95997b6a98c",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "5f4eb35872ee68efa32455e51d01ab82417d005aef5119f395ce76fd4c5ce5bc"
+    },
+    {
+      "artifact_id": "m1/nodes/hypothesize",
+      "head_id": "323165244f186fc3b76aad98631fce4f1c9074d3d7b44f4cb9e4ff310530ad2b",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "97b798b3849c4cd8703f23994e2a7cd9261bdae4b75776b0751fb06663640d70"
+    },
+    {
+      "artifact_id": "m1/nodes/review",
+      "head_id": "ab9a11a869ca5db8fd80c8e32ce186483028e8790500645f086c26ceddb7721c",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "daeb45362fc2fe0ce437ad53d8d04c3653ed3a08941837c1c64b5563ab59f125"
+    },
+    {
+      "artifact_id": "m1/sources/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+      "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "60bf3e0bf44f8d625ba59e1ebb7864b7749a0e4757089ae37ae5d5d39390dc6e"
+    },
+    {
+      "artifact_id": "m1/source-text/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+      "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "02f29444df20352591c864e5597ad49befb64be4db7cc19d9036d1cf9ad2f567"
+    },
+    {
+      "artifact_id": "m1/sources/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+      "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "0f41614bd49eb5a4b9727d56aee27f84bde945257b922dc0f8701d9d76f2fd4d"
+    },
+    {
+      "artifact_id": "m1/source-text/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+      "head_id": "049f9b2a0d4a685b12fbef9ddd689397f3be749d1fc84a67db8d00ab7fe4e838",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "525926122d62558e5bdf5faf43442bead06a530d904d9a4d2987037ab8fcbed5"
+    },
+    {
+      "artifact_id": "m1/claims/ab861dc170dc2e43224e45278d3d31a675b9ebc34c9b0f48c066ca1eeaed8ee6",
+      "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "d3250f94115a098e842d4fb570ecdff71046f00e6c65f343563731f0121573fd"
+    },
+    {
+      "artifact_id": "m1/claims/9685eb765661ea3b95f31e1bb3c3b5501d0c2acdf353feeaa4d8fe32f95f77fb",
+      "head_id": "ae767c5e97d1047792e7563412305463ef86d714843b27b3f21976ed0ac46a53",
+      "project_id": "1d9c018a-1088-467d-9773-9c074450c751",
+      "sha256": "98c4dab795ce7a1fd7622c8c66fbdcfea1001ea5ee8c5b097644b554fa824eaf"
+    }
+  ],
+  "unresolved_issue_ids": [
+    "13a10090-e3d3-4eb9-8fb0-352d123afe02",
+    "9e2edc1b-bf48-4f36-b0d6-a870a2d6b5c0"
+  ]
+}
