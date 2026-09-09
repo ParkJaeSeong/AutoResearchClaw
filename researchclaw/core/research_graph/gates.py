@@ -13,6 +13,10 @@ from .positions import validate_rationale_links
 _FIELDS = {'id', 'project_id', 'milestone', 'kind', 'target_id', 'input_binding',
            'author_assignment_ids', 'required_roles', 'submission_refs', 'source_refs',
            'approval_refs', 'decision_ref'}
+_COLLECTIONS = {'gate_requirements', 'assignments', 'approval_bindings', 'approval_receipts',
+                'positions', 'decisions', 'issues', 'review_sessions',
+                'position_acknowledgements', 'verifications', 'verification_results',
+                'transfer_acceptances', 'imported_issue_states'}
 _ROLES = {'M1': {'domain', 'methodology', 'critical'},
           'M2': {'domain', 'methodology', 'reproducibility'},
           'M3': {'domain', 'methodology', 'audit'}}
@@ -99,6 +103,12 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
         inputs = _Inputs(snapshot)
     except (KeyError, TypeError, ValueError):
         return _result(['gate_context_missing'])
+    # Typed reference helpers require mappings at both named ancestors and HEAD.
+    # Reject declared malformed collections explicitly, without swallowing errors
+    # from unrelated policy code. Absent collections retain prerequisite errors.
+    if any(type(record['state'].get(name, {})) is not dict
+           for _, record in inputs.history for name in _COLLECTIONS):
+        return _result(['gate_collection_invalid'])
     try:
         _require(type(gate_id) is str and str(UUID(gate_id)) == gate_id, 'gate_invalid')
         gate = inputs.registered('gate_requirements', gate_id)
@@ -127,7 +137,7 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
     roles = gate['required_roles']
     if type(roles) is not dict or set(roles) != expected_roles:
         reasons.append('required_role_missing')
-        roles = roles if type(roles) is dict else {}
+        roles = {role: value for role, value in roles.items() if type(role) is str} if type(roles) is dict else {}
     for role in sorted(roles):
         try:
             actor = inputs.assignment(roles[role])
@@ -160,7 +170,7 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
         _require(bool(decision['claim_dispositions']), 'decision_invalid')
     except (KeyError, TypeError, ValueError):
         reasons.append('decision_invalid')
-    submitted = set()
+    submitted, opposed_issue_ids = set(), set()
     submissions = gate['submission_refs']
     if not _nonempty_list(submissions):
         reasons.append('required_submission_missing')
@@ -171,6 +181,8 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
                 _require(position['input_binding'] == gate['input_binding'] and decision is not None
                          and ref in decision['position_refs'], 'required_submission_invalid')
                 submitted.add(position['assignment_id'])
+                if position['assignment_id'] in reviewer_ids and position['stance'] == 'oppose':
+                    opposed_issue_ids.add(position['issue_id'])
             except (KeyError, TypeError, ValueError):
                 reasons.append('required_submission_invalid')
         if not reviewer_ids <= submitted:
@@ -184,11 +196,14 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
         for identity in sorted(issues):
             issue = inputs.registered('issues', identity, 'Issue')
             scoped = scope in issue['blocking_scope']
-            if issue['origin']['milestone'] != milestone and not scoped:
+            if issue['origin']['milestone'] != milestone and not scoped and identity not in opposed_issue_ids:
                 continue
             status, latest = _status(inputs, issue)
             if status != 'resolved':
                 unresolved.append(identity)
+                if (identity in opposed_issue_ids and issue['severity'] != 'optional'
+                        and not issue['blocking_scope']):
+                    reasons.append('opposition_binding_missing')
             if decision and identity in decision['issue_ids'] and scoped and issue['resolution_condition']:
                 bound_revise = True
                 revise_unresolved |= status != 'resolved'

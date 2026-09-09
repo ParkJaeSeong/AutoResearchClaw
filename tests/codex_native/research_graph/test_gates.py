@@ -17,7 +17,7 @@ def assess(snapshot, milestone='M1', gate_id=None):
 
 
 class Fixture:
-    def __init__(self, root, milestone='M1', category='empirical', severity='blocking'):
+    def __init__(self, root, milestone='M1', category='empirical', severity='blocking', stance='conditional', scoped=True):
         self.root, self.milestone = root, milestone
         self.head = commands.init_project(root, topic='A07 synthetic', content_origin='synthetic')
         self.project = self.head['state']['project_id']
@@ -30,14 +30,14 @@ class Fixture:
         self.source = self.register('fixture_sources', {**self.envelope(), 'text': 'original source'})[0]
         self.issue = {**self.envelope(), 'origin': {'milestone': milestone, 'node': 'review', 'attempt': uid(), 'local_issue_id': 'q'},
             'question': 'Does the experiment reproduce the effect?', 'category': category, 'target_refs': [self.source],
-            'severity': severity, 'blocking_scope': [{'kind': 'handoff', 'milestone': milestone, 'target_id': self.destination['milestone']}],
+            'severity': severity, 'blocking_scope': [{'kind': 'handoff', 'milestone': milestone, 'target_id': self.destination['milestone']}] if scoped else [],
             'resolution_condition': 'Fixed criterion is met', 'owner_assignment_id': self.author['id']}
         self.apply(self.event(None, 'open'), self.issue)
         session = {'id': uid(), 'project_id': self.project, 'input_binding': self.binding,
             'participant_assignment_ids': [a['id'] for a in self.reviewers.values()], 'frozen': True}
         self.register('review_sessions', session)
         self.positions = [{**self.envelope(a['actor_id']), 'assignment_id': a['id'], 'session_id': session['id'],
-            'input_binding': self.binding, 'issue_id': self.issue['id'], 'stance': 'conditional', 'rationale': 'Await experiment',
+            'input_binding': self.binding, 'issue_id': self.issue['id'], 'stance': stance, 'rationale': 'Await experiment',
             'evidence_refs': [self.source], 'changed_from': None, 'change_kind': None} for a in self.reviewers.values()]
         self.position_refs = self.register('positions', *self.positions)
         result = {**self.envelope(), 'verification_id': uid(), 'output_refs': [self.source], 'outcome': 'inconclusive',
@@ -226,3 +226,27 @@ def test_malformed_decision_fails_closed_without_exception(tmp_path):
     f.gate['decision_ref'] = f.register('decisions', f.decision)[0]
     f.register('gate_requirements', f.gate)
     assert f.assess()['reason_codes'] == ['decision_invalid', 'required_submission_invalid', 'required_submission_missing']
+
+
+@pytest.mark.parametrize('scoped,reason', [(False, 'opposition_binding_missing'), (True, 'blocking_issue_unresolved')])
+def test_acknowledged_required_opposition_needs_binding_even_when_coordinator_says_handoff(tmp_path, scoped, reason):
+    f = Fixture(tmp_path, category='source', severity='major', stance='oppose', scoped=scoped)
+    before = store.read_head(tmp_path)
+    result = f.assess()
+    assert result['ready'] is False
+    assert result['reason_codes'] == [reason]
+    assert result['unresolved_issue_ids'] == [f.issue['id']]
+    assert store.read_head(tmp_path) == before
+
+
+@pytest.mark.parametrize('collection', ['approval_bindings', 'approval_receipts', 'assignments', 'positions', 'decisions', 'review_sessions', 'issues'])
+@pytest.mark.parametrize('value', [None, []])
+def test_malformed_prerequisite_collection_fails_closed_and_preserves_head(tmp_path, collection, value):
+    f = Fixture(tmp_path); f.transfer()
+    state = deepcopy(f.head['state']); state[collection] = value
+    f.commit(state)
+    before = store.read_head(tmp_path)
+    result = f.assess()
+    assert result['ready'] is False
+    assert result['reason_codes'] == ['gate_collection_invalid']
+    assert store.read_head(tmp_path) == before

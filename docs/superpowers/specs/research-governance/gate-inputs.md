@@ -28,7 +28,11 @@ including its registered-position policy validator and author acknowledgements.
 Decision.gate_result is never consulted for readiness. `revise` requires at least
 one dissent/position issue with a nonempty matching blocking_scope and an explicit
 resolution_condition; otherwise `revise_binding_missing` requests correction.
-A bound revise remains `revision_required` until the issue is resolved.
+A bound revise remains `revision_required` until the issue is resolved. Independently
+of the coordinator next_action, required-role `oppose` submissions on unresolved
+nonoptional issues require a nonempty blocking_scope and criterion; an unbound
+opposition returns `opposition_binding_missing` for correction. Scoped opposition
+continues through normal gate-scope and transfer checks.
 
 `source_refs` is nonempty, exact, current object evidence. `approval_refs` is
 nonempty, exact registered ApprovalBindings in `state.approval_bindings`, with
@@ -56,3 +60,6 @@ owner, fixed verification and acceptance are rechecked under A04's contract.
 Transferred is still listed as unresolved. M2 integrity cannot transfer away.
 Malformed or absent event history fails closed. Assessment preserves snapshot,
 HEAD, and all referenced object bytes.
+
+Declared prerequisite collections must be mappings in HEAD and referenced history;
+null/list collections return `gate_collection_invalid`, without I/O or mutation.

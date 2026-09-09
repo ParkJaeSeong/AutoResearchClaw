@@ -25,3 +25,18 @@ Limits: structural/sourcing policy over synthetic fixtures only; no actual
 research, host independence certification, approval authentication, experiment,
 or user acceptance was performed. Existing-authority receipt adapter and other
 future prerequisite producers remain absent and therefore fail closed at runtime.
+
+## Independent review correction wave
+
+Confirmed both P2 findings with focused RED (15 failed, 20 passed): acknowledged
+required opposition with no scope incorrectly passed a handoff decision; declared
+null/list prerequisite collections raised AttributeError in typed-reference helpers.
+Required-role opposition now requests `opposition_binding_missing` independently
+of the coordinator's next_action. A scoped opposition retains the normal blocking
+rule. Explicit collection-shape preflight covers prerequisite maps in current and
+historical verified states; malformed maps return `gate_collection_invalid` without
+blanket exception handling. Null/list regressions cover approvals/receipts,
+assignments, positions/decisions, sessions and issues, and assert HEAD preservation.
+
+Final focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_gates.py -q`
+→ 35 passed (7.97s). `git diff --check` clean. No broad tests or scope additions.
