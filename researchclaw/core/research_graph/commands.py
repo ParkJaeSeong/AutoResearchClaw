@@ -9,10 +9,13 @@ from ..transactions import project_transaction
 from . import store
 from .issues import propose_issue_event
 from .verification import prepare_verification, register_verification_result
+from .councils import prepare_council, register_submission, public_result
 
 _HANDLERS = {'issue.event': propose_issue_event,
              'verification.prepare': prepare_verification,
-             'verification.result': register_verification_result}
+             'verification.result': register_verification_result,
+             'council.prepare': prepare_council, 'council.submit': register_submission}
+_COUNCIL_OPERATIONS = {'council.prepare', 'council.submit'}
 
 
 def _hydrate_policy_snapshot(base, history):
@@ -53,24 +56,29 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
     store._checked_path(base.parent / 'project-transaction.lock')
     with project_transaction(base.parent.parent):
         history = store._history(base)
-        for cid, record in history:
+        for history_index, (cid, record) in enumerate(history):
             if record['command_id'] == command_id:
                 if record['events'][-1]['payload'].get('_command_request') != fingerprint:
                     raise ValueError('research_graph_command_conflict')
                 store._sync_publication(base)
+                if operation in _COUNCIL_OPERATIONS:
+                    return public_result(_hydrate_policy_snapshot(base, history[:history_index + 1]), operation, payload)
                 return store._receipt(cid, record)
         snapshot = store._receipt(*history[-1])
         if snapshot['id'] != expected_head:
             raise ValueError('research_graph_head_conflict')
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
-        if operation in ('issue.event', 'verification.prepare', 'verification.result'):
+        if operation in ('issue.event', 'verification.prepare', 'verification.result') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))
         event['payload']['_command_request'] = fingerprint
-        return store.commit_record(root, expected_head=expected_head, command_id=command_id,
+        receipt = store.commit_record(root, expected_head=expected_head, command_id=command_id,
             state={**snapshot['state'], **plan['state_patch']}, event=event, objects=plan['object_inputs'])
+        if operation in _COUNCIL_OPERATIONS:
+            return public_result(_hydrate_policy_snapshot(base, store._history(base)), operation, payload)
+        return receipt
 
 
 def init_project(root: Path, *, topic: str, content_origin: str, max_returns: int = 3,
