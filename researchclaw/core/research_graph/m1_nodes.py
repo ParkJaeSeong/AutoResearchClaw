@@ -11,8 +11,12 @@ from .issues import _require
 
 _FIELDS = set(_COMMON) | {'node', 'attempt', 'previous_ref_key', 'input_refs', 'content', 'revision_reason'}
 _PARENTS = {'scope': (), 'questions': ('scope',), 'search': ('scope', 'questions'),
-            'screen': ('scope', 'questions', 'search'), 'collect': ('screen',), 'extract': ('screen', 'collect')}
-_NEXT = {'scope': 'questions', 'questions': 'search', 'search': 'screen', 'screen': 'collect', 'collect': 'extract', 'extract': 'synthesize'}
+            'screen': ('scope', 'questions', 'search'), 'collect': ('screen',), 'extract': ('screen', 'collect'),
+            'synthesize': ('screen', 'collect', 'extract'),
+            'hypothesize': ('screen', 'extract', 'synthesize'),
+            'review': ('screen', 'extract', 'synthesize', 'hypothesize')}
+_NEXT = {'scope': 'questions', 'questions': 'search', 'search': 'screen', 'screen': 'collect', 'collect': 'extract', 'extract': 'synthesize',
+         'synthesize': 'hypothesize', 'hypothesize': 'review', 'review': 'handoff'}
 _CONTENT = {'scope': {'user_goal': 'text', 'user_constraints': ('array', 'text'), 'agent_assumptions': ('array', 'text')},
             'questions': {'questions': ('array', {'question': 'text', 'rationale': 'text'}),
                           'agent_assumptions': ('array', 'text')},
@@ -46,6 +50,9 @@ def _native(inputs, collection, record, event_type, payload):
 
 
 def _content_shape(node, content):
+    if node in ('synthesize', 'hypothesize', 'review'):
+        from .m1_review import content_shape
+        return content_shape(node, content)
     if node in ('collect', 'extract'):
         from .m1_evidence import content_shape
         return content_shape(node, content)
@@ -131,10 +138,16 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         inputs.reference(ref)
         _, expected = current_node(inputs, parent)
         _require(_node(ref) == _node(expected), 'm1_node_input_invalid')
-        _require(review_node(snapshot, parent)['ready'], 'm1_upstream_review_required')
+        # Authorship repairs remain possible while carried issues/reviews await
+        # handling; projection still requires every final council.
+        if parent not in ('synthesize', 'hypothesize', 'review'):
+            _require(review_node(snapshot, parent)['ready'], 'm1_upstream_review_required')
     for ref in artifact['observation_refs']:
         inputs.reference(ref)
     extra_objects = {}
+    if node in ('synthesize', 'hypothesize', 'review'):
+        from .m1_review import validate_content
+        validate_content(snapshot, inputs, artifact)
     if node in ('collect', 'extract'):
         from .m1_evidence import validate_content
         extra_objects = validate_content(snapshot, inputs, artifact)

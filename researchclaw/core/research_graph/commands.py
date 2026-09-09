@@ -11,10 +11,12 @@ from .issues import propose_issue_event
 from .verification import prepare_verification, register_verification_result
 from .councils import prepare_council, register_submission, public_result
 from .m1_nodes import register_node
+from .m1_review import materialize_imported_issue
 from .m1_search import decide_corpus, bind_corpus
 from .m1_evidence import assign_evidence, observe_evidence
 
-_HANDLERS = {'issue.event': propose_issue_event,
+_HANDLERS = {'m1.issue.materialize': materialize_imported_issue,
+             'issue.event': propose_issue_event,
              'verification.prepare': prepare_verification,
              'verification.result': register_verification_result,
              'council.prepare': prepare_council, 'council.submit': register_submission,
@@ -74,7 +76,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
             raise ValueError('research_graph_head_conflict')
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
-        if operation in ('issue.event', 'verification.prepare', 'verification.result', 'm1.node.register',
+        if operation in ('m1.issue.materialize', 'issue.event', 'verification.prepare', 'verification.result', 'm1.node.register',
                          'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
