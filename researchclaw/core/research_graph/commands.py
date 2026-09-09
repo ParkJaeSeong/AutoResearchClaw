@@ -8,8 +8,11 @@ from pathlib import Path
 from ..transactions import project_transaction
 from . import store
 from .issues import propose_issue_event
+from .verification import prepare_verification, register_verification_result
 
-_HANDLERS = {'issue.event': propose_issue_event}
+_HANDLERS = {'issue.event': propose_issue_event,
+             'verification.prepare': prepare_verification,
+             'verification.result': register_verification_result}
 
 
 def register_operation(operation, handler):
@@ -41,7 +44,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
             raise ValueError('research_graph_head_conflict')
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
-        if operation == 'issue.event':
+        if operation in ('issue.event', 'verification.prepare', 'verification.result'):
             handler_snapshot['_issue_context'] = {
                 'history': json.loads(store._canonical([[head, record] for head, record in history])),
                 'objects': {digest: store._read_file(base / 'objects' / digest)
