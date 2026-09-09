@@ -1,0 +1,63 @@
+{
+  "ready": true,
+  "reason_codes": [],
+  "required_actions": [],
+  "node_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "d37f8dd43e3f30f7fa4aa37e7a8dae594d4873b971384f00c7a25dc92edeea48",
+    "artifact_id": "m1/nodes/search",
+    "sha256": "c1506143d4f8a86f4440a535857c39684f3b082f2e5f1d40afee1ea614c676f9"
+  },
+  "council_binding": {
+    "milestone": "M1",
+    "node": "search",
+    "attempt": "6785ce94-7ddb-4df1-a784-2335fe7e76a0",
+    "input_binding": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "d37f8dd43e3f30f7fa4aa37e7a8dae594d4873b971384f00c7a25dc92edeea48",
+      "artifact_id": "m1/nodes/search",
+      "sha256": "c1506143d4f8a86f4440a535857c39684f3b082f2e5f1d40afee1ea614c676f9"
+    },
+    "author_actor_id": "study-author",
+    "required_roles": [
+      "critical",
+      "domain",
+      "methodology"
+    ]
+  },
+  "council_id": "04a717bd-63fb-4a44-81fd-6983a196ed66",
+  "phase": "complete",
+  "unresolved_issue_ids": [
+    "6e7cce92-3446-4e75-827c-a7adcebd8501",
+    "76ae17fb-99b7-4d0e-bf0f-cf629bf2e178",
+    "c2151cbb-917a-49e0-98f3-211efc3fa8c3"
+  ],
+  "unpublished_issue_ids": [],
+  "next_node": "screen",
+  "content": {
+    "exclusion_criteria": [
+      "초기5편 밖의 문헌을 이 선정 단계에 조용히 추가하지 않는다. 후속 확장 검색은 새 계획/선정 버전으로 기록한다.",
+      "소재·가설 검증·SDL와 관계없는 자료는 제외 사유를 남긴다. 접근 실패만으로 반대 근거를 제거하지 않는다.",
+      "원자료가 미확인인 논문을 실행 가능한 데이터셋으로 분류하지 않는다. 시뮬레이션/모델 추정값을 실측값과 합치지 않는다.",
+      "공개·성능이 좋다는 이유만으로 대표 사례를 고르지 않는다. 성능 수치로 사례를 선택한 뒤 그 수치를 독립 최종 평가로 재사용하지 않는다.",
+      "이는 초기 실행 가능성 비교용 표적 조회이며 포괄적 문헌 검토나 신규성 검증 완료로 표현하지 않는다."
+    ],
+    "inclusion_criteria": [
+      "초기 후보5편을 모두 선정표에 남긴다. 각 표적 조회는 해당 논문1편이며 부속 데이터·코드는 같은 source_id에 연결한다.",
+      "물성 데이터·누출 평가, 복합소재 물리 모델, 실험 선택·실행, 데이터 표현 중 연구 질문과 관련된 역할을 명시한다.",
+      "자료의 실제 접근 범위, 사용권, 논문/배치 그룹, 조성·공정·측정·반복 정보와 원자료 여부를 확인하거나 미확인으로 표시한다.",
+      "기전 판별에 필요한 직접 관측이 없는 데이터도 예측/모델 적합성 평가용으로 구분해 보존할 수 있다.",
+      "반대 결과나 설계의 한계를 지적하는 자료를 지지 자료와 같은 기준으로 검토한다."
+    ],
+    "queries": [
+      "10.1021/acs.jcim.3c01894 — publisher, abstract and author data deposit",
+      "10.1038/s41467-025-67013-y — thermal composite source data and code",
+      "10.1038/s41467-026-69872-5 — mechanical composite source data and code",
+      "10.1038/s41467-024-55655-3 — Polybot experimental workflow and data",
+      "10.1039/D4PY01417K / arXiv:2412.08407 — composite representation and data availability"
+    ],
+    "sources": [
+      "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+    ]
+  }
+}

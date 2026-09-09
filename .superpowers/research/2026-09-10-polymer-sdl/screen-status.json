@@ -1,0 +1,182 @@
+{
+  "ready": false,
+  "reason_codes": [
+    "corpus_approval_required"
+  ],
+  "required_actions": [
+    "Address corpus_approval_required before extracting this corpus."
+  ],
+  "node_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "888850abf43a0c3cccdd38dfc6448e28a92247afa91b6389edc84c1a417e61fb",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "62eed46622bd276f3a565020f7a760a12938beeb3b969d5db1f35f80a74edb3e"
+  },
+  "council_binding": {
+    "milestone": "M1",
+    "node": "screen",
+    "attempt": "26cbf068-f92c-4353-ad27-46a75c7ebda0",
+    "input_binding": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "888850abf43a0c3cccdd38dfc6448e28a92247afa91b6389edc84c1a417e61fb",
+      "artifact_id": "m1/nodes/screen",
+      "sha256": "62eed46622bd276f3a565020f7a760a12938beeb3b969d5db1f35f80a74edb3e"
+    },
+    "author_actor_id": "study-author",
+    "required_roles": [
+      "critical",
+      "domain",
+      "methodology"
+    ]
+  },
+  "council_id": "f6565904-48c5-46cd-9c43-75f7b05711a0",
+  "phase": "complete",
+  "unresolved_issue_ids": [
+    "51c50dc4-2840-4d9f-95f1-290a2b84a54d",
+    "e392db61-1a95-4285-bc58-31ab286037c7"
+  ],
+  "unpublished_issue_ids": [],
+  "next_node": null,
+  "content": {
+    "candidates": [
+      {
+        "access_status": "abstract",
+        "arxiv_id": null,
+        "doi": "10.1021/acs.jcim.3c01894",
+        "search_ids": [
+          "lookup-1"
+        ],
+        "source_id": "P01",
+        "source_type": "research_article",
+        "stance": "oppose",
+        "title": "Prevention of Leakage in Machine Learning Prediction for Polymer Composite Properties",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/38642039/"
+      },
+      {
+        "access_status": "full_text",
+        "arxiv_id": null,
+        "doi": "10.1038/s41467-025-67013-y",
+        "search_ids": [
+          "lookup-2"
+        ],
+        "source_id": "P04",
+        "source_type": "research_article",
+        "stance": "unknown",
+        "title": "Thermal conductivity modeling beyond the dilute limit using a body-centered cubic framework for densely packed polymer composites",
+        "url": "https://www.nature.com/articles/s41467-025-67013-y"
+      },
+      {
+        "access_status": "full_text",
+        "arxiv_id": null,
+        "doi": "10.1038/s41467-026-69872-5",
+        "search_ids": [
+          "lookup-3"
+        ],
+        "source_id": "P05",
+        "source_type": "research_article",
+        "stance": "unknown",
+        "title": "Machine learning guided resolution of mechanical trade-off in polymer composites via stress adaptive interface",
+        "url": "https://www.nature.com/articles/s41467-026-69872-5"
+      },
+      {
+        "access_status": "full_text",
+        "arxiv_id": null,
+        "doi": "10.1038/s41467-024-55655-3",
+        "search_ids": [
+          "lookup-4"
+        ],
+        "source_id": "P03",
+        "source_type": "research_article",
+        "stance": "neutral",
+        "title": "Autonomous platform for solution processing of electronic polymers",
+        "url": "https://www.nature.com/articles/s41467-024-55655-3"
+      },
+      {
+        "access_status": "abstract",
+        "arxiv_id": "2412.08407",
+        "doi": "10.1039/D4PY01417K",
+        "search_ids": [
+          "lookup-5"
+        ],
+        "source_id": "P02",
+        "source_type": "research_article",
+        "stance": "neutral",
+        "title": "Polymer Composites Informatics for Flammability, Thermal, Mechanical and Electrical Property Predictions",
+        "url": "https://arxiv.org/abs/2412.08407"
+      }
+    ],
+    "decisions": [
+      {
+        "decision": "include",
+        "reason": "무작위 분할의 성능 과대평가를 지적하는 반대·제약 근거로 보존. 전기전도도 데이터 감사의 우선 후보다. 공식 Figshare API /v2/articles/25657025에서 ci3c01894_si_002.xlsx, 453057 bytes, CC BY-NC 4.0과 다운로드 URL을 확인했다. 파일 내용·그룹 식별자·반복·측정 조건은 아직 검사하지 않았고 논문 전문은 접근 실패했다. 사용 가능 벤치마크 확정이나 특정 수지·필러 선택은 아니다. 초기5편의 표적 조회로 선정한 자료이며 포괄성·신규성·가설 타당성 검증 완료를 뜻하지 않는다. 대표 소재 확정은 데이터 내용 감사 후 별도 결정한다.",
+        "source_id": "P01"
+      },
+      {
+        "decision": "include",
+        "reason": "출판사 페이지의 초록·본문 일부를 확인한 열전도도 물리 모델 비교 후보. 구형에 가까운 필러의 체적분율·크기·계면 열저항을 다룬다. 전문 페이지 접근 가능과 전문 전체 검증은 다르다. 후속 재접근 일부는 차단됐다. 보충 데이터의 실제 열·문헌 그룹·단위·사용권·계면 열저항의 직접 측정/목표값 적합 여부는 미확인. 목표값으로 추정한 변수를 예측 입력으로 사용하지 않도록 감사 후 판단한다. 초기5편의 표적 조회로 선정한 자료이며 포괄성·신규성·가설 타당성 검증 완료를 뜻하지 않는다. 대표 소재 확정은 데이터 내용 감사 후 별도 결정한다.",
+        "source_id": "P04"
+      },
+      {
+        "decision": "include",
+        "reason": "출판사 초록·서론·결과 일부에서 계면 설계와 Pareto/능동학습 결합을 확인했다. 기계 물성의 경쟁 설명·다목적 비교 후보로 포함한다. 전문 전체와 첨부 데이터 내용·사용권·배치/반복 기록은 미검증. 실제 장비·제조 가능성은 미확정이고 저자 보고 성능을 우리 방법의 개선 증거로 사용하지 않는다. 초기5편의 표적 조회로 선정한 자료이며 포괄성·신규성·가설 타당성 검증 완료를 뜻하지 않는다. 대표 소재 확정은 데이터 내용 감사 후 별도 결정한다.",
+        "source_id": "P05"
+      },
+      {
+        "decision": "include",
+        "reason": "출판사 초록·서론·자동화 공정 결과 일부를 확인했다. 용액 조제·코팅·후처리·전기 측정 SDL 연결의 참고 자료다. 고체 충전 복합소재 성형·기계시험 자동화의 직접 증거는 아니다. 장비 인터페이스, 실패 처리, 원자료·코드 사용권은 추가 확인하며 저자 처리량을 우리 실험실의 성능으로 가정하지 않는다. 초기5편의 표적 조회로 선정한 자료이며 포괄성·신규성·가설 타당성 검증 완료를 뜻하지 않는다. 대표 소재 확정은 데이터 내용 감사 후 별도 결정한다.",
+        "source_id": "P03"
+      },
+      {
+        "decision": "include",
+        "reason": "arXiv 초록과 저널 참조를 확인했다. 복합소재 표현과 다중 물성 예측의 배경 자료로 포함한다. 원자료 공개·사용권·평가 분할은 미확인이고 상용 데이터가 공개됐다고 가정하지 않는다. 초기5편의 표적 조회로 선정한 자료이며 포괄성·신규성·가설 타당성 검증 완료를 뜻하지 않는다. 대표 소재 확정은 데이터 내용 감사 후 별도 결정한다.",
+        "source_id": "P02"
+      }
+    ],
+    "search_log": [
+      {
+        "query": "10.1021/acs.jcim.3c01894 — publisher, abstract and author data deposit",
+        "result_count": 1,
+        "search_id": "lookup-1",
+        "searched_at": "2026-09-09T16:27:53Z",
+        "source": "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+      },
+      {
+        "query": "10.1038/s41467-025-67013-y — thermal composite source data and code",
+        "result_count": 1,
+        "search_id": "lookup-2",
+        "searched_at": "2026-09-09T16:27:53Z",
+        "source": "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+      },
+      {
+        "query": "10.1038/s41467-026-69872-5 — mechanical composite source data and code",
+        "result_count": 1,
+        "search_id": "lookup-3",
+        "searched_at": "2026-09-09T16:27:53Z",
+        "source": "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+      },
+      {
+        "query": "10.1038/s41467-024-55655-3 — Polybot experimental workflow and data",
+        "result_count": 1,
+        "search_id": "lookup-4",
+        "searched_at": "2026-09-09T16:27:53Z",
+        "source": "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+      },
+      {
+        "query": "10.1039/D4PY01417K / arXiv:2412.08407 — composite representation and data availability",
+        "result_count": 1,
+        "search_id": "lookup-5",
+        "searched_at": "2026-09-09T16:27:53Z",
+        "source": "선행 탐색 후보의 DOI·저자 공개 저장소 표적 조회"
+      }
+    ]
+  },
+  "review_ready": true,
+  "corpus_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "888850abf43a0c3cccdd38dfc6448e28a92247afa91b6389edc84c1a417e61fb",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "62eed46622bd276f3a565020f7a760a12938beeb3b969d5db1f35f80a74edb3e"
+  },
+  "approval_ref": null,
+  "approved": false
+}

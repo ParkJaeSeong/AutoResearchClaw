@@ -1,9 +1,9 @@
 {
   "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
-  "head_id": "4a3bb0b9912ac6229780dee96f8baad61d18e82305bfb5966b871f8de31859fc",
-  "stage": "scope and questions reviewed; search next",
-  "actual_host_sessions": 18,
-  "actual_submissions": 18,
+  "head_id": "7b59a91f5166e6dd424c4a4aa15e7a5a7ad8c5bbf8396291367101ba4a20ba84",
+  "stage": "scope, questions, search and screen reviewed; actual corpus decision pending",
+  "actual_host_sessions": 36,
+  "actual_submissions": 36,
   "host_answers_match": true,
   "role_tool_calls": 0,
   "open_issues": [
@@ -20,6 +20,12 @@
       "status": "open"
     },
     {
+      "id": "51c50dc4-2840-4d9f-95f1-290a2b84a54d",
+      "question": "P01의 stance='oppose'는 어떤 명제에 대한 반대인가? 무작위 분할의 한계를 지적하는 근거와 가설 검증형 에이전트의 효과를 반박하는 근거가 혼동될 수 있다.",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
       "id": "5d7c86ab-02e5-4e6f-a55c-303877ecb8c0",
       "question": "에이전트의 개선이 가설 갱신 방식 때문인지, 추가 문헌·도구·계산 자원 때문인지 어떻게 구분할 것인가?",
       "severity": "optional",
@@ -28,6 +34,18 @@
     {
       "id": "5fd7816f-c7db-4db2-b663-ed222d0b09f5",
       "question": "대표 소재 선정 기준인 자동화 적합성에 계량·혼합·성형·측정의 병목, 실패 처리 및 시료 추적성을 어떻게 반영할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "6e7cce92-3446-4e75-827c-a7adcebd8501",
+      "question": "10.1039/D4PY01417K와 arXiv:2412.08407을 하나의 후보로 묶을 때, 동일 연구의 버전 관계와 데이터·분석 변경 여부를 어떻게 확인할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "76ae17fb-99b7-4d0e-bf0f-cf629bf2e178",
+      "question": "초기 5편이 가설 판별형 실험 선택이나 후보 소재의 SDL 실행 적합성을 충분히 다루지 않을 때, 확장 검색과 연구 범위 축소 중 무엇을 선택할 것인가?",
       "severity": "optional",
       "status": "open"
     },
@@ -60,12 +78,30 @@
       "question": "평가 실험군의 결과가 문헌 검색이나 에이전트 메모리를 통해 유입되는 누출은 어떻게 다룰 것인가?",
       "severity": "optional",
       "status": "open"
+    },
+    {
+      "id": "c2151cbb-917a-49e0-98f3-211efc3fa8c3",
+      "question": "서로 다른 후보 논문이 동일한 원자료를 재사용하거나 일부 공유하는 경우, 이를 독립적인 근거 또는 별도의 평가 자료로 중복 계산하지 않도록 어떻게 확인할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "e392db61-1a95-4285-bc58-31ab286037c7",
+      "question": "P01의 stance='oppose'는 어떤 명제에 대한 반대인가? 무작위 분할의 성능 과대평가는 평가 설계의 제약이며, 가설 검증형 에이전트의 개선 가능성을 반박한 결과와는 구분해야 한다.",
+      "severity": "optional",
+      "status": "open"
     }
   ],
   "corpus_approved": false,
+  "corpus_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "888850abf43a0c3cccdd38dfc6448e28a92247afa91b6389edc84c1a417e61fb",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "62eed46622bd276f3a565020f7a760a12938beeb3b969d5db1f35f80a74edb3e"
+  },
   "model_training_or_experiments_executed": false,
   "model_identity": "configured default, unverified",
   "isolation_level": "instructions_only",
-  "browser": "ERR_BLOCKED_BY_CLIENT on Chrome tab2026905691; local HTTP accessible",
+  "browser": "User confirmed direct browser display; automated control unverified",
   "previous_synthetic_project_head_unchanged": true
 }
