@@ -64,7 +64,8 @@ def _resources(value):
 
 def _signature(inputs, refs, work, *, current):
     _require(type(work) is dict and set(work) == _WORK
-             and all(work[key] == value for key, value in store._VERSION.items())
+             and all(type(work[key]) is type(value) and work[key] == value
+                     for key, value in store._VERSION.items())
              and all(_uuid(work[key]) for key in ('id', 'project_id', 'event_id', 'assignment_id'))
              and work['project_id'] == inputs.project and _text(work['producer_id'])
              and work['milestone'] in ('M1', 'M2', 'M3')
@@ -108,6 +109,11 @@ def _ledger(inputs, refs):
         _resources(record['resource_request'])
         registered[record['id']] = (record, ref, signature)
     _require(set(registered) == set(history), 'work_ledger_invalid')
+    for record, _, signature in registered.values():
+        if record['correction_ref'] is not None:
+            correction, previous, _ = _correction(inputs, refs, record['correction_ref'])
+            _require(previous['id'] in registered and previous['id'] != record['id']
+                     and correction['replacement_signature'] == signature, 'work_ledger_invalid')
     return registered
 
 
@@ -119,6 +125,8 @@ def _correction(inputs, refs, ref):
     prior = inputs.reference(record['previous_work_ref'], 'work_records')
     for evidence in record['evidence_refs']:
         refs.resolve(evidence)
+    evidence_nodes = [_node(ref) for ref in record['evidence_refs']]
+    _require(len(evidence_nodes) == len(set(evidence_nodes)), 'correction_invalid')
     content = dict(previous_work=list(_node(record['previous_work_ref'])), replacement_signature=record['replacement_signature'],
                    rationale=_normal(record['rationale']), evidence=sorted(list(_node(r)) for r in record['evidence_refs']))
     return record, prior, store._hash(store._canonical(content))

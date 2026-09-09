@@ -54,12 +54,12 @@ class Fixture:
         self.ledger['work_refs'].append(ref); self.register('work_ledgers', self.ledger)
         return record, ref
 
-    def correction(self, previous_ref):
+    def correction(self, previous_ref, evidence_refs=None):
         signature = {key: ' '.join(unicodedata.normalize('NFC', self.work[key]).split())
                      for key in ('milestone', 'node', 'question', 'work', 'acceptance_rule')}
         signature['input_refs'] = sorted([r['project_id'], r['artifact_id'], r['sha256']] for r in self.work['input_refs'])
         correction = dict(id=uid(), project_id=self.project, previous_work_ref=previous_ref,
-            replacement_signature=store._hash(store._canonical(signature)), rationale='Correct an interpretation error', evidence_refs=[self.source])
+            replacement_signature=store._hash(store._canonical(signature)), rationale='Correct an interpretation error', evidence_refs=evidence_refs if evidence_refs is not None else [self.source])
         ref = self.register('work_corrections', correction)[0]
         scope = [ref, previous_ref]
         receipt = dict(id=uid(), project_id=self.project, producer_id='existing-user-authority', decision='approved', binding=ref, scope_refs=scope)
@@ -192,3 +192,30 @@ def test_bare_snapshot_and_malformed_collections_fail_closed(tmp_path):
     assert assess(f.head, f.payload)['reason_codes'] == ['work_context_missing']
     f.patch(work_records=None)
     assert f.assess()['reason_codes'] == ['work_collection_invalid']
+
+
+def test_boolean_schema_version_is_rejected_without_head_change(tmp_path):
+    f = Fixture(tmp_path); f.work['schema_version'] = True
+    before = store.read_head(tmp_path)
+    assert f.assess()['reason_codes'] == ['work_invalid']
+    assert store.read_head(tmp_path) == before
+
+
+def test_historical_nonnull_correction_ref_requires_exact_valid_binding(tmp_path):
+    f = Fixture(tmp_path); f.prior(correction_ref='not-a-reference')
+    f.work['work'] = 'Check a different consequence'
+    before = store.read_head(tmp_path)
+    assert f.assess()['reason_codes'] == ['work_ledger_invalid']
+    assert store.read_head(tmp_path) == before
+
+
+def test_used_correction_clone_with_duplicate_evidence_cannot_authorize_retry(tmp_path):
+    f = Fixture(tmp_path); _, previous = f.prior('failed')
+    _, correction_ref, _ = f.correction(previous)
+    f.prior('failed', correction_ref=correction_ref)
+    f.correction(previous, evidence_refs=[f.source, f.source])
+    before = store.read_head(tmp_path)
+    result = f.assess()
+    assert result['ready'] is False
+    assert result['reason_codes'] == ['correction_invalid', 'repeated_work']
+    assert store.read_head(tmp_path) == before

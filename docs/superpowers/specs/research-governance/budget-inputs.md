@@ -12,6 +12,7 @@ explicit null; semantic_status is `literal_only` or `uncertain`. Work is the com
 research-graph envelope plus exactly `{assignment_id, milestone, node, question,
 input_refs, work, acceptance_rule}`. The active owner assignment must match the
 proposed producer and milestone. Text fields and input_refs are nonempty.
+Envelope version fields use exact types (boolean true is not schema_version 1).
 Every proposed input/observation is an exact current reference; historical work
 inputs remain exact historical versions, never silently replaced with latest.
 
@@ -31,13 +32,17 @@ in `state.work_records` are closed `{id,project_id,work,resource_request,status,
 correction_ref}` with status `pending|completed|failed|inconclusive|awaiting_input|
 blocked_budget`. Every recorded attempt participates in repeat checks, regardless
 of outcome; a new UUID or a failed attempt is not permission for a retry.
+Every nonnull historical correction_ref must resolve the exact correction and prior
+ledger work, and its replacement signature must bind that recorded attempt.
 Record IDs/project IDs are UUIDs; custom prerequisite records use their ID as an
 immutable object-input alias as well as their typed collection registration.
 
 Corrections in `state.work_corrections` have exactly `{id,project_id,
 previous_work_ref,replacement_signature,rationale,evidence_refs}`. Prior work is
 an exact ledger record; replacement_signature is the proposed work signature;
-rationale and exact current evidence_refs are nonempty. A current
+rationale and exact current evidence_refs are nonempty. Duplicate evidence nodes
+(project/artifact/digest, including different HEAD labels) are rejected; duplicates
+cannot change the correction content fingerprint and regain a retry. A current
 correction_approval_ref names an ApprovalBinding bound to the exact correction,
 with scope including that correction and previous_work_ref. A07's backed prior
 existing-receipt semantics apply. No bare approved boolean substitutes. A correction

@@ -29,3 +29,17 @@ scientific validation, real execution, counter mutation, prerequisite producer,
 CLI/UI, approval authority or user acceptance. Ledger/receipt producers remain
 future prerequisites, so absence fails closed. A ready result is narrow policy
 eligibility and does not grant execution permission.
+
+## Independent review correction wave
+
+Reproduced all three false-ready findings as focused RED: 3 failed, 21 passed.
+Envelope versions now require exact types, so schema_version=true is rejected.
+Every nonnull historical work correction reference is validated, including exact
+prior ledger work and replacement-signature linkage to its recorded attempt.
+Correction evidence rejects duplicate project/artifact/digest nodes, preventing
+copied used corrections from obtaining a distinct fingerprint via duplicated
+references (including alternate HEAD labels). Tests assert refusal and unchanged
+HEAD for all three findings.
+
+Final focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_budgets.py -q`
+→ 24 passed (1.03s). `git diff --check` clean. No broad or predecessor tests.
