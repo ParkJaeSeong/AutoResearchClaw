@@ -1,0 +1,36 @@
+"""Register the user's real topic and independently review its provisional scope."""
+import json
+from study_host import BASE, ROOT, cli, council, register, save, snap
+from researchclaw.core.research_graph.m1_nodes import review_node
+
+TOPIC = '고분자 복합소재 물성 예측을 위한 가설 검증형 자율 연구 에이전트와 셀프 드라이빙 랩 설계'
+SCOPE = {
+    'user_goal': TOPIC,
+    'user_constraints': ['기존 M1을 실제 연구 주제로 시험한다.'],
+    'agent_assumptions': [
+        '현재는 대표 소재·물성 및 연구 질문을 문헌 비교로 정하는 범위 탐색 단계다. 특정 수지·필러·물성, 보유 데이터·장비·예산은 사용자가 아직 지정하지 않았다.',
+        '이번 M1 산출물은 선행연구 지도, 대표 검증 사례의 선정 근거, 경쟁 가설과 반증 조건, 요구 데이터, 에이전트 역할 및 SDL 계층·입출력 요구사항이다. 실험 수행과 장비 구매는 하지 않는다.',
+        '주요 연구 질문 후보: 근거·반론·불확실성을 가설별로 갱신하는 에이전트가 동일한 실험 예산의 일반 능동학습/베이지안 최적화보다 미관측 실험군의 물성 예측 또는 가설 판별을 개선하는가? 개선을 이미 입증한 것으로 표현하지 않는다.',
+        '대표 소재·물성 선정 기준은 공개 원자료·사용권·배치/논문 구분의 확인 가능성, 조성·공정·측정 조건의 기록 품질, 반복 측정과 자동화 적합성이다. 후보는 섬유 강화 복합소재의 기계 물성, 입자/나노필러 복합소재의 열전도도, 공개 데이터가 확인되는 복합소재의 전기전도도다. 아직 하나로 확정하지 않는다.',
+        '물성 예측, 가설 판별, 실험 실행 적합성은 별도 평가 항목이다. 대표 사례를 정한 뒤 주 평가 지표 하나와 보조 지표를 고정하며 서로 다른 물성의 점수나 관측 연구와 개입 실험의 결론을 섞지 않는다.',
+        '예측 검증에는 같은 논문·실험실·배치가 학습과 평가에 섞이지 않도록 분리하는 비교를 포함한다. 특성 중요도나 상관관계를 곧바로 인과 기전 증거로 취급하지 않는다.',
+        '비교군 후보는 조성 기반 예측, 공정·측정 조건 포함 예측, 무작위 실험 선택, 일반 능동학습/베이지안 최적화, 가설 판별 기반 선택이다. 같은 초기 데이터·실험 횟수·측정 품질을 맞추는 구체 기준은 M1에서 정리하고 M2 전 고정한다.',
+        '에이전트는 문헌·데이터, 물성 모델, 가설 제안, 반증 검토, 실험 적합성, 판단 기록의 책임을 구분한다. 초기 의견은 독립 작성하며 근거가 없는 합의와 자동 쟁점 해소를 허용하지 않는다.',
+        'SDL 설계는 연구 의사결정 → 검증 가능한 실험 명세 → 장비 실행·측정 → 데이터 품질 확인 → 가설 갱신의 흐름으로 검토한다. 실제 실행 범위는 가용 장비와 연구자의 허용 범위가 확인된 뒤 결정한다.',
+        '초기 참고 문헌은 아직 승인·검증된 corpus가 아니다. Shimakawa 등(2024), DOI 10.1021/acs.jcim.3c01894의 PubMed 초록은 복합소재 전기전도도 예측에서 실험군 분리의 중요성을 보고한다: https://pubmed.ncbi.nlm.nih.gov/38642039/ . 전문·원자료는 미확인이다.',
+        '초기 참고: Tran 등 arXiv:2412.08407 초록은 상용 고분자 복합소재의 다중 물성 예측을 다룬다: https://arxiv.org/abs/2412.08407 . 이는 데이터 표현의 참고이며 원자료의 자유 이용 가능성이나 현재 설계의 신규성을 입증하지 않는다.',
+        '초기 참고: Wang 등(2025), DOI 10.1038/s41467-024-55655-3은 전자 고분자 박막 공정의 Polybot 자동화 사례다: https://pmc.ncbi.nlm.nih.gov/articles/PMC11833048/ . 고체 충전 복합소재의 성형·시험까지 자동화됐다는 근거로 확장하지 않는다.',
+    ],
+}
+
+if __name__ == '__main__':
+    if ROOT.exists():
+        raise SystemExit('Existing real project preserved; inspect before any explicit continuation.')
+    cli('init', ROOT, '--topic', TOPIC, '--content-origin', 'real')
+    save(BASE / 'scope-input.json', SCOPE)
+    artifact = register('scope', SCOPE)
+    council(artifact)
+    status = review_node(snap(), 'scope')
+    save(BASE / 'scope-status.json', status)
+    print(json.dumps({'ready': status['ready'], 'reason_codes': status['reason_codes'],
+                      'unresolved_issues': status['unresolved_issue_ids']}, ensure_ascii=False), flush=True)

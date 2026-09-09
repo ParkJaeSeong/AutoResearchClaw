@@ -1,0 +1,71 @@
+{
+  "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+  "head_id": "4a3bb0b9912ac6229780dee96f8baad61d18e82305bfb5966b871f8de31859fc",
+  "stage": "scope and questions reviewed; search next",
+  "actual_host_sessions": 18,
+  "actual_submissions": 18,
+  "host_answers_match": true,
+  "role_tool_calls": 0,
+  "open_issues": [
+    {
+      "id": "23c68d16-2f9e-4860-b9f2-4f79a773887d",
+      "question": "미관측 실험군에 대한 예측은 새 배치, 새 연구실, 새 조성 범위 중 어떤 일반화를 뜻하며, 후보 자료가 이를 각각 평가할 수 있는가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "31672a79-837b-4cbe-bdab-2a37a8f9d146",
+      "question": "가설 판별의 정답과 불확실성 교정을 평가할 수 있는 사례를 어떤 기준으로 선정할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "5d7c86ab-02e5-4e6f-a55c-303877ecb8c0",
+      "question": "에이전트의 개선이 가설 갱신 방식 때문인지, 추가 문헌·도구·계산 자원 때문인지 어떻게 구분할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "5fd7816f-c7db-4db2-b663-ed222d0b09f5",
+      "question": "대표 소재 선정 기준인 자동화 적합성에 계량·혼합·성형·측정의 병목, 실패 처리 및 시료 추적성을 어떻게 반영할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "7e472976-d3aa-41cd-9728-1c55c7b857ac",
+      "question": "물성 최적화용 베이지안 최적화와 가설 판별 방법을 비교할 때, 목표 함수 차이로 발생한 성과 차이를 에이전트의 지식 획득 효과와 어떻게 구분할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "8221a6fa-a21f-4159-98ee-3082ac373180",
+      "question": "분산·계면에 관한 경쟁 가설을 판별할 직접 관측량이 있는 사례를 우선할 것인가? 조성과 최종 물성만으로는 분산 개선, 계면 변화, 공극 감소 등의 설명을 구분하기 어려울 수 있다.",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "880dae90-5b41-4ab3-a3ea-c6ccda21bf94",
+      "question": "대표 사례 선정 시 조성·구조·측정 조건의 비교 가능성을 어떻게 판단할 것인가? 필러의 질량분율과 체적분율, 섬유·필러 배향, 공극률, 측정 방향·온도 차이는 단순한 기록 유무 이상의 선정 기준이 필요하다.",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "ab415e53-fb3e-4b45-b870-fc7fd5942658",
+      "question": "대표 사례와 주 지표를 선택할 때 확인한 성능 결과를 이후 최종 평가에 재사용하여 선택 편향이 생기는 것을 어떻게 방지할 것인가?",
+      "severity": "optional",
+      "status": "open"
+    },
+    {
+      "id": "c187aa03-73bf-454d-86bc-00b60561b6e5",
+      "question": "평가 실험군의 결과가 문헌 검색이나 에이전트 메모리를 통해 유입되는 누출은 어떻게 다룰 것인가?",
+      "severity": "optional",
+      "status": "open"
+    }
+  ],
+  "corpus_approved": false,
+  "model_training_or_experiments_executed": false,
+  "model_identity": "configured default, unverified",
+  "isolation_level": "instructions_only",
+  "browser": "ERR_BLOCKED_BY_CLIENT on Chrome tab2026905691; local HTTP accessible",
+  "previous_synthetic_project_head_unchanged": true
+}
