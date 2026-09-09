@@ -4,6 +4,8 @@
 
 A04의 등록 배정·검증 결과·이관 수락 연결은 [쟁점 정책 입력 계약](issue-policy-inputs.md)에 정의한다. A05의 준비·결과 등록은 [검증 등록 입력 계약](verification-inputs.md)을 따른다. B02 구현에서 배정 계약을 이어받는다.
 
+A06 [입장·요약 확인](position-inputs.md), A07 [게이트 입력](gate-inputs.md), A08 [변경 영향 입력](dependency-inputs.md), A09 [다음 작업 입력](budget-inputs.md)의 등록 입력 계약은 후속 생산자에서 이어받는다.
+
 ## 4. 공통 데이터 계약
 
 모든 기록은 schema_version=1, workflow_version=research-graph-v1, project_id, id, event/producer 식별자와 content_origin(real|synthetic|mixed)을 가진다. content_origin과 provenance_status(declared_only|host_observed)는 별개다. host_observed는 관측 증거 참조가 있을 때만 사용하며 서명 인증을 뜻하지 않는다.
