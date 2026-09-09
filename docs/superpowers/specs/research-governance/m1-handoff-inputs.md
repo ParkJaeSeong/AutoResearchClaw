@@ -120,6 +120,16 @@ unit becomes eligible at native A05 preparation. The source must be native,
 exact, and tied to its real assignments/node or Issue. Same source units cannot
 be recorded twice by changing IDs or HEAD labels.
 
+Eligibility first authenticates native council/node/session/assignment and existing
+submission records. Incomplete councils are not completed work units. A wrong-author
+M1 setup is also excluded, even if its B02 phases finished, only when an exact
+native successor proves replacement of its original node and that node is no
+longer current. This narrow setup-repair exclusion preserves all council/submission
+bytes and charges the replacement in full-history counters. It does not waive
+current review requirements, exclude valid completed historical councils, or
+permit direct recording of an excluded source. Current completed invalid councils,
+unbacked records, and non-native history still fail validation.
+
 The derived A09 work record is exactly
 `{id, project_id, work, resource_request, status, correction_ref: null}`.
 Work uses the existing closed common envelope and descriptor. Council inputs are

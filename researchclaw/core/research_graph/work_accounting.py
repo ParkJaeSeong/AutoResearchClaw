@@ -1,14 +1,15 @@
 """Bounded native work recording and declared usage accounting; no execution."""
 from copy import deepcopy
+import json
 from uuid import UUID, uuid5
 
 from . import store
 from .budgets import _ledger
-from .councils import _common, _fresh_ids, _record_ref, _session, _submissions, _valid
+from .councils import _COUNCIL_FIELDS, _common, _fresh_ids, _record_ref, _session, _submissions, _valid
 from .dependencies import _References, _node
 from .gates import _status
 from .issues import _require
-from .m1_nodes import _context as node_context, _council, _native, _shape
+from .m1_nodes import _context as node_context, _council, _native, _node_identity, _shape
 
 _COLLECTIONS = ('work_records', 'work_ledgers')
 
@@ -55,6 +56,9 @@ def _source(inputs, kind, ref, record_id):
     source = inputs.reference(ref, collection, 'Verification' if kind == 'verification' else None)
     canonical_ref = _record_ref(inputs, collection, source)
     if kind == 'council':
+        _require(_common(source, _COUNCIL_FIELDS, inputs.project), 'work_source_invalid')
+        prepared = _native(inputs, 'councils', source, 'council_prepared',
+                           dict(council_id=source['id'], session_id=source['session_id']))
         session = _session(inputs, source)
         artifacts = [record for record in inputs.state.get('m1_node_revisions', {}).values()
                      if record['node'] == source['node'] and record['attempt'] == source['attempt']]
@@ -63,11 +67,15 @@ def _source(inputs, kind, ref, record_id):
         _require(_shape(artifact, inputs.project), 'work_source_invalid')
         _native(inputs, 'm1_node_revisions', artifact, 'm1_node_registered',
                 dict(node=artifact['node'], revision_id=artifact['id'], attempt=artifact['attempt']))
-        _require(_council(inputs, artifact, session['input_binding']) == source, 'work_source_invalid')
+        expected_binding = dict(project_id=inputs.project, artifact_id=f"m1/nodes/{artifact['node']}",
+                                sha256=store._hash(store._canonical(artifact)))
+        _require(_node(session['input_binding']) == _node(expected_binding), 'work_source_invalid')
+        authors = [inputs.assignment(identity) for identity in source['author_assignment_ids']]
+        reviewers = [inputs.assignment(identity) for identity in session['participant_assignment_ids']]
+        _require(prepared['state']['review_sessions'].get(session['id']) == session
+                 and all(prepared['state']['assignments'].get(a['id']) == a for a in [*authors, *reviewers]),
+                 'work_source_invalid')
         submissions = _submissions(inputs, source)
-        required = set(session['participant_assignment_ids'])
-        _require(all(set(submissions[phase]) == required for phase in ('initial', 'response', 'final')),
-                 'work_source_incomplete')
         for phase, members in submissions.items():
             for submission in members.values():
                 _native(inputs, 'council_submissions', submission, 'council_submission_registered',
@@ -75,6 +83,25 @@ def _source(inputs, kind, ref, record_id):
                 actor = inputs.assignment(submission['assignment_id'])
                 _require(submission['producer_id'] == actor['actor_id']
                          and submission['input_binding'] == session['input_binding'], 'work_source_invalid')
+        # A native replacement may repair an incorrect declared author even
+        # after B02 phases finished. This setup never represented valid M1
+        # review work; authenticate its history before excluding it.
+        if (source['milestone'] == 'M1' and authors
+                and all(a['role'] == 'owner' and a['milestone'] == 'M1' for a in authors)
+                and {a['actor_id'] for a in authors} != {artifact['producer_id']}
+                and _node_identity(inputs, artifact['node'])[0]['id'] != artifact['id']):
+            for successor in inputs.state['m1_node_revisions'].values():
+                if successor['node'] != artifact['node'] or successor['previous_ref_key'] is None:
+                    continue
+                _require(_shape(successor, inputs.project), 'work_source_invalid')
+                _native(inputs, 'm1_node_revisions', successor, 'm1_node_registered',
+                        dict(node=successor['node'], revision_id=successor['id'], attempt=successor['attempt']))
+                if _node(json.loads(successor['previous_ref_key'])) == _node(expected_binding):
+                    raise ValueError('work_source_ineligible')
+        required = set(session['participant_assignment_ids'])
+        _require(all(set(submissions[phase]) == required for phase in ('initial', 'response', 'final')),
+                 'work_source_incomplete')
+        _require(_council(inputs, artifact, session['input_binding']) == source, 'work_source_invalid')
         finals = {row['recommendation'] for row in submissions['final'].values()}
         _require(finals <= {'ready', 'ready_with_limits', 'revise', 'defer'}, 'work_source_invalid')
         status = 'awaiting_input' if 'defer' in finals else ('inconclusive' if 'revise' in finals else 'completed')
@@ -143,7 +170,7 @@ def work_sources(snapshot: dict) -> list[dict]:
             try:
                 _source(inputs, kind, ref, identity(source['id'], 'work-preview'))
             except ValueError as error:
-                if str(error) == 'work_source_incomplete':
+                if str(error) in ('work_source_incomplete', 'work_source_ineligible'):
                     continue
                 raise
             sources.append(dict(source_kind=kind, source_ref=ref, recorded=(kind, _node(ref)) in recorded))

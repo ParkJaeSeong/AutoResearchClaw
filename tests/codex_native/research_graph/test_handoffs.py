@@ -249,3 +249,62 @@ def test_materialized_imported_issue_context_does_not_grant_foreign_target_acces
     with pytest.raises(ValueError, match='^dependency_reference_invalid$'):
         f.submit(0, 'initial', evidence_refs=[foreign_ref])
     assert store.read_head(target)['id'] == before_head and files(source) == before
+
+
+@pytest.mark.parametrize('completed', [False, True])
+def test_abandoned_wrong_author_council_allows_native_repair_accounting(tmp_path, completed):
+    from tests.codex_native.research_graph.test_m1_scope import Fixture as ScopeFixture
+    f = ScopeFixture(tmp_path); f.register(); prior = f.check()['node_ref']
+    f.council_prepare(author='wrong-author')
+    if completed:
+        f.complete()
+    else:
+        f.submit(0, 'initial')
+    abandoned = deepcopy(f.council)
+    old_objects = f.snapshot()['_issue_context']['objects'].copy()
+    f.register(f.node(previous_ref=prior, revision_reason='Repair the mismatched author setup'))
+    f.council_prepare(); f.complete()
+    assert f.check()['ready'] is True
+    before = f.head['id']; snapshot = f.snapshot()
+    sources = accounting().work_sources(snapshot)
+    assert store.read_head(tmp_path)['id'] == before
+    assert [source['source_ref']['artifact_id'] for source in sources] == [f.council['id']]
+    unbacked = deepcopy(snapshot)
+    del unbacked['_issue_context']['objects'][store._hash(store._canonical(abandoned))]
+    with pytest.raises(ValueError, match='^(issue_reference_invalid|issue_prerequisite_unbacked)$'):
+        accounting().work_sources(unbacked)
+    forged = deepcopy(snapshot)
+    first = next(record for _, record in forged['_issue_context']['history']
+                 if abandoned['id'] in record['state'].get('councils', {}))
+    first['events'][-1]['type'] = 'not_native_council_preparation'
+    with pytest.raises(ValueError, match='^m1_native_record_invalid$'):
+        accounting().work_sources(forged)
+    assert store.read_head(tmp_path)['id'] == before
+    for source in sources:
+        f.apply('m1.work.record', dict(record_id=uid(), source_kind=source['source_kind'], source_ref=source['source_ref']))
+    f.apply('work_ledger.refresh', {'ledger_id': uid()})
+    assert accounting().accounting_status(f.snapshot())['ready'] is True
+    assert f.head['state']['returns_used'] == 1 and f.head['state']['verification_runs_used'] == 0
+    assert f.head['state']['observed_cost'] is None and f.head['state']['cost_status'] == 'unknown'
+    assert f.head['state']['councils'][abandoned['id']] == abandoned
+    assert all(f.snapshot()['_issue_context']['objects'][key] == value for key, value in old_objects.items())
+    # Exclusion is not permission to materialize invalid historical work.
+    ref = accounting()._record_ref(accounting()._context(f.snapshot()), 'councils', abandoned)
+    head = f.head['id']
+    with pytest.raises(ValueError, match='^work_source_ineligible$'):
+        f.apply('m1.work.record', dict(record_id=uid(), source_kind='council', source_ref=ref))
+    assert store.read_head(tmp_path)['id'] == head
+
+
+def test_active_completed_wrong_author_council_still_rejects_work(tmp_path):
+    from tests.codex_native.research_graph.test_m1_scope import Fixture as ScopeFixture
+    f = ScopeFixture(tmp_path); f.register(); f.council_prepare(author='wrong-author'); f.complete()
+    head = f.head['id']; snapshot = f.snapshot()
+    with pytest.raises(ValueError, match='^m1_council_author_mismatch$'):
+        accounting().work_sources(snapshot)
+    ref = accounting()._record_ref(accounting()._context(snapshot), 'councils', f.council)
+    with pytest.raises(ValueError, match='^m1_council_author_mismatch$'):
+        f.apply('m1.work.record', dict(record_id=uid(), source_kind='council', source_ref=ref))
+    with pytest.raises(ValueError, match='^m1_council_author_mismatch$'):
+        f.apply('work_ledger.refresh', {'ledger_id': uid()})
+    assert store.read_head(tmp_path)['id'] == head
