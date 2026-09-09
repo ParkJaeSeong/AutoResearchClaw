@@ -1,6 +1,9 @@
 """Research graph lifecycle CLI, without execution or private body projections."""
+import json
 from pathlib import Path
 from researchclaw.core.research_graph import commands, migration, store
+from researchclaw.core.research_graph.views import build_view, _load
+from researchclaw.core.research_graph.councils import reviewer_packet
 
 
 def add_research_parser(subcommands):
@@ -21,10 +24,42 @@ def add_research_parser(subcommands):
     importer.add_argument('--json', action='store_true')
     inspect = actions.add_parser('inspect')
     inspect.add_argument('root', type=Path)
+    inspect.add_argument('--head', dest='head_id')
     inspect.add_argument('--json', action='store_true')
+    viewer = actions.add_parser('view')
+    viewer.add_argument('root', type=Path)
+    viewer.add_argument('--host', default='127.0.0.1', choices=('127.0.0.1',))
+    viewer.add_argument('--port', type=int, default=0)
+    viewer.add_argument('--json', action='store_true')
+    apply = actions.add_parser('apply')
+    apply.add_argument('root', type=Path)
+    apply.add_argument('--operation', required=True, choices=sorted(commands._HANDLERS))
+    apply.add_argument('--payload', required=True, type=Path, help='Path to one closed JSON operation payload')
+    apply.add_argument('--expected-head', required=True)
+    apply.add_argument('--command-id', required=True)
+    apply.add_argument('--json', action='store_true')
+    packet = actions.add_parser('packet')
+    packet.add_argument('root', type=Path)
+    packet.add_argument('--assignment', required=True)
+    packet.add_argument('--head', dest='head_id')
+    packet.add_argument('--json', action='store_true')
 
 
 def dispatch(args):
+    if args.research_command == 'view':
+        from .research_viewer import serve_view
+        serve_view(args.root, host=args.host, port=args.port)
+        return {'status': 'stopped'}
+    if args.research_command == 'inspect':
+        return build_view(args.root, head_id=args.head_id)
+    if args.research_command == 'packet':
+        snapshot, _ = _load(args.root, args.head_id)
+        return reviewer_packet(snapshot, args.assignment)
+    if args.research_command == 'apply':
+        payload = json.loads(args.payload.read_text(encoding='utf-8'), object_pairs_hook=store._unique_pairs)
+        receipt = commands.apply_command(args.root, operation=args.operation, payload=payload,
+            expected_head=args.expected_head, command_id=args.command_id)
+        return {**store._VERSION, 'id': receipt['id'], 'head_id': receipt['id'], 'operation': args.operation}
     if args.research_command == 'init':
         return commands.init_project(args.root, topic=args.topic, content_origin=args.content_origin,
             max_returns=args.max_returns, max_verification_runs=args.max_verification_runs)
