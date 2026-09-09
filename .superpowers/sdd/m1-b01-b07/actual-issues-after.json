@@ -1,0 +1,109 @@
+{
+  "source_head": "1196a857f7dff7f5ecbeca51d91011a5ef81445a56ce8eb101faacfc54592cac",
+  "content_origin": "synthetic",
+  "readonly": true,
+  "projection": {
+    "ready": false,
+    "reason_codes": [
+      "m1_node_missing",
+      "synthesize_required",
+      "hypothesize_required",
+      "review_required",
+      "prior_issue_owner_missing",
+      "prior_issue_unresolved",
+      "prior_issue_unaccounted"
+    ],
+    "required_actions": [
+      "Address m1_node_missing before completing hypothesis review.",
+      "Address synthesize_required before completing hypothesis review.",
+      "Address hypothesize_required before completing hypothesis review.",
+      "Address review_required before completing hypothesis review.",
+      "Address prior_issue_owner_missing before completing hypothesis review.",
+      "Address prior_issue_unresolved before completing hypothesis review.",
+      "Address prior_issue_unaccounted before completing hypothesis review."
+    ],
+    "node_refs": {
+      "synthesize": null,
+      "hypothesize": null,
+      "review": null
+    },
+    "corpus_ref": null,
+    "source_groups": null,
+    "prior_issues": [
+      {
+        "issue_id": "39d7b264-d4b4-5841-a5d7-80c943a59bcb",
+        "question": "독립 검토자가 동일하게 적용할 수 있도록 모든 하위 집단의 범위와 개선·개선 없음의 판정 규칙을 어떻게 고정할 것인가?",
+        "category": "other",
+        "severity": "major",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      },
+      {
+        "issue_id": "3adc256b-fd54-5830-83ff-c3387b93763f",
+        "question": "검증 대상인 모든 하위 집단의 범위와 개선의 측정 기준을 어떻게 정하고, 불확실성이 큰 추정치와 실제 비개선을 어떻게 구별해 반증할 것인가?",
+        "category": "other",
+        "severity": "major",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      },
+      {
+        "issue_id": "5984eb2b-c5b3-5d29-806b-81fbdeeccc01",
+        "question": "집단별 결과가 없는 상태에서 구성비 차이의 대안 설명을 배제하고 모든 집단의 개선을 어떻게 식별하는가?",
+        "category": "other",
+        "severity": "blocking",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      },
+      {
+        "issue_id": "632115bd-edd6-53da-8268-3750b19e7183",
+        "question": "조건별 집단 구성비가 다른 상태에서 집계 평균의 개선이 모든 하위 집단의 효과를 보여준다는 추론을 어떤 집단 내 비교와 식별 조건으로 정당화할 것인가?",
+        "category": "other",
+        "severity": "blocking",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      },
+      {
+        "issue_id": "854f418d-e43e-535f-ac69-c0da8d018dee",
+        "question": "어떤 대상과 하위 집단, 결과 지표 및 개선 판정 규칙으로 보편 예측과 구성 효과라는 대안을 구별하고 반복 검증할 것인가?",
+        "category": "other",
+        "severity": "major",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      },
+      {
+        "issue_id": "f00fc9a8-d336-5757-a469-3734b19a3906",
+        "question": "집계 평균의 개선만 제시된 상태에서 모든 하위 집단에 효과적임을 보여준다고 진술할 근거는 무엇인가?",
+        "category": "other",
+        "severity": "blocking",
+        "native_status": "open",
+        "owner_assignment_id": null,
+        "disposition": null
+      }
+    ],
+    "unaccounted_issue_ids": [
+      "39d7b264-d4b4-5841-a5d7-80c943a59bcb",
+      "3adc256b-fd54-5830-83ff-c3387b93763f",
+      "5984eb2b-c5b3-5d29-806b-81fbdeeccc01",
+      "632115bd-edd6-53da-8268-3750b19e7183",
+      "854f418d-e43e-535f-ac69-c0da8d018dee",
+      "f00fc9a8-d336-5757-a469-3734b19a3906"
+    ],
+    "unresolved_issue_ids": [
+      "39d7b264-d4b4-5841-a5d7-80c943a59bcb",
+      "3adc256b-fd54-5830-83ff-c3387b93763f",
+      "5984eb2b-c5b3-5d29-806b-81fbdeeccc01",
+      "632115bd-edd6-53da-8268-3750b19e7183",
+      "854f418d-e43e-535f-ac69-c0da8d018dee",
+      "f00fc9a8-d336-5757-a469-3734b19a3906"
+    ],
+    "transfer_obligations": [],
+    "limitations": [],
+    "council_id": null,
+    "phase": "awaiting_review"
+  }
+}

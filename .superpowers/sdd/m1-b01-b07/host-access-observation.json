@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "B02 actual shared-workspace capability probe",
+  "content_origin": "synthetic",
+  "host_surface": "Codex subagent functions.exec -> tools.exec_command",
+  "reader_agent": "/root/rg_a02_review",
+  "relative_target": ".superpowers/sdd/m1-b01-b07/host-probe/reviewer-a/private-initial.txt",
+  "access_result": "readable",
+  "bytes": 58,
+  "sha256": "8c8efd3829bd4e40c7d87b7a57ad543fa9b052a2cf56c53406bc28ca2e8f9bd8",
+  "isolation_level": "instructions_only",
+  "observed_scope": "Single authorized synthetic cross-agent file read; no filesystem denial enforced here",
+  "untested": [
+    "other hosts",
+    "other tools",
+    "other enforcement configurations"
+  ]
+}
