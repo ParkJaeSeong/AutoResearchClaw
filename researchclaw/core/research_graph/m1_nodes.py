@@ -10,11 +10,21 @@ from .gates import _status
 from .issues import _require
 
 _FIELDS = set(_COMMON) | {'node', 'attempt', 'previous_ref_key', 'input_refs', 'content', 'revision_reason'}
-_PARENTS = {'scope': (), 'questions': ('scope',)}
-_NEXT = {'scope': 'questions', 'questions': 'search'}
+_PARENTS = {'scope': (), 'questions': ('scope',), 'search': ('scope', 'questions'),
+            'screen': ('scope', 'questions', 'search')}
+_NEXT = {'scope': 'questions', 'questions': 'search', 'search': 'screen', 'screen': 'collect'}
 _CONTENT = {'scope': {'user_goal': 'text', 'user_constraints': ('array', 'text'), 'agent_assumptions': ('array', 'text')},
             'questions': {'questions': ('array', {'question': 'text', 'rationale': 'text'}),
-                          'agent_assumptions': ('array', 'text')}}
+                          'agent_assumptions': ('array', 'text')},
+            'search': {key: ('array', 'text') for key in ('queries', 'sources', 'inclusion_criteria', 'exclusion_criteria')},
+            'screen': {
+                'search_log': ('array', {'search_id': 'text', 'query': 'text', 'source': 'text',
+                                         'searched_at': 'text', 'result_count': 'text'}),
+                'candidates': ('array', {'source_id': 'text', 'title': 'text',
+                    'doi': ('nullable', 'text'), 'arxiv_id': ('nullable', 'text'), 'url': ('nullable', 'text'),
+                    'source_type': 'text', 'access_status': ('enum', ('full_text', 'abstract', 'metadata_only', 'unavailable')),
+                    'search_ids': ('array', 'text'), 'stance': ('enum', ('support', 'oppose', 'neutral', 'unknown'))}),
+                'decisions': ('array', {'source_id': 'text', 'decision': ('enum', ('include', 'exclude')), 'reason': 'text'})}}
 _ROLES = {'domain', 'methodology', 'critical'}
 
 
@@ -35,11 +45,24 @@ def _native(inputs, collection, record, event_type, payload):
     return first
 
 
+def _content_shape(node, content):
+    if node == 'screen':
+        if (type(content) is not dict or type(content.get('search_log')) is not list
+                or any(type(row) is not dict or type(row.get('result_count')) is not int
+                       or row['result_count'] < 0 for row in content['search_log'])):
+            return False
+        # The common closed-schema checker has no integer spec; validate count
+        # above, then adapt only its checked value for remaining field checks.
+        content = {**content, 'search_log': [{**row, 'result_count': str(row['result_count'])}
+                                           for row in content['search_log']]}
+    return _valid(_CONTENT[node], content)
+
+
 def _shape(record, project):
     return (_common(record, _FIELDS, project) and type(record['node']) is str and record['node'] in _PARENTS
             and _valid('uuid', record['attempt']) and type(record['input_refs']) is dict
             and set(record['input_refs']) == set(_PARENTS[record['node']])
-            and _valid(_CONTENT[record['node']], record['content'])
+            and _content_shape(record['node'], record['content'])
             and (record['node'] != 'questions' or bool(record['content']['questions'])))
 
 
@@ -68,7 +91,7 @@ def current_node(inputs, node_id):
 
 
 def register_node(snapshot: dict, payload: dict) -> dict:
-    """Register only closed scope/questions output and append a fresh revision."""
+    """Register closed scope/questions/search/screen output as a fresh revision."""
     inputs = _context(snapshot)
     _require(type(payload) is dict and set(payload) == {'artifact'} and type(payload['artifact']) is dict,
              'm1_node_invalid')
@@ -105,6 +128,9 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         _require(review_node(snapshot, parent)['ready'], 'm1_upstream_review_required')
     for ref in artifact['observation_refs']:
         inputs.reference(ref)
+    if node in ('search', 'screen'):
+        from .m1_search import validate_search_content
+        validate_search_content(inputs, artifact)
     return {'state_patch': {
         'm1_node_revisions': {**inputs.state.get('m1_node_revisions', {}), artifact['id']: artifact},
         'm1_node_heads': {**inputs.state.get('m1_node_heads', {}), node: artifact['id']}},
@@ -242,6 +268,10 @@ def review_node(snapshot: dict, node_id: str) -> dict:
             if scoped and issue['severity'] != 'optional':
                 reasons.append('blocking_issue_unresolved')
     reasons = list(dict.fromkeys(reasons))
+    if node_id == 'screen':
+        from .m1_search import opposing_exclusions
+        if opposing_exclusions(inputs, artifact, ref):
+            reasons.append('opposing_exclusion_issue_required')
     return deepcopy(dict(ready=not reasons, reason_codes=reasons,
         required_actions=[f'Address {reason} before advancing this node.' for reason in reasons], node_ref=ref,
         council_binding=dict(milestone='M1', node=node_id, attempt=artifact['attempt'], input_binding=ref,

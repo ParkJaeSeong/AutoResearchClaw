@@ -90,3 +90,7 @@ every discussion. Human approval is not added each round. A07 still applies at
 explicit authority boundaries such as corpus/handoff. This pure review projection
 is neither an approval nor an execution grant. Host/model identities remain
 declared; synthetic structural validation is separate from actual research.
+
+B04 extends this shared native registry with search/screen while this B03 scope
+projection remains restricted to scope/questions. See [search and corpus inputs](m1-search-inputs.md)
+for the closed content, complete corpus binding and separate user authority APIs.
