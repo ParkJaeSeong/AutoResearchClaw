@@ -23,9 +23,10 @@
   `{verification_ref: SnapshotRef, result: VerificationResult}`. The typed ref
   names the exact current prepared bytes. All prepared dependencies are
   revalidated at result time, including owner role/producer identity.
-- Supported/refuted outcomes require referenced output and checked scope that
-  includes the frozen acceptance rule. Failed/inconclusive may have no output
-  and no completed scope, but require an explicit limitation.
+- Supported/refuted outcomes require one or more outputs whose referenced bytes
+  are all nonempty and checked scope that includes the frozen acceptance rule.
+  Failed/inconclusive may have no output and no completed scope, but require an
+  explicit limitation.
 - Existing assignments, budgets, issues, inputs, and outputs are prerequisites.
   A05 adds no producer, execution path, automatic resolution, CLI, or UI.
 
@@ -60,6 +61,25 @@ GREEN 2:
 26 passed in 1.34s
 ```
 
+RED 3, after independent review found empty output bytes could feed resolution:
+
+```text
+.venv/bin/python -m pytest \
+  'tests/codex_native/research_graph/test_verification.py::test_evidentiary_result_rejects_empty_output_bytes_and_native_issue_stays_checking' -q
+2 failed: supported and refuted both accepted an exact ref whose bytes were b''.
+```
+
+GREEN 3:
+
+```text
+.venv/bin/python -m pytest \
+  'tests/codex_native/research_graph/test_verification.py::test_evidentiary_result_rejects_empty_output_bytes_and_native_issue_stays_checking' -q
+2 passed in 0.19s
+
+.venv/bin/python -m pytest tests/codex_native/research_graph/test_verification.py -q
+28 passed in 1.41s
+```
+
 Focused affected checks (run before the root reserved final suite):
 
 ```text
@@ -78,6 +98,9 @@ Focused affected checks (run before the root reserved final suite):
   then resolve through an independent resolver event.
 - Negative outcomes: failed and inconclusive remain registered while resolution
   is rejected and the native issue remains checking.
+- Empty-byte evidence: supported and refuted registration are rejected with
+  `verification_output_missing`, HEAD is preserved, and the native issue remains
+  checking.
 - Mutation safety: rejected fake, foreign, stale, replacement, missing-rule,
   missing-evidence, and missing-limitation cases preserve HEAD.
 - Immutability: accepted mutations preserve bytes for previously referenced

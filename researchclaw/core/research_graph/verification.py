@@ -69,10 +69,11 @@ def register_verification_result(snapshot: dict, payload: dict) -> dict:
     _require(owner['role'] == 'owner'
              and verification['producer_id'] == owner['actor_id']
              and result['producer_id'] == owner['actor_id'], 'verification_owner_mismatch')
-    for ref in [*result['output_refs'], *result['observation_refs']]:
+    output_data = [inputs.reference(ref) for ref in result['output_refs']]
+    for ref in result['observation_refs']:
         inputs.reference(ref)
     if result['outcome'] in ('supported', 'refuted'):
-        _require(bool(result['output_refs']), 'verification_output_missing')
+        _require(bool(output_data) and all(output_data), 'verification_output_missing')
         _require(verification['acceptance_rule'] in result['checked_scope'],
                  'verification_scope_missing')
     else:

@@ -78,6 +78,15 @@ class Fixture:
         result.update(changes)
         return result, verification_ref
 
+    def empty_output_ref(self):
+        name = f'fixture-empty-outputs/{uid()}'
+        self.head = store.commit_record(self.root, expected_head=self.head['id'], command_id=uid(),
+            state=deepcopy(self.head['state']),
+            event={**store._VERSION, 'type': 'synthetic_fixture_registered', 'payload': {}},
+            objects={name: b''})
+        return dict(project_id=self.project, head_id=self.head['id'], artifact_id=name,
+                    sha256=store._hash(b''))
+
     def issue_event(self, before, after, actor=None, **changes):
         actor = actor or self.owner
         event = {**envelope(self.project, actor['actor_id']), 'issue_id': self.issue['id'],
@@ -246,6 +255,25 @@ def test_non_success_native_result_stays_checking_when_resolution_is_attempted(t
     reject(f, 'issue.event', {'issue': None,
         'event': f.issue_event('checking', 'resolved', f.resolver, verification_refs=[result_ref])},
         'resolution_evidence_missing')
+    assert f.head['state']['issue_states'][f.issue['id']] == 'checking'
+
+
+@pytest.mark.parametrize('outcome', ['supported', 'refuted'])
+def test_evidentiary_result_rejects_empty_output_bytes_and_native_issue_stays_checking(tmp_path, outcome):
+    f = Fixture(tmp_path / 'p', register_issue=False)
+    f.apply('issue.event', {'issue': f.issue, 'event': f.issue_event(None, 'open')})
+    verification, prepared = f.prepare()
+    verification_ref = dict(project_id=f.project, head_id=prepared['id'], artifact_id=verification['id'],
+        sha256=store._hash(store._canonical(verification)))
+    f.apply('issue.event', {'issue': None,
+        'event': f.issue_event('open', 'checking', verification_refs=[verification_ref])})
+    empty_ref = f.empty_output_ref()
+    result = {**envelope(f.project), 'verification_id': verification['id'],
+        'output_refs': [empty_ref], 'outcome': outcome,
+        'checked_scope': [verification['acceptance_rule']], 'limitations': ['synthetic fixture']}
+
+    reject(f, 'verification.result', {'verification_ref': verification_ref, 'result': result},
+           'verification_output_missing')
     assert f.head['state']['issue_states'][f.issue['id']] == 'checking'
 
 

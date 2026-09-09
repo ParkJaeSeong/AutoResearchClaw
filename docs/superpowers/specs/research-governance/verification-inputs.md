@@ -16,8 +16,9 @@ revision's issues, owner assignment, budget, inputs, and observations must still
 be current. `result.verification_id` and both producer identities remain bound
 to it. Result output and observation refs must also be exact and current.
 
-`supported` and `refuted` require at least one output ref and `checked_scope`
-must contain the frozen acceptance rule verbatim. `failed` and `inconclusive`
+`supported` and `refuted` require at least one output ref, every referenced output
+must contain nonempty bytes, and `checked_scope` must contain the frozen acceptance
+rule verbatim. `failed` and `inconclusive`
 may have empty output refs and checked scope because the fixed criterion may not
 have been evaluated; each requires a nonempty limitation explaining the gap.
 All four outcomes remain distinct records. Registration never appends an IssueEvent
