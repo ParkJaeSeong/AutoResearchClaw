@@ -34,7 +34,8 @@ def _valid(spec, value):
 def _common(value, fields, project):
     return (type(value) is dict and set(value) == fields
             and _valid(_COMMON, {key: value[key] for key in _COMMON})
-            and value['project_id'] == project)
+            and value['project_id'] == project
+            and (value['provenance_status'] != 'host_observed' or bool(value['observation_refs'])))
 
 
 def _ids(value, *, nonempty=False):
@@ -240,7 +241,8 @@ def prepare_council(snapshot: dict, payload: dict) -> dict:
              and all(by_id[i]['role'] == 'resolver' for i in reviewers)
              and len({by_id[i]['actor_id'] for i in reviewers}) == len(reviewers)
              and not {by_id[i]['actor_id'] for i in reviewers} & {by_id[i]['actor_id'] for i in authors}, 'council_assignment_invalid')
-    _fresh_ids(inputs, [council['id'], session['id'], *by_id], reusable=authors)
+    _fresh_ids(inputs, [council['id'], session['id'], *by_id],
+               reusable=authors & set(inputs.state.get('assignments', {})))
     _graph(inputs, [session['input_binding'], *council['allowed_evidence_refs'], *council['observation_refs'],
                     *(item['issue_ref'] for item in _shared_issues(inputs, council))])
     for identity in council['issue_ids']:

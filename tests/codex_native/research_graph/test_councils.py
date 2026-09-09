@@ -288,3 +288,26 @@ def test_existing_issue_is_shared_at_prepared_exact_version_and_stale_replacemen
     f.register('issues', {**issue, 'question': 'Changed after preparation'})
     with pytest.raises(ValueError, match='issue_reference_stale'):
         f.packet(0)
+
+
+def test_new_author_cannot_reuse_input_artifact_identity_and_change_head(tmp_path):
+    f = Fixture(tmp_path, prepare=False)
+    f.author['id'] = f.source['artifact_id']; f.council['author_assignment_ids'] = [f.author['id']]
+    before = store.read_head(tmp_path)
+    with pytest.raises(ValueError, match='council_identity_exists'):
+        f.prepare()
+    assert store.read_head(tmp_path) == before
+
+
+@pytest.mark.parametrize('operation', ['prepare', 'submit'])
+def test_host_observed_requires_observation_refs_for_council_and_submission(tmp_path, operation):
+    f = Fixture(tmp_path, prepare=operation == 'submit')
+    before = store.read_head(tmp_path)
+    if operation == 'prepare':
+        f.council['provenance_status'] = 'host_observed'
+        with pytest.raises(ValueError, match='council_prepare_invalid'):
+            f.prepare()
+    else:
+        with pytest.raises(ValueError, match='council_submission_invalid'):
+            f.submit(f.submission(0, provenance_status='host_observed'))
+    assert store.read_head(tmp_path) == before

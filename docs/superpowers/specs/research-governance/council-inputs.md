@@ -27,7 +27,8 @@ versions. Council/session records are immutable; state.councils and
 state.review_sessions hold their canonical backed records. B02 supplies these
 bounded assignment/session producers and no arbitrary state mutation operation.
 New council/session/submission/position/proposal IDs cannot collide with each other
-or any previously registered artifact identity; author reuse is byte-exact only.
+or any previously registered artifact identity; only existing byte-identical
+author assignments are exempt. New author IDs cannot reuse artifact aliases.
 
 Submit payload is exactly `{submission}`. Submission is common envelope plus
 `{session_id,assignment_id,input_binding,phase,rationale,evidence_refs,positions,
@@ -76,7 +77,8 @@ so later disclosure cannot change the original response or leak through it.
 Other command receipts retain their existing internal orchestration semantics.
 
 host_id/model_id remain declared identity claims. Submission provenance_status
-and exact observation_refs are carried separately; observed evidence does not
+and exact observation_refs are carried separately; host_observed requires a
+nonempty observation_refs list for both council and submission records; observed evidence does not
 authenticate actor identity or demonstrate peer isolation. B02 reports
 isolation_level=instructions_only and never accepts an isolated boolean.
 The actual acceptance observation is

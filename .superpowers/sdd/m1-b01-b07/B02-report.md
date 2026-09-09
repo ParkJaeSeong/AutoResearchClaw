@@ -37,3 +37,14 @@ hosts/tools/configurations remain untested. Model/host labels are declarations;
 exact observation refs are separate evidence, not identity/isolation proof.
 No experiments, runtime prerequisite seeds, CLI/UI, arbitrary state writers,
 scientific validation, user approval authority or automatic issue resolution added.
+
+## Independent review correction wave
+
+Confirmed the two review findings with public-command RED: 3 failed, 20 passed.
+Freshness exemption now applies only to existing byte-identical author assignments,
+so a new author cannot overwrite a shared input artifact alias. The common council
+and submission envelope validator now enforces host_observed ⇒ nonempty exact
+observation_refs. All regressions assert rejected command HEAD preservation.
+
+Final focused GREEN: `.venv/bin/python -m pytest tests/codex_native/research_graph/test_councils.py -q`
+→ 23 passed (1.45s). `git diff --check` clean. No broad/predecessor runs.
