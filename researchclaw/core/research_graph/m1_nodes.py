@@ -11,8 +11,8 @@ from .issues import _require
 
 _FIELDS = set(_COMMON) | {'node', 'attempt', 'previous_ref_key', 'input_refs', 'content', 'revision_reason'}
 _PARENTS = {'scope': (), 'questions': ('scope',), 'search': ('scope', 'questions'),
-            'screen': ('scope', 'questions', 'search')}
-_NEXT = {'scope': 'questions', 'questions': 'search', 'search': 'screen', 'screen': 'collect'}
+            'screen': ('scope', 'questions', 'search'), 'collect': ('screen',), 'extract': ('screen', 'collect')}
+_NEXT = {'scope': 'questions', 'questions': 'search', 'search': 'screen', 'screen': 'collect', 'collect': 'extract', 'extract': 'synthesize'}
 _CONTENT = {'scope': {'user_goal': 'text', 'user_constraints': ('array', 'text'), 'agent_assumptions': ('array', 'text')},
             'questions': {'questions': ('array', {'question': 'text', 'rationale': 'text'}),
                           'agent_assumptions': ('array', 'text')},
@@ -46,6 +46,9 @@ def _native(inputs, collection, record, event_type, payload):
 
 
 def _content_shape(node, content):
+    if node in ('collect', 'extract'):
+        from .m1_evidence import content_shape
+        return content_shape(node, content)
     if node == 'screen':
         if (type(content) is not dict or type(content.get('search_log')) is not list
                 or any(type(row) is not dict or type(row.get('result_count')) is not int
@@ -109,6 +112,9 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         predecessor, current = _node_identity(inputs, node)
         _require(type(previous) is dict and previous == current and _valid('text', artifact['revision_reason']),
                  'm1_revision_invalid')
+        if node in ('collect', 'extract'):
+            from .m1_evidence import require_mismatch_publication
+            require_mismatch_publication(snapshot, node)
         # Repair may replace an invalid council setup. Preserve native disclosed
         # proposals without requiring that predecessor's review policy to pass.
         for identity, declared in inputs.state.get('councils', {}).items():
@@ -128,6 +134,10 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         _require(review_node(snapshot, parent)['ready'], 'm1_upstream_review_required')
     for ref in artifact['observation_refs']:
         inputs.reference(ref)
+    extra_objects = {}
+    if node in ('collect', 'extract'):
+        from .m1_evidence import validate_content
+        extra_objects = validate_content(snapshot, inputs, artifact)
     if node in ('search', 'screen'):
         from .m1_search import validate_search_content
         validate_search_content(inputs, artifact)
@@ -136,7 +146,7 @@ def register_node(snapshot: dict, payload: dict) -> dict:
         'm1_node_heads': {**inputs.state.get('m1_node_heads', {}), node: artifact['id']}},
         'event': {**store._VERSION, 'type': 'm1_node_registered',
                   'payload': {'node': node, 'revision_id': artifact['id'], 'attempt': artifact['attempt']}},
-        'object_inputs': {f'm1/nodes/{node}': store._canonical(artifact)}}
+        'object_inputs': {f'm1/nodes/{node}': store._canonical(artifact), **extra_objects}}
 
 
 def _council(inputs, artifact, ref):
@@ -222,6 +232,9 @@ def _judgments(inputs, council, records, reasons):
 
 def review_node(snapshot: dict, node_id: str) -> dict:
     """Pure current-node review readiness, never approval or execution readiness."""
+    if node_id in ('collect', 'extract'):
+        from .m1_evidence import prepare_evidence_check
+        return prepare_evidence_check(snapshot, node_id=node_id)
     inputs = _context(snapshot)
     artifact, ref = current_node(inputs, node_id)
     reasons, unresolved, unpublished = [], set(), set()

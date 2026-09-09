@@ -12,11 +12,13 @@ from .verification import prepare_verification, register_verification_result
 from .councils import prepare_council, register_submission, public_result
 from .m1_nodes import register_node
 from .m1_search import decide_corpus, bind_corpus
+from .m1_evidence import assign_evidence, observe_evidence
 
 _HANDLERS = {'issue.event': propose_issue_event,
              'verification.prepare': prepare_verification,
              'verification.result': register_verification_result,
              'council.prepare': prepare_council, 'council.submit': register_submission,
+             'm1.evidence.assign': assign_evidence, 'm1.evidence.observe': observe_evidence,
              'm1.node.register': register_node, 'm1.corpus.decide': decide_corpus, 'm1.corpus.bind': bind_corpus}
 _COUNCIL_OPERATIONS = {'council.prepare', 'council.submit'}
 
@@ -73,7 +75,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
         if operation in ('issue.event', 'verification.prepare', 'verification.result', 'm1.node.register',
-                         'm1.corpus.decide', 'm1.corpus.bind') or operation in _COUNCIL_OPERATIONS:
+                         'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))
