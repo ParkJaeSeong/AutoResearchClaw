@@ -15,6 +15,26 @@ _HANDLERS = {'issue.event': propose_issue_event,
              'verification.result': register_verification_result}
 
 
+def _hydrate_policy_snapshot(base, history):
+    """Attach verified ancestry and bytes for pure policy validation."""
+    snapshot = json.loads(store._canonical(store._receipt(*history[-1])))
+    snapshot['_issue_context'] = {
+        'history': json.loads(store._canonical([[head, record] for head, record in history])),
+        'objects': {digest: store._read_file(base / 'objects' / digest)
+                    for digest in snapshot['objects']},
+    }
+    return snapshot
+
+
+def read_policy_snapshot(root: Path) -> dict:
+    """Read one verified HEAD with the private context required by pure policies."""
+    base = store._store_path(root)
+    if not base.exists():
+        raise ValueError('research_graph_project_not_found')
+    history = store._history(base)
+    return _hydrate_policy_snapshot(base, history)
+
+
 def register_operation(operation, handler):
     if not isinstance(operation, str) or not operation.strip() or not callable(handler) or operation in _HANDLERS:
         raise ValueError('research_graph_operation_invalid')
@@ -45,10 +65,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
         if operation in ('issue.event', 'verification.prepare', 'verification.result'):
-            handler_snapshot['_issue_context'] = {
-                'history': json.loads(store._canonical([[head, record] for head, record in history])),
-                'objects': {digest: store._read_file(base / 'objects' / digest)
-                            for digest in snapshot['objects']}}
+            handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))
         event['payload']['_command_request'] = fingerprint
