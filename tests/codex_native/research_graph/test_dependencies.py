@@ -234,3 +234,16 @@ def test_missing_verified_context_fails_closed(tmp_path):
     f = Fixture(tmp_path)
     with pytest.raises(ValueError, match='^issue_context_missing$'):
         plan(store.read_head(tmp_path), [])
+
+
+def test_later_typed_id_collision_rejected_instead_of_reusing_historical_ref(tmp_path):
+    f = Fixture(tmp_path); source = f.raw('source', b's')
+    verification = {**f.envelope(), 'issue_ids': [], 'method': 'calculation', 'question': 'Check arithmetic',
+        'input_refs': [source], 'acceptance_rule': 'Exact equality', 'owner_assignment_id': uid(), 'budget_ref': source}
+    ref = f.register('verifications', verification, 'Verification')
+    f.edge(source, ref, 'tests')
+    result = {**f.envelope(), 'id': verification['id'], 'verification_id': verification['id'],
+        'output_refs': [source], 'outcome': 'supported', 'checked_scope': ['Exact equality'], 'limitations': []}
+    f.register('verification_results', result, 'VerificationResult')
+    with pytest.raises(ValueError, match='^dependency_reference_ambiguous$'):
+        f.check([])

@@ -63,6 +63,9 @@ class _References:
                      'dependency_reference_invalid')
             _require(_KINDS[collection] is None or not validate_record(_KINDS[collection], record),
                      'dependency_record_invalid')
+            current_matches = [name for name in _KINDS
+                               if ref['artifact_id'] in inputs.state.get(name, {})]
+            _require(len(current_matches) <= 1, 'dependency_reference_ambiguous')
             return inputs.state.get(collection, {}).get(ref['artifact_id']) == record
         _require(self.aliases[ref['head_id']].get(ref['artifact_id']) == ref['sha256'],
                  'dependency_reference_invalid')

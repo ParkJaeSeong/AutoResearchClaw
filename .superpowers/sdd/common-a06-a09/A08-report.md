@@ -38,3 +38,14 @@ No broad suite, actual research/host/CLI/UI, event producer, external side effec
 or approval authentication ran. Parent owns independent review and acceptance;
 synthetic fixture validation is not actual research acceptance. `git diff --check`
 is required immediately before this report's commit.
+
+## Independent review correction
+
+Confirmed P2: a typed reference valid at its ancestor could incorrectly remain
+reusable after HEAD introduced the same UUID into another typed collection.
+The focused regression registered a valid VerificationResult sharing an earlier
+Verification's ID and observed RED: 1 failed, 34 passed (0.66s). Resolution now
+checks HEAD's typed collection matches before returning currentness and rejects
+`dependency_reference_ambiguous` for collisions. The regression asserts snapshot,
+HEAD and prior object bytes are unchanged on refusal. Focused GREEN: 35 passed
+(0.64s). No other code, shared files, producers or broad suites changed.
