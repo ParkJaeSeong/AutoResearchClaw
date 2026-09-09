@@ -86,3 +86,14 @@ The actual acceptance observation is
 could read a synthetic peer private file in the shared workspace. Other hosts are
 untested. This is projection separation, not filesystem access control. Raw store
 and read_policy_snapshot are trusted orchestrator surfaces, not reviewer APIs.
+
+B07 integration: validated frozen shared Issue wrappers are historical context
+leaves in the allowed graph. Their exact bodies/refs remain in `shared_issues`,
+but target_refs/observation_refs are not automatically traversed or promoted to
+current evidence. Embedded reference metadata is still checked against private
+submission/proposal/position IDs and hashes before exposing the Issue body;
+private context is rejected. Only the current input binding and explicitly
+allowed current evidence graph grant source access. A stale or foreign archived
+Issue target cannot be supplied as current evidence merely because that Issue
+is shared. This permits discussion of preserved Issues after hypothesis revision
+and materialized A03 import without exposing historical/private raw source bytes.

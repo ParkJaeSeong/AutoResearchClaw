@@ -311,3 +311,32 @@ def test_host_observed_requires_observation_refs_for_council_and_submission(tmp_
         with pytest.raises(ValueError, match='council_submission_invalid'):
             f.submit(f.submission(0, provenance_status='host_observed'))
     assert store.read_head(tmp_path) == before
+
+
+def test_shared_issue_keeps_historical_target_context_without_current_evidence_access(tmp_path):
+    f = Fixture(tmp_path, prepare=False)
+    issue = f.proposal(); old = deepcopy(f.source); f.register('issues', issue)
+    source = deepcopy(f.head['state']['fixture_inputs'][old['artifact_id']]); source['text'] = 'Revised current source'
+    f.source = f.register('fixture_inputs', source)[0]
+    f.session['input_binding'] = f.source; f.council['allowed_evidence_refs'] = [f.source]; f.council['issue_ids'] = [issue['id']]
+    f.prepare(); packet = f.packet(0)
+    assert packet['shared_issues'][0]['issue'] == issue
+    assert old not in packet['allowed_evidence_refs']
+    before = f.head['id']
+    with pytest.raises(ValueError, match='^council_evidence_not_allowed$'):
+        f.submit(f.submission(0, evidence_refs=[old]))
+    assert store.read_head(tmp_path)['id'] == before
+
+
+def test_shared_issue_historical_leaf_cannot_expose_private_target_hash(tmp_path):
+    f = Fixture(tmp_path); hidden = f.submission(0); f.submit(hidden)
+    issue = f.proposal(); issue['target_refs'] = [f.ref(hidden)]; f.register('issues', issue)
+    reviewers = [f.assignment(f'other-{role}', 'resolver') for role in ('domain', 'methodology', 'critical')]
+    session = dict(id=uid(), project_id=f.project, input_binding=f.source, participant_assignment_ids=[a['id'] for a in reviewers], frozen=True)
+    council = {**f.council, **f.envelope('coordinator'), 'session_id': session['id'], 'issue_ids': [issue['id']],
+               'required_roles': {a['actor_id']: a['id'] for a in reviewers}}
+    before = f.head['id']
+    with pytest.raises(ValueError, match='^council_private_input$'):
+        commands.apply_command(tmp_path, operation='council.prepare', expected_head=before, command_id=uid(),
+            payload=dict(assignments=[f.author, *reviewers], review_session=session, council=council))
+    assert store.read_head(tmp_path)['id'] == before

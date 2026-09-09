@@ -126,10 +126,11 @@ def _private(inputs):
     return private_ids, private_hashes
 
 
-def _graph(inputs, roots):
+def _graph(inputs, roots, *, issue_leaves=()):
     resolver = _References(inputs)
     private_ids, private_hashes = _private(inputs)
     allowed, pending = {}, list(roots)
+    leaves = {_node(ref) for ref in issue_leaves}
     while pending:
         ref = pending.pop()
         _require(resolver.resolve(ref), 'council_input_stale')
@@ -139,6 +140,14 @@ def _graph(inputs, roots):
         if key in allowed:
             continue
         allowed[key] = ref
+        if key in leaves:
+            # Frozen Issue context is not a current-source dependency. Preserve
+            # its exact historical target metadata without granting byte access.
+            issue = inputs.reference(ref, 'issues', 'Issue')
+            for source in [*issue['target_refs'], *issue['observation_refs']]:
+                _require(source['artifact_id'] not in private_ids and source['sha256'] not in private_hashes,
+                         'council_private_input')
+            continue
         try:
             value = json.loads(inputs.objects[ref['sha256']])
         except (UnicodeDecodeError, ValueError):
@@ -184,7 +193,8 @@ def reviewer_packet(snapshot: dict, assignment_id: str) -> dict:
     session = _session(inputs, council)
     shared_issues = _shared_issues(inputs, council)
     shared = _graph(inputs, [session['input_binding'], *council['allowed_evidence_refs'],
-                             *(item['issue_ref'] for item in shared_issues)])
+                             *(item['issue_ref'] for item in shared_issues)],
+                    issue_leaves=[item['issue_ref'] for item in shared_issues])
     records = _submissions(inputs, council)
     phase = _phase(inputs, council, records)
     disclosed = _disclosed(inputs, council, records)
@@ -243,8 +253,10 @@ def prepare_council(snapshot: dict, payload: dict) -> dict:
              and not {by_id[i]['actor_id'] for i in reviewers} & {by_id[i]['actor_id'] for i in authors}, 'council_assignment_invalid')
     _fresh_ids(inputs, [council['id'], session['id'], *by_id],
                reusable=authors & set(inputs.state.get('assignments', {})))
+    shared_issues = _shared_issues(inputs, council)
     _graph(inputs, [session['input_binding'], *council['allowed_evidence_refs'], *council['observation_refs'],
-                    *(item['issue_ref'] for item in _shared_issues(inputs, council))])
+                    *(item['issue_ref'] for item in shared_issues)],
+           issue_leaves=[item['issue_ref'] for item in shared_issues])
     for identity in council['issue_ids']:
         inputs.registered('issues', identity, 'Issue')
     objects = {record['id']: store._canonical(record) for record in [council, session, *assignments]}
@@ -277,8 +289,10 @@ def register_submission(snapshot: dict, payload: dict) -> dict:
     _require(submission['recommendation'] in ('ready', 'ready_with_limits', 'revise', 'defer') if phase == 'final'
              else submission['recommendation'] is None, 'council_recommendation_invalid')
     disclosed = _disclosed(inputs, council, records)
+    shared_issues = _shared_issues(inputs, council)
     allowed = _graph(inputs, [session['input_binding'], *council['allowed_evidence_refs'],
-                             *(item['issue_ref'] for item in _shared_issues(inputs, council))])
+                             *(item['issue_ref'] for item in shared_issues)],
+                     issue_leaves=[item['issue_ref'] for item in shared_issues])
     prior_items = [item for p in _PHASES[:_PHASES.index(phase)] for item in disclosed[p]]
     disclosed_refs = {_node(item['submission_ref']) for item in prior_items}
     allowed.update({_node(item['submission_ref']): item['submission_ref'] for item in prior_items})

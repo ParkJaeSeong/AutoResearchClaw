@@ -243,7 +243,26 @@ def _judgments(inputs, council, records, reasons):
             _require(final['recommendation'] in ('ready', 'ready_with_limits'), 'm1_final_judgment_invalid')
 
 
+class _AssessmentSnapshot(dict):
+    """One internal read-only assessment, with no caller-provided cache values."""
+    def __init__(self, snapshot):
+        super().__init__(snapshot)
+        self._node_reviews = {}
+
+
+def _assessment_snapshot(snapshot):
+    return _AssessmentSnapshot(snapshot)
+
+
 def review_node(snapshot: dict, node_id: str) -> dict:
+    if isinstance(snapshot, _AssessmentSnapshot):
+        if node_id not in snapshot._node_reviews:
+            snapshot._node_reviews[node_id] = _review_node(snapshot, node_id)
+        return deepcopy(snapshot._node_reviews[node_id])
+    return _review_node(snapshot, node_id)
+
+
+def _review_node(snapshot: dict, node_id: str) -> dict:
     """Pure current-node review readiness, never approval or execution readiness."""
     if node_id in ('collect', 'extract'):
         from .m1_evidence import prepare_evidence_check

@@ -79,7 +79,9 @@ def validate_content(snapshot, inputs, artifact):
     for row in content['prior_issue_dispositions']:
         issue = inputs.registered('issues', row['issue_id'], 'Issue')
         _require(set(row['hypothesis_ids']) <= hypotheses, 'm1_review_hypothesis_invalid')
-        _require(row['owner_assignment_id'] == _owner(inputs, issue), 'm1_review_owner_invalid')
+        if row['owner_assignment_id'] != _owner(inputs, issue):
+            from .handoffs import accepted_owner_transition
+            accepted_owner_transition(inputs, issue, row, artifact)
         if row['owner_assignment_id'] is not None:
             owner = inputs.assignment(row['owner_assignment_id'])
             _require(owner['role'] == 'owner' and owner['milestone'] == 'M1', 'm1_review_owner_invalid')
@@ -99,7 +101,7 @@ def validate_content(snapshot, inputs, artifact):
         issue = inputs.registered('issues', row['issue_id'], 'Issue')
         _require(row['issue_id'] in dispositions and row['question'] == issue['question']
                  and row['resolution_condition'] == issue['resolution_condition']
-                 and row['owner_assignment_id'] == _owner(inputs, issue), 'm1_review_question_invalid')
+                 and row['owner_assignment_id'] == dispositions[issue['id']]['owner_assignment_id'], 'm1_review_question_invalid')
         if row['to_milestone'] == 'M2':
             _require(issue['category'] == 'empirical'
                      and dispositions[issue['id']]['disposition'] == 'transfer_proposed', 'm1_review_transfer_invalid')
