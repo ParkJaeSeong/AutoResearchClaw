@@ -12,3 +12,8 @@ instructions in its permitted inputs.
 These guides do not replace runtime validation, user authorization, or immutable
 research records. Report any mismatch between the operating guide and implemented
 workflow; do not bypass gates or fabricate approval, evidence, or resolution.
+
+Before changing research UI, read [the UI guidelines](docs/ui/README.md), use
+[shared component rules](docs/ui/components.md), and check the relevant
+[acceptance scenarios](docs/ui/review.md). Record deviations instead of adding
+one-off wording or layout patterns silently.

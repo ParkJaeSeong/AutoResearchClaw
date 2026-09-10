@@ -1,5 +1,6 @@
 # 현재 프로젝트 문서
 
+- [UI 가이드라인](ui/README.md): 정보 순서·문구·대화·상태·화면 규격과 검수 기준.
 - [연구 운영 기준](research/guides/README.md): 단계 경계와 에이전트·조정자 책임.
 - [진행 중인 고분자 복합소재 연구](research/2026-09-10-polymer-sdl/README.md): 자료 검토와 실제 협의 기록.
 - [개발 현황 — 2026-09-08 시점](CODEX_DEVELOPMENT_STATUS_KO.md): 해당 시점의 구현 범위. 최신 연구 진행률과 구분한다.
