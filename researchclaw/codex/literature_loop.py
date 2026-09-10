@@ -4,12 +4,11 @@ Produces auditable exploration reports, not corpus consent or verified evidence.
 CLI events prove tool execution; per-source reading remains agent-declared.
 """
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 
 ROLES = {
     'domain': '고분자 복합소재의 열·전기·기계 물성, 조성/공정/구조, 공개 데이터와 직접 관측을 탐색한다.',
@@ -98,22 +97,44 @@ def stop_reason(reports, round_number, max_rounds):
     return None
 
 
-def research(host, output, role, topic, round_number, previous, timeout):
+def wait_for_host(process, run, interval=30):
+    """Polling is observation only: elapsed time never terminates the host."""
+    while True:
+        events = run/'events.jsonl'
+        save(run/'activity.json',dict(pid=process.pid, status='running',
+             checked_at=datetime.now(timezone.utc).isoformat(),
+             event_bytes=events.stat().st_size if events.exists() else 0,
+             last_event_at=events.stat().st_mtime if events.exists() else None,
+             hard_timeout_seconds=None))
+        try:
+            code = process.wait(timeout=interval)
+        except subprocess.TimeoutExpired:
+            continue
+        save(run/'activity.json',dict(pid=process.pid,status='exited',returncode=code,
+             checked_at=datetime.now(timezone.utc).isoformat(),hard_timeout_seconds=None))
+        return code
+
+
+def research(host, output, role, topic, round_number, previous, recovery=None):
     run = output / f'round-{round_number}-{role}'
     run.mkdir(exist_ok=False)
     prompt = build_prompt(role, topic, round_number, previous)
+    if recovery:
+        prompt += '\n이전 중단 작업에서 보존된 본인 검색 기록(원문 내용이 아닌 재개 단서):\n' + json.dumps(recovery,ensure_ascii=False)
+        prompt += '\n기존 후보/검색은 재사용하고, 확인되지 않은 원문 내용만 필요한 만큼 다시 확인하세요. 이미 읽었다고 추정하지 마세요.'
     (run/'prompt.txt').write_text(prompt)
     save(run/'schema.json', SCHEMA)
     started = datetime.now(timezone.utc).isoformat()
-    with tempfile.TemporaryDirectory(prefix='research-discovery-') as workspace:
-        command = [host, 'exec', '--ephemeral', '--sandbox','read-only', '--skip-git-repo-check',
+    workspace = run/'workspace'
+    workspace.mkdir()
+    command = [host, 'exec', '--sandbox','read-only', '--skip-git-repo-check',
                    '-c','web_search="live"', '--json', '--output-schema',str(run/'schema.json'),
                    '--output-last-message',str(run/'answer.json'), '-']
-        # Persist events as they arrive, including failures and partial work.
-        with (run/'events.jsonl').open('w') as events, (run/'stderr.txt').open('w') as errors:
-            process = subprocess.run(command, input=prompt, text=True, stdout=events, stderr=errors,
-                                     cwd=workspace, timeout=timeout, check=False)
-    if process.returncode:
+    # Persist the host session, workspace and streaming events. No hard deadline.
+    with (run/'prompt.txt').open() as stdin, (run/'events.jsonl').open('w') as events, (run/'stderr.txt').open('w') as errors:
+        process = subprocess.Popen(command, stdin=stdin, text=True, stdout=events, stderr=errors,cwd=workspace)
+        returncode = wait_for_host(process,run)
+    if returncode:
         raise RuntimeError(f'research_host_failed: {run}')
     events = [json.loads(line) for line in (run/'events.jsonl').read_text().splitlines() if line.startswith('{')]
     observed = audit_events(events)
@@ -133,26 +154,83 @@ def research(host, output, role, topic, round_number, previous, timeout):
     return result
 
 
-def run_loop(host, output, topic, max_rounds=3, timeout=600):
-    if max_rounds < 2 or timeout <= 0:
+def resume_inputs(root, topic):
+    root = Path(root).resolve()
+    manifest = root/'run.json'
+    if manifest.exists():
+        if json.loads(manifest.read_text())['topic'] != topic:
+            raise ValueError('resume_topic_mismatch')
+    elif not any(f'연구 주제: {topic}\n' in p.read_text() for p in root.glob('round-*/prompt.txt')):
+        raise ValueError('resume_topic_unverified')
+    records = {}
+    if (root/'reports.json').exists():
+        for report in json.loads((root/'reports.json').read_text()):
+            records[(report['round'],report['role'])] = report
+    recovery = {}
+    for directory in sorted(root.glob('round-*')):
+        if not directory.is_dir():
+            continue
+        _,number,role = directory.name.split('-',2)
+        key = (int(number),role)
+        if role not in ROLES:
+            raise ValueError('resume_role_invalid')
+        if (directory/'report.json').exists():
+            records[key] = json.loads((directory/'report.json').read_text())
+        elif (directory/'events.jsonl').exists():
+            raw = (directory/'events.jsonl').read_text()
+            lines = raw.splitlines()
+            events, partial = [], False
+            for index,line in enumerate(lines):
+                if not line.startswith('{'):
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    if index != len(lines)-1 or raw.endswith('\n'):
+                        raise
+                    partial = True
+            recovery[key] = dict(original_run=str(directory),trailing_partial_event=partial,
+                completed_web_actions=[e['item'] for e in events if e['type']=='item.completed' and e.get('item',{}).get('type')=='web_search'])
+    return records,recovery
+
+
+def run_loop(host, output, topic, max_rounds=3, resume_from=None):
+    if max_rounds < 2:
         raise ValueError('At least independent discovery and shared critique are required')
+    saved,recovery = resume_inputs(resume_from,topic) if resume_from else ({},{})
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
+    save(output/'run.json',dict(topic=topic,max_rounds=max_rounds,hard_timeout_seconds=None,
+         resumed_from=str(Path(resume_from).resolve()) if resume_from else None))
     history = []
     try:
         for round_number in range(1,max_rounds+1):
             save(output/'status.json',dict(status='running', round=round_number, max_rounds=max_rounds,
-                 per_host_timeout_seconds=timeout, completed_reports=len(history), m1_complete=False))
+                 hard_timeout_seconds=None, completed_reports=len(history), m1_complete=False))
             # All workers see the same frozen prior round; no sibling first opinions.
             previous = history[-len(ROLES):] if history else []
+            reports = [saved[(round_number,role)] for role in ROLES if (round_number,role) in saved]
+            pending = [role for role in ROLES if (round_number,role) not in saved]
+            def checkpoint():
+                current = history + sorted(reports,key=lambda r:list(ROLES).index(r['role']))
+                save(output/'reports.json',current)
+                save(output/'sources.json',merge_sources(current))
+                save(output/'status.json',dict(status='running',round=round_number,max_rounds=max_rounds,
+                     hard_timeout_seconds=None,completed_reports=len(current),reused_reports=len(saved),
+                     pending_roles=list(pending),m1_complete=False))
+            checkpoint()
             with ThreadPoolExecutor(max_workers=len(ROLES)) as pool:
-                jobs = [pool.submit(research,host,output,role,topic,round_number,previous,timeout) for role in ROLES]
-                reports, failures = [], []
-                for job in jobs:
+                jobs = {pool.submit(research,host,output,role,topic,round_number,previous,
+                                    recovery.get((round_number,role))):role for role in pending}
+                failures = []
+                for job in as_completed(jobs):
                     try:
                         reports.append(job.result())
                     except Exception as error:
                         failures.append(error)
+                    pending.remove(jobs[job])
+                    checkpoint()
+            reports.sort(key=lambda r:list(ROLES).index(r['role']))
             history.extend(reports)
             save(output/'reports.json',history)
             save(output/'sources.json',merge_sources(history))
@@ -175,6 +253,6 @@ if __name__ == '__main__':
     parser.add_argument('--output',required=True)
     parser.add_argument('--topic',required=True)
     parser.add_argument('--max-rounds',type=int,default=3)
-    parser.add_argument('--timeout',type=int,default=600)
+    parser.add_argument('--resume-from',help='Reuse completed reports and recover unfinished search traces in a new output directory')
     args=parser.parse_args()
-    run_loop(args.host,args.output,args.topic,args.max_rounds,args.timeout)
+    run_loop(args.host,args.output,args.topic,args.max_rounds,args.resume_from)

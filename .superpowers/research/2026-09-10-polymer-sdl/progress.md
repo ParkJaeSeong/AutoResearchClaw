@@ -1,5 +1,18 @@
 # Real-topic M1 progress
 
+LATEST OVERRIDE: user approved removing hard timeout after resource loss.
+literature_loop now has no timeout option; 30s wait is observational, never kills.
+restart-02 resumes restart-01: reuse4 finished reports/123 unique candidate records;
+launch only round2 domain + methodology with9 observed web actions each as clues.
+Current run path discovery-runs/restart-02; inspect status/activity files. New host
+sessions persist (no --ephemeral), own workspace remains, per-role completions
+checkpoint immediately. Old report/event bytes are preserved. Original sessions
+were ephemeral; no claim of recovered full text or model context. Max3 rounds
+remains a checkpoint after whole rounds, not a mid-task time cutoff.
+Nine focused tests passed, including no kill on polling timeout, reuse completed
+roles, successful sibling preservation, and truncated trailing-event recovery.
+Below describes the earlier run and is historical, not current running status.
+
 LATEST: user requested lifting discovery restrictions and restarting. Actual
 live-web role loop is running at discovery-runs/restart-01 (session21806).
 Read that status.json and role reports before resuming. Do not ask to approve
