@@ -144,3 +144,19 @@ if(process.env.RESEARCH_UI_VIEW) test('read-only native public snapshot renders 
     console.log(`Native DOM smoke: HEAD ${view.head_id}; ${view.revisions.length} revisions, ${rounds} disclosed statements, ${issues} Issues.`);
   }finally{delete globalThis.document;}
 });
+
+test('source intake shows acquired files and reading limits without claiming usable evidence',()=>{
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try {
+    const root=new Element('section');
+    detail.renderSourceIntake(root,{artifacts:[],source_captures:[{usage_status:'unassessed',
+      record:{id:'capture-1',filename:'<script>paper</script>.pdf',source_key:'doi:example',
+        reading_scope:'측정 절만 읽음',limitations:['단위 확인 필요'],source_version:'v1',sha256:'hash',byte_count:10}}]});
+    assert.match(root.textContent,/확보한 자료 · 1개 파일/);
+    assert.match(root.textContent,/사용 여부는 아직 판단하지 않았습니다/);
+    assert.match(root.textContent,/측정 절만 읽음/);
+    assert.match(root.textContent,/단위 확인 필요/);
+    assert.match(root.textContent,/<script>paper<\/script>/);
+    assert.doesNotMatch(root.textContent,/사용 가능|M1 완료/);
+  } finally {delete globalThis.document;}
+});

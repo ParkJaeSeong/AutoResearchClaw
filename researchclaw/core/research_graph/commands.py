@@ -16,8 +16,9 @@ from .handoffs import issue_handoff, assign_receiver, accept_handoff
 from .work_accounting import record_work, refresh_ledger
 from .m1_search import decide_corpus, bind_corpus
 from .m1_evidence import assign_evidence, observe_evidence
+from .source_intake import capture_sources
 
-_HANDLERS = {'m1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
+_HANDLERS = {'m1.source.capture': capture_sources, 'm1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
              'm1.handoff.accept': accept_handoff, 'm1.work.record': record_work, 'work_ledger.refresh': refresh_ledger,
              'm1.issue.materialize': materialize_imported_issue,
              'issue.event': propose_issue_event,
@@ -80,7 +81,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
             raise ValueError('research_graph_head_conflict')
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
-        if operation in ('m1.handoff.issue', 'm1.handoff.receiver.assign', 'm1.handoff.accept',
+        if operation in ('m1.source.capture', 'm1.handoff.issue', 'm1.handoff.receiver.assign', 'm1.handoff.accept',
                          'm1.work.record', 'work_ledger.refresh', 'm1.issue.materialize', 'issue.event', 'verification.prepare', 'verification.result', 'm1.node.register',
                          'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)

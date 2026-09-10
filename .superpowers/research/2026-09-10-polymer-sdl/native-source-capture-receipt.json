@@ -1,0 +1,19 @@
+{
+  "operation": "m1.source.capture",
+  "command_id": "polymer-m1-source-capture-01",
+  "previous_head": "3b54dd2ac433bc8eedc04090e54c20e57b4586e0679ba3383560b909e58f43e8",
+  "head_id": "908f129e1fcfb003624487fc01de73dd9c562e651283ae819916e9ab18e83b5a",
+  "capture_ids": [
+    "33d68d26-c300-58d8-9cda-d3118e723704",
+    "6bdc9157-4781-5e61-9aad-1496a0e901a2",
+    "8c69b0d8-9d1f-57a9-89f1-91efcc8a8f64",
+    "cb332de2-b615-5000-b2e7-bbcdaaee82f5",
+    "e5e142d9-2e0b-59f9-be78-8737ce1ebfd4"
+  ],
+  "file_count": 5,
+  "source_group_count": 2,
+  "other_research_state_unchanged": true,
+  "open_issues": 22,
+  "ui_api_verified": true,
+  "browser_verified": false
+}

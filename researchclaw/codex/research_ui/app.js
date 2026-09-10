@@ -1,4 +1,4 @@
-import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,renderHandoff} from './detail.js';
+import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,renderHandoff,renderSourceIntake} from './detail.js';
 import {renderResearchGraph} from './graph.js';
 import {renderIssueList,renderTimeline} from './timeline.js';
 import {createLiveFeed} from './live.js';
@@ -44,6 +44,7 @@ export function renderResearchView(root,view,selection={},callbacks={}) {
     for(const action of node.required_actions??[])technical.append(element('p',action,'prose'));notice.append(technical);
   }
   content.append(notice);
+  renderSourceIntake(content,view);
   const discoverySlot=element('div',undefined,'discovery-slot');content.append(discoverySlot);
   const workspace=element('div',undefined,'workspace'),sidebar=element('aside',undefined,'sidebar'),map=element('section',undefined,'card'),issues=element('section',undefined,'card');
   const change=patch=>callbacks.onSelection?.({...chosen,...patch});

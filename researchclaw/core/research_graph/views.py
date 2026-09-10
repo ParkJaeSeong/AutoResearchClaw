@@ -268,6 +268,13 @@ def _project(snapshot, current_head):
             view['required_actions'].extend(view[key].get('required_actions', []))
     view['reason_codes'] = list(dict.fromkeys(view['reason_codes']))
     view['required_actions'] = list(dict.fromkeys(view['required_actions']))
+    from .source_intake import captured_records
+    view['source_captures'] = []
+    for record in captured_records(snapshot):
+        entry = public.entry('source_captures', record)
+        if entry is not None:
+            entry['usage_status'] = 'unassessed'
+            view['source_captures'].append(entry)
     view['artifacts'] = list(public.artifacts.values())
     return deepcopy(view), public.raw
 

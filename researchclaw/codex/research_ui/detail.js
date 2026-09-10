@@ -124,3 +124,25 @@ export function renderHandoff(root,view) {
     section.append(renderRef(view,entry.ref),recordDetails('인계 평가 전체',a,`handoff:${entry.record.id}`));root.append(section);
   }
 }
+
+export function renderSourceIntake(root,view) {
+  const rows=view.source_captures??[];
+  if(!rows.length)return;
+  const section=element('section',undefined,'card');
+  section.append(element('h2',`확보한 자료 · ${rows.length}개 파일 기록`),
+    element('p','파일과 읽은 범위를 저장했습니다. 사용 여부는 아직 판단하지 않았습니다.','muted'));
+  const list=element('details');list.dataset.key='source-intake';
+  list.append(element('summary','자료와 확인할 내용 보기'));
+  for(const {record:r,ref} of rows){
+    const item=element('section');
+    item.append(element('h3',r.filename),element('p',r.reading_scope,'prose'));
+    if(r.limitations.length){const limits=element('ul');for(const text of r.limitations)limits.append(element('li',text));item.append(limits);}
+    const metadata=element('details');metadata.dataset.key=`capture:${r.id}`;
+    metadata.append(element('summary','출처·버전·파일 확인 정보'),element('p',r.source_key,'prose'),
+      element('p',`버전: ${r.source_version}`,'prose'),element('p',`SHA256: ${r.sha256}`,'prose'));
+    if(sourceURL(r.access_url)){const link=element('a','출처 열기');link.href=sourceURL(r.access_url);link.target='_blank';link.rel='noopener noreferrer';metadata.append(link);}
+    if(ref)metadata.append(renderRef(view,ref));
+    item.append(metadata);list.append(item);
+  }
+  section.append(list);root.append(section);
+}
