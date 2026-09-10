@@ -1,5 +1,7 @@
 # 조건 변수·시료 계보 비교와 재검토안
 
+후속 [rid44100 원문·목표값 대조](target-pair-review.md)에 시료별 행 대응과 보류 범위를 기록했다.
+
 2026-09-10. 조정자의 재현 가능한 집계와 후속 검토안이다. 모델 학습이나 실험 결과가 아니다.
 [저자 저장소](https://github.com/shimakawa-hvg/expt-group-partitioning)의 가공 EC/TC CSV와
 시료 상세표, [공식 보충 XLSX](https://acs.figshare.com/articles/dataset/25657025)를 확인했다.

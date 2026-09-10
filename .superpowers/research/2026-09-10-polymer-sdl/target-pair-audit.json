@@ -1,0 +1,248 @@
+{
+  "source_sha256": {
+    "data_EC.csv": "19896c37279f78d44d5a3a08773fdfa57af2b1e6a9373137fae6889de0872396",
+    "sample_detail_EC.csv": "f6c26096b9f9a87bb89f130e00b1874e135921cc4e214c320f90052e2a0a1783"
+  },
+  "paper": {
+    "doi": "10.1016/j.polymer.2011.06.046",
+    "rid": "44100",
+    "title": "Modeling and characterization of the electrical conductivity of carbon nanotube-based polymer composites",
+    "publisher_url": "https://www.sciencedirect.com/science/article/pii/S0032386111005350",
+    "access": "publisher search excerpt read; full article and Fig.4 not inspected",
+    "excerpt_paraphrase": "The publisher search excerpt describes Fig.4 as AC conductivity versus frequency at several filler fractions and reports testing three specimens per fraction while displaying typical data.",
+    "limits": "Neither plotted frequencies nor correspondence of each processed target to a curve, point or specimen are verified."
+  },
+  "pairs": [
+    {
+      "sample_id": "44100-2-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        736,
+        737
+      ],
+      "detail_csv_line": 967,
+      "vol_percent_as_recorded": "0.1",
+      "log10_ec_values": [
+        -12.0,
+        -7.698970004336019
+      ],
+      "absolute_log_difference": 4.301029995663981,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-12.0",
+      "detail_matching_processed_lines": [
+        736
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-3-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        738,
+        739
+      ],
+      "detail_csv_line": 968,
+      "vol_percent_as_recorded": "0.3",
+      "log10_ec_values": [
+        -11.69897000433602,
+        -7.522878745280337
+      ],
+      "absolute_log_difference": 4.176091259055683,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-11.69897000433602",
+      "detail_matching_processed_lines": [
+        738
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-4-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        740,
+        741
+      ],
+      "detail_csv_line": 969,
+      "vol_percent_as_recorded": "0.4",
+      "log10_ec_values": [
+        -11.221848749616356,
+        -7.096910013008056
+      ],
+      "absolute_log_difference": 4.1249387366083,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-11.221848749616356",
+      "detail_matching_processed_lines": [
+        740
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-5-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        756,
+        757
+      ],
+      "detail_csv_line": 970,
+      "vol_percent_as_recorded": "0.5",
+      "log10_ec_values": [
+        -9.30102999566398,
+        -7.301029995663981
+      ],
+      "absolute_log_difference": 1.9999999999999982,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-9.30102999566398",
+      "detail_matching_processed_lines": [
+        756
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-6-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        772,
+        773
+      ],
+      "detail_csv_line": 971,
+      "vol_percent_as_recorded": "0.7",
+      "log10_ec_values": [
+        -6.698970004336019,
+        -6.301029995663981
+      ],
+      "absolute_log_difference": 0.3979400086720375,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-6.698970004336019",
+      "detail_matching_processed_lines": [
+        772
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-7-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        800,
+        801
+      ],
+      "detail_csv_line": 972,
+      "vol_percent_as_recorded": "1.7",
+      "log10_ec_values": [
+        -3.6989700043360174,
+        -3.5228787452803374
+      ],
+      "absolute_log_difference": 0.17609125905568002,
+      "differing_columns": [
+        "log10(EC)"
+      ],
+      "detail_log_target": "-3.5228787452803374",
+      "detail_matching_processed_lines": [
+        801
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "unresolved_measurement_identity"
+    },
+    {
+      "sample_id": "44100-8-1-1",
+      "rid": "44100",
+      "source_csv_lines": [
+        845,
+        846
+      ],
+      "detail_csv_line": 973,
+      "vol_percent_as_recorded": "3.4",
+      "log10_ec_values": [
+        -1.6989700043360187,
+        -1.6989700043360187
+      ],
+      "absolute_log_difference": 0.0,
+      "differing_columns": [],
+      "detail_log_target": "-1.6989700043360187",
+      "detail_matching_processed_lines": [
+        845,
+        846
+      ],
+      "detail_condition": "23 [C] , 10Hz",
+      "detail_method": "Impedance spectroscopy",
+      "detail_remark": "AC coonductivity, taken from the Fig.4",
+      "processed_ac": "0",
+      "processed_impedance": "1",
+      "status": "identical_rows_unresolved_replication"
+    }
+  ],
+  "non_destructive_hold_manifest": {
+    "scope": "entire rid44100 for any prospective predictive evaluation until event identity is reconstructed",
+    "csv_lines": [
+      736,
+      737,
+      738,
+      739,
+      740,
+      741,
+      756,
+      757,
+      772,
+      773,
+      800,
+      801,
+      845,
+      846
+    ],
+    "rows": 14,
+    "unique_samples": 7,
+    "remaining_pc_rows_if_held": 123,
+    "remaining_pc_sample_ids": 123,
+    "remaining_pc_rids": 15,
+    "remaining_pc_expts": 11,
+    "applied_to_source_data": false,
+    "remaining_data_validated": false
+  },
+  "decisions": [
+    "Do not infer absence of AC measurements from ac=0: detailed records explicitly describe AC measurements for these rows.",
+    "Do not average, delete, select the matching target or assign frequencies by magnitude.",
+    "Missing frequency is a plausible explanation candidate, not a demonstrated cause of the target differences.",
+    "A shared sample ID does not identify a unique measurement event; the CSV does not identify three independent replicate measurements per fraction.",
+    "Full figure or author measurement extraction lineage is required before releasing the held records."
+  ],
+  "m1_complete": false,
+  "native_issues_resolved": false
+}
