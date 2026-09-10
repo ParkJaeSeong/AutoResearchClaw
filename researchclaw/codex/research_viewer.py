@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from .discovery_view import build_discovery_view
 from researchclaw.core.research_graph import store
 from researchclaw.core.research_graph.views import build_view, read_artifact
 
@@ -16,6 +17,7 @@ _STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
            '/detail.js': ('detail.js', 'text/javascript; charset=utf-8'),
            '/timeline.js': ('timeline.js', 'text/javascript; charset=utf-8'),
            '/trace.js': ('trace.js', 'text/javascript; charset=utf-8'),
+           '/discovery.js': ('discovery.js', 'text/javascript; charset=utf-8'),
            '/live.js': ('live.js', 'text/javascript; charset=utf-8'),
            '/styles.css': ('styles.css', 'text/css; charset=utf-8')}
 
@@ -26,13 +28,16 @@ def is_allowed_host(host: str) -> bool:
     return host == '127.0.0.1'
 
 
-def _make_server(root: Path, *, host: str, port: int) -> ThreadingHTTPServer:
+def _make_server(root: Path, *, host: str, port: int, discovery_root: Path | None = None) -> ThreadingHTTPServer:
     if not is_allowed_host(host):
         raise ValueError('research_viewer_host_invalid')
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('research_viewer_port_invalid')
     root = store._checked_path(root)
     store.read_head(root)
+    if discovery_root is not None:
+        discovery_root = store._checked_path(discovery_root)
+        build_discovery_view(root, discovery_root)
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -72,6 +77,8 @@ def _make_server(root: Path, *, host: str, port: int) -> ThreadingHTTPServer:
                 query = parse_qs(target.query, keep_blank_values=True, strict_parsing=True)
                 if set(query) - {'head'} or any(len(values) != 1 for values in query.values()):
                     self._send(400, b'Invalid query.'); return
+                if path == '/api/discovery' and query:
+                    self._send(400, b'Invalid query.'); return
                 head_id = query.get('head', [None])[0]
                 if query and (not path.startswith('/api/') or not store._is_digest(head_id)):
                     self._send(400, b'Invalid query.'); return
@@ -81,6 +88,9 @@ def _make_server(root: Path, *, host: str, port: int) -> ThreadingHTTPServer:
                 if path in _STATIC:
                     name, content_type = _STATIC[path]
                     self._send(200, store._checked_path(_STATIC_ROOT / name).read_bytes(), content_type)
+                elif path == '/api/discovery':
+                    body = json.dumps(build_discovery_view(root, discovery_root), ensure_ascii=False, allow_nan=False).encode()
+                    self._send(200, body, 'application/json; charset=utf-8')
                 elif path == '/api/view':
                     body = json.dumps(build_view(root, head_id=head_id), ensure_ascii=False, allow_nan=False).encode()
                     self._send(200, body, 'application/json; charset=utf-8')
@@ -108,8 +118,8 @@ def _make_server(root: Path, *, host: str, port: int) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port), Handler)
 
 
-def serve_view(root: Path, *, host: str = '127.0.0.1', port: int = 0) -> None:
-    server = _make_server(root, host=host, port=port)
+def serve_view(root: Path, *, host: str = '127.0.0.1', port: int = 0, discovery_root: Path | None = None) -> None:
+    server = _make_server(root, host=host, port=port, discovery_root=discovery_root)
     print(f'http://127.0.0.1:{server.server_port}/', flush=True)
     try:
         server.serve_forever()

@@ -6,3 +6,19 @@
 @media(max-width:736px){.workspace{grid-template-columns:1fr}.detail-panel{position:static;max-height:none;overflow:visible;scrollbar-gutter:auto}.node-map{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.node-map li:not(:last-child):after{display:none}.node-choice{display:flex;flex-direction:column;height:100%;padding:9px}.node-choice .badge{font-size:10px}.node-choice strong{font-size:12px}.step-number{font-size:10px}.sidebar{gap:14px}.issue-choice{display:block}.research-view{padding-top:12px}.head-label{margin-left:0}.detail-controls{align-items:start}.fields{grid-template-columns:95px minmax(0,1fr)}.tabs{gap:4px}.tabs button{padding:8px}.milestone{padding:5px 11px}.project-header{padding-top:4px}}
 @media(max-width:400px){.research-view,.page-tools{padding-left:12px;padding-right:12px}.card{padding:14px}.toolbar{gap:8px}.control select{max-width:215px}.toolbar>.control:first-child{flex-basis:100%}.fields{display:block}.fields dt{margin-top:14px}.fields dd{margin-top:4px}.detail-controls{display:block}.detail-controls h2{margin-bottom:10px}.statement{padding:12px}.tabs button{flex:1 0 28%}.node-choice{padding:7px}.overview{padding:13px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+.discovery-panel { width: calc(100% - 60px); max-width: 1400px; margin: 1rem auto 2rem; padding: 1.4rem; }
+.discovery-panel[hidden] { display: none; }
+.discovery-panel h2 { margin: .3rem 0; }
+.discovery-metrics { font-size: 1.1rem; font-weight: 650; line-height: 1.8; }
+.discovery-roles { display: flex; flex-wrap: wrap; gap: .4rem; }
+.discovery-panel .detail-controls label { display: grid; gap: .35rem; flex: 1; }
+.discovery-panel input { font: inherit; padding: .65rem; width: 100%; box-sizing: border-box; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: .4rem; }
+.discovery-sources { max-height: 34rem; overflow: auto; margin: .8rem 0 1.5rem; }
+.discovery-record { padding: .7rem .2rem; border-bottom: 1px solid var(--line); }
+.discovery-record summary { cursor: pointer; line-height: 1.6; overflow-wrap: anywhere; }
+.discovery-record article { padding: .6rem 1rem; }
+.discovery-field { margin: .6rem 0; overflow-wrap: anywhere; }
+.discovery-field h4 { margin: .3rem 0; }
+
+@media(max-width:736px) { .discovery-panel { width: calc(100% - 24px); padding: 1rem; } }

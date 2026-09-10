@@ -1,9 +1,11 @@
 # 고분자 복합소재 가설 검증형 연구 에이전트와 SDL
 
-사용자가 제시한 실제 연구 주제로 M1을 시작했다. 현재는 **초기 문헌 선정**이다.
+사용자가 제시한 실제 연구 주제로 M1을 시작했다. 현재는 **확장 탐색 결과 검토와 대표 사례·가설 초안 선정**이다.
 이후 사용자의 요청으로 5편 제한을 풀고 **독립 웹 탐색부터 재시작**했다.
 최신 실행 방식과 상태 파일은 [재시작 기록](restart.md)을 기준으로 한다.
-대표 수지·필러·물성, 내부 데이터, 실험 장비와 예산은 미확정이며,
+대표 사례 초안은 PC/CNT 전기전도도이며, 내부 데이터·실험 장비·예산은 미확정이다.
+[최신 선정 및 데이터 감사](discovery-selection.md)에서 선정 이유를 확인한다.
+
 문헌 선정 승인·모델 학습·실험 수행·신규성 검증을 완료한 상태가 아니다.
 
 연구 기록 화면: <http://127.0.0.1:8768/>
@@ -37,7 +39,7 @@
 
 선정 기준은 데이터와 사용권을 실제 확인할 수 있는지, 실험군 분리가 가능한지,
 기록된 변수가 검증 질문에 충분한지, 실험실에서 다룰 수 있는지다. 특정 소재를
-이미 선택했거나 공개 데이터 다운로드가 완료됐다고 가정하지 않는다.
+최종 확정하지 않는다. 이후 공개 CSV를 검사한 결과는 최신 선정 문서에 기록했다.
 
 ## 에이전트와 실험실의 역할
 
@@ -81,5 +83,6 @@ M2 장비 실행을 시작하지 않는다.
 
 ```sh
 cd /Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph
-.venv/bin/researchclaw-codex research view .superpowers/research/2026-09-10-polymer-sdl/project --port 8768
+.venv/bin/researchclaw-codex research view .superpowers/research/2026-09-10-polymer-sdl/project --port 8768 \
+  --discovery-root .superpowers/research/2026-09-10-polymer-sdl/discovery-runs/restart-02
 ```

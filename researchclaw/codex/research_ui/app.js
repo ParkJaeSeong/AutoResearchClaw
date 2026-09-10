@@ -2,6 +2,7 @@ import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,r
 import {renderResearchGraph} from './graph.js';
 import {renderIssueList,renderTimeline} from './timeline.js';
 import {createLiveFeed} from './live.js';
+import {createDiscoveryFeed,createDiscoveryPanel} from './discovery.js';
 const ARRAYS=['heads','milestones','nodes','revisions','transitions','councils','issues','verifications','results','source_checks','approvals','dependencies','handoffs','artifacts','reason_codes','required_actions'];
 const TABS={revision:'내용·개정',council:'공개 대화',issues:'쟁점 이력',evidence:'근거·검증',handoff:'승인·인계'};
 export function validateView(view) {
@@ -76,13 +77,19 @@ function restore(root,state) {
 }
 export function startApp(root,toolbar,status) {
   let view=null,selection={},head=new URL(window.location.href).searchParams.get('head'),knownHeads=[],theme='system';
+  const discoveryRoot=element('section');root.before(discoveryRoot);
+  const discoveryPanel=createDiscoveryPanel(discoveryRoot);discoveryPanel.setHistorical(head);
+  const discoveryFeed=createDiscoveryFeed({load:async()=>{
+    const response=await fetch('/api/discovery',{cache:'no-store'});
+    if(!response.ok)throw new Error(`탐색 조회 실패 (${response.status})`);return response.json();
+  },onView:next=>discoveryPanel.update(next),onStatus:info=>discoveryPanel.setStatus(info)});
   try{theme=localStorage.getItem('research-theme')??'system';}catch{}
   function setTheme(value){theme=['system','light','dark'].includes(value)?value:'system';document.documentElement.dataset.theme=theme;try{localStorage.setItem('research-theme',theme);}catch{}}
   setTheme(theme);
   function render(){const saved=memory(root);selection=renderResearchView(root,view,selection,{onSelection:value=>{selection=value;render();}});restore(root,saved);}
   function controls(){toolbar.replaceChildren();toolbar.append(selectControl('기록 시점','head-select',[['','최신 기록 따라가기'],...[...knownHeads].reverse().map(h=>[h,`과거 고정 · ${h.slice(0,12)}`])],head??'',value=>{
-      const target=value||null;const url=new URL(window.location.href);if(target)url.searchParams.set('head',target);else url.searchParams.delete('head');window.history.pushState({},'',url);head=target;feed.selectHead(target);
-    }),selectControl('화면','theme-select',[['system','시스템'],['light','밝게'],['dark','어둡게']],theme,setTheme),button('지금 새로고침',()=>feed.refresh(),'refresh'));
+      const target=value||null;const url=new URL(window.location.href);if(target)url.searchParams.set('head',target);else url.searchParams.delete('head');window.history.pushState({},'',url);head=target;discoveryPanel.setHistorical(head);feed.selectHead(target);
+    }),selectControl('화면','theme-select',[['system','시스템'],['light','밝게'],['dark','어둡게']],theme,setTheme),button('지금 새로고침',()=>Promise.all([feed.refresh(),discoveryFeed.refresh()]),'refresh'));
     if(view)toolbar.append(element('span',`${head?'과거 기록 고정':'최신 기록'} · 표시 HEAD ${view.head_id.slice(0,12)}`,'mono head-label'));
   }
   const feed=createLiveFeed({load:async selected=>{
@@ -95,7 +102,7 @@ export function startApp(root,toolbar,status) {
       knownHeads=[...new Set([...knownHeads,...next.heads.map(h=>h.head_id)])];controls();restore(document.body,saved);
     },
     onStatus:info=>{status.textContent=info.connected?`${head?'과거 버전 유지':'연결됨'} · 표시 기록은 읽기 전용${info.currentHead && view && info.currentHead!==view.head_id?' · 최신 HEAD가 별도로 있습니다':''}`:`연결 끊김 · ${info.error} · 마지막 정상 기록을 유지하며 재연결합니다.`;status.className=info.connected?'connection':'connection warning';}});
-  controls();if(head)feed.selectHead(head);else feed.start();window.addEventListener('popstate',()=>{head=new URL(window.location.href).searchParams.get('head');feed.selectHead(head);});window.addEventListener('pagehide',()=>feed.stop(),{once:true});return feed;
+  discoveryFeed.start();controls();if(head)feed.selectHead(head);else feed.start();window.addEventListener('popstate',()=>{head=new URL(window.location.href).searchParams.get('head');discoveryPanel.setHistorical(head);feed.selectHead(head);});window.addEventListener('pagehide',()=>{feed.stop();discoveryFeed.stop();},{once:true});return feed;
 }
 if(typeof document!=='undefined') {
   const root=document.getElementById('research-app');if(root)startApp(root,document.getElementById('toolbar'),document.getElementById('connection'));

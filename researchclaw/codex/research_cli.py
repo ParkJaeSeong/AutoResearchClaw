@@ -30,6 +30,7 @@ def add_research_parser(subcommands):
     viewer.add_argument('root', type=Path)
     viewer.add_argument('--host', default='127.0.0.1', choices=('127.0.0.1',))
     viewer.add_argument('--port', type=int, default=0)
+    viewer.add_argument('--discovery-root', type=Path, help='Explicit read-only discovery run directory')
     viewer.add_argument('--json', action='store_true')
     apply = actions.add_parser('apply')
     apply.add_argument('root', type=Path)
@@ -48,7 +49,10 @@ def add_research_parser(subcommands):
 def dispatch(args):
     if args.research_command == 'view':
         from .research_viewer import serve_view
-        serve_view(args.root, host=args.host, port=args.port)
+        options = {'host': args.host, 'port': args.port}
+        if getattr(args, 'discovery_root', None) is not None:
+            options['discovery_root'] = args.discovery_root
+        serve_view(args.root, **options)
         return {'status': 'stopped'}
     if args.research_command == 'inspect':
         return build_view(args.root, head_id=args.head_id)
