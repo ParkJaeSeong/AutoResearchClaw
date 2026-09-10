@@ -42,7 +42,12 @@ export function createDiscoveryPanel(root) {
   const roleControlLabel=element('label','탐색 역할'),role=element('select');role.dataset.key='discovery-role';role.value='';roleControlLabel.append(role);
   const count=element('p',undefined,'muted'),list=element('div',undefined,'discovery-sources');list.dataset.scroll='discovery-sources';
   const reports=element('section'),selection=element('section');filter.append(searchLabel,roleControlLabel);
-  root.append(header,roles,limits,element('h3','후보 자료와 역할별 해석'),filter,count,list,reports,selection);
+  const library=disclosure('후보 자료 검색 · 역할별 해석','discovery-library');library.append(filter,count,list);
+  const reportGroup=disclosure('에이전트 탐색 보고서','discovery-reports');reportGroup.append(roles,reports);
+  const scope=disclosure('자료의 확인 범위와 한계','discovery-scope');scope.append(limits);
+  const latest=element('p',undefined,'prose discovery-latest');
+  const contents=disclosure('선정 초안 · 후보 자료 · 에이전트 보고서 열기','discovery-contents');contents.append(selection,library,reportGroup,scope);
+  root.append(header,latest,contents);
   const expanded=new Map();
   function remember(node) {for(const child of node.children??[]){if(child.tagName==='DETAILS')expanded.set(child.dataset.key,child.open===true);remember(child);}}
   function restore(node) {for(const child of node.children??[]){if(child.tagName==='DETAILS')child.open=expanded.get(child.dataset.key)??false;restore(child);}}
@@ -58,7 +63,7 @@ export function createDiscoveryPanel(root) {
   }
   search.addEventListener('input',()=>{if(snapshot)drawSources();});role.addEventListener('change',()=>{if(snapshot)drawSources();});
   function update(next) {
-    validateDiscovery(next);remember(reports);remember(selection);snapshot=next;root.hidden=historical||!next.available;
+    validateDiscovery(next);latest.textContent=next.selection?.summary??'선정·가설 초안 대기 중';remember(reports);remember(selection);snapshot=next;root.hidden=historical||!next.available;
     metrics.textContent=`${next.candidate_records??0}개 후보 관찰 · ${next.unique_candidates??next.sources.length}개 식별자 통합 후보 기록 · ${next.completed_reports??0}개 역할 보고서 · ${next.round??0}/${next.max_rounds??0}차 · ${statusLabel(next.status)}`;
     roles.replaceChildren(...next.roles.map(r=>element('p',`${roleLabel(r.role)} · ${r.round}차 · ${statusLabel(r.status)}${r.web_calls!==undefined?` · 웹 호출 ${r.web_calls}회`:''}${r.last_activity_at?` · ${r.last_activity_at}`:''}`,'badge')));
     limits.replaceChildren(element('p','이 탐색 결과는 M1 완료를 입증하지 않습니다. 검색 결과 수와 원문 읽기 수는 후보 수와 다릅니다.','callout'),...next.limitations.map(v=>element('p',v,'muted')));
@@ -73,7 +78,7 @@ export function createDiscoveryPanel(root) {
     else {const draft=next.selection;field(selection,'status',draft.status);field(selection,'summary',draft.summary);
       for(const group of draft.groups??[]){const node=disclosure(group.title,`group:${group.id}`);field(node,'reason',group.reason);
         for(const key of group.source_keys??[]){const source=next.sources.find(s=>s.key===key);node.append(element('p',`${source?.title??'현재 목록에서 확인되지 않는 후보'} · ${key}`,'prose'));}selection.append(node);}
-      for(const hypothesis of draft.hypotheses??[]){const node=disclosure(`${hypothesis.id} · ${hypothesis.statement}`,`hypothesis:${hypothesis.id}`);for(const key of ['statement','test','limits'])field(node,key,hypothesis[key]);selection.append(node);}field(selection,'unresolved',draft.unresolved);
+      for(const hypothesis of draft.hypotheses??[]){const node=disclosure(`${hypothesis.id} · ${hypothesis.statement}`,`hypothesis:${hypothesis.id}`);for(const key of ['statement','test','limits'])field(node,key,hypothesis[key]);selection.append(node);}const unresolved=disclosure(`미해결 사항 · ${draft.unresolved.length}건`,'discovery-unresolved');field(unresolved,'unresolved',draft.unresolved);selection.append(unresolved);
     }
     restore(reports);restore(selection);
   }

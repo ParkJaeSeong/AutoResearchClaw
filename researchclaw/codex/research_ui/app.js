@@ -38,6 +38,7 @@ export function renderResearchView(root,view,selection={},callbacks={}) {
   const node=view.nodes.find(n=>n.id===chosen.nodeId);if(node?.reason_codes.length){notice.append(element('p',`선택 단계: ${node.reason_codes.join(' · ')}`,'reason'));}
   for(const action of node?.required_actions??[])notice.append(element('p',action,'prose'));
   content.append(notice);
+  const discoverySlot=element('div',undefined,'discovery-slot');content.append(discoverySlot);
   const workspace=element('div',undefined,'workspace'),sidebar=element('aside',undefined,'sidebar'),map=element('section',undefined,'card'),issues=element('section',undefined,'card');
   const change=patch=>callbacks.onSelection?.({...chosen,...patch});
   renderResearchGraph(map,view,chosen,(id,revisionId)=>change({nodeId:id,revisionId:revisionId??null,councilId:null,tab:'revision'}));
@@ -77,7 +78,7 @@ function restore(root,state) {
 }
 export function startApp(root,toolbar,status) {
   let view=null,selection={},head=new URL(window.location.href).searchParams.get('head'),knownHeads=[],theme='system';
-  const discoveryRoot=element('section');root.before(discoveryRoot);
+  const discoveryRoot=element('section');
   const discoveryPanel=createDiscoveryPanel(discoveryRoot);discoveryPanel.setHistorical(head);
   const discoveryFeed=createDiscoveryFeed({load:async()=>{
     const response=await fetch('/api/discovery',{cache:'no-store'});
@@ -86,7 +87,7 @@ export function startApp(root,toolbar,status) {
   try{theme=localStorage.getItem('research-theme')??'system';}catch{}
   function setTheme(value){theme=['system','light','dark'].includes(value)?value:'system';document.documentElement.dataset.theme=theme;try{localStorage.setItem('research-theme',theme);}catch{}}
   setTheme(theme);
-  function render(){const saved=memory(root);selection=renderResearchView(root,view,selection,{onSelection:value=>{selection=value;render();}});restore(root,saved);}
+  function render(){const saved=memory(root);selection=renderResearchView(root,view,selection,{onSelection:value=>{selection=value;render();}});root.querySelector('.discovery-slot').append(discoveryRoot);restore(root,saved);}
   function controls(){toolbar.replaceChildren();toolbar.append(selectControl('기록 시점','head-select',[['','최신 기록 따라가기'],...[...knownHeads].reverse().map(h=>[h,`과거 고정 · ${h.slice(0,12)}`])],head??'',value=>{
       const target=value||null;const url=new URL(window.location.href);if(target)url.searchParams.set('head',target);else url.searchParams.delete('head');window.history.pushState({},'',url);head=target;discoveryPanel.setHistorical(head);feed.selectHead(target);
     }),selectControl('화면','theme-select',[['system','시스템'],['light','밝게'],['dark','어둡게']],theme,setTheme),button('지금 새로고침',()=>Promise.all([feed.refresh(),discoveryFeed.refresh()]),'refresh'));
@@ -98,7 +99,7 @@ export function startApp(root,toolbar,status) {
       const saved=memory(document.body),buffer=element('div');
       const nextSelection=renderResearchView(buffer,next,selection,{onSelection:value=>{selection=value;render();}});
       // Build completely before replacing the last valid screen.
-      root.replaceChildren(...buffer.childNodes);view=next;selection=nextSelection;
+      root.replaceChildren(...buffer.childNodes);root.querySelector('.discovery-slot').append(discoveryRoot);view=next;selection=nextSelection;
       knownHeads=[...new Set([...knownHeads,...next.heads.map(h=>h.head_id)])];controls();restore(document.body,saved);
     },
     onStatus:info=>{status.textContent=info.connected?`${head?'과거 버전 유지':'연결됨'} · 표시 기록은 읽기 전용${info.currentHead && view && info.currentHead!==view.head_id?' · 최신 HEAD가 별도로 있습니다':''}`:`연결 끊김 · ${info.error} · 마지막 정상 기록을 유지하며 재연결합니다.`;status.className=info.connected?'connection':'connection warning';}});

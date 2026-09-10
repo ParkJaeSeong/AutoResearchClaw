@@ -40,7 +40,9 @@ test('independent revision polling updates despite unchanged native HEAD and ret
 test('app refresh updates discovery at the same native HEAD and pinning hides latest discovery',async()=>{
  const {startApp}=await import('../../../researchclaw/codex/research_ui/app.js');
  const root=new Element('main'),toolbar=new Element('nav'),status=new Element('p'),body=new Element('body');
- Element.prototype.querySelectorAll=function(){return [];};Element.prototype.before=function(node){body.append(node);};
+ Element.prototype.querySelectorAll=function(){return [];};
+ Element.prototype.querySelector=function(selector){return all(this).find(n=>n.className===selector.slice(1))??null;};
+ body.append(root);
  Object.defineProperty(Element.prototype,'childNodes',{get(){return this.children;},configurable:true});
  Object.defineProperty(globalThis,'localStorage',{value:{getItem(){return null;},setItem(){}},configurable:true});
  const handlers={};globalThis.document={createElement:t=>new Element(t),documentElement:new Element('html'),body};
@@ -52,7 +54,7 @@ test('app refresh updates discovery at the same native HEAD and pinning hides la
  assert.ok(root.textContent.includes('Native project'));assert.ok(body.textContent.includes('197'));
  value={...fixture(),revision:'new',candidate_records:202};
  await all(toolbar).find(n=>n.dataset.key==='refresh').events.click();assert.ok(body.textContent.includes('202'));
- const pin=all(toolbar).find(n=>n.dataset.key==='head-select');pin.value='unchanged';pin.events.change();assert.equal(body.children[0].hidden,true);
+ const pin=all(toolbar).find(n=>n.dataset.key==='head-select');pin.value='unchanged';pin.events.change();assert.equal(all(root).find(n=>n.className==='discovery-panel card').hidden,true);
  }finally{handlers.pagehide?.();delete globalThis.fetch;delete globalThis.document;delete globalThis.window;}
 });
 
