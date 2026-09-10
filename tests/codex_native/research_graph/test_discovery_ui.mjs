@@ -69,7 +69,7 @@ test('discovery labels report declarations and roles without asserting scientifi
  globalThis.document={createElement:t=>new Element(t)};
  try{const root=new Element('section'),panel=ui.createDiscoveryPanel(root),value=fixture();
  value.status='budget_reached_with_gaps';value.m1_complete=true;value.sources[0].observations[0].source.reading_scope='abstract';value.selection.status='draft';panel.update(value);
- for(const text of ['에이전트가 보고한 검색어','에이전트가 보고한 읽은 범위','소재','SDL·반증','설정 회차 종료 · 미해결 쟁점 있음','조정자 초안'])assert.ok(root.textContent.includes(text),text);
+ for(const text of ['검색에 사용한 말','읽은 범위','소재','SDL·반증','이번 탐색 종료 · 추가 확인 필요','현재 검토 요약'])assert.ok(root.textContent.includes(text),text);
  assert.ok(!root.textContent.includes('완료로 보고됨'));assert.ok(!root.textContent.includes('budget_reached_with_gaps'));
  }finally{delete globalThis.document;}
 });

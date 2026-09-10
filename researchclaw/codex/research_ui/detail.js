@@ -6,8 +6,8 @@ export function button(text,action,key) {
   const node=element('button',text);node.type='button';if(key)node.dataset.key=key;node.addEventListener('click',action);return node;
 }
 export const LABELS={scope:'범위',questions:'연구 질문',search:'문헌 검색',screen:'문헌 선정',collect:'원문 수집',extract:'근거 추출',synthesize:'근거 종합',hypothesize:'가설',review:'최종 검토',handoff:'인계',
- ready:'구조 조건 충족',awaiting_input:'입력·판단 대기',not_started:'미착수',stale:'재검토 필요',unknown:'확인되지 않음',initial:'최초 의견',response:'의견 교환',final:'최종 판단',complete:'필수 단계 제출됨',
- ready_with_limits:'한계를 명시한 진행 의견',revise:'수정 의견',defer:'대기 의견',domain:'분야',methodology:'방법론',critical:'비판',owner:'담당',resolver:'검토자',
+ ready:'필수 기록 갖춤',awaiting_input:'추가 검토 필요',not_started:'등록된 작업 없음',stale:'재검토 필요',unknown:'확인되지 않음',initial:'최초 의견',response:'의견 교환',final:'최종 판단',complete:'의견 작성 완료',
+ ready_with_limits:'조건부 진행 의견',revise:'수정 의견',defer:'대기 의견',domain:'소재 전문가',methodology:'평가 방법 검토자',critical:'실험·실행 검토자',owner:'담당',resolver:'검토자',
  open:'열림',checking:'검증 중',resolved:'해소',reopened:'재개',transferred:'담당 이전 · 미해소',deferred:'대기',superseded:'후속 쟁점 있음 · 미해소',pending_policy_revalidation:'가져온 쟁점 · 정책 재검토 대기',
  supported:'지지 결과',refuted:'반박 결과',inconclusive:'불충분',failed:'실패',pending:'결과 대기',accepted:'수신 수락됨',issued_awaiting_acceptance:'발행됨 · 수신 수락 대기',
  user_goal:'연구 목표',user_constraints:'사용자 제약',agent_assumptions:'작업 가정',question:'확인 질문',rationale:'판단 이유',revision_reason:'수정 이유',statement:'가설 내용',prediction:'예측',population:'대상 범위',falsification_condition:'반증 조건',
@@ -71,22 +71,25 @@ export function renderRevision(root,view,revision) {
 }
 export function renderCouncil(root,view,council) {
   root.replaceChildren();if(!council){root.append(element('p','선택한 개정의 협의 기록이 없습니다.','empty'));return;}
-  root.append(element('h2','독립 검토 대화'),element('p',`현재 단계: ${label(council.phase)}`),element('p',`세션 ${council.session_id??council.id}`,'mono'));
-  root.append(element('p','instructions_only · 안내문 수준의 분리이며 접근 통제가 아닙니다. 역할·호스트·모델 표시는 선언된 정보입니다.','callout'));
-  for(const author of council.authors??[]) root.append(element('p',`작성 담당: ${author.actor_id} · ${author.id}`,'muted'));
-  for(const actor of council.participants??[]) root.append(element('p',`${label(actor.council_role)}: ${actor.actor_id} · ${actor.id}`,'muted'));
+  root.append(element('h2','에이전트가 검토한 내용'),element('p',`현재 단계: ${label(council.phase)}`),element('p','각 역할이 무엇을 판단했고, 왜 그렇게 생각하는지 확인하세요.','muted'));
+  const info=element('details');info.dataset.key='council-info';info.append(element('summary','대화 참여자와 작성 방식'),element('p','검토자들은 먼저 각자의 의견을 쓰고, 모두 제출한 뒤 서로의 의견을 읽습니다. 다른 의견을 먼저 읽지 않도록 지시하지만, 접근을 강제로 차단했는지는 확인되지 않았습니다. 서로 다른 모델을 사용했는지도 확인되지 않았습니다.','muted'));
+  for(const actor of council.participants??[])info.append(element('p',`${label(actor.council_role)}: ${actor.actor_id} · ${actor.id}`,'mono'));root.append(info);
+  root.append(element('p','처음 의견 → 서로의 의견 검토 → 최종 판단 순서입니다. 아래 발언은 저장된 원문입니다.','muted'));
   for(const [phase,field] of [['initial','disclosed_initials'],['response','disclosed_responses'],['final','disclosed_finals']]) {
     const section=element('section',undefined,'round');const rows=council[field]??[],total=Object.keys(council.required_roles).length;
     section.append(element('h3',`${label(phase)} · ${council.submitted_counts[phase]??0}/${total} 제출`));
-    if(!rows.length)section.append(element('p','공개 전 또는 미제출 · 전원 제출된 단계만 공개합니다.','muted'));
+    if(!rows.length)section.append(element('p','아직 의견을 모으고 있습니다. 모두 작성하면 함께 공개됩니다.','muted'));
     for(const {submission:s,submission_ref:ref} of rows){const article=element('article',undefined,'statement');article.dataset.key=`submission:${s.id}`;
       const actor=council.participants?.find(p=>p.id===s.assignment_id);
-      article.append(element('h4',`${label(actor?.council_role??'검토자')} · ${s.producer_id}`),element('p',s.rationale,'prose'));
+      article.append(element('h4',label(actor?.council_role??'검토자')));
+      if(s.recommendation)article.append(element('p',`최종 판단: ${s.recommendation==='ready'?'진행 의견':label(s.recommendation)}`,'council-verdict'));
+      for(const paragraph of s.rationale.split(/\n\s*\n/))article.append(element('p',paragraph,'prose council-paragraph'));
+      const metadata=element('details');metadata.dataset.key=`metadata:${s.id}`;metadata.append(element('summary','근거 연결과 기록 정보'));
       if(s.recommendation) article.append(badge(s.recommendation==='ready'?'진행 가능 의견':label(s.recommendation),['ready','ready_with_limits'].includes(s.recommendation)?'neutral':'pending'));
-      for(const field of ['positions','retained_position_refs','issue_proposals','evidence_refs','response_refs'])if(s[field]?.length){article.append(element('h4',label(field)),renderValue(view,s[field],field,s.id));}
-      article.append(element('p',`호스트: ${s.host_id??'미확인'} · 모델: ${s.model_id??'미확인'} · ${s.provenance_status??'declared_only'}`,'muted'));
+      for(const field of ['positions','retained_position_refs','issue_proposals','evidence_refs','response_refs'])if(s[field]?.length){metadata.append(element('h4',label(field)),renderValue(view,s[field],field,s.id));}
+      metadata.append(element('p',`호스트: ${s.host_id??'미확인'} · 모델: ${s.model_id??'미확인'} · ${s.provenance_status??'declared_only'}`,'muted'));
       if(s.observation_refs?.length)article.append(renderValue(view,s.observation_refs));
-      article.append(renderRef(view,ref),recordDetails('제출 기록 전체',s,`submission-record:${s.id}`));section.append(article);
+      metadata.append(renderRef(view,ref),recordDetails('제출 기록 전체',s,`submission-record:${s.id}`));article.append(metadata);section.append(article);
     }root.append(section);
   }
 }
@@ -99,9 +102,9 @@ export function renderVerification(root,view,verificationId) {
   root.append(section);
 }
 export function renderEvidence(root,view) {
-  root.replaceChildren();root.append(element('h2','근거와 실제 확인 범위'));
+  root.replaceChildren();root.append(element('h2','무엇을 근거로 판단했나요?'));
   assessment(root,'현재 근거 연결',view.evidence);
-  if(view.evidence){root.append(element('h3','원천 의존성·한계'),element('p','자료 수와 독립 근거 수는 다릅니다. 공통 원천은 함께 봅니다. 원천 미확인은 독립 근거로 계산하지 않습니다.','muted'));
+  if(view.evidence){root.append(element('h3','같은 자료를 함께 사용한 연구'),element('p','여러 논문이 같은 데이터를 사용했을 수 있습니다. 서로 다른 연구 결과인지 확인한 내용을 보여줍니다.','muted'));
     for(const key of ['source_groups','limitations','collected_source_refs','extraction_refs'])if(view.evidence[key])root.append(element('h4',label(key)),renderValue(view,view.evidence[key]));}
   for(const entry of view.verifications)renderVerification(root,view,entry.record.id);
   const extras=[...view.source_checks,...view.dependencies];for(const entry of extras)root.append(recordDetails(entry.kind,entry.record,`evidence:${entry.record.id}`),renderRef(view,entry.ref));
@@ -112,7 +115,7 @@ export function renderHandoff(root,view) {
   if(view.corpus)root.append(renderValue(view,view.corpus));
   for(const entry of view.approvals)root.append(recordDetails(`승인 기록 · ${entry.kind}`,entry.record,`approval:${entry.record.id}`),renderRef(view,entry.ref));
   assessment(root,'작업 기록·예산',view.accounting);
-  root.append(element('p','비용 관측 기록은 없습니다. unknown을 0으로 해석하지 않습니다. 이 화면의 구조 검사는 과학적 검증이나 실험 실행 권한이 아닙니다.','callout'));
+  root.append(element('p','아직 비용이 기록되지 않았습니다. 비용이 들지 않았다는 뜻은 아닙니다. 실험을 시작하려면 별도 검토와 승인이 필요합니다.','callout'));
   if(!view.handoffs.length)root.append(element('p','발행된 인계 패키지가 없습니다.','empty'));
   for(const entry of view.handoffs){const a=entry.assessment,section=element('section',undefined,'handoff');section.append(element('h3',`M1 → M2 · ${label(a?.status??'unknown')}`));
     assessment(section,'현재 인계 게이트',a,'gate_ready');

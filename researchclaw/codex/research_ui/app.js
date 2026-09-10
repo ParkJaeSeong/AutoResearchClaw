@@ -4,12 +4,12 @@ import {renderIssueList,renderTimeline} from './timeline.js';
 import {createLiveFeed} from './live.js';
 import {createDiscoveryFeed,createDiscoveryPanel} from './discovery.js';
 const ARRAYS=['heads','milestones','nodes','revisions','transitions','councils','issues','verifications','results','source_checks','approvals','dependencies','handoffs','artifacts','reason_codes','required_actions'];
-const TABS={revision:'내용·개정',council:'공개 대화',issues:'쟁점 이력',evidence:'근거·검증',handoff:'승인·인계'};
+const TABS={revision:'내용·개정',council:'에이전트 대화',issues:'쟁점 이력',evidence:'근거·검증',handoff:'승인·인계'};
 export function validateView(view) {
   if(!view || view.schema_version!==1 || view.workflow_version!=='research-graph-v1' || !view.project || typeof view.head_id!=='string')throw new Error('지원하는 연구 기록 형식이 아닙니다.');
   for(const key of ARRAYS)if(!Array.isArray(view[key]) || view[key].some(row=>row===null))throw new Error(`${key} 기록을 읽을 수 없습니다.`);
   for(const row of view.revisions)if(!row.record?.content || !row.ref)throw new Error('개정의 원문 연결이 없습니다.');
-  for(const row of view.councils)for(const key of ['disclosed_initials','disclosed_responses','disclosed_finals','participants','authors'])if(!Array.isArray(row[key]))throw new Error('공개 대화 형식이 올바르지 않습니다.');
+  for(const row of view.councils)for(const key of ['disclosed_initials','disclosed_responses','disclosed_finals','participants','authors'])if(!Array.isArray(row[key]))throw new Error('에이전트 대화 형식이 올바르지 않습니다.');
   return view;
 }
 export function resolveSelection(view,previous={}) {
@@ -30,13 +30,19 @@ export function renderResearchView(root,view,selection={},callbacks={}) {
   validateView(view);const chosen=resolveSelection(view,selection),content=element('div',undefined,'research-view');
   const top=element('header',undefined,'project-header');const title=element('div');title.append(element('p','RESEARCHCLAW / M1','eyebrow'),element('h1',view.project.topic));
   const origin={synthetic:'합성 테스트 자료',real:'실제 자료 · 확인 범위별 판단',mixed:'실제·합성 혼합 자료'}[view.content_origin]??'자료 구분 미확인';
-  title.append(badge(origin),element('p','구조 조건과 연구 판단을 함께 읽는 기록 지도','muted'));top.append(title);
+  title.append(badge(origin),element('p','지금까지 확인한 내용과 에이전트가 판단한 이유를 살펴보세요.','muted'));top.append(title);
   const milestones=element('nav',undefined,'milestones');milestones.setAttribute('aria-label','마일스톤');
   for(const m of view.milestones)milestones.append(element('span',`${m.id} · ${m.id==='M1'?'근거·가설':'미구현'}`,m.id==='M1'?'milestone active':'milestone'));
   content.append(top,milestones);
-  const notice=element('section',undefined,'overview');notice.append(element('strong','읽기 전용 관찰 화면'),element('p','최초 의견은 전원 제출 후 공개됩니다. instructions_only는 접근 통제나 비열람 인증을 뜻하지 않습니다.','muted'));
-  const node=view.nodes.find(n=>n.id===chosen.nodeId);if(node?.reason_codes.length){notice.append(element('p',`선택 단계: ${node.reason_codes.join(' · ')}`,'reason'));}
-  for(const action of node?.required_actions??[])notice.append(element('p',action,'prose'));
+  const notice=element('section',undefined,'overview');notice.append(element('strong','연구 진행 상황'),element('p','이 화면에서 연구 기록을 확인할 수 있습니다. 단계를 선택하면 해당 작업의 내용과 대화가 나옵니다.','muted'));
+  const node=view.nodes.find(n=>n.id===chosen.nodeId);
+  const reasons={blocking_issue_unresolved:'먼저 확인해야 할 문제가 남아 있습니다.',issue_reference_stale:'이전에 검토한 문제와 현재 기록이 달라 다시 확인해야 합니다.'};
+  if(node?.reason_codes.length){
+    notice.append(element('p',reasons[node.reason_codes[0]]??'다음 단계로 가기 전에 추가 확인이 필요합니다.','pending'));
+    const technical=element('details');technical.dataset.key='stage-checks';technical.append(element('summary','상세 확인 정보'));
+    for(const code of node.reason_codes)technical.append(element('p',code,'reason'));
+    for(const action of node.required_actions??[])technical.append(element('p',action,'prose'));notice.append(technical);
+  }
   content.append(notice);
   const discoverySlot=element('div',undefined,'discovery-slot');content.append(discoverySlot);
   const workspace=element('div',undefined,'workspace'),sidebar=element('aside',undefined,'sidebar'),map=element('section',undefined,'card'),issues=element('section',undefined,'card');

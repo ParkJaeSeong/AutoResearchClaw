@@ -74,7 +74,7 @@ test('disclosed council renders hostile text inert, never fabricates withheld me
     detail.renderCouncil(root,{artifacts:[]},{id:'c',phase:'response',authors:[],participants:[],required_roles:{},submitted_counts:{initial:3,response:1,final:0},
       isolation_level:'instructions_only',identity_provenance:'declared_only',disclosed_initials:[{submission_ref:ref('s'),submission:{id:'s',phase:'initial',producer_id:'reviewer',rationale:'<script>window.BAD=true</script>',positions:[],issue_proposals:[],evidence_refs:[],response_refs:[],observation_refs:[]}}],disclosed_responses:[],disclosed_finals:[]});
     assert.match(root.textContent,/<script>window.BAD=true<\/script>/);
-    assert.match(root.textContent,/공개 전|미공개/); assert.match(root.textContent,/접근 통제/);
+    assert.match(root.textContent,/모두 작성하면 함께 공개/); assert.match(root.textContent,/접근을 강제로 차단했는지는 확인되지/);
     const tags=node=>[node.tagName,...node.children.flatMap(tags)];assert.ok(!tags(root).includes('SCRIPT'));
   } finally {delete globalThis.document;}
 });
@@ -121,7 +121,7 @@ test('all five panels render closed public view as inert text with explicit M2/M
     if(tab==='council')assert.match(root.textContent,/협의 기록이 없습니다/);
     if(tab==='issues')assert.match(root.textContent,/담당 이전 · 미해소/);
     if(tab==='evidence')assert.match(root.textContent,/source_check_required/);
-    if(tab==='handoff')assert.match(root.textContent,/unknown을 0으로 해석하지/);
+    if(tab==='handoff')assert.match(root.textContent,/비용이 들지 않았다는 뜻은 아닙니다/);
   }}finally{delete globalThis.document;}
 });
 

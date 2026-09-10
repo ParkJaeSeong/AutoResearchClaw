@@ -51,3 +51,6 @@
 h1 { word-break:keep-all; text-wrap:balance; }
 .discovery-latest { padding:12px 16px; background:var(--soft); border-radius:8px; margin:12px 0; font-size:13px; }
 .discovery-panel > header .eyebrow { letter-spacing:.08em; }
+
+.council-paragraph { max-width:80ch; line-height:1.9; margin:16px 0; }
+.council-verdict { font-weight:650; color:var(--accent); }
