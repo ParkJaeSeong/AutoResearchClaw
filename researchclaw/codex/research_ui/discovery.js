@@ -47,7 +47,8 @@ export function createDiscoveryPanel(root) {
   const scope=disclosure('자료를 읽을 때 알아둘 점','discovery-scope');scope.append(limits);
   const latest=element('p',undefined,'prose discovery-latest');
   const contents=disclosure('자료 목록과 에이전트 의견 보기','discovery-contents');contents.append(selection,library,reportGroup,scope);
-  root.append(header,latest,contents);
+  const guide=element('section',undefined,'discussion-guide');
+  root.append(header,latest,guide,contents);
   const expanded=new Map();
   function remember(node) {for(const child of node.children??[]){if(child.tagName==='DETAILS')expanded.set(child.dataset.key,child.open===true);remember(child);}}
   function restore(node) {for(const child of node.children??[]){if(child.tagName==='DETAILS')child.open=expanded.get(child.dataset.key)??false;restore(child);}}
@@ -63,7 +64,13 @@ export function createDiscoveryPanel(root) {
   }
   search.addEventListener('input',()=>{if(snapshot)drawSources();});role.addEventListener('change',()=>{if(snapshot)drawSources();});
   function update(next) {
-    validateDiscovery(next);latest.textContent=next.selection?.summary??'선정·가설 초안 대기 중';remember(reports);remember(selection);snapshot=next;root.hidden=historical||!next.available;
+    validateDiscovery(next);latest.textContent=next.selection?.summary??'선정·가설 초안 대기 중';
+    guide.replaceChildren();
+    if(next.selection?.reading_guide){
+      guide.append(element('h3','최근 대화, 쉽게 읽기'),element('p','아래는 저장된 발언을 풀어 쓴 설명입니다. 에이전트의 원래 발언은 연구 질문의 대화 탭에서 볼 수 있습니다.','muted'));
+      field(guide,'summary',next.selection.reading_guide);
+    }
+    remember(reports);remember(selection);snapshot=next;root.hidden=historical||!next.available;
     metrics.textContent=`${next.candidate_records??0}회 자료 발견 · ${next.unique_candidates??next.sources.length}개 자료 기록 · ${next.completed_reports??0}개 탐색 보고서 · ${next.round??0}/${next.max_rounds??0}차 · ${statusLabel(next.status)}`;
     roles.replaceChildren(...next.roles.map(r=>element('p',`${roleLabel(r.role)} · ${r.round}차 · ${statusLabel(r.status)}${r.web_calls!==undefined?` · 웹 호출 ${r.web_calls}회`:''}${r.last_activity_at?` · ${r.last_activity_at}`:''}`,'badge')));
     limits.replaceChildren(element('p','찾은 자료 중에는 제목이나 초록만 확인한 것도 있습니다. 자료별 읽은 범위를 함께 확인하세요.','callout'),...next.limitations.map(v=>element('p',v,'muted')));
