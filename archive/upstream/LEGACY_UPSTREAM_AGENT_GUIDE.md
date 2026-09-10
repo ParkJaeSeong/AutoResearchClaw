@@ -3,7 +3,7 @@
 > **Legacy boundary:** This guide is retained for upstream attribution and
 > migration reference. Do not use its API configuration, nested-agent,
 > simulated-experiment, or automatic-approval instructions for the Codex-native
-> `$researchclaw` workflow. See [RESEARCHCLAW_AGENTS.md](RESEARCHCLAW_AGENTS.md).
+> `$researchclaw` workflow. See [RESEARCHCLAW_AGENTS.md](../../RESEARCHCLAW_AGENTS.md).
 
 ## Overview
 

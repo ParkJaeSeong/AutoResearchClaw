@@ -1,0 +1,138 @@
+{
+  "moved": {
+    "LEGACY_UPSTREAM_README.md": "archive/upstream/LEGACY_UPSTREAM_README.md",
+    "LEGACY_UPSTREAM_AGENT_GUIDE.md": "archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md",
+    "RESEARCHCLAW_CLAUDE.md": "archive/upstream/RESEARCHCLAW_CLAUDE.md",
+    "image/framework.png": "archive/upstream/image/framework.png",
+    "image/framework_v2.png": "archive/upstream/image/framework_v2.png",
+    "image/logo.png": "archive/upstream/image/logo.png",
+    "website/assets/framework.png": "archive/upstream/website/assets/framework.png",
+    "website/assets/logo.png": "archive/upstream/website/assets/logo.png",
+    "website/features.html": "archive/upstream/website/features.html",
+    "website/getting-started.html": "archive/upstream/website/getting-started.html",
+    "website/index.html": "archive/upstream/website/index.html",
+    "website/papers.html": "archive/upstream/website/papers.html",
+    "website/pipeline.html": "archive/upstream/website/pipeline.html",
+    "website/style.css": "archive/upstream/website/style.css",
+    "docs/showcase/SHOWCASE.md": "archive/upstream/docs/showcase/SHOWCASE.md",
+    "docs/showcase/papers/paper_III_sir_seir_identifiability.pdf": "archive/upstream/docs/showcase/papers/paper_III_sir_seir_identifiability.pdf",
+    "docs/showcase/papers/paper_II_weak_iv_estimators.pdf": "archive/upstream/docs/showcase/papers/paper_II_weak_iv_estimators.pdf",
+    "docs/showcase/papers/paper_IV_krylov_preconditioners.pdf": "archive/upstream/docs/showcase/papers/paper_IV_krylov_preconditioners.pdf",
+    "docs/showcase/papers/paper_I_random_matrix.pdf": "archive/upstream/docs/showcase/papers/paper_I_random_matrix.pdf",
+    "docs/showcase/papers/paper_VIII_craft_distillation.pdf": "archive/upstream/docs/showcase/papers/paper_VIII_craft_distillation.pdf",
+    "docs/showcase/papers/paper_VII_fame_token_merging.pdf": "archive/upstream/docs/showcase/papers/paper_VII_fame_token_merging.pdf",
+    "docs/showcase/papers/paper_VI_lace_exploration.pdf": "archive/upstream/docs/showcase/papers/paper_VI_lace_exploration.pdf",
+    "docs/showcase/papers/paper_V_gard_lora.pdf": "archive/upstream/docs/showcase/papers/paper_V_gard_lora.pdf",
+    "docs/showcase/thumbnails/framework_III_sir_seir_identifiability.png": "archive/upstream/docs/showcase/thumbnails/framework_III_sir_seir_identifiability.png",
+    "docs/showcase/thumbnails/framework_II_weak_iv_estimators.png": "archive/upstream/docs/showcase/thumbnails/framework_II_weak_iv_estimators.png",
+    "docs/showcase/thumbnails/framework_IV_krylov_preconditioners.png": "archive/upstream/docs/showcase/thumbnails/framework_IV_krylov_preconditioners.png",
+    "docs/showcase/thumbnails/framework_I_random_matrix.png": "archive/upstream/docs/showcase/thumbnails/framework_I_random_matrix.png",
+    "docs/showcase/thumbnails/framework_VIII_craft_distillation.png": "archive/upstream/docs/showcase/thumbnails/framework_VIII_craft_distillation.png",
+    "docs/showcase/thumbnails/framework_VII_fame_token_merging.png": "archive/upstream/docs/showcase/thumbnails/framework_VII_fame_token_merging.png",
+    "docs/showcase/thumbnails/framework_VI_lace_exploration.png": "archive/upstream/docs/showcase/thumbnails/framework_VI_lace_exploration.png",
+    "docs/showcase/thumbnails/framework_V_gard_lora.png": "archive/upstream/docs/showcase/thumbnails/framework_V_gard_lora.png",
+    "docs/showcase/thumbnails/paper_III_sir_seir_identifiability-01.png": "archive/upstream/docs/showcase/thumbnails/paper_III_sir_seir_identifiability-01.png",
+    "docs/showcase/thumbnails/paper_II_weak_iv_estimators-01.png": "archive/upstream/docs/showcase/thumbnails/paper_II_weak_iv_estimators-01.png",
+    "docs/showcase/thumbnails/paper_IV_krylov_preconditioners-01.png": "archive/upstream/docs/showcase/thumbnails/paper_IV_krylov_preconditioners-01.png",
+    "docs/showcase/thumbnails/paper_I_random_matrix-01.png": "archive/upstream/docs/showcase/thumbnails/paper_I_random_matrix-01.png",
+    "docs/showcase/thumbnails/paper_VIII_craft_distillation-01.png": "archive/upstream/docs/showcase/thumbnails/paper_VIII_craft_distillation-01.png",
+    "docs/showcase/thumbnails/paper_VII_fame_token_merging-01.png": "archive/upstream/docs/showcase/thumbnails/paper_VII_fame_token_merging-01.png",
+    "docs/showcase/thumbnails/paper_VI_lace_exploration-01.png": "archive/upstream/docs/showcase/thumbnails/paper_VI_lace_exploration-01.png",
+    "docs/showcase/thumbnails/paper_V_gard_lora-01.png": "archive/upstream/docs/showcase/thumbnails/paper_V_gard_lora-01.png",
+    "docs/integration-guide.md": "archive/upstream/docs/integration-guide.md",
+    "docs/README_JA.md": "archive/upstream/docs/README_JA.md",
+    "docs/README_RU.md": "archive/upstream/docs/README_RU.md",
+    "docs/README_PT.md": "archive/upstream/docs/README_PT.md",
+    "docs/README_KO.md": "archive/upstream/docs/README_KO.md",
+    "docs/README_CN.md": "archive/upstream/docs/README_CN.md",
+    "docs/README_AR.md": "archive/upstream/docs/README_AR.md",
+    "docs/README_ES.md": "archive/upstream/docs/README_ES.md",
+    "docs/README_FR.md": "archive/upstream/docs/README_FR.md",
+    "docs/README_DE.md": "archive/upstream/docs/README_DE.md",
+    "frontend-legacy/index.html": "archive/legacy/frontend-legacy/index.html",
+    "frontend-legacy/package.json": "archive/legacy/frontend-legacy/package.json",
+    "frontend-legacy/src/app.js": "archive/legacy/frontend-legacy/src/app.js",
+    "frontend-legacy/src/components/ChatPanel.js": "archive/legacy/frontend-legacy/src/components/ChatPanel.js",
+    "frontend-legacy/src/components/Dashboard.js": "archive/legacy/frontend-legacy/src/components/Dashboard.js",
+    "frontend-legacy/src/components/ExperimentMonitor.js": "archive/legacy/frontend-legacy/src/components/ExperimentMonitor.js",
+    "frontend-legacy/src/components/PaperPreview.js": "archive/legacy/frontend-legacy/src/components/PaperPreview.js",
+    "frontend-legacy/src/components/PipelineView.js": "archive/legacy/frontend-legacy/src/components/PipelineView.js",
+    "frontend-legacy/src/components/ProjectList.js": "archive/legacy/frontend-legacy/src/components/ProjectList.js",
+    "frontend-legacy/src/components/WizardFlow.js": "archive/legacy/frontend-legacy/src/components/WizardFlow.js",
+    "frontend-legacy/src/services/api.js": "archive/legacy/frontend-legacy/src/services/api.js",
+    "frontend-legacy/src/services/websocket.js": "archive/legacy/frontend-legacy/src/services/websocket.js",
+    "frontend-legacy/src/styles/main.css": "archive/legacy/frontend-legacy/src/styles/main.css",
+    "docs/CHANGELOG_ANTHROPIC_ADAPTER.md": "archive/legacy/docs/CHANGELOG_ANTHROPIC_ADAPTER.md",
+    "docs/CODE_REVIEW_2026-07-03.md": "archive/legacy/docs/CODE_REVIEW_2026-07-03.md",
+    "docs/DOMAIN_INTEGRATION_GUIDE.md": "archive/legacy/docs/DOMAIN_INTEGRATION_GUIDE.md",
+    "docs/HITL_GUIDE.md": "archive/legacy/docs/HITL_GUIDE.md",
+    "docs/TESTER_GUIDE.md": "archive/legacy/docs/TESTER_GUIDE.md",
+    "docs/TESTER_GUIDE_CN.md": "archive/legacy/docs/TESTER_GUIDE_CN.md",
+    "docs/TESTER_GUIDE_JA.md": "archive/legacy/docs/TESTER_GUIDE_JA.md",
+    "docs/debate_engine.md": "archive/legacy/docs/debate_engine.md",
+    "docs/examples/medical_observational_demo.md": "archive/legacy/docs/examples/medical_observational_demo.md"
+  },
+  "updated_links": [
+    "archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md",
+    "archive/upstream/LEGACY_UPSTREAM_README.md",
+    "README.md",
+    "RESEARCHCLAW_AGENTS.md",
+    "archive/upstream/docs/README_AR.md",
+    "archive/upstream/docs/README_CN.md",
+    "archive/upstream/docs/README_DE.md",
+    "archive/upstream/docs/README_ES.md",
+    "archive/upstream/docs/README_FR.md",
+    "archive/upstream/docs/README_JA.md",
+    "archive/upstream/docs/README_KO.md",
+    "archive/upstream/docs/README_PT.md",
+    "archive/upstream/docs/README_RU.md",
+    "archive/legacy/docs/TESTER_GUIDE.md",
+    "archive/legacy/docs/TESTER_GUIDE_CN.md",
+    "archive/legacy/docs/TESTER_GUIDE_JA.md",
+    "archive/upstream/docs/showcase/SHOWCASE.md"
+  ],
+  "deleted_generated_caches": [
+    {
+      "path": "researchclaw/__pycache__",
+      "bytes": 261
+    },
+    {
+      "path": "researchclaw/core/__pycache__",
+      "bytes": 1432436
+    },
+    {
+      "path": "researchclaw/codex/__pycache__",
+      "bytes": 120755
+    },
+    {
+      "path": "researchclaw/core/m1/__pycache__",
+      "bytes": 243065
+    },
+    {
+      "path": "researchclaw/core/research_graph/__pycache__",
+      "bytes": 371850
+    },
+    {
+      "path": "tests/__pycache__",
+      "bytes": 358
+    },
+    {
+      "path": "tests/codex_native/__pycache__",
+      "bytes": 1747699
+    },
+    {
+      "path": "tests/codex_native/m1/__pycache__",
+      "bytes": 982428
+    },
+    {
+      "path": "tests/codex_native/research_graph/__pycache__",
+      "bytes": 1051099
+    },
+    {
+      "path": ".pytest_cache",
+      "bytes": 183918
+    }
+  ],
+  "runtime_code_moved": false,
+  "research_records_deleted": false
+}

@@ -578,6 +578,6 @@ researchclaw run --topic "Your research idea here" --auto-approve
 ```
 
 <p align="center">
-  <a href="../../README.md"><img src="https://img.shields.io/badge/←_Back_to_README-Main-gray?style=for-the-badge" alt="Back"></a>&nbsp;
+  <a href="../../../../README.md"><img src="https://img.shields.io/badge/←_Back_to_README-Main-gray?style=for-the-badge" alt="Back"></a>&nbsp;
   <a href="https://github.com/aiming-lab/AutoResearchClaw"><img src="https://img.shields.io/badge/⭐_Star_on_GitHub-AutoResearchClaw-181717?style=for-the-badge&logo=github" alt="GitHub"></a>
 </p>

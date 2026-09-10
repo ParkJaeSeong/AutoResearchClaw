@@ -1,5 +1,7 @@
 # AutoResearchClaw Codex
 
+현재 작업 문서는 [프로젝트 문서 안내](docs/README.md), 원본·이전 자료는 [보관함](archive/README.md)에서 확인합니다.
+
 AutoResearchClaw Codex is a Codex-native research orchestration plugin derived
 from [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw). Codex
 does the reasoning and tool-using work in the active session; a small local
@@ -376,9 +378,9 @@ Product identity:
 This project retains the upstream MIT license and attribution. The inherited
 autonomous/API-backed workflow remains in the repository during migration but
 is not the default Codex-native path. Its original documentation is preserved
-in [LEGACY_UPSTREAM_README.md](LEGACY_UPSTREAM_README.md), and its original
+in [LEGACY_UPSTREAM_README.md](archive/upstream/LEGACY_UPSTREAM_README.md), and its original
 agent bootstrap guide is preserved in
-[LEGACY_UPSTREAM_AGENT_GUIDE.md](LEGACY_UPSTREAM_AGENT_GUIDE.md). Those files
+[LEGACY_UPSTREAM_AGENT_GUIDE.md](archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md). Those files
 are labeled legacy and may describe external LLM credentials, nested agents,
 or automatic approval; their instructions do not apply to `$researchclaw`.
 

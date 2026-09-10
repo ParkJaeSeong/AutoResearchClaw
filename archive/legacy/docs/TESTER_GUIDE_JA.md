@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../image/logo.png" width="500" alt="AutoResearchClaw Logo">
+  <img src="../../upstream/image/logo.png" width="500" alt="AutoResearchClaw Logo">
 </p>
 
 <h2 align="center">🧪 コミュニティテストガイド</h2>

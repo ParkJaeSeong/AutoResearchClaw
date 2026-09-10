@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2605.20025"><img src="https://img.shields.io/badge/arXiv-2605.20025-b31b1b?logo=arxiv&logoColor=white" alt="arXiv"></a>
   <a href="https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-ARC--Bench-yellow" alt="ARC-Bench on Hugging Face"></a>
-  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+  <a href="../../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="#testing"><img src="https://img.shields.io/badge/Tests-2699%20passed-brightgreen?logo=pytest&logoColor=white" alt="2699 Tests Passed"></a>
   <a href="https://github.com/aiming-lab/AutoResearchClaw"><img src="https://img.shields.io/badge/GitHub-AutoResearchClaw-181717?logo=github" alt="GitHub"></a>
@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <a href="../README.md">🇺🇸 English</a> ·
+  <a href="../../../README.md">🇺🇸 English</a> ·
   <a href="README_CN.md">🇨🇳 中文</a> ·
   <a href="README_JA.md">🇯🇵 日本語</a> ·
   <a href="README_KO.md">🇰🇷 한국어</a> ·
@@ -44,7 +44,7 @@
 </p>
 
 <p align="center">
-  <a href="showcase/SHOWCASE.md">🏆 Vitrine des articles</a> · <a href="HITL_GUIDE.md">🧑‍✈️ Guide Co-Pilote</a> · <a href="integration-guide.md">📖 Guide d'integration</a> · <a href="https://discord.gg/u4ksqW5P">💬 Communaute Discord</a>
+  <a href="showcase/SHOWCASE.md">🏆 Vitrine des articles</a> · <a href="../../legacy/docs/HITL_GUIDE.md">🧑‍✈️ Guide Co-Pilote</a> · <a href="integration-guide.md">📖 Guide d'integration</a> · <a href="https://discord.gg/u4ksqW5P">💬 Communaute Discord</a>
 </p>
 
 ---
@@ -64,13 +64,13 @@
 
 ---
 
-> **🧪 Nous recherchons des testeurs !** Essayez le pipeline avec votre propre idee de recherche — dans n'importe quel domaine — et [dites-nous ce que vous en pensez](TESTER_GUIDE.md). Vos retours faconnent directement la prochaine version. **[→ Testing Guide](TESTER_GUIDE.md)** | **[→ 中文测试指南](TESTER_GUIDE_CN.md)** | **[→ 日本語テストガイド](TESTER_GUIDE_JA.md)**
+> **🧪 Nous recherchons des testeurs !** Essayez le pipeline avec votre propre idee de recherche — dans n'importe quel domaine — et [dites-nous ce que vous en pensez](../../legacy/docs/TESTER_GUIDE.md). Vos retours faconnent directement la prochaine version. **[→ Testing Guide](../../legacy/docs/TESTER_GUIDE.md)** | **[→ 中文测试指南](../../legacy/docs/TESTER_GUIDE_CN.md)** | **[→ 日本語テストガイド](../../legacy/docs/TESTER_GUIDE_JA.md)**
 
 ---
 
 ## 🔥 News
-- **[05/19/2026]** **v0.5.0** — **Agents d'experience multi-domaines + ARC-Bench** — Deux mises a jour majeures. **(1) Agents d'execution specialises par domaine :** l'etape d'experience (etapes 10 a 13) ne se limite plus au bac a sable ML par defaut et s'oriente vers des agents specialises selon le domaine — **physique des hautes energies** (ColliderAgent : FeynRules → MadGraph5 → Delphes via le cloud Magnus), **biologie** (modelisation metabolique a l'echelle du genome avec COBRApy) et **statistiques** (agent d'etudes de simulation), avec un executeur Docker generique pour la chimie/les materiaux. Le pipeline selectionne automatiquement le bon executeur selon le domaine. **(2) ARC-Bench :** un benchmark de recherche autonome ouvert de **55 sujets** couvrant **ML (25), physique des hautes energies (10), quantique (10), biologie (7) et statistiques (3)**, chacun fourni avec un manifeste et une grille de notation (`experiments/arc_bench/`, et aussi sur [🤗 Hugging Face](https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench)). **[→ Guide d'integration des domaines](DOMAIN_INTEGRATION_GUIDE.md)**
-- **[04/01/2026]** **v0.4.0** — **Systeme Co-Pilote Human-in-the-Loop** — AutoResearchClaw n'est plus purement autonome. Le nouveau systeme HITL ajoute 6 modes d'intervention (`full-auto`, `gate-only`, `checkpoint`, `step-by-step`, `co-pilot`, `custom`), des politiques par etape, et une collaboration profonde humain-IA. Inclut : Atelier d'Idees pour la co-creation d'hypotheses, Navigateur de References pour la revue de conception experimentale, Co-Redacteur d'Article pour la redaction collaborative, SmartPause (intervention dynamique guidee par la confiance), apprentissage d'intervention ALHF, verification anti-hallucination des affirmations, garde-fous de budget, ramification du pipeline pour l'exploration parallele d'hypotheses, et commandes CLI (`attach`/`status`/`approve`/`reject`/`guide`). **[→ Guide HITL complet](HITL_GUIDE.md)**
+- **[05/19/2026]** **v0.5.0** — **Agents d'experience multi-domaines + ARC-Bench** — Deux mises a jour majeures. **(1) Agents d'execution specialises par domaine :** l'etape d'experience (etapes 10 a 13) ne se limite plus au bac a sable ML par defaut et s'oriente vers des agents specialises selon le domaine — **physique des hautes energies** (ColliderAgent : FeynRules → MadGraph5 → Delphes via le cloud Magnus), **biologie** (modelisation metabolique a l'echelle du genome avec COBRApy) et **statistiques** (agent d'etudes de simulation), avec un executeur Docker generique pour la chimie/les materiaux. Le pipeline selectionne automatiquement le bon executeur selon le domaine. **(2) ARC-Bench :** un benchmark de recherche autonome ouvert de **55 sujets** couvrant **ML (25), physique des hautes energies (10), quantique (10), biologie (7) et statistiques (3)**, chacun fourni avec un manifeste et une grille de notation (`experiments/arc_bench/`, et aussi sur [🤗 Hugging Face](https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench)). **[→ Guide d'integration des domaines](../../legacy/docs/DOMAIN_INTEGRATION_GUIDE.md)**
+- **[04/01/2026]** **v0.4.0** — **Systeme Co-Pilote Human-in-the-Loop** — AutoResearchClaw n'est plus purement autonome. Le nouveau systeme HITL ajoute 6 modes d'intervention (`full-auto`, `gate-only`, `checkpoint`, `step-by-step`, `co-pilot`, `custom`), des politiques par etape, et une collaboration profonde humain-IA. Inclut : Atelier d'Idees pour la co-creation d'hypotheses, Navigateur de References pour la revue de conception experimentale, Co-Redacteur d'Article pour la redaction collaborative, SmartPause (intervention dynamique guidee par la confiance), apprentissage d'intervention ALHF, verification anti-hallucination des affirmations, garde-fous de budget, ramification du pipeline pour l'exploration parallele d'hypotheses, et commandes CLI (`attach`/`status`/`approve`/`reject`/`guide`). **[→ Guide HITL complet](../../legacy/docs/HITL_GUIDE.md)**
 - **[03/30/2026]** **Chargement flexible de competences** — AutoResearchClaw supporte desormais le chargement de competences open-source et personnalisees depuis n'importe quelle discipline pour enrichir votre experience de recherche. 20 competences pre-chargees sont incluses comme references pretes a l'emploi, couvrant la redaction scientifique, la conception experimentale, la chimie, la biologie, et plus encore — incluant une competence d'evolution agentique [A-Evolve](https://github.com/A-EVO-Lab/a-evolve) contribuee par la communaute. Chargez les votres via `researchclaw skills install` ou deposez un `SKILL.md` dans `.claude/skills/`. Voir [Bibliotheque de competences](#-bibliotheque-de-competences).
 - **[03/22/2026]** [v0.3.2](https://github.com/aiming-lab/AutoResearchClaw/releases/tag/v0.3.2) — **Support multiplateforme + stabilite majeure** — AutoResearchClaw fonctionne desormais avec tout agent compatible ACP (Claude Code, Codex CLI, Copilot CLI, Gemini CLI, Kimi CLI) et supporte les plateformes de messagerie (Discord, Telegram, Lark, WeChat) via le pont OpenClaw. Nouveau backend de generation de code CLI-agent qui delegue les Stages 10 et 13 a des agents CLI externes avec controle de budget et gestion des timeouts. Inclut le systeme anti-fabrication (VerifiedRegistry + boucle diagnostic/reparation), 100+ corrections de bugs, refactoring modulaire de l'executor, auto-detection `--resume`, renforcement des retries LLM, et corrections communautaires.
 
@@ -765,7 +765,7 @@ Inspire par :
 
 ## 📄 Licence
 
-MIT — voir [LICENSE](../LICENSE) pour les details.
+MIT — voir [LICENSE](../../../LICENSE) pour les details.
 
 ---
 

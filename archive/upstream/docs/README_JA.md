@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2605.20025"><img src="https://img.shields.io/badge/arXiv-2605.20025-b31b1b?logo=arxiv&logoColor=white" alt="arXiv"></a>
   <a href="https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-ARC--Bench-yellow" alt="ARC-Bench on Hugging Face"></a>
-  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+  <a href="../../../LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
   <a href="https://python.org"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+"></a>
   <a href="#テスト"><img src="https://img.shields.io/badge/Tests-2699%20passed-brightgreen?logo=pytest&logoColor=white" alt="2699 Tests Passed"></a>
   <a href="https://github.com/aiming-lab/AutoResearchClaw"><img src="https://img.shields.io/badge/GitHub-AutoResearchClaw-181717?logo=github" alt="GitHub"></a>
@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <a href="../README.md">🇺🇸 English</a> ·
+  <a href="../../../README.md">🇺🇸 English</a> ·
   <a href="README_CN.md">🇨🇳 中文</a> ·
   <a href="README_JA.md">🇯🇵 日本語</a> ·
   <a href="README_KO.md">🇰🇷 한국어</a> ·
@@ -44,7 +44,7 @@
 </p>
 
 <p align="center">
-  <a href="showcase/SHOWCASE.md">🏆 論文ショーケース</a> · <a href="HITL_GUIDE.md">🧑‍✈️ コパイロットガイド</a> · <a href="integration-guide.md">📖 統合ガイド</a> · <a href="https://discord.gg/u4ksqW5P">💬 Discordコミュニティ</a>
+  <a href="showcase/SHOWCASE.md">🏆 論文ショーケース</a> · <a href="../../legacy/docs/HITL_GUIDE.md">🧑‍✈️ コパイロットガイド</a> · <a href="integration-guide.md">📖 統合ガイド</a> · <a href="https://discord.gg/u4ksqW5P">💬 Discordコミュニティ</a>
 </p>
 
 ---
@@ -64,13 +64,13 @@
 
 ---
 
-> **🧪 テスターを募集しています！** あなた自身の研究アイデアで — どの分野からでも — パイプラインをお試しください。[ご意見をお聞かせください](TESTER_GUIDE.md)。あなたのフィードバックが次のバージョンに直接反映されます。 **[→ Testing Guide](TESTER_GUIDE.md)** | **[→ 中文测试指南](TESTER_GUIDE_CN.md)** | **[→ 日本語テストガイド](TESTER_GUIDE_JA.md)**
+> **🧪 テスターを募集しています！** あなた自身の研究アイデアで — どの分野からでも — パイプラインをお試しください。[ご意見をお聞かせください](../../legacy/docs/TESTER_GUIDE.md)。あなたのフィードバックが次のバージョンに直接反映されます。 **[→ Testing Guide](../../legacy/docs/TESTER_GUIDE.md)** | **[→ 中文测试指南](../../legacy/docs/TESTER_GUIDE_CN.md)** | **[→ 日本語テストガイド](../../legacy/docs/TESTER_GUIDE_JA.md)**
 
 ---
 
 ## 🔥 News
-- **[05/19/2026]** **v0.5.0** — **マルチドメイン実験エージェント + ARC-Bench** — 2 つの主要アップデート。**(1) ドメイン特化型実行エージェント：** 実験ステージ（ステージ 10〜13）は、デフォルトの ML サンドボックスを超えて分野ごとの専門エージェントにルーティングされます——**高エネルギー物理**（ColliderAgent：FeynRules → MadGraph5 → Delphes、Magnus クラウド経由）、**生物学**（COBRApy ゲノムスケール代謝モデリング）、**統計学**（シミュレーション研究エージェント）。化学・材料は汎用 Docker エグゼキューターが担当します。パイプラインは研究領域から適切なエグゼキューターを自動選択します。**(2) ARC-Bench：** **55 トピック**のオープンエンド自律研究ベンチマーク。**ML（25）、高エネルギー物理（10）、量子（10）、生物（7）、統計（3）** を対象とし、各トピックにマニフェストと採点ルーブリックが付属します（`experiments/arc_bench/`、さらに [🤗 Hugging Face](https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench) でも公開）。**[→ ドメイン統合ガイド](DOMAIN_INTEGRATION_GUIDE.md)**
-- **[04/01/2026]** **v0.4.0** — **Human-in-the-Loop コパイロットシステム** — AutoResearchClawは完全自律だけではなくなりました。新しいHITLシステムにより、6つの介入モード（`full-auto`、`gate-only`、`checkpoint`、`step-by-step`、`co-pilot`、`custom`）、ステージごとのポリシー、人間とAIの深い協調が追加されます。仮説の共同作成のためのアイデアワークショップ、実験設計レビューのためのベースラインナビゲーター、協調的ドラフト作成のための論文コライター、SmartPause（信頼度駆動の動的介入）、ALHF介入学習、反幻覚クレーム検証、コスト予算ガードレール、並列仮説探索のためのパイプラインブランチ、CLIコマンド（`attach`/`status`/`approve`/`reject`/`guide`）を含みます。**[→ 完全HITLガイド](HITL_GUIDE.md)**
+- **[05/19/2026]** **v0.5.0** — **マルチドメイン実験エージェント + ARC-Bench** — 2 つの主要アップデート。**(1) ドメイン特化型実行エージェント：** 実験ステージ（ステージ 10〜13）は、デフォルトの ML サンドボックスを超えて分野ごとの専門エージェントにルーティングされます——**高エネルギー物理**（ColliderAgent：FeynRules → MadGraph5 → Delphes、Magnus クラウド経由）、**生物学**（COBRApy ゲノムスケール代謝モデリング）、**統計学**（シミュレーション研究エージェント）。化学・材料は汎用 Docker エグゼキューターが担当します。パイプラインは研究領域から適切なエグゼキューターを自動選択します。**(2) ARC-Bench：** **55 トピック**のオープンエンド自律研究ベンチマーク。**ML（25）、高エネルギー物理（10）、量子（10）、生物（7）、統計（3）** を対象とし、各トピックにマニフェストと採点ルーブリックが付属します（`experiments/arc_bench/`、さらに [🤗 Hugging Face](https://huggingface.co/datasets/AIMING-Lab-UNC/ARC-Bench) でも公開）。**[→ ドメイン統合ガイド](../../legacy/docs/DOMAIN_INTEGRATION_GUIDE.md)**
+- **[04/01/2026]** **v0.4.0** — **Human-in-the-Loop コパイロットシステム** — AutoResearchClawは完全自律だけではなくなりました。新しいHITLシステムにより、6つの介入モード（`full-auto`、`gate-only`、`checkpoint`、`step-by-step`、`co-pilot`、`custom`）、ステージごとのポリシー、人間とAIの深い協調が追加されます。仮説の共同作成のためのアイデアワークショップ、実験設計レビューのためのベースラインナビゲーター、協調的ドラフト作成のための論文コライター、SmartPause（信頼度駆動の動的介入）、ALHF介入学習、反幻覚クレーム検証、コスト予算ガードレール、並列仮説探索のためのパイプラインブランチ、CLIコマンド（`attach`/`status`/`approve`/`reject`/`guide`）を含みます。**[→ 完全HITLガイド](../../legacy/docs/HITL_GUIDE.md)**
 - **[03/30/2026]** **フレキシブルスキルローディング** — AutoResearchClawは、研究体験をさらに向上させるために、オープンソースおよびカスタムスキルのロードに対応しました。科学的ライティング、実験設計、化学、生物学などをカバーする20のプリロードスキルがすぐに使えるリファレンスとして含まれており、コミュニティ提供の[A-Evolve](https://github.com/A-EVO-Lab/a-evolve)エージェント進化スキルも含まれています。`researchclaw skills install`でインストールするか、`.claude/skills/`に`SKILL.md`を配置してください。[スキルライブラリ](#-スキルライブラリ)を参照。
 - **[03/22/2026]** [v0.3.2](https://github.com/aiming-lab/AutoResearchClaw/releases/tag/v0.3.2) — **クロスプラットフォーム対応 + 安定性大幅向上** — ACP互換AIエージェントバックエンド（Claude Code、Codex CLI、Copilot CLI、Gemini CLI、Kimi CLI）に対応し、OpenClawブリッジ経由でメッセージングプラットフォーム（Discord、Telegram、Lark、WeChat）もサポート。新しいCLIエージェントコード生成バックエンドにより、ステージ10と13を外部CLIエージェントに委任し、予算制御とタイムアウト管理に対応。反データ捏造システム（VerifiedRegistry + 実験診断・修復ループ）、100件以上のバグ修正、モジュラーexecutorリファクタリング、`--resume`自動検出、LLMリトライ強化、コミュニティ報告の修正を含む。
 
@@ -765,7 +765,7 @@ openclaw_bridge:
 
 ## 📄 ライセンス
 
-MIT — 詳細は[LICENSE](../LICENSE)をご覧ください。
+MIT — 詳細は[LICENSE](../../../LICENSE)をご覧ください。
 
 ---
 

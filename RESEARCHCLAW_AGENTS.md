@@ -72,6 +72,6 @@ with stage, approval, and evaluation details under
 [skills/researchclaw/references/](skills/researchclaw/references/).
 
 The inherited upstream agent configuration is preserved at
-[LEGACY_UPSTREAM_AGENT_GUIDE.md](LEGACY_UPSTREAM_AGENT_GUIDE.md). It describes
+[LEGACY_UPSTREAM_AGENT_GUIDE.md](archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md). It describes
 the legacy autonomous/API-backed workflow and is not an instruction source for
 the Codex-native plugin.
