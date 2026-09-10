@@ -1,0 +1,630 @@
+{
+  "assessments": [
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "80749233b1e9dd61a402576f70f70291589b25931aa610cf0c8cd35517aa80f4",
+        "artifact_id": "11065d31-ad6e-4fab-9728-6b56db0a1513",
+        "sha256": "fd98b9fe3edeeffb0eef27c3555d97db76902c8027cf355576bbbfd7760c91b2"
+      },
+      "group_key": "01-h1-data",
+      "group_title": "H1 데이터·측정 조건",
+      "affected_sources": [
+        "PC/CNT·PP/CNT·전체 EC 가공표와 상세표",
+        "Abbasi 2010 및 Takeda 2011 대응 시료"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "PC/CNT에서 측정 조건의 예측 효과를 평가하는 학습과 검증 가능성 확정"
+      ],
+      "preparation_work": [
+        "실측·대체·미상 구분표와 자료별 허용 용도 초안 작성"
+      ],
+      "next_check": "기존 감사의 온도·두께·측정법·단위 미확정 항목을 시료·문헌별로 묶고 조건 변이와 충전율 중첩의 남은 확인만 수행",
+      "if_unresolved": "미확정 값을 사용하는 비교를 보류한다. 대상 확대는 별도 질문 개정으로 기록하며 대체값을 실측처럼 사용하지 않는다.",
+      "owner_role": "문헌·소재 담당",
+      "rationale": "세 쟁점은 같은 조건 변이 확인을 요구한다. 원래 해소 조건도 질문 설계는 계속하고 PC/CNT 검증 가능성 확정은 보류하도록 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "9139cbf79ff839eb31856435e7b7c98c90b605583069406a1e25db265a76c484",
+        "artifact_id": "bddcacb3-c53c-4c17-b811-fee77ea0513c",
+        "sha256": "bffa1dc2e4530a4af0a77e037bee075e9e05160058f7ca0d4bbe8a9b810a7805"
+      },
+      "group_key": "01-h1-data",
+      "group_title": "H1 데이터·측정 조건",
+      "affected_sources": [
+        "PC/CNT·PP/CNT·전체 EC 가공표와 상세표",
+        "Abbasi 2010 및 Takeda 2011 대응 시료"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "PC/CNT에서 측정 조건의 예측 효과를 평가하는 학습과 검증 가능성 확정"
+      ],
+      "preparation_work": [
+        "실측·대체·미상 구분표와 자료별 허용 용도 초안 작성"
+      ],
+      "next_check": "기존 감사의 온도·두께·측정법·단위 미확정 항목을 시료·문헌별로 묶고 조건 변이와 충전율 중첩의 남은 확인만 수행",
+      "if_unresolved": "미확정 값을 사용하는 비교를 보류한다. 대상 확대는 별도 질문 개정으로 기록하며 대체값을 실측처럼 사용하지 않는다.",
+      "owner_role": "문헌·소재 담당",
+      "rationale": "세 쟁점은 같은 조건 변이 확인을 요구한다. 원래 해소 조건도 질문 설계는 계속하고 PC/CNT 검증 가능성 확정은 보류하도록 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "5717e3c16771b87b9432325b800b283888703acc9dd2059ac858ed691c440855",
+        "artifact_id": "c70c9c81-c62c-4d88-9675-800799e1c5ea",
+        "sha256": "2011f5aca88a68e2839c80523497c6b1bb5c07b1e7e9a80528eee5822ed6ddd8"
+      },
+      "group_key": "01-h1-data",
+      "group_title": "H1 데이터·측정 조건",
+      "affected_sources": [
+        "PC/CNT·PP/CNT·전체 EC 가공표와 상세표",
+        "Abbasi 2010 및 Takeda 2011 대응 시료"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "PC/CNT에서 측정 조건의 예측 효과를 평가하는 학습과 검증 가능성 확정"
+      ],
+      "preparation_work": [
+        "실측·대체·미상 구분표와 자료별 허용 용도 초안 작성"
+      ],
+      "next_check": "기존 감사의 온도·두께·측정법·단위 미확정 항목을 시료·문헌별로 묶고 조건 변이와 충전율 중첩의 남은 확인만 수행",
+      "if_unresolved": "미확정 값을 사용하는 비교를 보류한다. 대상 확대는 별도 질문 개정으로 기록하며 대체값을 실측처럼 사용하지 않는다.",
+      "owner_role": "문헌·소재 담당",
+      "rationale": "세 쟁점은 같은 조건 변이 확인을 요구한다. 원래 해소 조건도 질문 설계는 계속하고 PC/CNT 검증 가능성 확정은 보류하도록 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "1fc835b85f766efbcca6c9ad46582cef6897178e4b868f201c5518a87adf6d62",
+        "artifact_id": "23c68d16-2f9e-4860-b9f2-4f79a773887d",
+        "sha256": "9b470f5273920e5924cbff5326d6038085ebde3210d3cd68cf3d121e1d11562b"
+      },
+      "group_key": "02-h1-evaluation",
+      "group_title": "H1 평가 단위·누출",
+      "affected_sources": [
+        "EC 데이터 계보·문헌·공저자 그룹",
+        "평가 결과를 포함한 문헌·검색 결과·메모리"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "평가 기준 고정 전 모델 성능 비교와 독립 일반화 주장"
+      ],
+      "preparation_work": [
+        "일반화 대상·자료 재사용 관계·외부 분할·평가 정보 접근 경계와 지표 명세 작성"
+      ],
+      "next_check": "새 문헌 예측의 대상과 계보 단위를 명시하고 문헌별 MAE 가중치·최소 의미 개선폭·불확실성·튜닝·교정 절차를 실행 전에 고정",
+      "if_unresolved": "독립성이나 평가군이 부족하면 판단 불가 또는 탐색적 결과로 한정한다. 행과 반복 fold를 독립 반복으로 세지 않는다.",
+      "owner_role": "방법론·평가 담당",
+      "rationale": "평가 단위·선택 편향·정보 누출은 서로 다른 위험이므로 같은 평가 명세에서 점검하되 각 조건의 충족 여부는 따로 판단한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "89ae3e32a9d3265cd365f7aa96f101144cab170a53b11d5a3b383a0cbeb5a708",
+        "artifact_id": "617f5256-56f2-454a-9b64-b516e2c20a9e",
+        "sha256": "9f4bd742776a034b694bdc9b5787917e6b404c5b7d0450d304772a36e3689e6e"
+      },
+      "group_key": "02-h1-evaluation",
+      "group_title": "H1 평가 단위·누출",
+      "affected_sources": [
+        "EC 데이터 계보·문헌·공저자 그룹",
+        "평가 결과를 포함한 문헌·검색 결과·메모리"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "평가 기준 고정 전 모델 성능 비교와 독립 일반화 주장"
+      ],
+      "preparation_work": [
+        "일반화 대상·자료 재사용 관계·외부 분할·평가 정보 접근 경계와 지표 명세 작성"
+      ],
+      "next_check": "새 문헌 예측의 대상과 계보 단위를 명시하고 문헌별 MAE 가중치·최소 의미 개선폭·불확실성·튜닝·교정 절차를 실행 전에 고정",
+      "if_unresolved": "독립성이나 평가군이 부족하면 판단 불가 또는 탐색적 결과로 한정한다. 행과 반복 fold를 독립 반복으로 세지 않는다.",
+      "owner_role": "방법론·평가 담당",
+      "rationale": "평가 단위·선택 편향·정보 누출은 서로 다른 위험이므로 같은 평가 명세에서 점검하되 각 조건의 충족 여부는 따로 판단한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "01c1acc8c9a8104f6681fc92a33361fe7856069ba791ac3f34f6a4cac0ae8fb5",
+        "artifact_id": "ab415e53-fb3e-4b45-b870-fc7fd5942658",
+        "sha256": "4a79e9b8f83e4ce482007bf9c6f3ee5e7755620f1692a51dfe1e7c06089a67ca"
+      },
+      "group_key": "02-h1-evaluation",
+      "group_title": "H1 평가 단위·누출",
+      "affected_sources": [
+        "EC 데이터 계보·문헌·공저자 그룹",
+        "평가 결과를 포함한 문헌·검색 결과·메모리"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "평가 기준 고정 전 모델 성능 비교와 독립 일반화 주장"
+      ],
+      "preparation_work": [
+        "일반화 대상·자료 재사용 관계·외부 분할·평가 정보 접근 경계와 지표 명세 작성"
+      ],
+      "next_check": "새 문헌 예측의 대상과 계보 단위를 명시하고 문헌별 MAE 가중치·최소 의미 개선폭·불확실성·튜닝·교정 절차를 실행 전에 고정",
+      "if_unresolved": "독립성이나 평가군이 부족하면 판단 불가 또는 탐색적 결과로 한정한다. 행과 반복 fold를 독립 반복으로 세지 않는다.",
+      "owner_role": "방법론·평가 담당",
+      "rationale": "평가 단위·선택 편향·정보 누출은 서로 다른 위험이므로 같은 평가 명세에서 점검하되 각 조건의 충족 여부는 따로 판단한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "c2ae4c1f837f1c4314b6ebfb5103d288bccf57a425bb8196016df48e75dba768",
+        "artifact_id": "c187aa03-73bf-454d-86bc-00b60561b6e5",
+        "sha256": "032f54c58ef66da701135ea056b7b92e1e0129a0045cfca571012a861c11ad83"
+      },
+      "group_key": "02-h1-evaluation",
+      "group_title": "H1 평가 단위·누출",
+      "affected_sources": [
+        "EC 데이터 계보·문헌·공저자 그룹",
+        "평가 결과를 포함한 문헌·검색 결과·메모리"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "평가 기준 고정 전 모델 성능 비교와 독립 일반화 주장"
+      ],
+      "preparation_work": [
+        "일반화 대상·자료 재사용 관계·외부 분할·평가 정보 접근 경계와 지표 명세 작성"
+      ],
+      "next_check": "새 문헌 예측의 대상과 계보 단위를 명시하고 문헌별 MAE 가중치·최소 의미 개선폭·불확실성·튜닝·교정 절차를 실행 전에 고정",
+      "if_unresolved": "독립성이나 평가군이 부족하면 판단 불가 또는 탐색적 결과로 한정한다. 행과 반복 fold를 독립 반복으로 세지 않는다.",
+      "owner_role": "방법론·평가 담당",
+      "rationale": "평가 단위·선택 편향·정보 누출은 서로 다른 위험이므로 같은 평가 명세에서 점검하되 각 조건의 충족 여부는 따로 판단한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "e028e839669f041842da53811455c47ba2d93fe66bbc6c5453a1bbfaafc17918",
+        "artifact_id": "c2151cbb-917a-49e0-98f3-211efc3fa8c3",
+        "sha256": "4e22a0cf1f7b8c54c172c732877f82af19c9e0e7dcfa8b4f191b511116c8f8a2"
+      },
+      "group_key": "02-h1-evaluation",
+      "group_title": "H1 평가 단위·누출",
+      "affected_sources": [
+        "EC 데이터 계보·문헌·공저자 그룹",
+        "평가 결과를 포함한 문헌·검색 결과·메모리"
+      ],
+      "hypotheses": [
+        "H1"
+      ],
+      "held_work": [
+        "평가 기준 고정 전 모델 성능 비교와 독립 일반화 주장"
+      ],
+      "preparation_work": [
+        "일반화 대상·자료 재사용 관계·외부 분할·평가 정보 접근 경계와 지표 명세 작성"
+      ],
+      "next_check": "새 문헌 예측의 대상과 계보 단위를 명시하고 문헌별 MAE 가중치·최소 의미 개선폭·불확실성·튜닝·교정 절차를 실행 전에 고정",
+      "if_unresolved": "독립성이나 평가군이 부족하면 판단 불가 또는 탐색적 결과로 한정한다. 행과 반복 fold를 독립 반복으로 세지 않는다.",
+      "owner_role": "방법론·평가 담당",
+      "rationale": "평가 단위·선택 편향·정보 누출은 서로 다른 위험이므로 같은 평가 명세에서 점검하되 각 조건의 충족 여부는 따로 판단한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "d9755d2385b51b3d67c28f090c93b0c00c6c5b6954317633056a48ebf351c191",
+        "artifact_id": "31672a79-837b-4cbe-bdab-2a37a8f9d146",
+        "sha256": "f101fe77a1af92bf62b354850ab823f7d87124659decb211ba2d2b8238d5bb31"
+      },
+      "group_key": "03-h2-mechanism",
+      "group_title": "H2 경쟁 설명·판별 조건",
+      "affected_sources": [
+        "PC/CNT 공정·구조·전도도 대응 자료",
+        "경쟁 설명별 필요한 직접 관측"
+      ],
+      "hypotheses": [
+        "H2"
+      ],
+      "held_work": [
+        "현재 자료를 기전 정답으로 사용하거나 단일 승자 선택을 판별 성공으로 평가하는 실행"
+      ],
+      "preparation_work": [
+        "단독·복합 설명의 예측, 필요한 관측, 대조 조건과 판별 유보 규칙 작성"
+      ],
+      "next_check": "분산·접촉망·측정 조건의 단독·동시 작용을 구별할 관측과 오차를 표로 만들고 독립 판정의 근거·정답 요건을 명시",
+      "if_unresolved": "식별 불가능하면 H2 기전 검증을 보류하고 예측 평가와 구분한다. 에이전트의 선택 빈도를 정답으로 삼지 않는다.",
+      "owner_role": "소재·반증 담당",
+      "rationale": "직접 관측 부족과 복합 설명의 처리 규칙은 별개지만 동일한 가설·관측표에서 준비할 수 있다. 새 실험의 답과 실험 전 필요한 조건을 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "786faae0c9fceafe6e0d52c5fc802a45c9ab3f9b23e972ce3cd90b3a36837d1b",
+        "artifact_id": "8221a6fa-a21f-4159-98ee-3082ac373180",
+        "sha256": "4fbbe65455abd1ec125efaa938a2ed18023b303f6a01742ed162d27ef610a2f9"
+      },
+      "group_key": "03-h2-mechanism",
+      "group_title": "H2 경쟁 설명·판별 조건",
+      "affected_sources": [
+        "PC/CNT 공정·구조·전도도 대응 자료",
+        "경쟁 설명별 필요한 직접 관측"
+      ],
+      "hypotheses": [
+        "H2"
+      ],
+      "held_work": [
+        "현재 자료를 기전 정답으로 사용하거나 단일 승자 선택을 판별 성공으로 평가하는 실행"
+      ],
+      "preparation_work": [
+        "단독·복합 설명의 예측, 필요한 관측, 대조 조건과 판별 유보 규칙 작성"
+      ],
+      "next_check": "분산·접촉망·측정 조건의 단독·동시 작용을 구별할 관측과 오차를 표로 만들고 독립 판정의 근거·정답 요건을 명시",
+      "if_unresolved": "식별 불가능하면 H2 기전 검증을 보류하고 예측 평가와 구분한다. 에이전트의 선택 빈도를 정답으로 삼지 않는다.",
+      "owner_role": "소재·반증 담당",
+      "rationale": "직접 관측 부족과 복합 설명의 처리 규칙은 별개지만 동일한 가설·관측표에서 준비할 수 있다. 새 실험의 답과 실험 전 필요한 조건을 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "cc532da8e24014576508affa5b3a91b7b168109e098b62455660459b766f2f73",
+        "artifact_id": "902eded4-93eb-427f-9b17-bc2220c5ba29",
+        "sha256": "4ef2f2f4b789df626da9281752be276a06e1f99bec004ca994dd2b00ad2829a0"
+      },
+      "group_key": "03-h2-mechanism",
+      "group_title": "H2 경쟁 설명·판별 조건",
+      "affected_sources": [
+        "PC/CNT 공정·구조·전도도 대응 자료",
+        "경쟁 설명별 필요한 직접 관측"
+      ],
+      "hypotheses": [
+        "H2"
+      ],
+      "held_work": [
+        "현재 자료를 기전 정답으로 사용하거나 단일 승자 선택을 판별 성공으로 평가하는 실행"
+      ],
+      "preparation_work": [
+        "단독·복합 설명의 예측, 필요한 관측, 대조 조건과 판별 유보 규칙 작성"
+      ],
+      "next_check": "분산·접촉망·측정 조건의 단독·동시 작용을 구별할 관측과 오차를 표로 만들고 독립 판정의 근거·정답 요건을 명시",
+      "if_unresolved": "식별 불가능하면 H2 기전 검증을 보류하고 예측 평가와 구분한다. 에이전트의 선택 빈도를 정답으로 삼지 않는다.",
+      "owner_role": "소재·반증 담당",
+      "rationale": "직접 관측 부족과 복합 설명의 처리 규칙은 별개지만 동일한 가설·관측표에서 준비할 수 있다. 새 실험의 답과 실험 전 필요한 조건을 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "b2e51a95037b78fda431bb9da7bb261c5a74fefc6e09f1a07646145f81d84bef",
+        "artifact_id": "9f79d5cb-f668-496d-887b-6421292ac7c2",
+        "sha256": "b562c53dc64a7ca65ddcdbf357c90d0818d08dec54c3eafa84b4676bde50609f"
+      },
+      "group_key": "03-h2-mechanism",
+      "group_title": "H2 경쟁 설명·판별 조건",
+      "affected_sources": [
+        "PC/CNT 공정·구조·전도도 대응 자료",
+        "경쟁 설명별 필요한 직접 관측"
+      ],
+      "hypotheses": [
+        "H2"
+      ],
+      "held_work": [
+        "현재 자료를 기전 정답으로 사용하거나 단일 승자 선택을 판별 성공으로 평가하는 실행"
+      ],
+      "preparation_work": [
+        "단독·복합 설명의 예측, 필요한 관측, 대조 조건과 판별 유보 규칙 작성"
+      ],
+      "next_check": "분산·접촉망·측정 조건의 단독·동시 작용을 구별할 관측과 오차를 표로 만들고 독립 판정의 근거·정답 요건을 명시",
+      "if_unresolved": "식별 불가능하면 H2 기전 검증을 보류하고 예측 평가와 구분한다. 에이전트의 선택 빈도를 정답으로 삼지 않는다.",
+      "owner_role": "소재·반증 담당",
+      "rationale": "직접 관측 부족과 복합 설명의 처리 규칙은 별개지만 동일한 가설·관측표에서 준비할 수 있다. 새 실험의 답과 실험 전 필요한 조건을 구분한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "351f911285b659dc0a9e7f0a20f96fd683366f702ed7b0079675f7293972eec8",
+        "artifact_id": "50527396-5b08-4dc0-9054-211d7891873a",
+        "sha256": "e1cc3c69c2ade456e12a3481c23241815ea778778039059d9fb1c11625858bd1"
+      },
+      "group_key": "04-h3-checks",
+      "group_title": "H3 실행 전 검사 평가",
+      "affected_sources": [
+        "가상 제약과 동일한 검사 전 제안 집합"
+      ],
+      "hypotheses": [
+        "H3"
+      ],
+      "held_work": [
+        "독립 유효성 기준·분모·허용 손실 확정 전 H3 본 평가와 실제 장비 효과 주장"
+      ],
+      "preparation_work": [
+        "검사 포함·제외 비교와 부적합 통과·오거절·판단 불가의 판정표 작성"
+      ],
+      "next_check": "전체 제안 수와 판정 가능 제안 수를 분리하고 탐색 손실·거절·재시도·사람 수정 비용 및 독립 유효성 기준을 고정",
+      "if_unresolved": "장비 미확정이면 가상 제약하 설계로 한정하고, 판정 불가를 성공이나 실패에서 임의로 제외하지 않는다.",
+      "owner_role": "실행·방법론 담당",
+      "rationale": "두 쟁점은 과도한 거절이 성과 개선처럼 보이는 문제를 다룬다. 질문·요구사항 설계는 계속할 수 있다는 원래 조건을 유지한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "0b4f7ddac527f6a94c3d02ba29859b988de969bf347c6568717ff565e4bb2baf",
+        "artifact_id": "bf91ec3b-a66e-4268-9a4b-11fc2e669995",
+        "sha256": "9a41e1f967be9a3ced19253af2a277b88c22e0f35f897c9fbba583c413c70ddc"
+      },
+      "group_key": "04-h3-checks",
+      "group_title": "H3 실행 전 검사 평가",
+      "affected_sources": [
+        "가상 제약과 동일한 검사 전 제안 집합"
+      ],
+      "hypotheses": [
+        "H3"
+      ],
+      "held_work": [
+        "독립 유효성 기준·분모·허용 손실 확정 전 H3 본 평가와 실제 장비 효과 주장"
+      ],
+      "preparation_work": [
+        "검사 포함·제외 비교와 부적합 통과·오거절·판단 불가의 판정표 작성"
+      ],
+      "next_check": "전체 제안 수와 판정 가능 제안 수를 분리하고 탐색 손실·거절·재시도·사람 수정 비용 및 독립 유효성 기준을 고정",
+      "if_unresolved": "장비 미확정이면 가상 제약하 설계로 한정하고, 판정 불가를 성공이나 실패에서 임의로 제외하지 않는다.",
+      "owner_role": "실행·방법론 담당",
+      "rationale": "두 쟁점은 과도한 거절이 성과 개선처럼 보이는 문제를 다룬다. 질문·요구사항 설계는 계속할 수 있다는 원래 조건을 유지한다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "bfc85b4aaaac115443c8ee3fdfa3479bc8100409ce698ac0c14dec02905bf38d",
+        "artifact_id": "5d7c86ab-02e5-4e6f-a55c-303877ecb8c0",
+        "sha256": "37c70f1544f8881af9decd60b141eaff1b31663b9d665115d03ba1ed27ce5c74"
+      },
+      "group_key": "05-fair-comparison",
+      "group_title": "목표·정보·자원의 공정한 비교",
+      "affected_sources": [
+        "에이전트와 비교군의 목표·입력 정보·도구·계산 및 실험 예산"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "목표나 정보·자원이 다른 결과를 가설 갱신 기능의 우월성으로 해석"
+      ],
+      "preparation_work": [
+        "같은 목표·정보·자원 조건의 비교군과 가설 갱신 기능 포함·제외 설계"
+      ],
+      "next_check": "물성 최적화와 가설 판별의 성공 조건을 분리하고 추가 문헌·도구·계산·실험·사람 개입 비용을 비교표에 기록",
+      "if_unresolved": "차이를 통제하지 못하면 구성 전체의 관측 차이로 한정하며 특정 기능의 효과를 단정하지 않는다.",
+      "owner_role": "방법론 담당",
+      "rationale": "더 많은 정보나 자원을 사용한 효과와 가설 갱신 방식의 효과를 구분하기 위한 공통 설계 작업이다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "9de6c6c876bd6fae1d11dd3768b1ae5e8b6cadc1d65b5c312264bbb76062e089",
+        "artifact_id": "7e472976-d3aa-41cd-9728-1c55c7b857ac",
+        "sha256": "a0c23a88218e520a2ca355286c85768a75ccad63f58b947afe2f008c8ddae751"
+      },
+      "group_key": "05-fair-comparison",
+      "group_title": "목표·정보·자원의 공정한 비교",
+      "affected_sources": [
+        "에이전트와 비교군의 목표·입력 정보·도구·계산 및 실험 예산"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "목표나 정보·자원이 다른 결과를 가설 갱신 기능의 우월성으로 해석"
+      ],
+      "preparation_work": [
+        "같은 목표·정보·자원 조건의 비교군과 가설 갱신 기능 포함·제외 설계"
+      ],
+      "next_check": "물성 최적화와 가설 판별의 성공 조건을 분리하고 추가 문헌·도구·계산·실험·사람 개입 비용을 비교표에 기록",
+      "if_unresolved": "차이를 통제하지 못하면 구성 전체의 관측 차이로 한정하며 특정 기능의 효과를 단정하지 않는다.",
+      "owner_role": "방법론 담당",
+      "rationale": "더 많은 정보나 자원을 사용한 효과와 가설 갱신 방식의 효과를 구분하기 위한 공통 설계 작업이다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "ccce94dea39f97fa5eda13231a142f1b350d9bf352e8eb3caed7b1d514e0696a",
+        "artifact_id": "5fd7816f-c7db-4db2-b663-ed222d0b09f5",
+        "sha256": "e077c72f63f73877e6900bba12f93f0de5db642b7ddf3af0e85649c27b61f3a0"
+      },
+      "group_key": "06-case-selection",
+      "group_title": "대표 사례·자동화 실행 조건",
+      "affected_sources": [
+        "고분자 복합소재 후보군과 질문별 문헌",
+        "계량·혼합·성형·측정·시료 추적 요구사항"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "대표 사례의 최종 실행 적합성 확정과 장비·권한 확인 전 실제 제조·측정"
+      ],
+      "preparation_work": [
+        "후보별 필수 측정 조건·단위·자동화 병목·수작업·실패 복구·질문별 근거 비교표 작성"
+      ],
+      "next_check": "핵심 질문별 확보 근거와 빈 부분을 구분하고 부족한 부분에 한해 추가 탐색 또는 질문 범위 축소를 선택",
+      "if_unresolved": "필요 장비와 실제 보유 장비를 구분한다. 찾지 못한 자료를 분야 전체의 공백으로 해석하지 않고 해당 사례·용도를 보류한다.",
+      "owner_role": "소재·SDL 실행 담당",
+      "rationale": "자동화 적합성·측정 비교 가능성·탐색 충분성은 후보별 비교표로 함께 준비하되 각각의 판단 근거를 남긴다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "7029ce81874aeb2c0d98d45e13b1b5aa4778c0a548584cbe3fd42b762eeddcf3",
+        "artifact_id": "880dae90-5b41-4ab3-a3ea-c6ccda21bf94",
+        "sha256": "fcc13748cb3ea6112b43066d366e54f4916e5933ba361515cd6e4d7d7e7bae8b"
+      },
+      "group_key": "06-case-selection",
+      "group_title": "대표 사례·자동화 실행 조건",
+      "affected_sources": [
+        "고분자 복합소재 후보군과 질문별 문헌",
+        "계량·혼합·성형·측정·시료 추적 요구사항"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "대표 사례의 최종 실행 적합성 확정과 장비·권한 확인 전 실제 제조·측정"
+      ],
+      "preparation_work": [
+        "후보별 필수 측정 조건·단위·자동화 병목·수작업·실패 복구·질문별 근거 비교표 작성"
+      ],
+      "next_check": "핵심 질문별 확보 근거와 빈 부분을 구분하고 부족한 부분에 한해 추가 탐색 또는 질문 범위 축소를 선택",
+      "if_unresolved": "필요 장비와 실제 보유 장비를 구분한다. 찾지 못한 자료를 분야 전체의 공백으로 해석하지 않고 해당 사례·용도를 보류한다.",
+      "owner_role": "소재·SDL 실행 담당",
+      "rationale": "자동화 적합성·측정 비교 가능성·탐색 충분성은 후보별 비교표로 함께 준비하되 각각의 판단 근거를 남긴다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "ccb648255a308663c8b7190bf59016db993d99bf7c5428b885b652c014dcf7f8",
+        "artifact_id": "76ae17fb-99b7-4d0e-bf0f-cf629bf2e178",
+        "sha256": "44f21f182e1aec1e1f3c8150ba24bbe32aa736a7d9e4d6316471e59148540150"
+      },
+      "group_key": "06-case-selection",
+      "group_title": "대표 사례·자동화 실행 조건",
+      "affected_sources": [
+        "고분자 복합소재 후보군과 질문별 문헌",
+        "계량·혼합·성형·측정·시료 추적 요구사항"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "대표 사례의 최종 실행 적합성 확정과 장비·권한 확인 전 실제 제조·측정"
+      ],
+      "preparation_work": [
+        "후보별 필수 측정 조건·단위·자동화 병목·수작업·실패 복구·질문별 근거 비교표 작성"
+      ],
+      "next_check": "핵심 질문별 확보 근거와 빈 부분을 구분하고 부족한 부분에 한해 추가 탐색 또는 질문 범위 축소를 선택",
+      "if_unresolved": "필요 장비와 실제 보유 장비를 구분한다. 찾지 못한 자료를 분야 전체의 공백으로 해석하지 않고 해당 사례·용도를 보류한다.",
+      "owner_role": "소재·SDL 실행 담당",
+      "rationale": "자동화 적합성·측정 비교 가능성·탐색 충분성은 후보별 비교표로 함께 준비하되 각각의 판단 근거를 남긴다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "fef9ce587e5106c62e57da6b019cd463f1aa4491d6cedd7dfc1441646d119f2a",
+        "artifact_id": "6e7cce92-3446-4e75-827c-a7adcebd8501",
+        "sha256": "df165ff3219cb6e91e4409190fe07c464ab46ae26cae0992c2a2b34b6cafba72"
+      },
+      "group_key": "07-source-version",
+      "group_title": "문헌·프리프린트 버전 연결",
+      "affected_sources": [
+        "DOI 10.1039/D4PY01417K",
+        "arXiv:2412.08407"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "동일성 확인 전 두 식별자의 확정 통합과 독립 근거 중복 계산"
+      ],
+      "preparation_work": [
+        "각 식별자를 별도 기록하고 저자·제목·데이터·코드 버전 비교"
+      ],
+      "next_check": "공개 버전 연결 정보와 분석 변경을 확인하고 실제 판단에 사용한 버전을 명시",
+      "if_unresolved": "관계 미확인으로 남기고 독립된 두 연구로 세지 않는다. 다른 자료 수집은 계속한다.",
+      "owner_role": "문헌 담당",
+      "rationale": "이 쟁점의 영향은 특정 후보의 버전 관계다. 원문 확보나 다른 후보 검토 전체를 중단할 사유로 넓히지 않는다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "0667f7f0d83a5d7f8ff4cfc41fb5afef8348fd9414988dc88122b5e3e64d5479",
+        "artifact_id": "51c50dc4-2840-4d9f-95f1-290a2b84a54d",
+        "sha256": "295a9ccb0d8db33ba56c65ee22f00a9e2d03b1098a836e4e29d24458a57ef742"
+      },
+      "group_key": "08-claim-target",
+      "group_title": "반론이 향하는 주장 구분",
+      "affected_sources": [
+        "초기 P01의 제공 요약과 stance 기록"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "무작위 분할의 한계를 에이전트 효과의 직접 반증으로 인용"
+      ],
+      "preparation_work": [
+        "반론의 대상 명제를 명시하고 평가 설계 제약으로 분류하는 해석 초안 작성"
+      ],
+      "next_check": "기존 요약이 지지하는 명제와 확인되지 않은 명제를 분리하고 원래 발언을 보존한 채 대상 명제 연결을 검토",
+      "if_unresolved": "에이전트 우월성의 직접 반증 여부는 미확인으로 유지한다.",
+      "owner_role": "근거 종합·반증 담당",
+      "rationale": "두 쟁점은 같은 P01 입장의 대상 혼동이다. 데이터 검증과는 별도로 주장 연결을 바로잡는 작업으로 묶는다.",
+      "producer_id": "coordinator"
+    },
+    {
+      "issue_ref": {
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "head_id": "71f8c6a751976a881830fd693e168b6096e4dd41be3af269fe50b2d72fc00e43",
+        "artifact_id": "e392db61-1a95-4285-bc58-31ab286037c7",
+        "sha256": "90ed97c210236ace85a211c855fc0ca89fa6afe76f85c386c9feb6f578d429ee"
+      },
+      "group_key": "08-claim-target",
+      "group_title": "반론이 향하는 주장 구분",
+      "affected_sources": [
+        "초기 P01의 제공 요약과 stance 기록"
+      ],
+      "hypotheses": [
+        "H1",
+        "H2",
+        "H3"
+      ],
+      "held_work": [
+        "무작위 분할의 한계를 에이전트 효과의 직접 반증으로 인용"
+      ],
+      "preparation_work": [
+        "반론의 대상 명제를 명시하고 평가 설계 제약으로 분류하는 해석 초안 작성"
+      ],
+      "next_check": "기존 요약이 지지하는 명제와 확인되지 않은 명제를 분리하고 원래 발언을 보존한 채 대상 명제 연결을 검토",
+      "if_unresolved": "에이전트 우월성의 직접 반증 여부는 미확인으로 유지한다.",
+      "owner_role": "근거 종합·반증 담당",
+      "rationale": "두 쟁점은 같은 P01 입장의 대상 혼동이다. 데이터 검증과는 별도로 주장 연결을 바로잡는 작업으로 묶는다.",
+      "producer_id": "coordinator"
+    }
+  ]
+}

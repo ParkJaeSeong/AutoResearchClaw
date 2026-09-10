@@ -1,6 +1,6 @@
 import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,renderHandoff,renderSourceIntake} from './detail.js';
 import {renderResearchGraph} from './graph.js';
-import {renderIssueList,renderTimeline} from './timeline.js';
+import {renderIssueList,renderTimeline,renderImpactSummary} from './timeline.js';
 import {createLiveFeed} from './live.js';
 import {createDiscoveryFeed,createDiscoveryPanel} from './discovery.js';
 const ARRAYS=['heads','milestones','nodes','revisions','transitions','councils','issues','verifications','results','source_checks','approvals','dependencies','handoffs','artifacts','reason_codes','required_actions'];
@@ -44,6 +44,7 @@ export function renderResearchView(root,view,selection={},callbacks={}) {
     for(const action of node.required_actions??[])technical.append(element('p',action,'prose'));notice.append(technical);
   }
   content.append(notice);
+  renderImpactSummary(content,view);
   renderSourceIntake(content,view);
   const discoverySlot=element('div',undefined,'discovery-slot');content.append(discoverySlot);
   const workspace=element('div',undefined,'workspace'),sidebar=element('aside',undefined,'sidebar'),map=element('section',undefined,'card'),issues=element('section',undefined,'card');

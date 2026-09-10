@@ -160,3 +160,21 @@ test('source intake shows acquired files and reading limits without claiming usa
     assert.doesNotMatch(root.textContent,/사용 가능|M1 완료/);
   } finally {delete globalThis.document;}
 });
+
+test('impact groups preserve each issue and distinguish proposal from current blocking policy',()=>{
+  assert.equal(typeof timeline.impactGroups,'function');
+  const record=(id)=>({id,issue_ref:{artifact_id:id},group_key:'H1',group_title:'조건 확인',
+    held_work:['학습'],preparation_work:['사용표 작성']});
+  const view={issue_impacts:[{current:true,record:record('a')},{current:true,record:record('b')},
+    {current:false,record:record('old')}]};
+  const groups=timeline.impactGroups(view);
+  assert.equal(groups.length,1);assert.deepEqual(groups[0].issueIds,['a','b']);
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try{
+    const root=new Element('section');timeline.renderImpactSummary(root,view);
+    assert.match(root.textContent,/2개 쟁점 · 1개 작업 묶음/);
+    assert.match(root.textContent,/조정자가 정리한 작업 제안/);
+    assert.match(root.textContent,/사용표 작성/);assert.match(root.textContent,/학습/);
+    assert.doesNotMatch(root.textContent,/해결 완료|승인됨/);
+  }finally{delete globalThis.document;}
+});

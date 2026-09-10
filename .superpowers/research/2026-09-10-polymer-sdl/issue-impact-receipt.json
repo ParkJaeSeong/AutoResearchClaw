@@ -1,0 +1,13 @@
+{
+  "operation": "issue.impact.record",
+  "command_id": "polymer-issue-impact-01",
+  "head_id": "73c1f5e69129e52876249a201b11fb556d84ff198a7d0fc99e87d78c336feffd",
+  "previous_head": "908f129e1fcfb003624487fc01de73dd9c562e651283ae819916e9ab18e83b5a",
+  "assessments": 22,
+  "work_groups": 8,
+  "other_research_state_unchanged": true,
+  "native_blocking_policy_changed": false,
+  "ui_api_and_assets_verified": true,
+  "historical_view_verified": true,
+  "browser_verified": false
+}

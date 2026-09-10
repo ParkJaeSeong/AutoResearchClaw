@@ -275,6 +275,15 @@ def _project(snapshot, current_head):
         if entry is not None:
             entry['usage_status'] = 'unassessed'
             view['source_captures'].append(entry)
+    from .issue_impacts import impact_records, current_impact_ids
+    impacts = impact_records(snapshot)
+    current_ids = current_impact_ids(snapshot, impacts)
+    view['issue_impacts'] = []
+    for record in impacts:
+        entry = public.entry('issue_impacts', record)
+        if entry is not None:
+            entry['current'] = record['id'] in current_ids
+            view['issue_impacts'].append(entry)
     view['artifacts'] = list(public.artifacts.values())
     return deepcopy(view), public.raw
 
