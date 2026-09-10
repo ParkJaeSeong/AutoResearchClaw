@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "status": "prepared_not_native_registered",
+  "prepared_at": "2026-09-10T15:29:00.035403+00:00",
+  "preparer": "coordinator",
+  "based_on_head": "3b54dd2ac433bc8eedc04090e54c20e57b4586e0679ba3383560b909e58f43e8",
+  "repository_commit": "93d74c135d63183a22a6eb88eb31be24892d7959",
+  "files": [
+    {
+      "path": "discovery-runs/restart-02/coordinator-audit/abbasi-2010.pdf",
+      "source_key": "doi:10.1016/j.polymer.2009.12.041",
+      "sha256": "3d4e6bec0d17fec23c3c2ed38c2a3fc852c8f28eff629b247bed967b28da52b7",
+      "bytes": 1506084,
+      "reading_scope": "전체 PDF 확보; 읽기 확인 범위는 §2.2·§2.6·그림12. 전 페이지 검토 완료를 뜻하지 않음"
+    },
+    {
+      "path": "discovery-runs/restart-02/coordinator-audit/data_EC.csv",
+      "source_key": "url:https://github.com/shimakawa-hvg/expt-group-partitioning",
+      "sha256": "19896c37279f78d44d5a3a08773fdfa57af2b1e6a9373137fae6889de0872396",
+      "bytes": 338652,
+      "reading_scope": "saved processed EC table; usability unresolved"
+    },
+    {
+      "path": "discovery-runs/restart-02/coordinator-audit/sample_detail_EC.csv",
+      "source_key": "url:https://github.com/shimakawa-hvg/expt-group-partitioning",
+      "sha256": "f6c26096b9f9a87bb89f130e00b1874e135921cc4e214c320f90052e2a0a1783",
+      "bytes": 1437251,
+      "reading_scope": "saved detail table; existing row audits only"
+    },
+    {
+      "path": "discovery-runs/restart-02/coordinator-audit/upstream-README.md",
+      "source_key": "url:https://github.com/shimakawa-hvg/expt-group-partitioning",
+      "sha256": "c635b99304bb9fee07ffc54b1801b5a4ca7f0e017210eb609616001e23700535",
+      "bytes": 853,
+      "reading_scope": "read in prior preprocessing audit"
+    },
+    {
+      "path": "discovery-runs/restart-02/coordinator-audit/upstream-make_expt_id.ipynb",
+      "source_key": "url:https://github.com/shimakawa-hvg/expt-group-partitioning",
+      "sha256": "69052745e6ab7c35a8367f86e5e1c7c3ce27c4849f8f823a93abaf568a6a54fb",
+      "bytes": 6479,
+      "reading_scope": "five code cells read; not executed"
+    }
+  ],
+  "reading_records": [
+    "abbasi-source-reading.json",
+    "abbasi-figure-audit.json",
+    "preprocessing-code-audit.json",
+    "target-pair-audit.json"
+  ],
+  "limitations": [
+    "기존 로컬 확보 파일의 재개용 목록이며 새 웹 탐색이 아니다.",
+    "선정·사용권·단위·시료 대응 검증을 대신하지 않는다.",
+    "정식 collect 등록·사용 승인·쟁점 해소·실험 착수 허가가 아니다."
+  ],
+  "next_work": "R1: 정식 수집 사실 등록과 사용 판단 분리"
+}
