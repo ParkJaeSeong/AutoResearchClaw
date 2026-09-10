@@ -1,0 +1,467 @@
+{
+  "status": "resumed_independent_source_triage",
+  "pending_external": "rid44100 full Fig.4 remains behind publisher CAPTCHA; no new full-text evidence",
+  "held_rows": 14,
+  "remaining_rows": 123,
+  "remaining_sources": 15,
+  "sources": [
+    {
+      "rid": "42969",
+      "rows": 25,
+      "sample_ids": [
+        "42969-2-1-5",
+        "42969-2-1-4",
+        "42969-2-1-3",
+        "42969-2-1-2",
+        "42969-3-1-5",
+        "42969-3-1-4",
+        "42969-2-1-1",
+        "42969-3-1-3",
+        "42969-4-1-5",
+        "42969-4-1-4",
+        "42969-3-1-2",
+        "42969-4-1-3",
+        "42969-5-1-5",
+        "42969-5-1-4",
+        "42969-4-1-2",
+        "42969-5-1-3",
+        "42969-6-1-5",
+        "42969-6-1-4",
+        "42969-3-1-1",
+        "42969-5-1-2",
+        "42969-6-1-3",
+        "42969-4-1-1",
+        "42969-6-1-2",
+        "42969-5-1-1",
+        "42969-6-1-1"
+      ],
+      "references": [
+        "Abbasi, Samaneh; Carreau, Pierre J.; Derdouri, Abdessalem , Polymer , 51 , 4 , 922-935 (2010)"
+      ],
+      "missing_detail_temperature_rows": 25,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "partial_full_text_checked"
+    },
+    {
+      "rid": "44063",
+      "rows": 19,
+      "sample_ids": [
+        "44063-17-1-4",
+        "44063-21-1-1",
+        "44063-11-1-1",
+        "44063-16-1-1",
+        "44063-8-1-2",
+        "44063-18-1-2",
+        "44063-12-1-4",
+        "44063-9-1-4",
+        "44063-13-1-2",
+        "44063-19-1-4",
+        "44063-6-1-1",
+        "44063-14-1-4",
+        "44063-2-1-4",
+        "44063-3-1-2",
+        "44063-4-1-4",
+        "44063-10-1-3",
+        "44063-15-1-3",
+        "44063-20-1-3",
+        "44063-5-1-3"
+      ],
+      "references": [
+        "Castillo, Frank Yepez; Socher, Robert; Krause, Beate; Headrick, Robert; Grady, Brian P.; Prada-Silvy, Ricardo; Poetschke, Petra , Polymer , 52 , 17 , 3835-3845 (2011)"
+      ],
+      "missing_detail_temperature_rows": 19,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "44307",
+      "rows": 16,
+      "sample_ids": [
+        "44307-1-1-7",
+        "44307-1-1-9",
+        "44307-1-1-15",
+        "44307-1-1-17",
+        "44307-1-1-3",
+        "44307-1-1-10",
+        "44307-1-1-5",
+        "44307-1-1-11",
+        "44307-1-1-12",
+        "44307-1-1-13",
+        "44307-1-1-2",
+        "44307-1-1-4",
+        "44307-1-1-14",
+        "44307-1-1-8",
+        "44307-1-1-6",
+        "44307-1-1-16"
+      ],
+      "references": [
+        "Villmow, Tobias; Pegel, Sven; Wagenknecht, Udo; Poetschke, Petra , Annual Technical Conference - Society of Plastics Engineers , 67th , 2883-2888 (2009)"
+      ],
+      "missing_detail_temperature_rows": 16,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "38904",
+      "rows": 7,
+      "sample_ids": [
+        "38904-1-1-1",
+        "38904-2-1-3",
+        "38904-2-1-5",
+        "38904-2-1-2",
+        "38904-2-1-1",
+        "38904-2-1-4",
+        "38904-3-1-1"
+      ],
+      "references": [
+        "Alig, Ingo; Lellinger, Dirk; Engel, Martin; Skipa, Tetyana; Poetschke, Petra , Polymer , 49 , 7 , 1902-1909 (2008)"
+      ],
+      "missing_detail_temperature_rows": 7,
+      "missing_detail_log_thickness_rows": 7,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "37030",
+      "rows": 6,
+      "sample_ids": [
+        "37030-2-1-1",
+        "37030-3-1-1",
+        "37030-4-1-1",
+        "37030-5-1-1",
+        "37030-6-1-1",
+        "37030-7-1-1"
+      ],
+      "references": [
+        "Kum, Chong Ku; Sung, Yu-Taek; Han, Mi Sun; Kim, Woo Nyon; Lee, Heon Sang; Lee, Sun-Jeong; Joo, Jinsoo , Macromolecular Research , 14 , 4 , 456-460 (2006)"
+      ],
+      "missing_detail_temperature_rows": 6,
+      "missing_detail_log_thickness_rows": 6,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "49001",
+      "rows": 10,
+      "sample_ids": [
+        "49001-2-1-1",
+        "49001-7-1-1",
+        "49001-3-1-1",
+        "49001-8-1-1",
+        "49001-9-1-1",
+        "49001-4-1-1",
+        "49001-5-1-1",
+        "49001-10-1-1",
+        "49001-11-1-1",
+        "49001-6-1-1"
+      ],
+      "references": [
+        " Polymer Physics , 52 , 1 , 73-83 (2014)"
+      ],
+      "missing_detail_temperature_rows": 10,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "38135",
+      "rows": 5,
+      "sample_ids": [
+        "38135-1-1-1",
+        "38135-1-1-2",
+        "38135-1-1-5",
+        "38135-1-1-3",
+        "38135-1-1-4"
+      ],
+      "references": [
+        "Chandra, Alexander; Kramschuster, Adam J.; Hu, Xiaodong; Turng, Lih-Sheng , Annual Technical Conference - Society of Plastics Engineers , 65th , 2171-2175 (2007)"
+      ],
+      "missing_detail_temperature_rows": 5,
+      "missing_detail_log_thickness_rows": 5,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "31334",
+      "rows": 6,
+      "sample_ids": [
+        "31334-3-1-2",
+        "31334-4-1-2",
+        "31334-6-1-2",
+        "31334-7-1-2",
+        "31334-8-1-2",
+        "31334-9-1-2"
+      ],
+      "references": [
+        "Poetschke, Petra; Abdel-Goad, Mahmoud; Alig, Ingo; Dudkin, Sergej; Lellinger, Dirk , Polymer , 45 , 26 , 8863-8870 (2004)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 6,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "39906",
+      "rows": 5,
+      "sample_ids": [
+        "39906-2-1-1",
+        "39906-3-1-1",
+        "39906-4-1-1",
+        "39906-5-1-1",
+        "39906-6-1-1"
+      ],
+      "references": [
+        "Abbasi, Samaneh; Carreau, Pierre J.; Derdouri, Abdessalem; Moan, Michel , Rheologica Acta , 48 , 9 , 943-959 (2009)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 5,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "33846",
+      "rows": 2,
+      "sample_ids": [
+        "33846-2-1-1",
+        "33846-3-1-1"
+      ],
+      "references": [
+        "Poetschke, P.; Hornbostel, B.; Roth, S.; Vohrer, U.; Dudkin, S. M.; Alig, I. , AIP Conference Proceedings , 786 , Electronic Properties of Novel Nanostructures , 596-601 (2005)"
+      ],
+      "missing_detail_temperature_rows": 2,
+      "missing_detail_log_thickness_rows": 2,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "온도 원기록·가공값 생성 경로 확인",
+        "두께 원기록·가공 상수 근거 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "38299",
+      "rows": 8,
+      "sample_ids": [
+        "38299-1-1-6",
+        "38299-1-1-3",
+        "38299-1-1-1",
+        "38299-1-1-7",
+        "38299-1-1-8",
+        "38299-1-1-4",
+        "38299-1-1-5",
+        "38299-1-1-2"
+      ],
+      "references": [
+        "Alig, Ingo; Skipa, Tetyana; Lellinger, Dirk; Poetschke, Petra , Polymer , 49 , 16 , 3524-3532 (2008)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "230.0"
+      ],
+      "actions": [
+        "23 외 온도의 의미·단위·측정/공정 구분 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "44758",
+      "rows": 6,
+      "sample_ids": [
+        "44758-3-1-4",
+        "44758-3-1-2",
+        "44758-3-1-3",
+        "44758-3-1-5",
+        "44758-3-1-7",
+        "44758-3-1-6"
+      ],
+      "references": [
+        "Yoon, Howon; Okamoto, Kenzo; Umishita, Kazunori; Yamaguchi, Masayuki , Polymer Composites , 32 , 1 , 97-102 (2010)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "46010",
+      "rows": 6,
+      "sample_ids": [
+        "46010-8-1-1",
+        "46010-9-1-1",
+        "46010-10-1-1",
+        "46010-11-1-1",
+        "46010-12-1-1",
+        "46010-13-1-1"
+      ],
+      "references": [
+        "Via, Michael D.; King, Julia A.; Keith, Jason M.; Miskioglu, Ibrahim; Cieslinski, Mark J.; Anderson, Jonathan J.; Bogucki, Gregg R. , Journal of Applied Polymer Science , 124 , 3 , 2269-2277 (2012)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "45836",
+      "rows": 1,
+      "sample_ids": [
+        "45836-1-1-1"
+      ],
+      "references": [
+        "Su, Chang; Xu, Lihuan; Yan, Rong-jun; Chen, Meng-qi; Zhan, Cheng , Materials Chemistry and Physics , 133 , 2-3 , 1034-1039 (2012)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "270.0"
+      ],
+      "actions": [
+        "23 외 온도의 의미·단위·측정/공정 구분 확인",
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    },
+    {
+      "rid": "50778",
+      "rows": 1,
+      "sample_ids": [
+        "50778-3-1-1"
+      ],
+      "references": [
+        "Liebscher, Marco; Gaertner, Titus; Tzounis, Lazaros; Micusik, Matej; Poetschke, Petra; Stamm, Manfred; Heinrich, Gert; Voit, Brigitte , Composites Science and Technology , 101 , 133-138 (2014)"
+      ],
+      "missing_detail_temperature_rows": 0,
+      "missing_detail_log_thickness_rows": 0,
+      "processed_temperatures": [
+        "23.0"
+      ],
+      "actions": [
+        "측정법 부호·주파수·단위·원문 추출 위치 대조",
+        "문헌·저자 그룹과 실제 측정 계보 구분"
+      ],
+      "status": "queued_source_verification_not_complete"
+    }
+  ],
+  "source_data_modified": false,
+  "native_issues_resolved": false,
+  "model_training_executed": false,
+  "source_readings": [
+    {
+      "rid": "42969",
+      "status": "partial_full_text_checked",
+      "reviewer": "coordinator; not a new agent council or issue resolution",
+      "doi": "10.1016/j.polymer.2009.12.041",
+      "url": "https://nrc-publications.canada.ca/eng/view/accepted/?id=a3d207d2-7f7c-4576-b46b-57a9a213c1c7",
+      "pdf_sha256": "3d4e6bec0d17fec23c3c2ed38c2a3fc852c8f28eff629b247bed967b28da52b7",
+      "inspected": "PDF page 4 / printed page 924, section 2.6; text extracted and page visually inspected",
+      "findings": [
+        "측정 절은 두께 방향 DC 저항과 2탐침 장치를 설명한다.",
+        "기술된 인가 전압은 순수 PC 및 1 wt% 이하 1000 V, 2 wt% 이상 100 V이며, 2 wt% 초과에서는 별도 장비의 I–V 곡선으로 저항을 구한다.",
+        "120°C는 측정 전 최소 4시간 건조 조건이다. 전기 측정 온도로 사용할 수 없다.",
+        "확인한 전기 측정 절에는 23°C가 명시되지 않았다. 인접 기계 시험 절의 실온을 전기 측정 조건으로 옮기지 않는다."
+      ],
+      "linked_rows": 25,
+      "detail_figure_references": [
+        "Taken from the Fig.12"
+      ],
+      "detail_methods": [
+        "I-V curve"
+      ],
+      "unresolved": [
+        "그림12의 공정별 곡선과 25행 각각의 시료·두께·측정 장비 대응",
+        "가공표 23°C의 생성 근거",
+        "상세표 I–V 표기의 적용 범위와 원문 장비 전환 조건의 일치"
+      ],
+      "source_data_modified": false,
+      "native_issues_resolved": false
+    }
+  ]
+}
