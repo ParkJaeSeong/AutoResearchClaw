@@ -3,7 +3,7 @@ import argparse
 import json
 from study_host import BASE, head, save
 parser=argparse.ArgumentParser()
-parser.add_argument('--run',choices=['selection-hypotheses-01','selection-hypotheses-02'],default='selection-hypotheses-01')
+parser.add_argument('--run',choices=['selection-hypotheses-01','selection-hypotheses-02','selection-hypotheses-03'],default='selection-hypotheses-01')
 run=BASE/parser.parse_args().run
 h=head(); state=h['state']
 artifact=json.loads((run/'artifact.json').read_text())
