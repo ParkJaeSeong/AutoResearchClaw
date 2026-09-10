@@ -88,6 +88,7 @@ def _selection(value, keys):
         'hypotheses': [{key: _text(item.get(key)) for key in ('id', 'statement', 'test', 'limits')}
                        for item in value.get('hypotheses', []) if isinstance(item, dict)],
         'unresolved': _texts(value.get('unresolved')),
+        'reading_guide': _texts(value.get('reading_guide')),
     }
 
 
