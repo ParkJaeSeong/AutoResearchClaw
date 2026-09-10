@@ -146,3 +146,37 @@ export function renderSourceIntake(root,view) {
   }
   section.append(list);root.append(section);
 }
+
+export function renderScopeReviews(root,view) {
+  const councils=(view.councils??[]).filter(c=>c.node==='issue_scope');
+  const proposals=view.scope_proposals??[];
+  if(!councils.length&&!proposals.length)return;
+  const section=element('section',undefined,'card');section.append(element('h2','질문 단계의 진행 조건 검토'));
+  const matches=(c,p)=>c.attempt===p.record.id||c.input_binding?.artifact_id===p.record.id;
+  const rows=proposals.flatMap(p=>{const linked=councils.filter(c=>matches(c,p));return linked.length?linked.map(c=>({proposal:p,council:c})):[{proposal:p}];});
+  rows.push(...councils.filter(c=>!proposals.some(p=>matches(c,p))).map(c=>({council:c})));
+  const scopeText=scopes=>(scopes??[]).map(s=>s.kind==='handoff'?'M1 → M2 인계':label(s.target_id??s.milestone)).join(', ');
+  for(const {proposal,council} of rows){
+    const changes=council?(view.scope_changes??[]).filter(e=>e.record.council_id===council.id):[];
+    const active=new Set(changes.flatMap(e=>e.active_issue_ids??[])).size;
+    const total=proposal?.record.changes.length??active;
+    const status=active?`${active<total?'일부 적용':'적용됨'} · ${active}/${total}개 쟁점`:changes.length?'이전 변경 · 현재 조건 재검토':!council?'검토 준비 전':council.phase==='complete'?'검토 종료 · 적용 결과 대기':'검토 진행 중';
+    section.append(element('p',status,'prose'),element('p','질문·요구사항 작성을 진행해도 되는지 검토합니다. 남은 문제는 최종 검토와 M2 인계 전에 확인해야 합니다.','muted'));
+    if(proposal){
+      section.append(element('p',proposal.record.rationale,'prose'));
+      const details=element('details');details.dataset.key=`scope-proposal:${proposal.record.id}`;
+      details.append(element('summary','어떤 쟁점의 진행 조건이 바뀌나요?'));
+      for(const change of proposal.record.changes){
+        const issue=(view.issues??[]).find(i=>(i.record??i.issue??i).id===change.issue_ref.artifact_id);
+        details.append(element('p',(issue?.record??issue?.issue??issue)?.question??change.issue_ref.artifact_id),element('p',`${scopeText(change.original_scopes)} → ${scopeText(change.replacement_scopes)}`));
+      }
+      if(proposal.ref)details.append(renderRef(view,proposal.ref));
+      section.append(details);
+    }
+    if(council){
+      const discussion=element('details');discussion.dataset.key=`scope-council:${council.id}`;
+      discussion.append(element('summary','검토자 대화 보기'));
+      const body=element('div');renderCouncil(body,view,council);discussion.append(body);section.append(discussion);
+    }
+  }root.append(section);
+}

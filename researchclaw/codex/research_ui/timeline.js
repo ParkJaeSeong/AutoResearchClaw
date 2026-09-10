@@ -18,7 +18,8 @@ export function renderTimeline(root,view,issueId) {
   const {issue,events}=trace,state=issueState(issue),r=issue.record;
   root.append(element('h2',r.question),badge(state.label,state.tone),element('p',r.id,'mono'),element('p',`분류: ${r.category} · 중요도: ${r.severity}`,'muted'),element('h3','해소 조건'),element('p',r.resolution_condition,'prose'));
   renderIssueImpacts(root,view,issueId);
-  root.append(element('h3','현재 단계 조건의 차단 범위'),renderValue(view,r.blocking_scope),element('h3','대상 원문'),renderValue(view,r.target_refs));
+  root.append(element('h3','현재 단계 조건의 차단 범위'),renderValue(view,issue.effective_blocking_scope??r.blocking_scope),element('h3','대상 원문'),renderValue(view,r.target_refs));
+  if(issue.scope_changed)root.append(element('p','독립 검토를 거쳐 차단 범위를 변경했습니다. 쟁점은 아직 열려 있습니다.','prose'),recordDetails('원래 차단 범위',r.blocking_scope,`original-scope:${r.id}`));
   if(issue.imported_pending)root.append(element('p','가져온 이전 쟁점입니다. 새 회차에 새 쟁점이 없어도 이 쟁점은 미해소로 남습니다. 네이티브 정책 확인이 필요합니다.','callout'));
   const list=element('ol',undefined,'timeline');for(const event of events){const item=element('li');item.append(element('h3',`${label(event.record.from_status??'제기')} → ${label(event.record.to_status)}`),element('p',event.record.rationale,'prose'),element('p',`배정 ${event.record.actor_assignment_id}`,'mono'),renderValue(view,event.record.verification_refs),renderRef(view,event.ref),recordDetails('상태 변경 원문',event.record,`event:${event.record.id}`));list.append(item);}
   if(!events.length)root.append(element('p','이 snapshot에 네이티브 상태 변경 기록이 없습니다.','muted'));

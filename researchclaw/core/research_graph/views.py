@@ -7,7 +7,7 @@ from . import commands, migration, store
 from .contracts import validate_record
 from .councils import _disclosed, _private, _record_ref, _session, _submissions, _phase
 from .dependencies import _References, _FIELDS
-from .gates import _status
+from .gates import _status, _blocking_scope
 from .issues import _Inputs, _require
 from .m1_nodes import _assessment_snapshot, _native, _shape, review_node
 
@@ -235,6 +235,8 @@ def _project(snapshot, current_head):
             # materialized as a new native object or an archive raw-byte grant.
             entry = dict(record=deepcopy(record), ref=None, artifact_id=None)
         if entry:
+            scopes = _blocking_scope(inputs, record)
+            entry.update(effective_blocking_scope=scopes, scope_changed=scopes != record['blocking_scope'])
             entry.update(status=status, imported_pending=imported and not events, history=events,
                          import_context=deepcopy(state.get('imported_issue_states', {}).get(record['id'])))
             if public.safe(entry):
@@ -284,6 +286,19 @@ def _project(snapshot, current_head):
         if entry is not None:
             entry['current'] = record['id'] in current_ids
             view['issue_impacts'].append(entry)
+    from .issue_scopes import _proposal
+    view['scope_proposals'], view['scope_changes'] = [], []
+    for record in state.get('issue_scope_proposals', {}).values():
+        entry = public.entry('issue_scope_proposals', record)
+        if entry is not None:
+            _proposal(inputs, entry['ref'])
+            view['scope_proposals'].append(entry)
+    for record in state.get('issue_scope_changes', {}).values():
+        entry = public.entry('issue_scope_changes', record)
+        if entry is not None:
+            entry['active_issue_ids'] = [identity for identity, proposal_id in getattr(inputs, '_scope_proposal_ids', {}).items()
+                                         if proposal_id == record['proposal_ref']['artifact_id']]
+            view['scope_changes'].append(entry)
     view['artifacts'] = list(public.artifacts.values())
     return deepcopy(view), public.raw
 

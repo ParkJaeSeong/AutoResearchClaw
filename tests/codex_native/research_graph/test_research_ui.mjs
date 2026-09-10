@@ -178,3 +178,34 @@ test('impact groups preserve each issue and distinguish proposal from current bl
     assert.doesNotMatch(root.textContent,/해결 완료|승인됨/);
   }finally{delete globalThis.document;}
 });
+
+test('scope review exposes real council without labeling open issues resolved',()=>{
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try{
+    const root=new Element('section');
+    const council={id:'scope-c',node:'issue_scope',phase:'complete',authors:[],participants:[],required_roles:{},
+      submitted_counts:{initial:3,response:3,final:3},disclosed_initials:[],disclosed_responses:[],disclosed_finals:[]};
+    detail.renderScopeReviews(root,{councils:[council],scope_changes:[{record:{council_id:'scope-c'},active_issue_ids:['i1']}],
+      issues:[{scope_changed:true}],artifacts:[]});
+    assert.match(root.textContent,/질문 단계의 진행 조건 검토/);
+    assert.match(root.textContent,/적용됨/);assert.match(root.textContent,/검토자 대화 보기/);
+    assert.doesNotMatch(root.textContent,/쟁점 해결 완료/);
+  }finally{delete globalThis.document;}
+});
+
+test('pending scope proposal is visible and partial application is counted',()=>{
+  globalThis.document={createElement:tag=>new Element(tag)};
+  const proposal={record:{id:'p',rationale:'<script>질문 준비만 허용</script>',changes:[
+    {issue_ref:{artifact_id:'i1'},original_scopes:[{kind:'node',milestone:'M1',target_id:'questions'}],replacement_scopes:[{kind:'node',milestone:'M1',target_id:'review'}]},
+    {issue_ref:{artifact_id:'i2'},original_scopes:[{kind:'node',milestone:'M1',target_id:'questions'}],replacement_scopes:[{kind:'node',milestone:'M1',target_id:'review'}]}]}};
+  try{
+    const root=new Element('section');
+    detail.renderScopeReviews(root,{scope_proposals:[proposal],councils:[],issues:[],artifacts:[]});
+    assert.match(root.textContent,/검토 준비 전/);assert.match(root.textContent,/<script>질문 준비만 허용<\/script>/);
+    const council={id:'c',attempt:'p',node:'issue_scope',phase:'complete',authors:[],participants:[],required_roles:{},
+      submitted_counts:{initial:3,response:3,final:3},disclosed_initials:[],disclosed_responses:[],disclosed_finals:[]};
+    root.replaceChildren();detail.renderScopeReviews(root,{scope_proposals:[proposal],councils:[council],issues:[],artifacts:[],
+      scope_changes:[{record:{council_id:'c'},active_issue_ids:['i1']}]});
+    assert.match(root.textContent,/일부 적용 · 1\/2개 쟁점/);
+  }finally{delete globalThis.document;}
+});

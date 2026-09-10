@@ -12,7 +12,7 @@ from .contracts import _COMMON
 from .councils import _common, _fresh_ids, _record_ref, _valid
 from .dependencies import _node
 from .evidence_origins import group_origins
-from .gates import _status
+from .gates import _status, _blocking_scope
 from .issues import _require
 from .m1_nodes import _context, _native, _node_identity, current_node
 from .m1_search import corpus_status, current_corpus
@@ -400,7 +400,7 @@ def prepare_evidence_check(snapshot: dict, *, node_id: str) -> dict:
         if identity == issue_id:
             continue
         issue = inputs.registered('issues', identity, 'Issue')
-        if (dict(kind='node', milestone='M1', target_id=node_id) in issue['blocking_scope']
+        if (dict(kind='node', milestone='M1', target_id=node_id) in _blocking_scope(inputs, issue)
                 and issue['severity'] != 'optional' and _status(inputs, issue)[0] != 'resolved'):
             reasons.append('blocking_issue_unresolved')
     reasons = list(dict.fromkeys(reasons))

@@ -6,7 +6,7 @@ from .contracts import _COMMON
 from .councils import (_common, _context as council_context, _fresh_ids, _valid,
                       _COUNCIL_FIELDS, _disclosed, _record_ref, _session, _submissions, reviewer_packet)
 from .dependencies import _node
-from .gates import _status
+from .gates import _status, _blocking_scope
 from .issues import _require
 
 _FIELDS = set(_COMMON) | {'node', 'attempt', 'previous_ref_key', 'input_refs', 'content', 'revision_reason'}
@@ -304,7 +304,7 @@ def _review_node(snapshot: dict, node_id: str) -> dict:
     for identity in inputs.state.get('issues', {}):
         issue = inputs.registered('issues', identity, 'Issue')
         relevant = (issue['origin']['milestone'] == 'M1' and issue['origin']['node'] == node_id)
-        scoped = {'kind': 'node', 'milestone': 'M1', 'target_id': node_id} in issue['blocking_scope']
+        scoped = {'kind': 'node', 'milestone': 'M1', 'target_id': node_id} in _blocking_scope(inputs, issue)
         if not relevant and not scoped:
             continue
         status, _ = _status(inputs, issue)

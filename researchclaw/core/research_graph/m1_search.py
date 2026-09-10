@@ -6,7 +6,7 @@ from . import store
 from .contracts import validate_record
 from .councils import _fresh_ids, _record_ref, _valid
 from .dependencies import _References, _key, _node
-from .gates import _approval, _status
+from .gates import _approval, _status, _blocking_scope
 from .issues import _require
 from .m1_nodes import _context, _native, _shape, current_node, review_node
 from ..m1.literature import validate_literature, SEARCH, CANDIDATES, LOG, SHORTLIST, DECISIONS
@@ -47,7 +47,7 @@ def opposing_exclusions(inputs, artifact, ref):
         issue = inputs.registered('issues', identity, 'Issue')
         if (issue['category'] == 'source' and issue['severity'] != 'optional'
                 and issue['origin']['milestone'] == 'M1' and issue['origin']['node'] == 'screen'
-                and {'kind': 'node', 'milestone': 'M1', 'target_id': 'screen'} in issue['blocking_scope']
+                and {'kind': 'node', 'milestone': 'M1', 'target_id': 'screen'} in _blocking_scope(inputs, issue)
                 and _node(ref) in {_node(target) for target in issue['target_refs']}):
             _status(inputs, issue)
             missing = {source for source in missing if issue['origin']['local_issue_id'] != f'opposing-exclusion/{source}'}

@@ -60,6 +60,11 @@ def _status(inputs, issue):
     return current, latest
 
 
+def _blocking_scope(inputs, issue):
+    from .issue_scopes import effective_scopes
+    return effective_scopes(inputs, issue)
+
+
 def _accepted_transfer(inputs, issue, event):
     owner = inputs.assignment(event['owner_assignment_id'])
     _require(owner['role'] == 'owner' and owner['milestone'] == 'M2'
@@ -199,14 +204,14 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
         _require(type(issues) is dict, 'issue_history_invalid')
         for identity in sorted(issues):
             issue = inputs.registered('issues', identity, 'Issue')
-            scoped = scope in issue['blocking_scope']
+            scoped = scope in _blocking_scope(inputs, issue)
             if issue['origin']['milestone'] != milestone and not scoped and identity not in opposed_issue_ids:
                 continue
             status, latest = _status(inputs, issue)
             if status != 'resolved':
                 unresolved.append(identity)
                 if (identity in opposed_issue_ids and issue['severity'] != 'optional'
-                        and not issue['blocking_scope']):
+                        and not _blocking_scope(inputs, issue)):
                     reasons.append('opposition_binding_missing')
             if decision and identity in decision['issue_ids'] and scoped and issue['resolution_condition']:
                 bound_revise = True

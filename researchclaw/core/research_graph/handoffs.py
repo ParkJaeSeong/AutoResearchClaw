@@ -9,7 +9,7 @@ from .budgets import assess_next_work
 from .contracts import _COMMON, _REF, _REFS, validate_record
 from .councils import _common, _fresh_ids, _record_ref, _submissions, _valid
 from .dependencies import _References, _node
-from .gates import _accepted_transfer, _status
+from .gates import _accepted_transfer, _status, _blocking_scope
 from .issues import _require
 from .m1_nodes import _context as node_context, _council, _native, current_node, review_node, _assessment_snapshot
 from .work_accounting import accounting_status, at, identity
@@ -62,7 +62,7 @@ def _eligibility(snapshot):
                  'handoff_review_required')
         for issue_id, issue in inputs.state.get('issues', {}).items():
             scope = dict(kind='node', milestone='M1', target_id=node)
-            if scope in issue['blocking_scope'] and issue['severity'] != 'optional' and _status(inputs, issue)[0] != 'resolved':
+            if scope in _blocking_scope(inputs, issue) and issue['severity'] != 'optional' and _status(inputs, issue)[0] != 'resolved':
                 _require(issue_id in eligible, 'handoff_issue_unresolved')
         if node not in ('collect', 'extract'):
             record, ref = current_node(inputs, node)
@@ -73,10 +73,10 @@ def _eligibility(snapshot):
                 for position in positions:
                     issue = inputs.registered('issues', position['issue_id'], 'Issue')
                     _require(not (position['stance'] == 'oppose' and issue['severity'] != 'optional'
-                        and not issue['blocking_scope'] and _status(inputs, issue)[0] != 'resolved'), 'opposition_binding_missing')
+                        and not _blocking_scope(inputs, issue) and _status(inputs, issue)[0] != 'resolved'), 'opposition_binding_missing')
     for issue_id, issue in inputs.state.get('issues', {}).items():
         scope = dict(kind='handoff', milestone='M1', target_id='M2')
-        if scope in issue['blocking_scope'] and issue['severity'] != 'optional' and _status(inputs, issue)[0] != 'resolved':
+        if scope in _blocking_scope(inputs, issue) and issue['severity'] != 'optional' and _status(inputs, issue)[0] != 'resolved':
             _require(issue_id in eligible, 'handoff_issue_unresolved')
     return inputs, artifact, review_ref, review, evidence, corpus, sorted(eligible)
 

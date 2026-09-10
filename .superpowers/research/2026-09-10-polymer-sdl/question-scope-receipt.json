@@ -1,0 +1,20 @@
+{
+  "applied": true,
+  "head_id": "15b51f3e86d2df469ef1c8c68061132fe635550c52b141b98ce5b697dda2e2f5",
+  "council_id": "005063ba-5f21-4b47-a212-f1501dcabba5",
+  "proposal_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "306ea60939ce6f72fab891932959d90072543d61f63a0a6ad518f061cef90ca6",
+    "artifact_id": "b1fb9282-8fc8-56a3-8408-6fdd49634a00",
+    "sha256": "3691047203e111eaa8d559bbcf8432f141920109d78944df9fff3cd03b52f05f"
+  },
+  "previous_head": "73c1f5e69129e52876249a201b11fb556d84ff198a7d0fc99e87d78c336feffd",
+  "changed_issues": 8,
+  "open_issues": 22,
+  "new_real_submissions": 9,
+  "questions_ready": true,
+  "original_issues_and_approvals_preserved": true,
+  "m1_review_and_handoff_holds_preserved": true,
+  "api_assets_and_history_verified": true,
+  "browser_verified": false
+}
