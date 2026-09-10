@@ -1,5 +1,15 @@
 # Real-topic M1 progress
 
+LATEST: user requested lifting discovery restrictions and restarting. Actual
+live-web role loop is running at discovery-runs/restart-01 (session21806).
+Read that status.json and role reports before resuming. Do not ask to approve
+the old5-paper shortlist. New module researchclaw.codex.literature_loop handles
+independent search, shared critique and re-search; native collection/hypothesis/
+handoff automation remains separate. Old status below is historical native state.
+Before ingestion, re-audit restart-01 raw events with current audit_events: the
+live process loaded the initial implementation before query-provenance and
+partial-failure aggregation fixes. Preserve all completed per-role report.json.
+
 2026-09-10: user confirmed UI works and authorized next stage.
 Scope/questions/search/screen reviewed; all three screen finals ready_with_limits.
 HEAD 7b59a91f5166e6dd424c4a4aa15e7a5a7ad8c5bbf8396291367101ba4a20ba84.

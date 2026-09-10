@@ -1,6 +1,6 @@
 import {element,button,badge,label} from './detail.js';
 export function renderResearchGraph(root,view,selection,onSelect=()=>{}) {
-  root.replaceChildren();root.append(element('h2','M1 작업 지도'),element('p','순서는 허용 경로입니다. 실제 등록·이동은 아래 이력에 따로 표시합니다.','muted'));
+  root.replaceChildren();root.append(element('h2','M1 작업 지도'),element('p','01–09는 M1 내부 작업 번호입니다. 각 단계의 구조 조건 충족·협의 제출은 M1 전체 완료를 뜻하지 않습니다. 원문 수집·근거 추출·종합·가설·최종 검토와 인계 조건을 별도로 확인합니다.','muted'),element('p','이 화면은 기록 조회용입니다. 다음 작업을 자동 실행하지 않습니다. 실제 등록·이동은 아래 이력에 표시합니다.','muted'));
   const list=element('ol',undefined,'node-map');for(const [i,node] of view.nodes.entries()){
     const item=element('li'),b=button('',()=>onSelect(node.id),`node:${node.id}`);b.className='node-choice';b.setAttribute('aria-pressed',String(selection.nodeId===node.id));
     b.append(element('span',String(i+1).padStart(2,'0'),'step-number'),element('strong',node.label),badge(label(node.status),node.status==='ready'?'ok':node.status==='not_started'?'neutral':'pending'));item.append(b);list.append(item);

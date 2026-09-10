@@ -3,3 +3,4 @@ host-runs/
 commands/
 command-log.jsonl
 __pycache__/
+discovery-runs/

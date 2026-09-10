@@ -1,0 +1,66 @@
+{
+  "as_of": "2026-09-10T02:03:55.184704+00:00",
+  "status": {
+    "status": "running",
+    "round": 2,
+    "max_rounds": 3,
+    "per_host_timeout_seconds": 600,
+    "completed_reports": 3,
+    "m1_complete": false
+  },
+  "runs": [
+    {
+      "run": "round-1-critical",
+      "host_id": "01a08907-76e0-7111-b040-0b745b59b7d7",
+      "web_calls": 14,
+      "observed_queries": 20,
+      "finished": true,
+      "candidate_records": 45,
+      "unverified_query_links": 1
+    },
+    {
+      "run": "round-1-domain",
+      "host_id": "01a08907-76e0-7ad1-a089-24f664e05d26",
+      "web_calls": 13,
+      "observed_queries": 21,
+      "finished": true,
+      "candidate_records": 46,
+      "unverified_query_links": 0
+    },
+    {
+      "run": "round-1-methodology",
+      "host_id": "01a08907-76e4-7280-b9ba-38d14f26d56a",
+      "web_calls": 11,
+      "observed_queries": 16,
+      "finished": true,
+      "candidate_records": 33,
+      "unverified_query_links": 0
+    },
+    {
+      "run": "round-2-critical",
+      "host_id": "01a0890e-5e26-7fa2-8242-7234058aabf1",
+      "web_calls": 1,
+      "observed_queries": 4,
+      "finished": false
+    },
+    {
+      "run": "round-2-domain",
+      "host_id": "01a0890e-5d43-71c3-a6bd-72662fe5aab4",
+      "web_calls": 1,
+      "observed_queries": 4,
+      "finished": false
+    },
+    {
+      "run": "round-2-methodology",
+      "host_id": "01a0890e-5ca5-78d1-8730-a5be002c1f6e",
+      "web_calls": 1,
+      "observed_queries": 4,
+      "finished": false
+    }
+  ],
+  "finished_reports": 3,
+  "unique_reported_candidates": 115,
+  "count_scope": "completed reports only; not all search-engine hits, not all full texts read",
+  "m1_complete": false,
+  "native_corpus_updated": false
+}
