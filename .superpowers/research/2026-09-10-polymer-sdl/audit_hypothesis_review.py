@@ -1,7 +1,10 @@
 """Match new native submissions to saved host answers and disclosure packets."""
+import argparse
 import json
 from study_host import BASE, head, save
-run=BASE/'selection-hypotheses-01'
+parser=argparse.ArgumentParser()
+parser.add_argument('--run',choices=['selection-hypotheses-01','selection-hypotheses-02'],default='selection-hypotheses-01')
+run=BASE/parser.parse_args().run
 h=head(); state=h['state']
 artifact=json.loads((run/'artifact.json').read_text())
 sessions={r['session_id'] for r in state['councils'].values() if r['attempt']==artifact['attempt']}

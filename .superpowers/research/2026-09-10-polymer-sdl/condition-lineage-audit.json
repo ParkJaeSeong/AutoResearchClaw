@@ -1,0 +1,454 @@
+{
+  "provenance": {
+    "csv": "https://github.com/shimakawa-hvg/expt-group-partitioning",
+    "xlsx": "https://acs.figshare.com/articles/dataset/25657025",
+    "xlsx_md5": "2918afb1afa1aa931b57263fd4eaad2b",
+    "sha256": {
+      "data_EC.csv": "19896c37279f78d44d5a3a08773fdfa57af2b1e6a9373137fae6889de0872396",
+      "sample_detail_EC.csv": "f6c26096b9f9a87bb89f130e00b1874e135921cc4e214c320f90052e2a0a1783",
+      "ci3c01894_si_002.xlsx": "7068df1a0568a6bf301f02e331ade9576e89d601e7267c497a9bdd237488fba8"
+    },
+    "join": "data_EC.id == sample_detail_EC.Sample ID; exact strings; many processed rows to one detail row",
+    "numeric_tolerance": "relative/absolute 1e-10; strings exact",
+    "limits": "sample_detail is an author-distributed detail table, not the complete original measurement record; matching does not explain repeated measurement lineage or establish units/imputation rules"
+  },
+  "detail_rows": 1599,
+  "all_processed_rows_matched": 925,
+  "detail_samples_unrepresented": 808,
+  "subsets": {
+    "all_EC": {
+      "rows": 925,
+      "unique_samples": 791,
+      "rids": 135,
+      "expts": 84,
+      "pid_matches": 925,
+      "rid_matches_sample_prefix": 925,
+      "repeated_sample_ids": 107,
+      "extra_rows_after_unique_samples": 134,
+      "exact_duplicate_excess_rows": 5,
+      "repeated_ids_identical_model_inputs_different_targets": 53,
+      "columns_varying_within_repeated_sample": {
+        "log10(EC)": 84,
+        "html": 46,
+        "temperature": 31
+      },
+      "features": {
+        "vol%": {
+          "distinct_values": 372,
+          "within_rid_varying": 108,
+          "values": null,
+          "rows_with_same_value_in_other_rid": 479
+        },
+        "temperature": {
+          "distinct_values": 31,
+          "within_rid_varying": 11,
+          "values": null,
+          "rows_with_same_value_in_other_rid": 827
+        },
+        "log10(thickness)": {
+          "distinct_values": 39,
+          "within_rid_varying": 7,
+          "values": null,
+          "rows_with_same_value_in_other_rid": 810
+        },
+        "ac": {
+          "distinct_values": 2,
+          "within_rid_varying": 1,
+          "values": {
+            "0": 903,
+            "1": 22
+          },
+          "rows_with_same_value_in_other_rid": 925
+        },
+        "dc": {
+          "distinct_values": 2,
+          "within_rid_varying": 3,
+          "values": {
+            "0": 873,
+            "1": 52
+          },
+          "rows_with_same_value_in_other_rid": 925
+        },
+        "four-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 3,
+          "values": {
+            "0": 819,
+            "1": 106
+          },
+          "rows_with_same_value_in_other_rid": 925
+        },
+        "two-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 2,
+          "values": {
+            "0": 767,
+            "1": 158
+          },
+          "rows_with_same_value_in_other_rid": 925
+        },
+        "impedance": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 880,
+            "1": 45
+          },
+          "rows_with_same_value_in_other_rid": 925
+        }
+      },
+      "raw_linked_fields": {
+        "[elecon] temp": {
+          "blank_linked_rows": 432,
+          "blank_unique_sample_ids": 398,
+          "present_linked_rows": 493,
+          "processed_values_when_raw_blank": {
+            "23.0": 429,
+            "90.0": 3
+          },
+          "different_from_processed_among_present": 33
+        },
+        "log10(thickness)": {
+          "blank_linked_rows": 317,
+          "blank_unique_sample_ids": 268,
+          "present_linked_rows": 608,
+          "processed_values_when_raw_blank": {
+            "-3.096910013008056": 317
+          },
+          "different_from_processed_among_present": 0
+        },
+        "[elecon] method": {
+          "blank_linked_rows": 14,
+          "blank_unique_sample_ids": 14,
+          "present_linked_rows": 911,
+          "processed_values_when_raw_blank": null,
+          "different_from_processed_among_present": null
+        },
+        "log10(elecon)": {
+          "blank_linked_rows": 20,
+          "blank_unique_sample_ids": 16,
+          "present_linked_rows": 905,
+          "processed_values_when_raw_blank": {
+            "-2.0": 1,
+            "-1.853871964321762": 1,
+            "-1.769551078621726": 1,
+            "-1.6020599913279625": 4,
+            "-1.2291479883578558": 1,
+            "-0.3010299956639812": 1,
+            "-1.537602002101044": 1,
+            "-0.5228787452803376": 1,
+            "-3.799423073245152": 2,
+            "-2.3010299956639813": 4,
+            "-1.958607314841775": 2,
+            "-1.6989700043360187": 1
+          },
+          "different_from_processed_among_present": 111
+        }
+      },
+      "rows_volume_in_other_rid_range": 923
+    },
+    "PC_CNT": {
+      "rows": 137,
+      "unique_samples": 130,
+      "rids": 16,
+      "expts": 12,
+      "pid_matches": 137,
+      "rid_matches_sample_prefix": 137,
+      "repeated_sample_ids": 7,
+      "extra_rows_after_unique_samples": 7,
+      "exact_duplicate_excess_rows": 1,
+      "repeated_ids_identical_model_inputs_different_targets": 6,
+      "columns_varying_within_repeated_sample": {
+        "log10(EC)": 6
+      },
+      "features": {
+        "vol%": {
+          "distinct_values": 36,
+          "within_rid_varying": 10,
+          "values": null,
+          "rows_with_same_value_in_other_rid": 91
+        },
+        "temperature": {
+          "distinct_values": 3,
+          "within_rid_varying": 0,
+          "values": {
+            "23.0": 128,
+            "270.0": 1,
+            "230.0": 8
+          },
+          "rows_with_same_value_in_other_rid": 128
+        },
+        "log10(thickness)": {
+          "distinct_values": 12,
+          "within_rid_varying": 2,
+          "values": {
+            "-2.468521082957745": 2,
+            "-3.096910013008056": 32,
+            "-2.6989700043360187": 16,
+            "-3.0": 19,
+            "-3.10790539730952": 5,
+            "-2.8239087409443187": 12,
+            "-2.397940008672037": 5,
+            "-3.2218487496163566": 8,
+            "-2.920818753952376": 5,
+            "-3.3010299956639813": 19,
+            "-2.4814860601221125": 4,
+            "-3.4559319556497243": 10
+          },
+          "rows_with_same_value_in_other_rid": 63
+        },
+        "ac": {
+          "distinct_values": 1,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 137
+          },
+          "rows_with_same_value_in_other_rid": 137
+        },
+        "dc": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 132,
+            "1": 5
+          },
+          "rows_with_same_value_in_other_rid": 132
+        },
+        "four-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 121,
+            "1": 16
+          },
+          "rows_with_same_value_in_other_rid": 137
+        },
+        "two-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 131,
+            "1": 6
+          },
+          "rows_with_same_value_in_other_rid": 131
+        },
+        "impedance": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 117,
+            "1": 20
+          },
+          "rows_with_same_value_in_other_rid": 137
+        }
+      },
+      "raw_linked_fields": {
+        "[elecon] temp": {
+          "blank_linked_rows": 90,
+          "blank_unique_sample_ids": 90,
+          "present_linked_rows": 47,
+          "processed_values_when_raw_blank": {
+            "23.0": 90
+          },
+          "different_from_processed_among_present": 0
+        },
+        "log10(thickness)": {
+          "blank_linked_rows": 31,
+          "blank_unique_sample_ids": 31,
+          "present_linked_rows": 106,
+          "processed_values_when_raw_blank": {
+            "-3.096910013008056": 31
+          },
+          "different_from_processed_among_present": 0
+        },
+        "[elecon] method": {
+          "blank_linked_rows": 0,
+          "blank_unique_sample_ids": 0,
+          "present_linked_rows": 137,
+          "processed_values_when_raw_blank": null,
+          "different_from_processed_among_present": null
+        },
+        "log10(elecon)": {
+          "blank_linked_rows": 0,
+          "blank_unique_sample_ids": 0,
+          "present_linked_rows": 137,
+          "processed_values_when_raw_blank": {},
+          "different_from_processed_among_present": 6
+        }
+      },
+      "rows_volume_in_other_rid_range": 134
+    },
+    "PP_CNT": {
+      "rows": 112,
+      "unique_samples": 82,
+      "rids": 14,
+      "expts": 12,
+      "pid_matches": 112,
+      "rid_matches_sample_prefix": 112,
+      "repeated_sample_ids": 19,
+      "extra_rows_after_unique_samples": 30,
+      "exact_duplicate_excess_rows": 3,
+      "repeated_ids_identical_model_inputs_different_targets": 17,
+      "columns_varying_within_repeated_sample": {
+        "log10(EC)": 19,
+        "html": 9,
+        "temperature": 2
+      },
+      "features": {
+        "vol%": {
+          "distinct_values": 24,
+          "within_rid_varying": 12,
+          "values": {
+            "0.0141832460732984": 1,
+            "0.0378219895287958": 1,
+            "1.29": 23,
+            "0.43": 12,
+            "0.86": 19,
+            "0.129": 1,
+            "0.215": 9,
+            "0.3225": 1,
+            "1.72": 8,
+            "1.0": 1,
+            "0.645": 6,
+            "0.0215": 2,
+            "1.505": 6,
+            "0.0472774869109947": 3,
+            "0.0945549738219895": 1,
+            "2.15": 8,
+            "0.1418324607329843": 1,
+            "2.0": 1,
+            "0.1891099476439791": 1,
+            "3.0": 1,
+            "0.3782198952879582": 1,
+            "5.0": 1,
+            "2.58": 3,
+            "10.0": 1
+          },
+          "rows_with_same_value_in_other_rid": 91
+        },
+        "temperature": {
+          "distinct_values": 5,
+          "within_rid_varying": 1,
+          "values": {
+            "23.0": 102,
+            "225.0": 6,
+            "210.3": 2,
+            "120.0": 1,
+            "180.0": 1
+          },
+          "rows_with_same_value_in_other_rid": 102
+        },
+        "log10(thickness)": {
+          "distinct_values": 9,
+          "within_rid_varying": 3,
+          "values": {
+            "-3.3010299956639813": 34,
+            "-3.096910013008056": 53,
+            "-2.5228787452803374": 8,
+            "-4.0": 7,
+            "-2.8239087409443187": 1,
+            "-3.0": 3,
+            "-3.4559319556497243": 3,
+            "-2.6020599913279625": 1,
+            "-2.6989700043360187": 2
+          },
+          "rows_with_same_value_in_other_rid": 95
+        },
+        "ac": {
+          "distinct_values": 2,
+          "within_rid_varying": 1,
+          "values": {
+            "0": 111,
+            "1": 1
+          },
+          "rows_with_same_value_in_other_rid": 111
+        },
+        "dc": {
+          "distinct_values": 2,
+          "within_rid_varying": 1,
+          "values": {
+            "0": 109,
+            "1": 3
+          },
+          "rows_with_same_value_in_other_rid": 109
+        },
+        "four-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 110,
+            "1": 2
+          },
+          "rows_with_same_value_in_other_rid": 110
+        },
+        "two-probe": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 108,
+            "1": 4
+          },
+          "rows_with_same_value_in_other_rid": 108
+        },
+        "impedance": {
+          "distinct_values": 2,
+          "within_rid_varying": 0,
+          "values": {
+            "0": 105,
+            "1": 7
+          },
+          "rows_with_same_value_in_other_rid": 105
+        }
+      },
+      "raw_linked_fields": {
+        "[elecon] temp": {
+          "blank_linked_rows": 45,
+          "blank_unique_sample_ids": 42,
+          "present_linked_rows": 67,
+          "processed_values_when_raw_blank": {
+            "23.0": 45
+          },
+          "different_from_processed_among_present": 3
+        },
+        "log10(thickness)": {
+          "blank_linked_rows": 53,
+          "blank_unique_sample_ids": 38,
+          "present_linked_rows": 59,
+          "processed_values_when_raw_blank": {
+            "-3.096910013008056": 53
+          },
+          "different_from_processed_among_present": 0
+        },
+        "[elecon] method": {
+          "blank_linked_rows": 0,
+          "blank_unique_sample_ids": 0,
+          "present_linked_rows": 112,
+          "processed_values_when_raw_blank": null,
+          "different_from_processed_among_present": null
+        },
+        "log10(elecon)": {
+          "blank_linked_rows": 0,
+          "blank_unique_sample_ids": 0,
+          "present_linked_rows": 112,
+          "processed_values_when_raw_blank": {},
+          "different_from_processed_among_present": 28
+        }
+      },
+      "rows_volume_in_other_rid_range": 109
+    }
+  },
+  "xlsx_csv_comparison": {
+    "TC": {
+      "rows": 292,
+      "columns": 65,
+      "mismatched_cells": 0,
+      "examples": []
+    },
+    "EC": {
+      "rows": 925,
+      "columns": 115,
+      "mismatched_cells": 0,
+      "examples": []
+    }
+  }
+}
