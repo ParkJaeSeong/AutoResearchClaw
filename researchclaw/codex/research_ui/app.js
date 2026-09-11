@@ -1,4 +1,4 @@
-import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,renderHandoff,renderSourceIntake,renderScopeReviews} from './detail.js';
+import {element,button,badge,label,renderRevision,renderCouncil,renderEvidence,renderHandoff,renderSourceIntake,renderScopeReviews,renderSourceAnalysis} from './detail.js';
 import {renderResearchGraph} from './graph.js';
 import {renderIssueList,renderTimeline,renderImpactSummary} from './timeline.js';
 import {createLiveFeed} from './live.js';
@@ -44,6 +44,7 @@ export function renderResearchView(root,view,selection={},callbacks={}) {
     for(const action of node.required_actions??[])technical.append(element('p',action,'prose'));notice.append(technical);
   }
   content.append(notice);
+  renderSourceAnalysis(content,view);
   renderScopeReviews(content,view);
   renderImpactSummary(content,view);
   renderSourceIntake(content,view);

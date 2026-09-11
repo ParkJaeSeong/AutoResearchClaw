@@ -27,7 +27,8 @@ export function recordDetails(title,value,key) {
 }
 export function renderRef(view,ref) {
   const wrap=element('span',undefined,'reference');const item=resolveRef(view,ref),url=rawURL(view,item);
-  if(url){const a=element('a',`${item.label} · 원문`);a.href=url;a.target='_blank';a.rel='noopener noreferrer';wrap.append(a);}
+  const source=(view.source_captures??[]).find(({record:r})=>r.project_id===ref?.project_id&&r.sha256===ref?.sha256&&ref?.artifact_id===`m1/intake/blobs/${r.sha256}`);
+  if(url){const a=element('a',`${source?.record.filename??item.label} · 원문`);a.href=url;a.target='_blank';a.rel='noopener noreferrer';wrap.append(a);}
   else wrap.append(element('span',`${ref?.artifact_id??'참조'} · 이 버전의 공개 원문 없음`,'warning'));
   wrap.append(element('small',`${ref?.sha256?.slice(0,12)??'해시 없음'} · HEAD ${ref?.head_id?.slice(0,12)??'없음'}`));
   return wrap;
@@ -69,11 +70,12 @@ export function renderRevision(root,view,revision) {
   }
   root.append(element('h3','사용한 입력 버전'),renderValue(view,r.input_refs),renderRef(view,revision.ref),recordDetails('등록 기록 전체',r,`record:${r.id}`));
 }
+const councilRoleLabel=(council,role)=>council.node==='source_analysis'&&role==='critical'?'반증 검토자':label(role??'검토자');
 export function renderCouncil(root,view,council) {
   root.replaceChildren();if(!council){root.append(element('p','선택한 개정의 협의 기록이 없습니다.','empty'));return;}
   root.append(element('h2','에이전트가 검토한 내용'),element('p',`현재 단계: ${label(council.phase)}`),element('p','각 역할이 무엇을 판단했고, 왜 그렇게 생각하는지 확인하세요.','muted'));
   const info=element('details');info.dataset.key='council-info';info.append(element('summary','대화 참여자와 작성 방식'),element('p','검토자들은 먼저 각자의 의견을 쓰고, 모두 제출한 뒤 서로의 의견을 읽습니다. 다른 의견을 먼저 읽지 않도록 지시하지만, 접근을 강제로 차단했는지는 확인되지 않았습니다. 서로 다른 모델을 사용했는지도 확인되지 않았습니다.','muted'));
-  for(const actor of council.participants??[])info.append(element('p',`${label(actor.council_role)}: ${actor.actor_id} · ${actor.id}`,'mono'));root.append(info);
+  for(const actor of council.participants??[])info.append(element('p',`${councilRoleLabel(council,actor.council_role)}: ${actor.actor_id} · ${actor.id}`,'mono'));root.append(info);
   root.append(element('p','처음 의견 → 서로의 의견 검토 → 최종 판단 순서입니다. 아래 발언은 저장된 원문입니다.','muted'));
   for(const [phase,field] of [['initial','disclosed_initials'],['response','disclosed_responses'],['final','disclosed_finals']]) {
     const section=element('section',undefined,'round');const rows=council[field]??[],total=Object.keys(council.required_roles).length;
@@ -81,7 +83,7 @@ export function renderCouncil(root,view,council) {
     if(!rows.length)section.append(element('p','아직 의견을 모으고 있습니다. 모두 작성하면 함께 공개됩니다.','muted'));
     for(const {submission:s,submission_ref:ref} of rows){const article=element('article',undefined,'statement');article.dataset.key=`submission:${s.id}`;
       const actor=council.participants?.find(p=>p.id===s.assignment_id);
-      article.append(element('h4',label(actor?.council_role??'검토자')));
+      article.append(element('h4',councilRoleLabel(council,actor?.council_role)));
       if(s.recommendation)article.append(element('p',`최종 판단: ${s.recommendation==='ready'?'진행 의견':label(s.recommendation)}`,'council-verdict'));
       for(const paragraph of s.rationale.split(/\n\s*\n/))article.append(element('p',paragraph,'prose council-paragraph'));
       const metadata=element('details');metadata.dataset.key=`metadata:${s.id}`;metadata.append(element('summary','근거 연결과 기록 정보'));
@@ -179,4 +181,23 @@ export function renderScopeReviews(root,view) {
       const body=element('div');renderCouncil(body,view,council);discussion.append(body);section.append(discussion);
     }
   }root.append(section);
+}
+
+export function renderSourceAnalysis(root,view) {
+  const councils=(view.councils??[]).filter(c=>c.node==='source_analysis');
+  if(!councils.length)return;
+  const section=element('section',undefined,'card');
+  section.append(element('h2','원문을 함께 읽고 검토'),element('p','자료에서 확인한 내용과 서로에게 한 질문·답변을 보여줍니다. 자료의 사용 범위를 판단하는 과정입니다.','muted'));
+  for(const council of councils){
+    section.append(element('p',`현재: ${label(council.phase)}`,'prose'));
+    const finals=council.disclosed_finals??[];
+    for(const {submission:s} of finals){
+      const actor=council.participants.find(p=>p.id===s.assignment_id);
+      section.append(element('p',`${councilRoleLabel(council,actor?.council_role)}: ${s.recommendation==='ready'?'해당 비교에 사용 가능 의견':s.recommendation==='ready_with_limits'?'사용 범위를 제한해야 한다는 의견':'추가 근거가 필요하다는 의견'}`,'prose'));
+    }
+    const discussion=element('details');discussion.dataset.key=`source-analysis:${council.id}`;
+    discussion.append(element('summary','원문 근거와 질문·답변 보기'));
+    const body=element('div');renderCouncil(body,view,council);discussion.append(body);section.append(discussion);
+  }
+  root.append(section);
 }

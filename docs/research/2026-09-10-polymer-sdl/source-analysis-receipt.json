@@ -1,0 +1,196 @@
+{
+  "head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "council_id": "e76508e1-bb1f-47c2-aa08-fe3023a91700",
+  "question": "현재 확보한 PC/CNT 데이터로 공정·측정 조건의 영향을 비교할 수 있는가? Abbasi 2010의 25개 대응 행을 원문과 대조하고, PC/CNT 전체로 넓혀 주장할 수 있는 범위를 구분한다.",
+  "decisions": {
+    "domain": "limited_use",
+    "methodology": "limited_use",
+    "critical": "limited_use"
+  },
+  "scientific_verification": false,
+  "issues_resolved": false,
+  "submitted_counts": {
+    "initial": 3,
+    "response": 3,
+    "final": 3
+  },
+  "questions": 9,
+  "answers": 9,
+  "answers_marked_unresolved": 4,
+  "original_host_attempts": 10,
+  "registered_host_outputs": 9,
+  "checked_materials": {
+    "S1": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+      "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+      "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+    },
+    "S2": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+      "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+      "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+    },
+    "S3": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+      "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+      "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+    },
+    "S4": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+      "artifact_id": "m1/intake/blobs/8fa4c08a946aee6921d5f058e4bc25dea20705f34de203b4a51c6e9e77f6bfd2",
+      "sha256": "8fa4c08a946aee6921d5f058e4bc25dea20705f34de203b4a51c6e9e77f6bfd2"
+    },
+    "S5": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+      "artifact_id": "m1/intake/blobs/9f56002ab2983bec9a6fe807b844afdf02bfe20dbb15ed0bb1d947fbcd95f637",
+      "sha256": "9f56002ab2983bec9a6fe807b844afdf02bfe20dbb15ed0bb1d947fbcd95f637"
+    }
+  },
+  "submissions": [
+    {
+      "role": "domain",
+      "phase": "initial",
+      "host_id": "codex-exec:01a08e81-6404-7533-a547-46e86102c8f9",
+      "submission_id": "a0f1c0f6-1620-4b25-ab5f-6e3c6bf5db41",
+      "corrected": false,
+      "question_count": 2,
+      "answers": [],
+      "decision": null
+    },
+    {
+      "role": "methodology",
+      "phase": "initial",
+      "host_id": "codex-exec:01a08e81-6406-7890-9dea-35d958e995c3",
+      "submission_id": "d96179c2-2ae3-4bac-ac12-98434390e066",
+      "corrected": false,
+      "question_count": 2,
+      "answers": [],
+      "decision": null
+    },
+    {
+      "role": "critical",
+      "phase": "initial",
+      "host_id": "codex-exec:01a08e86-62bc-78b0-b3e2-c3a8f96c2a27",
+      "submission_id": "a33182a2-3492-4808-bd6c-791d629a6b02",
+      "corrected": true,
+      "question_count": 2,
+      "answers": [],
+      "decision": null
+    },
+    {
+      "role": "domain",
+      "phase": "response",
+      "host_id": "codex-exec:01a08e89-e732-7461-b79b-3dac4b77839f",
+      "submission_id": "2de26b4d-0dfb-4382-8076-980caaca4de3",
+      "corrected": false,
+      "question_count": 1,
+      "answers": [
+        {
+          "question_id": "methodology-initial-q1",
+          "status": "unresolved"
+        },
+        {
+          "question_id": "critical-initial-q1",
+          "status": "unresolved"
+        }
+      ],
+      "decision": null
+    },
+    {
+      "role": "methodology",
+      "phase": "response",
+      "host_id": "codex-exec:01a08e89-e731-7290-bccc-16f86e844e78",
+      "submission_id": "2388ea6b-6fe5-41da-91c6-ead791d9c047",
+      "corrected": false,
+      "question_count": 1,
+      "answers": [
+        {
+          "question_id": "domain-initial-q1",
+          "status": "answered"
+        },
+        {
+          "question_id": "critical-initial-q2",
+          "status": "unresolved"
+        }
+      ],
+      "decision": null
+    },
+    {
+      "role": "critical",
+      "phase": "response",
+      "host_id": "codex-exec:01a08e89-e730-7530-9330-935c0c8f0092",
+      "submission_id": "b4577363-a8c5-43a3-8139-ee7a5c2b4ec9",
+      "corrected": false,
+      "question_count": 1,
+      "answers": [
+        {
+          "question_id": "domain-initial-q2",
+          "status": "answered"
+        },
+        {
+          "question_id": "methodology-initial-q2",
+          "status": "answered"
+        }
+      ],
+      "decision": null
+    },
+    {
+      "role": "domain",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d68-7df0-8e6a-967f549105a4",
+      "submission_id": "fd5434e1-c024-4910-b485-a5101f8957fc",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [
+        {
+          "question_id": "methodology-response-q1",
+          "status": "unresolved"
+        }
+      ],
+      "decision": "limited_use"
+    },
+    {
+      "role": "methodology",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d69-78c0-a5e5-aa1176050162",
+      "submission_id": "4fa864de-b439-494a-a1f7-f5cb79f1ffdf",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [
+        {
+          "question_id": "domain-response-q1",
+          "status": "answered"
+        },
+        {
+          "question_id": "critical-response-q1",
+          "status": "answered"
+        }
+      ],
+      "decision": "limited_use"
+    },
+    {
+      "role": "critical",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d68-7942-9848-906fccc766a9",
+      "submission_id": "28771b68-b0a1-4fbc-8679-233a4c130802",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [],
+      "decision": "limited_use"
+    }
+  ],
+  "open_issue_records": 22,
+  "native_submission_total": 81,
+  "checks": [
+    "all quoted spans exist",
+    "all assigned questions answered or explicitly unresolved",
+    "same material hashes across roles and phases",
+    "native rationale exactly matches preserved host answer rendering",
+    "all five UI artifact routes return exact delivered text"
+  ]
+}

@@ -209,3 +209,17 @@ test('pending scope proposal is visible and partial application is counted',()=>
     assert.match(root.textContent,/일부 적용 · 1\/2개 쟁점/);
   }finally{delete globalThis.document;}
 });
+
+test('source analysis is visible outside stage councils and does not imply M1 completion',()=>{
+  assert.equal(typeof detail.renderSourceAnalysis,'function');
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try{
+    const root=new Element('section');const council={id:'s',node:'source_analysis',phase:'response',participants:[{id:'c',council_role:'critical',actor_id:'source-reader-critical'}],authors:[],required_roles:{domain:'d',critical:'c',methodology:'m'},submitted_counts:{initial:3,response:0,final:0},disclosed_initials:[],disclosed_responses:[],disclosed_finals:[]};
+    detail.renderSourceAnalysis(root,{councils:[council],artifacts:[]});
+    assert.match(root.textContent,/원문을 함께 읽고 검토/);
+    assert.match(root.textContent,/의견 교환/);
+    assert.match(root.textContent,/3\/3/);
+    assert.match(root.textContent,/반증 검토자/);
+    assert.doesNotMatch(root.textContent,/M1 완료|검증 완료/);
+  }finally{delete globalThis.document;}
+});

@@ -1,5 +1,7 @@
 # Real-topic M1 progress
 
+2026-09-11 latest: source-analysis-01 completed; 9 native source-grounded submissions, 9 directed questions with 9 answers (4 unresolved). All final judgments limited_use. Native total81; existing22 issues remain. Source-analysis.md and source-analysis-receipt.json in docs/research/2026-09-10-polymer-sdl are current. ResearchAtlas integration deferred. No training/experiment or M1 completion. Below is historical execution context.
+
 LATEST OVERRIDE: user approved removing hard timeout after resource loss.
 literature_loop now has no timeout option; 30s wait is observational, never kills.
 restart-02 resumes restart-01: reuse4 finished reports/123 unique candidate records;
