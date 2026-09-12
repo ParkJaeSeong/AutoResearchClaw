@@ -8,7 +8,7 @@ from pathlib import Path
 from ..transactions import project_transaction
 from . import store
 from .issues import propose_issue_event
-from .verification import prepare_verification, register_verification_result
+from .verification import prepare_verification, register_verification_result, register_verification_budget
 from .councils import prepare_council, register_submission, public_result
 from .m1_nodes import register_node
 from .m1_review import materialize_imported_issue
@@ -20,7 +20,7 @@ from .source_intake import capture_sources
 from .issue_impacts import record_impacts
 from .issue_scopes import propose_scope, apply_scope
 
-_HANDLERS = {'issue.scope.propose': propose_scope, 'issue.scope.apply': apply_scope, 'issue.impact.record': record_impacts, 'm1.source.capture': capture_sources, 'm1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
+_HANDLERS = {'verification.budget.register': register_verification_budget, 'issue.scope.propose': propose_scope, 'issue.scope.apply': apply_scope, 'issue.impact.record': record_impacts, 'm1.source.capture': capture_sources, 'm1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
              'm1.handoff.accept': accept_handoff, 'm1.work.record': record_work, 'work_ledger.refresh': refresh_ledger,
              'm1.issue.materialize': materialize_imported_issue,
              'issue.event': propose_issue_event,
@@ -84,7 +84,7 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         # A handler cannot mutate the original snapshot used for the patch.
         handler_snapshot = json.loads(store._canonical(snapshot))
         if operation in ('issue.scope.propose', 'issue.scope.apply', 'issue.impact.record', 'm1.source.capture', 'm1.handoff.issue', 'm1.handoff.receiver.assign', 'm1.handoff.accept',
-                         'm1.work.record', 'work_ledger.refresh', 'm1.issue.materialize', 'issue.event', 'verification.prepare', 'verification.result', 'm1.node.register',
+                         'm1.work.record', 'work_ledger.refresh', 'm1.issue.materialize', 'issue.event', 'verification.budget.register', 'verification.prepare', 'verification.result', 'm1.node.register',
                          'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)

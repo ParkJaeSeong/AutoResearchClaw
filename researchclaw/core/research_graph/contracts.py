@@ -70,6 +70,7 @@ _CONTRACTS = {
         actor_assignment_id='uuid', rationale='text', verification_refs=_REFS, successor_ids=_IDS,
         to_milestone=optional(_MILESTONE), owner_assignment_id=optional('uuid'),
         verification_id=optional('uuid'), acceptance_event_id=optional('uuid')),
+    'VerificationBudget': dict(owner_assignment_id='uuid', scope='text', resource_limits=_TEXTS, input_refs=_REFS),
     'Verification': dict(issue_ids=_IDS, method=enum('source_check', 'logic_check', 'calculation', 'experiment', 'human_decision'),
         question='text', input_refs=_REFS, acceptance_rule='text', owner_assignment_id='uuid', budget_ref=_REF),
     'VerificationResult': dict(verification_id='uuid', output_refs=_REFS,

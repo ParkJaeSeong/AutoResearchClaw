@@ -1,7 +1,8 @@
 """Pure preparation and result-registration policy for verification work.
 
 Registration freezes declared work and records supplied results. It performs no
-experiment, creates no budget or assignment, and never changes issue status.
+experiment or resource allocation, creates no assignment, and never changes issue
+status. Budget registration only preserves declared scope and resource limits.
 """
 from copy import deepcopy
 
@@ -82,3 +83,25 @@ def register_verification_result(snapshot: dict, payload: dict) -> dict:
     return {'state_patch': {'verification_results': collection},
             'event': {**store._VERSION, 'type': 'verification_result_registered', 'payload': result},
             'object_inputs': {f"verification-results/{result['id']}": store._canonical(result)}}
+
+
+def register_verification_budget(snapshot: dict, payload: dict) -> dict:
+    """Record declared resources and scope; no allocation, enforcement or consent."""
+    _require(type(payload) is dict and set(payload) == {'budget'}, 'verification_budget_invalid')
+    budget = deepcopy(payload['budget'])
+    _require(type(budget) is dict and not validate_record('VerificationBudget', budget),
+             'verification_budget_invalid')
+    inputs = _Inputs(snapshot)
+    _require(budget['project_id'] == inputs.project, 'verification_project_mismatch')
+    owner = inputs.assignment(budget['owner_assignment_id'])
+    _require(owner['role'] == 'owner' and owner['actor_id'] == budget['producer_id'],
+             'verification_owner_mismatch')
+    _require(bool(budget['resource_limits']) and bool(budget['input_refs']), 'verification_budget_invalid')
+    records = inputs.state.get('verification_budgets', {})
+    _require(budget['id'] not in records and all(budget['event_id'] != r['event_id'] for r in records.values()),
+             'verification_budget_exists')
+    for ref in [*budget['input_refs'], *budget['observation_refs']]:
+        inputs.reference(ref)
+    return {'state_patch': {'verification_budgets': {**records, budget['id']: budget}},
+            'event': {**store._VERSION, 'type': 'verification_budget_registered', 'payload': budget},
+            'object_inputs': {'verification-budgets/' + budget['id']: store._canonical(budget)}}
