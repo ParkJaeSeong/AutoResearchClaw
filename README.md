@@ -1,8 +1,12 @@
-# AutoResearchClaw Codex
+# Pilot
+
+Pilot은 근거를 검토하고, 에이전트 토론으로 연구 방향을 정해 실험으로 이어가는 자율 연구 프로젝트입니다. ResearchAtlas는 지식 축적을 담당합니다.
+
+제품명은 **Pilot**입니다. 기존 설치·연구 기록과의 호환성을 위해 Python 패키지와 CLI(`researchclaw-codex`), 스킬 호출명(`$researchclaw`), 저장 경로는 유지합니다. GitHub 주소는 실제 저장소 주소를 사용합니다.
 
 현재 작업 문서는 [프로젝트 문서 안내](docs/README.md), 원본·이전 자료는 [보관함](archive/README.md)에서 확인합니다.
 
-AutoResearchClaw Codex is a Codex-native research orchestration plugin derived
+Pilot (formerly AutoResearchClaw Codex) is a Codex-native research orchestration plugin derived
 from [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw). Codex
 does the reasoning and tool-using work in the active session; a small local
 Python engine provides deterministic task packets, validation, durable state,
@@ -13,7 +17,7 @@ For the implemented scope, verification results, and next work, see the
 
 The Codex-native path does not call an external LLM API or start a nested
 Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
-the user invokes `$researchclaw` or clearly requests ResearchClaw by name.
+the user invokes `$researchclaw` or clearly requests the Pilot (ResearchClaw) workflow by name.
 
 Codex-native supported execution boundary: stages 1–11 through generic stage
 commands, plus the dedicated Stage-12 experiment and Stage-13 refinement
@@ -32,7 +36,7 @@ authors and validates only `experiment/resources.json` from declared inputs
 and passive local hardware facts. Stage 12 begins with an explicit user
 approval that records a hash-bound decision but does not execute the
 experiment. After approval, Stage 12 supports an explicit handoff and
-contract-bound user-result registration; ResearchClaw never executes the
+contract-bound user-result registration; Pilot never executes the
 experiment from a preparation command. The exact returned command runs the
 repository-owned regression runtime and authored `fit`/`predict` algorithm.
 Stage 13 supports bounded candidate refinement with explicit council decisions,

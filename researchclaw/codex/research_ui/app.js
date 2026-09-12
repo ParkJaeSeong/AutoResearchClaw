@@ -28,7 +28,7 @@ function selectControl(title,key,choices,value,onChange) {
 }
 export function renderResearchView(root,view,selection={},callbacks={}) {
   validateView(view);const chosen=resolveSelection(view,selection),content=element('div',undefined,'research-view');
-  const top=element('header',undefined,'project-header');const title=element('div');title.append(element('p','RESEARCHCLAW / M1','eyebrow'),element('h1',view.project.topic));
+  const top=element('header',undefined,'project-header');const title=element('div');title.append(element('p','PILOT / M1','eyebrow'),element('h1',view.project.topic));
   const origin={synthetic:'합성 테스트 자료',real:'실제 자료 · 확인 범위별 판단',mixed:'실제·합성 혼합 자료'}[view.content_origin]??'자료 구분 미확인';
   title.append(badge(origin),element('p','지금까지 확인한 내용과 에이전트가 판단한 이유를 살펴보세요.','muted'));top.append(title);
   const milestones=element('nav',undefined,'milestones');milestones.setAttribute('aria-label','마일스톤');

@@ -1,7 +1,7 @@
 {
   "name": "autoresearchclaw-codex",
   "version": "0.1.0+codex.20260907222629",
-  "description": "Codex performs research through a durable, locally validated AutoResearchClaw workflow.",
+  "description": "Codex performs research through a durable, locally validated Pilot workflow.",
   "author": {
     "name": "AutoResearchClaw Codex contributors",
     "url": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
@@ -16,9 +16,9 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "AutoResearchClaw Codex",
+    "displayName": "Pilot",
     "shortDescription": "Run durable Codex-native research milestones.",
-    "longDescription": "Codex creates declared research artifacts while AutoResearchClaw persists state, validates outputs, binds approvals to artifact hashes, and reports local workflow metrics.",
+    "longDescription": "Codex creates declared research artifacts while Pilot persists state, validates outputs, binds approvals to artifact hashes, and reports local workflow metrics.",
     "developerName": "AutoResearchClaw Codex contributors",
     "category": "Productivity",
     "capabilities": [

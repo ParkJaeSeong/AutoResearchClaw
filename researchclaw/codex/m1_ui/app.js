@@ -100,7 +100,7 @@ export function renderResearchView(root, view, selection = {}) {
   root.replaceChildren();
   const top = element('header', undefined, 'topbar');
   const brand = element('div', undefined, 'brand');
-  brand.append(element('span', 'RC', 'brand-mark'), element('span', 'ResearchClaw'));
+  brand.append(element('span', 'P', 'brand-mark'), element('span', 'Pilot'));
   const synthetic = (view.content_origin ?? view.project.content_origin) === 'synthetic';
   const origin = element('span', view.data_origin === 'demo' ? '예시 데이터 · 실제 연구 기록 아님' : synthetic ? '등록 기록 · 합성 검증 자료' : '등록된 연구 기록', 'origin-label');
   top.append(brand, origin);

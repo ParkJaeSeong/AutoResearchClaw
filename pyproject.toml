@@ -1,7 +1,7 @@
 [project]
 name = "researchclaw-codex"
 version = "0.1.0"
-description = "AutoResearchClaw Codex — a durable, explicitly invoked Codex-native research workflow."
+description = "Pilot — a durable, explicitly invoked Codex-native research workflow."
 requires-python = ">=3.11"
 dependencies = [
     "packaging>=24.0",
