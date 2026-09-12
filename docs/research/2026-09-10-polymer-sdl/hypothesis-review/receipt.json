@@ -1,0 +1,88 @@
+{
+  "kind": "research_design_cross_review",
+  "input_sha256": "4574ad87644ba58bad3b5741fbce29793e8793b6ee7737a83d18d9d156d8d0d5",
+  "independence": "동일 지정 자료와 초안을 제공하고 모든 1차 제출 이후 공개. 파일 접근 강제 격리는 아님.",
+  "native_submission": false,
+  "started_at": "2026-09-12T10:02:22.454492+00:00",
+  "input_head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "shared_evidence_sha256": {
+    "stage6-synthesis.md": "18821f0bd5251bf1bfdf1e684e1245ff15bf110743cdc8d280ae869dcb4bcee5",
+    "stage6-synthesis.json": "c24782abd469b29e216cfc567463f9a8dce66e0a4ef24b03ac521280ed7e8787",
+    "source-analysis.md": "fc5b0cf3feac0f6e3588391d49b4881196ddc0e5cddaaef32a97dcf6f4613fb1"
+  },
+  "agents": {
+    "domain": "/root/hypothesis_domain",
+    "methodology": "/root/hypothesis_methodology",
+    "execution": "/root/hypothesis_execution"
+  },
+  "initial_complete_before_disclosure": true,
+  "initial_hashes": {
+    "domain": "ff0cbb75de5b4bb381ee55f57a939ee9505e3773429876bc97158f584a700d14",
+    "methodology": "c339b4ca536b6acbf00f80350a2a59ad4b7311998fae1623621e4cb7fa9b2d5e",
+    "execution": "ad76e647e2c301077885261d6aaf58724ee5811766ecdfa8624235108208e476"
+  },
+  "initial_disclosed_at": "2026-09-12T10:05:07.661130+00:00",
+  "response_hashes": {
+    "domain": "23ea23677aa98bdb6fecb26ace25e158d7f4413098bbc34c632f18e52046d592",
+    "methodology": "c28993eb03e851183c79d05daca805bb9efd7993ec294cd72f29d5259b39ae45",
+    "execution": "6aaed0a08c37aaabd4297f028905c020d1e615a4408d7cda2d6caf90cfae805f"
+  },
+  "response_disclosed_at": "2026-09-12T10:07:52.772875+00:00",
+  "reviewed_decision_sha256": "84ea1a1af7a293c294e4f92a7b464b333eb80b396a1e503c1b9e0b063ef7bf2a",
+  "completed_at": "2026-09-12T10:21:59.176556+00:00",
+  "rounds": 3,
+  "actual_review_messages": 9,
+  "directed_questions": 6,
+  "directed_responses": 6,
+  "response_statuses": {
+    "domain-initial-q1": "answered_design_only",
+    "domain-initial-q2": "answered_design_only",
+    "methodology-initial-q1": "unresolved",
+    "methodology-initial-q2": "answered_design_only",
+    "execution-initial-q1": "answered_design_only",
+    "execution-initial-q2": "answered_design_only"
+  },
+  "native_head_after": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "native_new_submissions": 0,
+  "native_stage_completed": false,
+  "experiments_run": 0,
+  "new_searches": 0,
+  "browser_visual_check": "not_performed_this_iteration",
+  "served_summary_verified": true,
+  "served_discovery_revision": "f8f07d79066614f9bb75102e03497ce7fc157643e86363494ead2478e3834252",
+  "checks": [
+    "all initial and response files preserved after disclosure",
+    "six directed questions answered and reconsidered by original sender",
+    "reviewed draft preserved",
+    "all Markdown links resolve",
+    "native HEAD unchanged",
+    "served summary and reading guide match saved selection",
+    "M1 is not marked complete"
+  ],
+  "artifacts_sha256": {
+    "README.md": "70d4823f5a79dc4b4a4972c2c4c21d74a7ed5b307ccb83a5885f73184fb084af",
+    "decision-before-final.md": "84ea1a1af7a293c294e4f92a7b464b333eb80b396a1e503c1b9e0b063ef7bf2a",
+    "decision.md": "78fbdb155ef02eb1785b4cf9c5797ab0caccb4ec72f13443a5fbf551fa109fb8",
+    "domain-final-prompt.txt": "10cc8c333ef09dbd23386daa8029701390eb1e24990148e5b6b6653b8e76bab5",
+    "domain-final.md": "072888e957e1012487c81e4dc6e1bbdef25733bedb0fa4cdc3c5c125c0db8e0d",
+    "domain-initial-prompt.txt": "b2b294b524d0eeaa7cb856f4b5dcb8e28c7c43aa40d81b862cfaf986a6092952",
+    "domain-initial.md": "ff0cbb75de5b4bb381ee55f57a939ee9505e3773429876bc97158f584a700d14",
+    "domain-response-prompt.txt": "9b195c55790d2535494137833918c1bee399ec0b030a1f838cef0bcc68aeccd4",
+    "domain-response.md": "23ea23677aa98bdb6fecb26ace25e158d7f4413098bbc34c632f18e52046d592",
+    "execution-final-prompt.txt": "ec00e147cd646220aa879021b4b4c01404669cf9a7bef0e8f1d337b1ddc052e6",
+    "execution-final.md": "6e1531ba9237aeac882d42d5466685665e607f63463839a464445639d03cf678",
+    "execution-initial-prompt.txt": "3e21acb145ff89e3312d27383772999cca390c1c3fb44bd12106630d280d8288",
+    "execution-initial.md": "ad76e647e2c301077885261d6aaf58724ee5811766ecdfa8624235108208e476",
+    "execution-response-prompt.txt": "d7820e902c71f6562855c2f491b91d9791d84fb2109aec72ff1bc28b98f5852f",
+    "execution-response.md": "6aaed0a08c37aaabd4297f028905c020d1e615a4408d7cda2d6caf90cfae805f",
+    "input.md": "4574ad87644ba58bad3b5741fbce29793e8793b6ee7737a83d18d9d156d8d0d5",
+    "methodology-final-prompt.txt": "a349d303b9a39fac0d88bd7b3c4196e7f242791188979752c576ee7922b803d1",
+    "methodology-final.md": "e4616028b1e9cf13871b96722593bf5326f7f7bb03ce74157e89800fa90937d0",
+    "methodology-initial-prompt.txt": "619fd52f97c96eea7abf9d25d43b1d5b4418b7bb2e4f42477ccfa491f2d5035f",
+    "methodology-initial.md": "c339b4ca536b6acbf00f80350a2a59ad4b7311998fae1623621e4cb7fa9b2d5e",
+    "methodology-response-prompt.txt": "35745252a116107690c7512eca1db5ceb5dd112408c4eaf5277c98be10004507",
+    "methodology-response.md": "c28993eb03e851183c79d05daca805bb9efd7993ec294cd72f29d5259b39ae45",
+    "selection-after.json": "fba3ec4b83e2cd566f58c33560b8406cd35ea5d9979efeeed49f621edeaf1b6f",
+    "selection-before.json": "6a2f9fa58c4b45c5e6e7b89959135c3c11545c4bf841d249a8428216d53a966c"
+  }
+}

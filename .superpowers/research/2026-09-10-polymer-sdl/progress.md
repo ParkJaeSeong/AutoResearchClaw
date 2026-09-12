@@ -48,3 +48,8 @@ Raw runtime project/host-runs/commands are local and ignored.
 User brief: docs/research/2026-09-10-polymer-sdl/selection.md.
 Two overlapping screen Issues question P01 stance target; preserve originals.
 Documentation clarification is not native Issue resolution.
+
+
+## 가설 판별 설계 교차 검토 · 2026-09-12
+
+Codex 협업 도구의 소재·평가 방법·실행 세 역할이 독립 의견→질문 응답→최종 재판단을 수행했다. 실제 9발언·6질문에 대한 응답을 docs/research/2026-09-10-polymer-sdl/hypothesis-review/ 에 보존했다. 원문 자료를 새로 검색하거나 실험을 실행하지 않았다. A·B 연결 대조와 Raman 우선 후보, C 배합 제약, H2 별도 평가 기준을 정리했다. Raman 감도·공간 대표성 질문은 미해결이다. 기존 council 81개에 이번 발언이 등록된 것은 아니며 정식 등록·M1 완료는 남아 있다. 다음: A·B 제조·측정 실행 명세와 필수 입력·연결 조건 작성.
