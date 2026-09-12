@@ -88,6 +88,8 @@ def test_native_complete_review_preserves_evidence_origins_and_exact_bytes(f):
     snapshot = f.snapshot(); unchanged = deepcopy(snapshot)
     result = api().prepare_hypothesis_review(snapshot)
     assert result['ready'] is True and result['reason_codes'] == []
+    from researchclaw.core.research_graph.handoffs import _require_native_evidence_route
+    _require_native_evidence_route(_context(snapshot))
     assert result['phase'] == 'complete' and result['source_groups']['origin_group_count'] == 1
     assert result['source_groups']['source_count'] == 2 and result['limitations']
     assert not result['unaccounted_issue_ids']
@@ -251,3 +253,26 @@ def test_changed_import_wrapper_cannot_be_materialized_as_authentic_source(tmp_p
         commands.apply_command(target, operation='m1.issue.materialize', payload={'issue_id': identity},
                                expected_head=head['id'], command_id=uid())
     assert store.read_head(target)['id'] == head['id']
+
+def test_native_hypothesis_cannot_silently_mix_external_synthesis(f):
+    from tests.codex_native.research_graph.test_external_evidence import imported, apply, review_payload
+    from researchclaw.core.research_graph.views import build_view
+    imported(f.root)
+    e=build_view(f.root)['external_evidence'][0]['ref']
+    apply(f.root,'external.review.record',review_payload(e))
+    view=build_view(f.root);r=view['external_reviews'][0]['ref']
+    question,qref=current_node(_context(f.snapshot()),'questions')
+    p=dict(question_ref=qref,question_text=question['content']['questions'][0]['question'],review_refs=[r],
+        claims=[dict(claim_id='c1',statement='External limited claim',evidence_ref=e,review_ref=r,
+            basis_kind='atlas_answer',qa_excerpt='First answer',rationale='Synthetic test',
+            intended_use='hypothesis review',limitations=[])],
+        coverage=dict(covered='Test',missing='Empirical validation',decision_impact='Design only'),
+        limitations=[],previous_ref=None,revision_reason=None,producer_id='author')
+    apply(f.root,'m1.evidence_basis.register',p)
+    basis=build_view(f.root)['m1_evidence_bases'][0]
+    a=f.make('synthesize');a['input_refs']={'questions':qref,'evidence_basis':basis['ref']}
+    a['content']['findings'][0]['evidence_refs']=[basis['claims'][0]['ref']]
+    a['content']['rejected_alternatives']=[]
+    f.head=store.read_head(f.root);f.register(a)
+    hypothesis=f.make('hypothesize');hypothesis['content']['hypotheses'][0]['alternative_ids']=[]
+    with pytest.raises(ValueError,match='m1_review_route_mismatch'):f.register(hypothesis)

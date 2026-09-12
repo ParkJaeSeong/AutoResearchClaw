@@ -28,11 +28,21 @@ def _context(snapshot):
     return inputs
 
 
+def _require_native_evidence_route(inputs):
+    # External handoff contracts and execution-readiness checks belong to B5.
+    from .m1_external_inputs import uses_external
+    for node in ('synthesize', 'hypothesize', 'review'):
+        if node in inputs.state.get('m1_node_heads', {}):
+            record, _ = current_node(inputs, node)
+            _require(not uses_external(record), 'external_handoff_not_supported')
+
+
 def _eligibility(snapshot):
     from .m1_evidence import current_evidence
     from .m1_review import prepare_hypothesis_review
     from .m1_search import corpus_status
     inputs = _context(snapshot)
+    _require_native_evidence_route(inputs)
     evidence, corpus = current_evidence(snapshot), corpus_status(snapshot)
     _require(evidence['ready'] and corpus['approved'], 'handoff_evidence_required')
     review = prepare_hypothesis_review(snapshot)
@@ -106,7 +116,9 @@ def _build(snapshot, publication, supplied_review, *, check_policy=True):
         from .m1_evidence import current_evidence
         from .m1_search import corpus_status
         from .m1_review import _prior_issues
-        inputs = _context(snapshot); artifact, ref = current_node(inputs, 'review')
+        inputs = _context(snapshot)
+        _require_native_evidence_route(inputs)
+        artifact, ref = current_node(inputs, 'review')
         evidence, corpus = current_evidence(snapshot), corpus_status(snapshot)
         prior = _prior_issues(inputs)
         unresolved = [row['issue_id'] for row in prior if row['native_status'] != 'resolved']

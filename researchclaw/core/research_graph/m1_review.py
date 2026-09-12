@@ -52,9 +52,13 @@ def _resolution(inputs, issue, refs):
 def validate_content(snapshot, inputs, artifact):
     from .m1_evidence import current_evidence
     from .m1_nodes import current_node
-    evidence = current_evidence(snapshot)
+    from .m1_external_inputs import uses_external, external_evidence, validate_parent_routes
+    validate_parent_routes(inputs, artifact)
+    external = uses_external(artifact)
+    evidence = external_evidence(snapshot, artifact) if external else current_evidence(snapshot)
     _require(evidence['ready'], 'm1_evidence_review_required')
-    _require(artifact['input_refs']['screen'] == evidence['corpus_ref'], 'm1_review_corpus_invalid')
+    if not external:
+        _require(artifact['input_refs']['screen'] == evidence['corpus_ref'], 'm1_review_corpus_invalid')
     allowed = {_node(ref) for ref in evidence['extraction_refs'].values()}
     node, content = artifact['node'], artifact['content']
     if node in ('synthesize', 'hypothesize'):
@@ -200,7 +204,9 @@ def prepare_hypothesis_review(snapshot: dict) -> dict:
     reasons, nodes, artifacts, limitations = [], dict.fromkeys(NODES), {}, []
     evidence = dict(corpus_ref=None, source_groups=None, limitations=[])
     try:
-        evidence = current_evidence(snapshot)
+        from .m1_external_inputs import uses_external, external_evidence
+        synthesis = current_node(inputs, 'synthesize')[0] if 'synthesize' in inputs.state.get('m1_node_heads', {}) else None
+        evidence = external_evidence(snapshot, synthesis) if synthesis is not None and uses_external(synthesis) else current_evidence(snapshot)
         reasons.extend(evidence['reason_codes'])
     except ValueError as error:
         reasons.append(str(error))

@@ -68,10 +68,15 @@ def _content_shape(node, content):
     return _valid(_CONTENT[node], content)
 
 
+def _parent_keys(record):
+    from .m1_external_inputs import external_parents, uses_external
+    return external_parents(record['node']) if uses_external(record) else _PARENTS[record['node']]
+
+
 def _shape(record, project):
     return (_common(record, _FIELDS, project) and type(record['node']) is str and record['node'] in _PARENTS
             and _valid('uuid', record['attempt']) and type(record['input_refs']) is dict
-            and set(record['input_refs']) == set(_PARENTS[record['node']])
+            and set(record['input_refs']) == set(_parent_keys(record))
             and _content_shape(record['node'], record['content'])
             and (record['node'] != 'questions' or bool(record['content']['questions'])))
 
@@ -135,6 +140,8 @@ def register_node(snapshot: dict, payload: dict) -> dict:
     else:
         _require(previous is None and artifact['revision_reason'] is None, 'm1_revision_invalid')
     for parent, ref in artifact['input_refs'].items():
+        if parent == 'evidence_basis':
+            continue  # Validated by the external content policy below.
         inputs.reference(ref)
         _, expected = current_node(inputs, parent)
         _require(_node(ref) == _node(expected), 'm1_node_input_invalid')
@@ -270,7 +277,13 @@ def _review_node(snapshot: dict, node_id: str) -> dict:
     inputs = _context(snapshot)
     artifact, ref = current_node(inputs, node_id)
     reasons, unresolved, unpublished = [], set(), set()
+    from .m1_external_inputs import uses_external, external_evidence, validate_parent_routes
+    validate_parent_routes(inputs, artifact)
+    if uses_external(artifact):
+        external_evidence(snapshot, artifact)
     for parent, source in artifact['input_refs'].items():
+        if parent == 'evidence_basis':
+            continue
         _, expected = current_node(inputs, parent)
         _require(_node(source) == _node(expected), 'm1_node_input_invalid')
         if not review_node(snapshot, parent)['ready']:
