@@ -1,0 +1,78 @@
+{
+  "checked_at": "2026-09-12T10:27:59.698402+00:00",
+  "head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "registered_nodes": [
+    "questions",
+    "scope",
+    "screen",
+    "search"
+  ],
+  "missing_nodes": [
+    "collect",
+    "extract",
+    "synthesize",
+    "hypothesize",
+    "review"
+  ],
+  "stale_input_refs": [
+    {
+      "node": "screen",
+      "input": "questions",
+      "reason": "issue_reference_stale",
+      "reference": {
+        "artifact_id": "m1/nodes/questions",
+        "head_id": "8b4bedc2fb844ec437e192ecbfb8fa54ef5243ffc4817155566ab166de929044",
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "sha256": "fec929f647f9594bf1e243c4a91e81e60caad112c3de7568779d51099272927e"
+      }
+    },
+    {
+      "node": "search",
+      "input": "questions",
+      "reason": "issue_reference_stale",
+      "reference": {
+        "artifact_id": "m1/nodes/questions",
+        "head_id": "8b4bedc2fb844ec437e192ecbfb8fa54ef5243ffc4817155566ab166de929044",
+        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+        "sha256": "fec929f647f9594bf1e243c4a91e81e60caad112c3de7568779d51099272927e"
+      }
+    }
+  ],
+  "evidence_check": {
+    "ready": false,
+    "error": "issue_reference_stale",
+    "note": "조회가 여기서 중단되어 후속 모든 게이트 원인을 평가한 것은 아님"
+  },
+  "native_mutations": 0,
+  "new_agent_reviews": 0,
+  "experiment_runs": 0,
+  "stage6_complete": false,
+  "input_decision_sha256": "78fbdb155ef02eb1785b4cf9c5797ab0caccb4ec72f13443a5fbf551fa109fb8",
+  "execution_spec_sha256": "26ebb9e1e89a3464c69752624683b428f57f3852619214d7eacbfebb9091b316",
+  "verification": {
+    "local_links_valid": true,
+    "prior_review_artifacts_preserved": true,
+    "six_condition_rows_present": true,
+    "head_unchanged": true,
+    "served_summary_matches": true,
+    "m1_complete": false,
+    "browser_visual_check": "not_performed",
+    "software_tests": "not_run_document_and_case_summary_change_only"
+  },
+  "ui_selection": {
+    "before_sha256": "fba3ec4b83e2cd566f58c33560b8406cd35ea5d9979efeeed49f621edeaf1b6f",
+    "after_sha256": "e5708e0d0edca2f3f2a7b11a655b00794c9f102459a2326de05e530951370de0",
+    "summary": "6단계의 근거 종합과 가설 교차 검토를 마치고 제조·측정 실행 명세를 작성했습니다. 정식 완료를 위해 이전 질문을 참조하는 검색·선정 기록과 수집·추출 결과를 연결해야 합니다. 장비·반복 수 확인은 후속 실험 준비에서 진행합니다.",
+    "reading_guide": [
+      "이번 요약은 소재·평가 방법·실행 담당의 실제 3회차 검토를 Pilot 조정자가 정리한 것입니다. 이번 대화 원문은 프로젝트의 hypothesis-review 문서에 있으며 기존 대화 탭에는 아직 등록하지 않았습니다.",
+      "제조와 구조: 제조의 전도도 효과와 구조 지표의 변화를 따로 판단합니다. 첫 구조 관측은 편광 Raman의 방향별 신호를 후보로 검토하되, 실제 감도와 관측 범위를 확인해야 합니다.",
+      "접촉과 방향: 접촉 절차를 바꾸었을 때 제조 간 차이가 얼마나 달라지는지 봅니다. 방향별 차이는 소재의 실제 특성일 수 있어 접촉 오류와 구분합니다.",
+      "PC 원료 구성: 기존 마스터배치와 희석 수지만으로는 CNT 함량과 PC 구성을 따로 바꿀 수 없습니다. 추가 원료와 배합 가능 범위를 확인할 때까지 이 대조의 실행을 보류합니다.",
+      "결과 해석: 차이를 못 봤다고 바로 반증하지 않습니다. 측정이 충분히 정밀했는지 확인하며, 예상과 다르다고 주 지표를 사후에 바꾸어 성공으로 처리하지 않습니다.",
+      "에이전트 성능: 물리 현상을 구별하는 일과 실험 선택법이 더 효율적인지 평가하는 일은 별도입니다. 같은 예산에서의 판정 도달률과 오류율을 우선안으로 검토합니다.",
+      "실행 명세: 제조·접촉 비교 네 조합과 보조 방향 비교 두 조합을 정리했습니다. 조건 조합 수이며 시편 수나 반복 횟수는 아닙니다. 실제 장비 설정과 반복 수는 미정입니다.",
+      "다음 작업: 기존 검색·선정 결과를 최신 질문에 맞게 연결하는 등록 수정안입니다. 6단계 정식 완료와 실제 실험 착수 준비를 따로 확인합니다."
+    ],
+    "discovery_revision": "58ce761251782250a3c890ca323bf6c7f06afbdb1c0c1e481773e1f1ff6504f7"
+  }
+}

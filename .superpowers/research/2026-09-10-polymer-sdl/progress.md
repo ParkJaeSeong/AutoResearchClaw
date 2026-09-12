@@ -53,3 +53,8 @@ Documentation clarification is not native Issue resolution.
 ## 가설 판별 설계 교차 검토 · 2026-09-12
 
 Codex 협업 도구의 소재·평가 방법·실행 세 역할이 독립 의견→질문 응답→최종 재판단을 수행했다. 실제 9발언·6질문에 대한 응답을 docs/research/2026-09-10-polymer-sdl/hypothesis-review/ 에 보존했다. 원문 자료를 새로 검색하거나 실험을 실행하지 않았다. A·B 연결 대조와 Raman 우선 후보, C 배합 제약, H2 별도 평가 기준을 정리했다. Raman 감도·공간 대표성 질문은 미해결이다. 기존 council 81개에 이번 발언이 등록된 것은 아니며 정식 등록·M1 완료는 남아 있다. 다음: A·B 제조·측정 실행 명세와 필수 입력·연결 조건 작성.
+
+
+## 실행 명세와 6단계 경계 확인 · 2026-09-12
+
+execution-spec.md에 E01–E06 조건 조합, S01/S02 구조 관측, 배정·분석·실패·재개·필수 입력을 작성했다. 수치 설정·실행은 보류다. 새 에이전트 검토는 수행하지 않았다. 현재 정식 노드는 scope/questions/search/screen이고 search/screen의 questions 참조가 stale이며 collect/extract 이후 노드는 없다. stage6-status.md/json에 실제 조회와 남은 순서를 남겼다. 다음 우선 작업은 최신 질문에 맞춘 검색·선정 등록 수정안이다. 장비 확인 등 후속 M1 준비를 6단계 완료 조건에 계속 추가하지 않는다.
