@@ -1,0 +1,16 @@
+{
+  "input_head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "synthesis_sha256": "c24782abd469b29e216cfc567463f9a8dce66e0a4ef24b03ac521280ed7e8787",
+  "selection_before_sha256": "9d4981c1dc2d012d9ff2a5399f831e6050129610f241fb77cde08489505e2149",
+  "selection_after_sha256": "6a2f9fa58c4b45c5e6e7b89959135c3c11545c4bf841d249a8428216d53a966c",
+  "discovery_revision": "d4576772d93ee2a2ef0cf5bbe3b09d3939a6ef676ab57c7cfa616d84154ac7fd",
+  "checks": [
+    "6 judgments with exact source locations",
+    "three prior final reviewer identities and input hashes checked",
+    "deterministic rebuild",
+    "served selection has six use decisions and coordinator attribution",
+    "native head and 22 issue records unchanged"
+  ],
+  "browser_visual_check": "not_performed_this_iteration",
+  "formal_stage_completion": false
+}

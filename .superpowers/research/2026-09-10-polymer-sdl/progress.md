@@ -1,5 +1,7 @@
 # Real-topic M1 progress
 
+2026-09-12 latest: Pilot stage6 coordinator synthesis draft prepared from prior source-analysis finals. User closed conceptual stage5 for current materials. See docs/research/2026-09-10-polymer-sdl/stage6-synthesis.md and stage6-receipt.json. Six use-specific judgments and three explanation candidates; UI discovery summary updated. No new host submissions, searches, issue resolutions, or native stage completion. Next: predictions/falsification for competing explanations and native input linkage. Prior status below is historical.
+
 2026-09-11 latest: source-analysis-01 completed; 9 native source-grounded submissions, 9 directed questions with 9 answers (4 unresolved). All final judgments limited_use. Native total81; existing22 issues remain. Source-analysis.md and source-analysis-receipt.json in docs/research/2026-09-10-polymer-sdl are current. ResearchAtlas integration deferred. No training/experiment or M1 completion. Below is historical execution context.
 
 LATEST OVERRIDE: user approved removing hard timeout after resource loss.

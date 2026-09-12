@@ -1,0 +1,648 @@
+{
+  "schema_version": 1,
+  "kind": "coordinator_evidence_synthesis",
+  "conceptual_stage": 6,
+  "status": "draft",
+  "topic": "PC/CNT 전도도 자료의 사용 범위와 후속 가설",
+  "knowledge_iteration": "5단계는 현재 자료 기준 이번 회차 마감; 모든 문헌의 독해 완료를 뜻하지 않음",
+  "source_council_id": "e76508e1-bb1f-47c2-aa08-fe3023a91700",
+  "input_head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "source_receipt_sha256": "b73d126a731147dc396d87b0e61d7c7350a27cc92cd44ed81f9e17e39fec45e5",
+  "prior_final_reviews": [
+    {
+      "role": "domain",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d68-7df0-8e6a-967f549105a4",
+      "submission_id": "fd5434e1-c024-4910-b485-a5101f8957fc",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [
+        {
+          "question_id": "methodology-response-q1",
+          "status": "unresolved"
+        }
+      ],
+      "decision": "limited_use"
+    },
+    {
+      "role": "methodology",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d69-78c0-a5e5-aa1176050162",
+      "submission_id": "4fa864de-b439-494a-a1f7-f5cb79f1ffdf",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [
+        {
+          "question_id": "domain-response-q1",
+          "status": "answered"
+        },
+        {
+          "question_id": "critical-response-q1",
+          "status": "answered"
+        }
+      ],
+      "decision": "limited_use"
+    },
+    {
+      "role": "critical",
+      "phase": "final",
+      "host_id": "codex-exec:01a08e8d-0d68-7942-9848-906fccc766a9",
+      "submission_id": "28771b68-b0a1-4fbc-8679-233a4c130802",
+      "corrected": false,
+      "question_count": 0,
+      "answers": [],
+      "decision": "limited_use"
+    }
+  ],
+  "authorship": "Pilot 조정자가 기존 3역할의 최종 검토를 종합함. 이번 작성에서 새 에이전트 발언이나 실험 결과를 생성하지 않음.",
+  "new_searches": 0,
+  "new_host_submissions": 0,
+  "resolved_issue_ids": [],
+  "native_stage_completed": false,
+  "rows": [
+    {
+      "id": "C01",
+      "title": "같은 CNT 함량에서 제조·형상 조합 비교",
+      "conclusion": "같은 함량에서 다섯 제조·형상 조합의 저장값과 순위를 잠정 비교할 수 있다.",
+      "allowed_use": "조건을 맞춘 비교표 작성, 설명할 차이와 경쟁 가설 찾기",
+      "held_use": "공정 하나의 인과 효과, 독립 반복 25회에 근거한 유의성 주장",
+      "challenge": "공정·형상·두께·열이력이 함께 달라 개별 요인의 효과가 분리되지 않는다.",
+      "next_question": "시편 형상과 측정 방향을 같게 해도 제조 조건에 따른 차이가 남는가?",
+      "recheck_trigger": "정량 차이 또는 비율을 확정할 때만 해당 그림 점의 판독 오차를 확인한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "전체 CSV를 다시 읽어 대조한 결과, Abbasi 상세 행과 처리 행은 25개 ID 모두 대응하며 log10(elecon)과 처리 log10(EC)의 최대 절대 차이는 약 1.8×10⁻¹⁵이다. 1·3·5·10·15 wt%마다 다섯 제조·형상 조합이 있다. 이는 CSV 간 일치이며 원도표의 25점을 검증한 결과는 아니다.",
+          "kind": "observation",
+          "citations": [
+            {
+              "source_id": "S2",
+              "start_line": 7,
+              "end_line": 31,
+              "quote": "\"[elecon] remarks\": \"Taken from the Fig.12\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 12,
+              "end_line": 12,
+              "quote": "\"elecon\": \"0.0005\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 94,
+              "end_line": 94,
+              "quote": "1.7142857142857142 | -3.3010299956639813",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            }
+          ]
+        },
+        {
+          "claim": "마지막 ID 번호 1~5는 압축 디스크·미세사출압축 디스크·미세사출 디스크·일반사출 도그본·미세사출 도그본에 대응한다. CSV의 Sheet는 도그본 형상으로 구체화해야 한다. 80 mm와 4.3 mm는 인장 시편의 게이지 또는 중앙 구간 길이이며, 전극 간 거리로 사용할 근거는 없다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S3",
+              "start_line": 232,
+              "end_line": 238,
+              "quote": "Conventional injection (dog-bone)",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 10,
+              "end_line": 10,
+              "quote": "\"[proc] Shape of Test Piece\": \"Sheet\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 57,
+              "end_line": 58,
+              "quote": "tensile test specimens of 150 mm in total length, with a gage",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 67,
+              "end_line": 67,
+              "quote": "center section of 1 mm wide by 0.78 mm thick by 4.3 mm long,",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            }
+          ]
+        },
+        {
+          "claim": "허용되는 결과는 동일 wt%에서 제조·형상 조합의 CSV 값·순위·로그 차이를 잠정 기술하는 것이다. 다섯 함량 모두 압축 디스크가 가장 높지만 공정·형상·두께·게이트 위치가 함께 달라져 순수 공정 효과로 분리되지 않는다. 여덟 함량을 제조했다는 설명만으로 그림에서 정확히 세 함량이 누락됐다고 단정하거나 25행으로 논문의 임계값을 재현했다고 주장하지 않는다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S2",
+              "start_line": 17,
+              "end_line": 21,
+              "quote": "\"elecon\": \"0.002\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 68,
+              "end_line": 69,
+              "quote": "gated at one end, and the other a disk shape of 25 mm in diameter",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 42,
+              "end_line": 43,
+              "quote": "Eight different",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 205,
+              "end_line": 206,
+              "quote": "conductivity rises suddenly by more than 10 decades.",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "title": "최종 두께와 시편 치수",
+      "conclusion": "사출압축의 1.2 mm는 확인된 최종 시편 두께로 사용할 수 없다.",
+      "allowed_use": "치수 출처의 불확실성을 표시하고 두께를 맞추는 대조 조건 설계",
+      "held_use": "1.2 mm로 전도도 재계산, 1 mm로 자동 교정, 인장 구간 길이를 전극 간 거리로 사용",
+      "challenge": "원문의 금형 간격·명목 시편 치수와 전기 측정 치수는 같은 값이라고 보장되지 않는다.",
+      "next_question": "동일한 최종 두께와 전극 배치를 갖는 시편을 어떻게 확보할 것인가?",
+      "recheck_trigger": "기존 치수를 수치 보정이나 정량 설명변수로 사용하려 할 때 실측·최종 치수 기록을 요청한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "마지막 ID 번호 1~5는 압축 디스크·미세사출압축 디스크·미세사출 디스크·일반사출 도그본·미세사출 도그본에 대응한다. CSV의 Sheet는 도그본 형상으로 구체화해야 한다. 80 mm와 4.3 mm는 인장 시편의 게이지 또는 중앙 구간 길이이며, 전극 간 거리로 사용할 근거는 없다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S3",
+              "start_line": 232,
+              "end_line": 238,
+              "quote": "Conventional injection (dog-bone)",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 10,
+              "end_line": 10,
+              "quote": "\"[proc] Shape of Test Piece\": \"Sheet\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 57,
+              "end_line": 58,
+              "quote": "tensile test specimens of 150 mm in total length, with a gage",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 67,
+              "end_line": 67,
+              "quote": "center section of 1 mm wide by 0.78 mm thick by 4.3 mm long,",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            }
+          ]
+        },
+        {
+          "claim": "사출압축 다섯 행의 1.2 mm는 검증된 최종 시편 두께로 사용할 수 없다. 원문은 같은 공동 치수와 금형판 간격을 설명한다. 해당 두께 변수는 보류하되 1 mm로 자동 교정하거나 출판 전도도를 재계산하지 않는다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S2",
+              "start_line": 8,
+              "end_line": 8,
+              "quote": "\"thickness_raw\": \"d=25mm, t=1.2mm\", \"thickness\": \"0.0012\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 80,
+              "end_line": 80,
+              "quote": "with the same dimensions as described before.",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 87,
+              "end_line": 88,
+              "quote": "The gap between the mold plates",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C03",
+      "title": "측정 온도와 장비·방법",
+      "conclusion": "23°C와 방법 지시자 0을 검증된 측정 조건으로 간주하지 않는다.",
+      "allowed_use": "실측·미상·가공 입력을 구별하는 조건표와 일관된 측정 절차 설계",
+      "held_use": "현재 25행으로 온도·장비·측정법 각각의 효과 추정",
+      "challenge": "온도 공란과 처리 값이 다르며, 일부 함량에서 장비도 전환된다. 측정 차이가 실제 원인이라는 증거는 아니다.",
+      "next_question": "같은 시편을 같은 온도·방향·전극 조건에서 측정하면 조합 간 차이가 유지되는가?",
+      "recheck_trigger": "기존 기록을 측정 조건 비교에 투입할 때 해당 열의 생성 규칙과 측정 기록을 요청한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "측정법·온도 효과는 이 25행에서 분리할 수 없다. 두께 방향 DC·두 탐침 설명은 압축 디스크에 명시되어 있고, 2 wt% 초과에서는 장비가 바뀐다. 교체 장비에도 고정 100 V가 적용됐다고 단정하지 않는다. 상세 자료의 전기 측정 온도 공란과 처리 값 23°C, DC·두 탐침 지시자 0은 구별해야 한다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S3",
+              "start_line": 112,
+              "end_line": 114,
+              "quote": "thickness of compression molded disks",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 114,
+              "end_line": 114,
+              "quote": "equipped with a two probe test ﬁxture.",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 120,
+              "end_line": 125,
+              "quote": "samples with more than 2 wt% MWCNT,",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 7,
+              "end_line": 7,
+              "quote": "\"[elecon] temp\": \"\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 47,
+              "end_line": 47,
+              "quote": "23.0 | -2.8239087409443187 | 0 | 0 | 1 | 0 | 0 | 0 | 0",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "title": "전도도 단위와 CNT 함량",
+      "conclusion": "논문 내부에서는 wt%와 S/cm 축을 기준으로 읽되, 통합 CSV의 단위·환산 정확성을 확정하지 않는다.",
+      "allowed_use": "원문 단위를 명시한 사례별 정리와 같은 함량의 잠정 비교",
+      "held_use": "여러 문헌의 절대 전도도 통합, 검증되지 않은 체적분율 환산",
+      "challenge": "CSV 두 파일의 로그값 일치는 단위나 밀도 환산이 옳다는 증거가 아니다.",
+      "next_question": "후속 비교에서 질량분율과 전도도 단위를 어떻게 일관되게 기록할 것인가?",
+      "recheck_trigger": "문헌 간 수치 통합 전에 해당 단위 정의·밀도·환산식을 확인한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "전체 CSV를 다시 읽어 대조한 결과, Abbasi 상세 행과 처리 행은 25개 ID 모두 대응하며 log10(elecon)과 처리 log10(EC)의 최대 절대 차이는 약 1.8×10⁻¹⁵이다. 1·3·5·10·15 wt%마다 다섯 제조·형상 조합이 있다. 이는 CSV 간 일치이며 원도표의 25점을 검증한 결과는 아니다.",
+          "kind": "observation",
+          "citations": [
+            {
+              "source_id": "S2",
+              "start_line": 7,
+              "end_line": 31,
+              "quote": "\"[elecon] remarks\": \"Taken from the Fig.12\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 12,
+              "end_line": 12,
+              "quote": "\"elecon\": \"0.0005\"",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 94,
+              "end_line": 94,
+              "quote": "1.7142857142857142 | -3.3010299956639813",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            }
+          ]
+        },
+        {
+          "claim": "원문 내부 비교는 wt%와 그림의 S/cm를 기준으로 유지한다. CSV가 원도의 수치를 그대로 추출했다는 전제에서 S/m로 변환하면 전도도는 100배, 로그값은 +2가 된다. 그러나 이 관계만으로 전체 처리 CSV의 단위 정의나 wt%→vol% 환산의 정확성이 확인되지는 않는다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S3",
+              "start_line": 230,
+              "end_line": 230,
+              "quote": "[S/cm]",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 243,
+              "end_line": 243,
+              "quote": "MWCNT [wt%]",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S2",
+              "start_line": 7,
+              "end_line": 7,
+              "quote": "multiwalled carbon nanotube (MWCNT);wt%;1;",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+                "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 47,
+              "end_line": 47,
+              "quote": "0.5714285714285714 | -8.397940008672037",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C05",
+      "title": "CNT 함량과 PC 원료 구성",
+      "conclusion": "함량 변화에는 마스터배치 유래 PC 비율 변화도 동반될 수 있다.",
+      "allowed_use": "CNT 증가와 PC 구성 변화의 설명을 구별할 대조 설계",
+      "held_use": "함량 추세를 CNT 증가만의 효과로 단정",
+      "challenge": "두 PC가 같다는 근거가 부족하다. 이 설명은 같은 함량 내 제조 조합 차이를 단독으로 설명하지 않는다.",
+      "next_question": "PC 공급원을 고정하거나 PC 혼합비를 별도로 바꿨을 때 같은 추세가 나타나는가?",
+      "recheck_trigger": "함량 효과를 CNT의 단독 효과로 해석하려 할 때 PC 등급·분자량·혼합비 근거를 요청한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "15 wt% 마스터배치와 순수 PC만 혼합하고 손실이 없다고 가정하면, 목표 함량 w wt%에서 마스터배치 질량분율은 w/15이다. 15 wt%에서는 PC 전부가 마스터배치 유래이며 10 wt%에서는 전체 PC 중 약 63%가 그 유래다. 따라서 저자의 '작은 비중' 설명을 전 함량에 적용할 수 없다. 같은 함량의 조합 비교는 유지하지만 함량 추세를 CNT 증가만의 효과로 해석하지 않는다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S3",
+              "start_line": 24,
+              "end_line": 24,
+              "quote": "A masterbatch of 15 wt% MWCNT in PC was purchased from",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 30,
+              "end_line": 33,
+              "quote": "The masterbatch was diluted with a polycarbonate (Calibre",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            },
+            {
+              "source_id": "S3",
+              "start_line": 35,
+              "end_line": 36,
+              "quote": "original PC of the masterbatch is only a small fraction of the",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+                "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "C06",
+      "title": "137행의 문헌 간 통합 비교",
+      "conclusion": "137행은 확보한 사례 분포와 비교 가능한 부분집합을 찾는 데 사용한다.",
+      "allowed_use": "문헌별 조건·자료 의존성·누락 정보를 정리하고 평가 대상 후보 선정",
+      "held_use": "전체 PC/CNT에 대한 일반화, 동일 ID의 임의 평균·삭제, expt를 독립 배치로 취급",
+      "challenge": "같은 ID에 복수 값이 있고, 온도 기록과 저자 그룹은 문헌 차이를 반영할 수 있다.",
+      "next_question": "새 문헌으로의 예측을 평가할 때 어떤 원자료·저자 연결을 같은 그룹으로 묶어야 하는가?",
+      "recheck_trigger": "평가 데이터 분할을 확정하기 전에 사용할 문헌의 측정 사건과 데이터 재사용 관계를 확인한다.",
+      "disposition": "limited_use",
+      "basis": [
+        {
+          "claim": "PC/CNT 전체에서는 확보 문헌별 조건과 사례 분포를 정리하고 비교 가능한 부분집합을 찾는 데 사용한다. 같은 ID의 복수 값은 독립 반복이나 중복으로 확정하지 않는다. 특정 문헌의 고온 기록과 저자 연결로 만든 expt도 각각 온도 효과나 동일 실험 조건을 입증하지 않는다. Abbasi에서 확인한 조건을 다른 문헌으로 전파하지 않는다.",
+          "kind": "interpretation",
+          "citations": [
+            {
+              "source_id": "S1",
+              "start_line": 23,
+              "end_line": 24,
+              "quote": "44100-2-1-1",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 34,
+              "end_line": 34,
+              "quote": "45836 | 75 | 1.1428571428571428 | -10.69897000433602 | 270.0",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            },
+            {
+              "source_id": "S1",
+              "start_line": 38,
+              "end_line": 38,
+              "quote": "38299 | 6 | 0.5 | -10.0 | 230.0",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+                "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286"
+              }
+            },
+            {
+              "source_id": "S5",
+              "start_line": 85,
+              "end_line": 85,
+              "quote": "for a in group: set_|=d_author2group_raw[a]",
+              "source_ref": {
+                "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+                "head_id": "09489af06dad7930dd89432f55df5be8edecf86bbb3c9f63150df55cc672ab4c",
+                "artifact_id": "m1/intake/blobs/9f56002ab2983bec9a6fe807b844afdf02bfe20dbb15ed0bb1d947fbcd95f637",
+                "sha256": "9f56002ab2983bec9a6fe807b844afdf02bfe20dbb15ed0bb1d947fbcd95f637"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "next_focus_proposal": "C01·C03·C05를 H2의 경쟁 설명 판별 사례 후보로 구체화한다. H1의 평가 대상·분할 명세는 별도로 준비한다. H2를 주가설로 선택했거나 H1–H3의 에이전트 효과를 입증한 것은 아니다.",
+  "native_registration_gap": "기존 synthesize 등록은 승인된 선정안과 collect/extract 근거 검토를 요구한다. 이번 회차 마감 선언을 그 검사의 통과로 바꾸지 않는다. 이 산출물은 근거 종합 초안이며 기존 노드 상태를 변경하지 않는다."
+}

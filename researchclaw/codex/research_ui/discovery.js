@@ -67,7 +67,7 @@ export function createDiscoveryPanel(root) {
     validateDiscovery(next);latest.textContent=next.selection?.summary??'선정·가설 초안 대기 중';
     guide.replaceChildren();
     if(next.selection?.reading_guide){
-      guide.append(element('h3','최근 대화, 쉽게 읽기'),element('p','아래는 저장된 발언을 풀어 쓴 설명입니다. 에이전트의 원래 발언은 연구 질문의 대화 탭에서 볼 수 있습니다.','muted'));
+      guide.append(element('h3','근거 검토 요약'),element('p','아래는 조정자가 정리한 검토 요약입니다. 에이전트 원발언과 출처는 해당 검토의 대화·근거에서 확인할 수 있습니다.','muted'));
       field(guide,'summary',next.selection.reading_guide);
     }
     remember(reports);remember(selection);snapshot=next;root.hidden=historical||!next.available;
