@@ -307,6 +307,8 @@ def _project(snapshot, current_head):
             entry = public.entry(collection, record)
             if entry is not None:
                 view[output].append(entry)
+    from .m1_evidence_basis import project_bases
+    view['m1_evidence_bases'] = project_bases(snapshot, public)
     from .issue_impacts import impact_records, current_impact_ids
     impacts = impact_records(snapshot)
     current_ids = current_impact_ids(snapshot, impacts)
