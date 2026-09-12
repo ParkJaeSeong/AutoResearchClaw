@@ -19,6 +19,7 @@ from .m1_evidence import assign_evidence, observe_evidence
 from .source_intake import capture_sources
 from .issue_impacts import record_impacts
 from .issue_scopes import propose_scope, apply_scope
+from .external_evidence import import_evidence, record_review, record_decision, record_question
 
 _HANDLERS = {'verification.budget.register': register_verification_budget, 'issue.scope.propose': propose_scope, 'issue.scope.apply': apply_scope, 'issue.impact.record': record_impacts, 'm1.source.capture': capture_sources, 'm1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
              'm1.handoff.accept': accept_handoff, 'm1.work.record': record_work, 'work_ledger.refresh': refresh_ledger,
@@ -29,6 +30,8 @@ _HANDLERS = {'verification.budget.register': register_verification_budget, 'issu
              'council.prepare': prepare_council, 'council.submit': register_submission,
              'm1.evidence.assign': assign_evidence, 'm1.evidence.observe': observe_evidence,
              'm1.node.register': register_node, 'm1.corpus.decide': decide_corpus, 'm1.corpus.bind': bind_corpus}
+_HANDLERS.update({'external.evidence.import': import_evidence, 'external.review.record': record_review,
+                  'external.decision.record': record_decision, 'external.question.record': record_question})
 _COUNCIL_OPERATIONS = {'council.prepare', 'council.submit'}
 
 
@@ -85,7 +88,9 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         handler_snapshot = json.loads(store._canonical(snapshot))
         if operation in ('issue.scope.propose', 'issue.scope.apply', 'issue.impact.record', 'm1.source.capture', 'm1.handoff.issue', 'm1.handoff.receiver.assign', 'm1.handoff.accept',
                          'm1.work.record', 'work_ledger.refresh', 'm1.issue.materialize', 'issue.event', 'verification.budget.register', 'verification.prepare', 'verification.result', 'm1.node.register',
-                         'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe') or operation in _COUNCIL_OPERATIONS:
+                         'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe',
+                         'external.evidence.import', 'external.review.record', 'external.decision.record',
+                         'external.question.record') or operation in _COUNCIL_OPERATIONS:
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))

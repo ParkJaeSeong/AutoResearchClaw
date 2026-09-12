@@ -157,6 +157,7 @@ def _project(snapshot, current_head):
         'heads': [dict(head_id=h, parent_head_id=r['parent'], selected=h == head) for h, r in inputs.history],
         'nodes': [], 'revisions': [], 'councils': [], 'issues': [], 'transitions': [],
         'verifications': [], 'results': [], 'source_checks': [], 'approvals': [], 'dependencies': [], 'handoffs': [],
+        'external_evidence': [], 'external_reviews': [], 'external_decisions': [], 'external_questions': [],
         'evidence': None, 'corpus': None, 'accounting': None, 'reason_codes': [], 'required_actions': []}
     # Registration order, not UUID sort order, is the actual revision/move order.
     prior_node = None
@@ -277,6 +278,35 @@ def _project(snapshot, current_head):
         if entry is not None:
             entry['usage_status'] = 'unassessed'
             view['source_captures'].append(entry)
+    from .external_evidence import evidence_records, _authored
+    evidence = evidence_records(snapshot)
+    by_previous = {store._canonical(record['previous_ref']).decode(): record for record in evidence if record['previous_ref']}
+    def duplicate_key(record):
+        qa = {key: value for key, value in record['qa'].items()
+              if key not in {'id', 'project', 'file_sha256', 'missing_fields'}}
+        return store._canonical(qa)
+    duplicate_groups = {}
+    for record in evidence:
+        duplicate_groups.setdefault(duplicate_key(record), []).append(record)
+    for record in evidence:
+        entry = public.entry('external_evidence', record)
+        if entry is not None:
+            newer = by_previous.get(store._canonical(entry['ref']).decode())
+            entry.update(latest=newer is None,
+                         newer_ref=None if newer is None else _record_ref(inputs, 'external_evidence', newer),
+                         possible_duplicate_refs=[_record_ref(inputs, 'external_evidence', other)
+                             for other in duplicate_groups[duplicate_key(record)]
+                             if other['atlas_qa_id'] != record['atlas_qa_id']])
+            view['external_evidence'].append(entry)
+    for output, collection, event_type, event_key in (
+        ('external_reviews', 'external_reviews', 'external_review_recorded', 'record_id'),
+        ('external_decisions', 'external_decisions', 'external_decision_recorded', 'record_id'),
+        ('external_questions', 'external_questions', 'external_question_recorded', 'record_id')):
+        for record in state.get(collection, {}).values():
+            _authored(inputs, collection, record, event_type)
+            entry = public.entry(collection, record)
+            if entry is not None:
+                view[output].append(entry)
     from .issue_impacts import impact_records, current_impact_ids
     impacts = impact_records(snapshot)
     current_ids = current_impact_ids(snapshot, impacts)

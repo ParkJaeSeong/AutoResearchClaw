@@ -1,4 +1,4 @@
-"""Loopback-only, read-only delivery of a single registered research graph project."""
+"""Loopback research viewer with explicit same-origin Atlas input routes."""
 from __future__ import annotations
 
 import json
@@ -11,6 +11,7 @@ from researchclaw.core.research_graph import store
 from researchclaw.core.research_graph.views import build_view, read_artifact
 
 _STATIC = {'/': ('index.html', 'text/html; charset=utf-8'),
+           '/atlas.js': ('atlas.js', 'text/javascript; charset=utf-8'),
            '/index.html': ('index.html', 'text/html; charset=utf-8'),
            '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
            '/graph.js': ('graph.js', 'text/javascript; charset=utf-8'),
@@ -113,7 +114,12 @@ def _make_server(root: Path, *, host: str, port: int, discovery_root: Path | Non
         def _read_only(self):
             self._send(405, b'Read-only viewer.')
 
-        do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_TRACE = do_HEAD = _read_only
+        def do_POST(self):
+            from .atlas_http import handle_post
+            if not handle_post(self, root):
+                self._read_only()
+
+        do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_TRACE = do_HEAD = _read_only
 
     return ThreadingHTTPServer((host, port), Handler)
 

@@ -9,6 +9,13 @@ from researchclaw.core.research_graph.councils import reviewer_packet
 def add_research_parser(subcommands):
     parser = subcommands.add_parser('research', help='Version-isolated research graph')
     actions = parser.add_subparsers(dest='research_command', required=True)
+    atlas = actions.add_parser('atlas-import', help='Preview or import a saved Atlas QA Markdown file')
+    atlas.add_argument('root', type=Path)
+    atlas.add_argument('file', type=Path)
+    atlas.add_argument('--preview', action='store_true')
+    atlas.add_argument('--expected-head')
+    atlas.add_argument('--command-id')
+    atlas.add_argument('--json', action='store_true')
     init = actions.add_parser('init')
     init.add_argument('root', type=Path)
     init.add_argument('--topic', required=True)
@@ -47,6 +54,16 @@ def add_research_parser(subcommands):
 
 
 def dispatch(args):
+    if args.research_command == 'atlas-import':
+        from .atlas_intake import read_qa, import_qa
+        from researchclaw.core.research_graph.atlas_format import parse_atlas_qa
+        data = read_qa(args.file)
+        if args.preview:
+            return parse_atlas_qa(data)
+        if not args.expected_head or not args.command_id:
+            raise ValueError('atlas_expected_head_and_command_id_required')
+        return import_qa(args.root, data=data, filename=args.file.name,
+                         expected_head=args.expected_head, command_id=args.command_id)
     if args.research_command == 'view':
         from .research_viewer import serve_view
         options = {'host': args.host, 'port': args.port}

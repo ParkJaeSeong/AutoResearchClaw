@@ -68,7 +68,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); }
 a { color: var(--accent); text-underline-offset: 3px; overflow-wrap: anywhere; }
 a:hover { color: var(--accent-hover); }
 a:active { color: var(--accent-pressed); }
-button, select, input {
+button, select, input, textarea {
   font: inherit; color: var(--heading); min-height: 40px; max-width: 100%;
   border: 1px solid var(--control); border-radius: var(--radius-control);
   background: var(--card); padding: var(--space-2) var(--space-4);
@@ -79,6 +79,7 @@ button:active { border-color: var(--accent-pressed); }
 button[aria-pressed=true], button[aria-selected=true] { background: var(--soft); border-color: var(--accent); color: var(--accent); }
 button:disabled { cursor: not-allowed; color: var(--muted); }
 :where(button,a,select,input,summary,[tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:where(textarea):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 h1,h2,h3,h4,p { margin: 0 0 var(--space-3); }
 h1,h2,h3,h4,strong { color: var(--heading); }
 h1 { font-size: 28px; font-weight: 700; line-height: 1.4; letter-spacing: -.025em; word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
@@ -180,6 +181,20 @@ summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--headi
 .discovery-field { margin: var(--space-3) 0; overflow-wrap: anywhere; }
 .discovery-field h4 { margin: 0 0 var(--space-2); }
 .discovery-latest { padding: var(--space-4); background: var(--soft); border-radius: var(--radius-control); margin: var(--space-4) 0; font-size: 16px; }
+.atlas-slot:empty { display: none; }
+.atlas-panel { width: 100%; }
+.atlas-panel header > .muted, .atlas-answer { max-width: 800px; }
+.atlas-intake, .atlas-forms { display: grid; gap: var(--space-4); }
+.atlas-intake { padding-bottom: var(--space-6); border-bottom: 1px solid var(--line); }
+.atlas-control { display: grid; gap: var(--space-2); color: var(--muted); font-size: 14px; min-width: 0; }
+.atlas-control input, .atlas-control select, .atlas-control textarea { width: 100%; }
+.atlas-control textarea { min-height: 104px; resize: vertical; }
+.atlas-preview, .atlas-record { padding: var(--space-4); margin: var(--space-3) 0; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); min-width: 0; }
+.atlas-record + .atlas-record { margin-top: var(--space-3); }
+.atlas-form[open] { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.atlas-form > summary, .atlas-form > p, .atlas-form > button { grid-column: 1 / -1; }
+.atlas-form > button { justify-self: start; }
+.atlas-panel[data-historical=true] .atlas-forms::before { content: '과거 기록을 보는 동안에는 저장할 수 없습니다.'; color: var(--warn); padding: var(--space-3); background: var(--warn-bg); border-radius: var(--radius-control); }
 @media (max-width: 1199px) {
   .workspace { grid-template-columns: minmax(0,1fr); }
   .node-map { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: var(--space-2); }
@@ -191,11 +206,12 @@ summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--headi
   .page-tools, .research-view { padding-inline: var(--space-4); }
   .research-view { padding-top: var(--space-6); gap: var(--space-4); }
   .card, .overview, .statement { padding: var(--space-4); }
-  button, select, input, summary { min-height: 44px; }
+  button, select, input, textarea, summary { min-height: 44px; }
   .toolbar { align-items: stretch; }
   .head-label { margin-left: 0; }
   .control select { width: 100%; }
   .detail-controls, .discovery-panel .detail-controls { flex-direction: column; align-items: stretch; }
+  .atlas-form[open] { grid-template-columns: minmax(0,1fr); }
   .fields, .fields .fields { grid-template-columns: minmax(0,1fr); gap: var(--space-1); }
   .fields dd { margin-bottom: var(--space-3); }
   .node-map { grid-template-columns: repeat(2,minmax(0,1fr)); }

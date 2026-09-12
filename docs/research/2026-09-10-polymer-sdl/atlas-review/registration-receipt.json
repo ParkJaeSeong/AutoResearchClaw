@@ -1,0 +1,28 @@
+{
+  "before_head": "f751c688da5a2863c08a4ed0ba1cada82d9b12e37cadd30cfb56ac8ed3720a82",
+  "after_head": "97bbb95b1d60936c3d51276a1b849bf74ca4f35439ba02605ae8a069c77d44a3",
+  "qa_sha256": "e9e400c873bc5c1efbd139b726e6bfdaa48725bae6c13c4ded1f922a1154afed",
+  "receipts": [
+    {
+      "head_id": "ac55a0ae29b5468cc0fc2f9dc5cbbd4d0229ed4885ad76f84dfa71fde6d76058",
+      "record_id": "57803280-ec38-5faf-ac83-2a57c6bc4ee0"
+    },
+    {
+      "head_id": "ddcd9c1aeeb3b041550e82da32d4e7f050edd85f678a2404b4026d813daad695",
+      "record_id": "38927424-ea11-54ae-9539-c1099c9f7385"
+    },
+    {
+      "head_id": "b0699cc420e2007154268aa60f4e05e073a92435825d9ff398a53ac2b45b97de",
+      "record_id": "6e33df46-83b8-5675-b030-6e10f057bc0d"
+    },
+    {
+      "head_id": "97bbb95b1d60936c3d51276a1b849bf74ca4f35439ba02605ae8a069c77d44a3",
+      "record_id": "9766e623-f962-50c9-bad3-9751e6855788"
+    }
+  ],
+  "original_state_preserved": true,
+  "native_submissions_added": 0,
+  "stage6_complete": false,
+  "experiment_runs": 0,
+  "atlas_question_sent": false
+}
