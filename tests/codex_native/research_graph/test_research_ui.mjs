@@ -10,11 +10,53 @@ const ref = (hash, head='h1') => ({project_id:'p',head_id:head,artifact_id:'m1/n
 const revisions = [{record:{id:'r1',node:'hypothesize',content:{hypotheses:[{hypothesis_id:'A',statement:'old'}]}},ref:ref('old'),previous_ref:null},
  {record:{id:'r2',node:'hypothesize',content:{hypotheses:[{hypothesis_id:'A',statement:'new'}]}},ref:ref('new','h2'),previous_ref:ref('old')}];
 
-test('poll selection preserves old revision and global Issue instead of jumping to current', () => {
+test('issues live in the wide record tab as initially collapsed independent details', () => {
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try {
+    const root=new Element('main'),view=publicView();
+    app.renderResearchView(root,view,{nodeId:'hypothesize',tab:'issues'});
+    const walk=n=>[n,...n.children.flatMap(walk)],nodes=walk(root);
+    const sidebar=nodes.find(n=>n.className==='sidebar');
+    assert.equal(walk(sidebar).some(n=>n.dataset.key==='issue:i1'),false);
+    const panel=nodes.find(n=>n.id==='record-panel'),row=walk(panel).find(n=>n.dataset.key==='issue:i1');
+    assert.ok(row);assert.equal(row.tagName,'DETAILS');assert.ok(!row.open);
+    assert.equal(row.children[0].tagName,'SUMMARY');
+    assert.match(row.children[0].textContent,/다음 확인/);
+    assert.match(row.textContent,/대조 확인/);
+    const body=row.children[1];
+    assert.equal(body.children[0].textContent,'해결됐다고 판단할 기준');
+    assert.equal(body.children.some(n=>n.tagName==='H2'||n.className==='badge'||n.textContent.startsWith('제기된 단계:')),false);
+    assert.equal(body.children.some(n=>n.textContent===view.issues[0].record.id),false);
+    assert.doesNotMatch(row.children[0].textContent,/이 단계에서 제기됨/);
+    assert.ok(walk(body).some(n=>n.dataset.key==='issue-record:i1'));
+    assert.ok(walk(panel).some(n=>n.dataset.key==='issue-scope:all'));
+  }finally{delete globalThis.document;}
+});
+
+test('candidate records use title-first collapsed rows and preserve raw data without active URLs', () => {
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try {
+    const candidates=[{title:'<img src=x> Paper',source_id:'s1',doi:'10.1000/abc',access_status:'full_text',source_type:'reference_record',arxiv_id:null,search_ids:['lookup-1'],url:'https://example.org/paper'},
+      {title:'Second',source_id:'s2',access_status:'future_scope',url:'javascript:alert(1)',custom_note:'Original note'}];
+    const original=JSON.stringify(candidates),root=detail.renderValue({},candidates,'candidates','revision/candidates');
+    const walk=n=>[n,...n.children.flatMap(walk)],nodes=walk(root),rows=nodes.filter(n=>n.className==='candidate-row');
+    assert.equal(rows.length,2);assert.ok(rows.every(n=>n.tagName==='DETAILS'&&!n.open));
+    assert.match(rows[0].children[0].textContent,/<img src=x> Paper/);
+    assert.match(rows[0].children[0].textContent,/原文|원문/);
+    assert.ok(nodes.some(n=>n.tagName==='INPUT'&&n.type==='search'));
+    assert.ok(nodes.some(n=>n.tagName==='A'&&n.href==='https://example.org/paper'));
+    assert.ok(!nodes.some(n=>n.tagName==='A'&&n.href?.startsWith('javascript:')));
+    assert.ok(nodes.some(n=>n.tagName==='PRE'&&n.textContent===JSON.stringify(candidates[0],null,2)));
+    assert.match(root.textContent,/future_scope/);assert.match(root.textContent,/Original note/);
+    assert.equal(JSON.stringify(candidates),original);
+  }finally{delete globalThis.document;}
+});
+
+test('poll selection preserves old revision and related Issue instead of jumping to current', () => {
   assert.equal(typeof app.resolveSelection, 'function');
-  const view={nodes:[{id:'hypothesize',current_revision_id:'r2'}], revisions, councils:[],issues:[{record:{id:'i1'}}]};
+  const view={nodes:[{id:'hypothesize',current_revision_id:'r2'}], revisions, councils:[],issues:[{record:{id:'i1',origin:{node:'hypothesize',milestone:'M1'}}}]};
   assert.deepEqual(app.resolveSelection(view,{nodeId:'hypothesize',revisionId:'r1',issueId:'i1',tab:'issues'}),
-    {nodeId:'hypothesize',revisionId:'r1',issueId:'i1',councilId:null,tab:'issues'});
+    {nodeId:'hypothesize',revisionId:'r1',issueScope:'stage',issueId:'i1',councilId:null,tab:'issues'});
 });
 
 test('comparison requires exact predecessor and same hypothesis, missing refs never use latest', () => {
@@ -74,7 +116,7 @@ test('disclosed council renders hostile text inert, never fabricates withheld me
     detail.renderCouncil(root,{artifacts:[]},{id:'c',phase:'response',authors:[],participants:[],required_roles:{},submitted_counts:{initial:3,response:1,final:0},
       isolation_level:'instructions_only',identity_provenance:'declared_only',disclosed_initials:[{submission_ref:ref('s'),submission:{id:'s',phase:'initial',producer_id:'reviewer',rationale:'<script>window.BAD=true</script>',positions:[],issue_proposals:[],evidence_refs:[],response_refs:[],observation_refs:[]}}],disclosed_responses:[],disclosed_finals:[]});
     assert.match(root.textContent,/<script>window.BAD=true<\/script>/);
-    assert.match(root.textContent,/모두 작성하면 함께 공개/); assert.match(root.textContent,/접근을 강제로 차단했는지는 확인되지/);
+    assert.match(root.textContent,/모두 작성하면 함께 공개/); assert.match(root.textContent,/실제로 접근을 차단했는지/);
     const tags=node=>[node.tagName,...node.children.flatMap(tags)];assert.ok(!tags(root).includes('SCRIPT'));
   } finally {delete globalThis.document;}
 });
@@ -108,7 +150,7 @@ function publicView() {
   return {...view,schema_version:1,workflow_version:'research-graph-v1',head_id:'h1',current_head_id:'h1',project_id:'p',content_origin:'synthetic',project:{topic:'<img src=x onerror=alert(1)> 연구'},
     nodes:[{id:'hypothesize',label:'가설',current_revision_id:'r2',status:'ready',reason_codes:[],required_actions:[]}],revisions,
     milestones:[{id:'M1',status:'active'},{id:'M2',status:'unavailable'},{id:'M3',status:'unavailable'}],
-    issues:[{record:{id:'i1',question:'다음 확인?',category:'methodology',severity:'major',blocking_scope:[],target_refs:[],resolution_condition:'대조 확인'},status:'transferred',history:[]}],
+    issues:[{record:{id:'i1',origin:{node:'hypothesize',milestone:'M1'},question:'다음 확인?',category:'methodology',severity:'major',blocking_scope:[],target_refs:[],resolution_condition:'대조 확인'},status:'transferred',history:[]}],
     evidence:{ready:false,reason_codes:['source_check_required'],required_actions:[],source_groups:{origin_group_count:1},limitations:['제공 자료만 확인']},corpus:null,accounting:null};
 }
 test('all five panels render closed public view as inert text with explicit M2/M3 and missing prerequisites', () => {
@@ -116,10 +158,11 @@ test('all five panels render closed public view as inert text with explicit M2/M
   try {for(const tab of ['revision','council','issues','evidence','handoff']){const root=new Element('main');
     app.renderResearchView(root,publicView(),{nodeId:'hypothesize',revisionId:'r2',tab});
     assert.match(root.textContent,/<img src=x onerror=alert\(1\)> 연구/);
-    assert.match(root.textContent,/M2 · 미구현/);assert.match(root.textContent,/M3 · 미구현/);
-    assert.match(root.textContent,/researchclaw-codex research apply ROOT --operation council.submit/);
-    if(tab==='council')assert.match(root.textContent,/협의 기록이 없습니다/);
-    if(tab==='issues')assert.match(root.textContent,/담당 이전 · 미해소/);
+    assert.match(root.textContent,/M2 · 실험과 해석 · 준비 전/);assert.match(root.textContent,/M3 · 연구 마무리 · 준비 전/);
+    assert.doesNotMatch(root.textContent,/researchclaw-codex research apply ROOT --operation council.submit/);
+    assert.match(root.textContent,/이전 단계 기록 보기/);
+    if(tab==='council')assert.match(root.textContent,/에이전트 검토 기록이 없습니다/);
+    if(tab==='issues')assert.match(root.textContent,/담당 변경 · 해결 전/);
     if(tab==='evidence')assert.match(root.textContent,/source_check_required/);
     if(tab==='handoff')assert.match(root.textContent,/비용이 들지 않았다는 뜻은 아닙니다/);
   }}finally{delete globalThis.document;}
@@ -139,7 +182,7 @@ if(process.env.RESEARCH_UI_VIEW) test('read-only native public snapshot renders 
         }
       }
     }
-    for(const issue of view.issues){const root=new Element('main');app.renderResearchView(root,view,{tab:'issues',issueId:issue.record.id});
+    for(const issue of view.issues){const root=new Element('main');app.renderResearchView(root,view,{tab:'issues',issueId:issue.record.id,issueScope:'all'});
       assert.ok(root.textContent.includes(issue.record.id));assert.ok(root.textContent.includes(issue.record.resolution_condition));issues++;}
     console.log(`Native DOM smoke: HEAD ${view.head_id}; ${view.revisions.length} revisions, ${rounds} disclosed statements, ${issues} Issues.`);
   }finally{delete globalThis.document;}
@@ -153,7 +196,7 @@ test('source intake shows acquired files and reading limits without claiming usa
       record:{id:'capture-1',filename:'<script>paper</script>.pdf',source_key:'doi:example',
         reading_scope:'측정 절만 읽음',limitations:['단위 확인 필요'],source_version:'v1',sha256:'hash',byte_count:10}}]});
     assert.match(root.textContent,/확보한 자료 · 1개 파일/);
-    assert.match(root.textContent,/사용 여부는 아직 판단하지 않았습니다/);
+    assert.match(root.textContent,/사용할 수 있는지는 검토 기록에서 확인하세요/);
     assert.match(root.textContent,/측정 절만 읽음/);
     assert.match(root.textContent,/단위 확인 필요/);
     assert.match(root.textContent,/<script>paper<\/script>/);
@@ -216,10 +259,80 @@ test('source analysis is visible outside stage councils and does not imply M1 co
   try{
     const root=new Element('section');const council={id:'s',node:'source_analysis',phase:'response',participants:[{id:'c',council_role:'critical',actor_id:'source-reader-critical'}],authors:[],required_roles:{domain:'d',critical:'c',methodology:'m'},submitted_counts:{initial:3,response:0,final:0},disclosed_initials:[],disclosed_responses:[],disclosed_finals:[]};
     detail.renderSourceAnalysis(root,{councils:[council],artifacts:[]});
-    assert.match(root.textContent,/원문을 함께 읽고 검토/);
+    assert.match(root.textContent,/원문 검토와 의견 교환/);
     assert.match(root.textContent,/의견 교환/);
     assert.match(root.textContent,/3\/3/);
     assert.match(root.textContent,/반증 검토자/);
     assert.doesNotMatch(root.textContent,/M1 완료|검증 완료/);
   }finally{delete globalThis.document;}
+});
+
+test('overview follows explicit decision chains instead of the order of UUID records', async()=>{
+  const {currentDecisions}=await import(base+'overview.js');
+  const old={record:{id:'old'},ref:ref('old')},next={record:{id:'new',prior_ref:ref('old')},ref:ref('new')};
+  assert.deepEqual(currentDecisions({external_decisions:[next,old]}).map(x=>x.record.id),['new']);
+  const independent={record:{id:'separate'},ref:ref('separate')};
+  assert.deepEqual(currentDecisions({external_decisions:[next,independent,old]}).map(x=>x.record.id),['new','separate']);
+});
+
+test('progress checks explain blockers while retaining original codes in details',()=>{
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try{
+    const root=new Element('section');
+    assert.equal(typeof detail.renderChecks,'function');
+    detail.renderChecks(root,['council_required','future_rule'],['Address council_required before advancing this node.']);
+    const visible=root.children.filter(n=>n.tagName!=='DETAILS').map(n=>n.textContent).join('');
+    assert.match(visible,/에이전트 검토/);assert.doesNotMatch(visible,/Address|council_required|future_rule/);
+    assert.match(root.children.find(n=>n.tagName==='DETAILS').textContent,/future_rule/);
+  }finally{delete globalThis.document;}
+});
+
+test('council phases are tabs and disclosed statements start collapsed with original text intact', () => {
+  globalThis.document={createElement:tag=>new Element(tag)};
+  try {
+    const root=new Element('section');
+    const council={id:'tabbed-c',phase:'final',participants:[],required_roles:{domain:1},submitted_counts:{initial:1,response:0,final:0},disclosed_initials:[{submission_ref:ref('one'),submission:{id:'one',rationale:'첫 문단 원문\n\n두 번째 문단 원문',positions:[],evidence_refs:[]}}],disclosed_responses:[],disclosed_finals:[]};
+    detail.renderCouncil(root,{artifacts:[]},council);
+    const all=n=>[n,...n.children.flatMap(all)],nodes=all(root);
+    const tabs=nodes.filter(n=>n.attributes.role==='tab');
+    assert.equal(tabs.length,3);assert.equal(tabs.filter(n=>n.attributes['aria-selected']==='true').length,1);
+    const panels=nodes.filter(n=>n.attributes.role==='tabpanel');
+    assert.equal(panels.length,3);assert.equal(panels.filter(n=>!n.hidden).length,1);
+    const statement=nodes.find(n=>n.dataset.key==='submission:one');
+    assert.equal(statement.tagName,'DETAILS');assert.ok(!statement.open);
+    assert.match(statement.textContent,/첫 문단 원문/);assert.match(statement.textContent,/두 번째 문단 원문/);
+    assert.match(root.textContent,/모두 작성하면 함께 공개/);
+  }finally{delete globalThis.document;}
+});
+
+test('stage issue filtering uses origin, exact target refs and effective scope without stale blocking fallback', () => {
+  const issues=[
+    {record:{id:'origin',origin:{milestone:'M1',node:'questions'},target_refs:[],blocking_scope:[]}},
+    {record:{id:'scope',target_refs:[],blocking_scope:[{kind:'node',milestone:'M1',target_id:'questions'}]},effective_blocking_scope:[{kind:'node',milestone:'M1',target_id:'review'}]},
+    {record:{id:'cleared',target_refs:[],blocking_scope:[{kind:'node',milestone:'M1',target_id:'questions'}]},effective_blocking_scope:[]},
+    {record:{id:'target',target_refs:[ref('old')],blocking_scope:[]}},
+    {record:{id:'unknown',target_refs:[],blocking_scope:[]}}
+  ];
+  const view={issues,revisions};
+  assert.equal(typeof timeline.issuesForSelection,'function');
+  assert.deepEqual(timeline.issuesForSelection(view,{nodeId:'questions'}).map(x=>x.record.id),['origin']);
+  assert.deepEqual(timeline.issuesForSelection(view,{nodeId:'review'}).map(x=>x.record.id),['scope']);
+  assert.deepEqual(timeline.issuesForSelection(view,{nodeId:'hypothesize'}).map(x=>x.record.id),['target']);
+  assert.equal(timeline.issuesForSelection(view,{nodeId:'questions',issueScope:'all'}).length,5);
+  assert.equal(timeline.issuesForSelection(view,{nodeId:'extract'}).length,0);
+  const input=JSON.stringify(view);timeline.issuesForSelection(view,{nodeId:'review'});assert.equal(JSON.stringify(view),input);
+});
+
+test('stage selection cannot retain an unrelated issue while explicit all view can', () => {
+  const view={nodes:[{id:'scope'},{id:'questions'}],revisions:[],councils:[],issues:[{record:{id:'a',origin:{node:'scope',milestone:'M1'}}},{record:{id:'b',origin:{node:'questions',milestone:'M1'}}}]};
+  assert.equal(app.resolveSelection(view,{nodeId:'questions',issueId:'a'}).issueId,'b');
+  assert.equal(app.resolveSelection(view,{nodeId:'questions',issueId:'a',issueScope:'all'}).issueId,'a');
+});
+
+test('episode-only projects do not show an empty legacy map or CLI mutation instructions',()=>{
+ globalThis.document={createElement:tag=>new Element(tag)};
+ try{const root=new Element('main'),view=publicView();view.revisions=[];view.councils=[];view.work_episodes=[];
+ app.renderResearchView(root,view,{});
+ assert.doesNotMatch(root.textContent,/M1 작업 지도|다음 작업을 CLI로 이어가기|실행 확인 시각/);
+ }finally{delete globalThis.document;}
 });

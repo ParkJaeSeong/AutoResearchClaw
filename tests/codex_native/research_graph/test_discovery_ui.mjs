@@ -51,10 +51,10 @@ test('app refresh updates discovery at the same native HEAD and pinning hides la
  for(const name of ['milestones','nodes','revisions','transitions','councils','issues','verifications','results','source_checks','approvals','dependencies','handoffs','artifacts','reason_codes','required_actions'])native[name]=[];
  globalThis.fetch=async url=>({ok:true,json:async()=>url.startsWith('/api/view')?native:value});
  try{startApp(root,toolbar,status);await new Promise(resolve=>setImmediate(resolve));
- assert.ok(root.textContent.includes('Native project'));assert.ok(body.textContent.includes('197'));assert.match(status.textContent,/Atlas 답변과 판단 저장 가능/);assert.doesNotMatch(status.textContent,/읽기 전용/);
+ assert.ok(root.textContent.includes('Native project'));assert.ok(body.textContent.includes('197'));assert.match(status.textContent,/연구 기록 연결됨/);assert.doesNotMatch(status.textContent,/읽기 전용/);
  value={...fixture(),revision:'new',candidate_records:202};
  await all(toolbar).find(n=>n.dataset.key==='refresh').events.click();assert.ok(body.textContent.includes('202'));
- const pin=all(toolbar).find(n=>n.dataset.key==='head-select');pin.value='unchanged';pin.events.change();await new Promise(resolve=>setImmediate(resolve));assert.equal(all(root).find(n=>n.className==='discovery-panel card').hidden,true);assert.match(status.textContent,/저장 기능 잠김/);
+ const pin=all(toolbar).find(n=>n.dataset.key==='head-select');pin.value='unchanged';pin.events.change();await new Promise(resolve=>setImmediate(resolve));assert.equal(all(root).find(n=>n.className==='discovery-panel card').hidden,true);assert.match(status.textContent,/저장 불가/);
  }finally{handlers.pagehide?.();delete globalThis.fetch;delete globalThis.document;delete globalThis.window;}
 });
 

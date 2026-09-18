@@ -1,0 +1,58 @@
+{
+  "native_head_before": "f751c688da5a2863c08a4ed0ba1cada82d9b12e37cadd30cfb56ac8ed3720a82",
+  "native_evidence_before": {
+    "ready": false,
+    "reason_codes": [
+      "corpus_approval_required",
+      "collect_required",
+      "extract_required",
+      "evidence_sources_required"
+    ],
+    "required_actions": [
+      "Address corpus_approval_required before evidence synthesis.",
+      "Address collect_required before evidence synthesis.",
+      "Address extract_required before evidence synthesis.",
+      "Address evidence_sources_required before evidence synthesis."
+    ],
+    "corpus_ref": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "d99bd4a98ad5ecb86fa0b0ebe1d5561237a3052fc5e62b0b51990e94d7c322d1",
+      "artifact_id": "m1/nodes/screen",
+      "sha256": "260ff4dff7e271e4bdf32138d65afc0c84de894d4fbae38aa05af8c0d3a91066"
+    },
+    "collect_ref": null,
+    "extract_ref": null,
+    "kept_source_ids": [
+      "abbasi-2010",
+      "discovery-1de4081b885401d5",
+      "discovery-35262a4a776160c1",
+      "discovery-355d23ed146a045d",
+      "discovery-3626d245d4ad6f1f",
+      "discovery-47313ac38c2e6835",
+      "discovery-574e24ac32dae7be",
+      "discovery-5eea74ae2830f183",
+      "discovery-64f6e179260725fb",
+      "discovery-792f18c4871f998e",
+      "discovery-8feeb21a884830da",
+      "discovery-94d1ee36a2c8e59b",
+      "discovery-9dfc3cace99905f1",
+      "discovery-b0913116fa9e0ccf",
+      "discovery-b5a39e94d7c9eae3",
+      "discovery-b8912b736310a334",
+      "discovery-bfd8b1a9b03bab7a",
+      "discovery-cdccf81944ba6013",
+      "discovery-dab608d88096014a",
+      "discovery-e2e73e719bd7b19f",
+      "discovery-e7446eb598342a1e",
+      "discovery-ef110abd3eac805e",
+      "discovery-f3e29df232142267",
+      "discovery-f5dbe3c423b47058"
+    ],
+    "collected_source_refs": {},
+    "extraction_refs": {},
+    "source_groups": null,
+    "limitations": []
+  },
+  "native_head_after": "f751c688da5a2863c08a4ed0ba1cada82d9b12e37cadd30cfb56ac8ed3720a82",
+  "native_state_changed": false
+}

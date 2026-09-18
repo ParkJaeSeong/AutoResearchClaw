@@ -77,7 +77,7 @@ export function selectDecision(view, id) {
 
 ## Task 03: 실제 독립 에이전트 연결 확인
 
-**Files:** Create `docs/superpowers/plans/2026-09-08-m1-host-verification.md`, `skills/researchclaw/references/m1-host-contract.md`. 실제 발언 원문은 task-owned acceptance project에 보존하며 fixture와 분리한다.
+**Files:** Create `docs/superpowers/plans/2026-09-08-m1-host-verification.md`, `skills/researchpilot/references/m1-host-contract.md`. 실제 발언 원문은 task-owned acceptance project에 보존하며 fixture와 분리한다.
 
 **Interfaces:** Consumes 현재 호스트 배정·메시지·결과 도구. Produces `Assignment.provenance_status`의 `host_observed`, `declared_only`, `unavailable` 의미와 호스트 테스트 기록. 과학적 독립성 인증이라고 부르지 않는다.
 

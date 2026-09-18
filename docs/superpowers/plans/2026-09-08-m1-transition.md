@@ -174,7 +174,7 @@ flowchart LR
 | `researchclaw/codex/m1_ui/` | graph.js, detail.js, app.js, index.html, styles.css |
 | `tests/codex_native/m1/` | 신규 단위·통합·호환성 검사 |
 | `tests/ui/m1/` | UI 행위·경로·입력 출력 검사 |
-| `skills/researchclaw/references/m1-*.md` | M1 실행·역할·협의·복귀 안내 |
+| `skills/researchpilot/references/m1-*.md` | M1 실행·역할·협의·복귀 안내 |
 
 기존 `core/models.py`, `core/contracts.py`, `core/approval.py`의 전역 의미는 바꾸지 않는다. 기존 `hypotheses.py`의 규칙 변경으로 과거 연구를 재판정하지 않는다. 기존 `deliberation.py`는 참고하되 Stage-13 전용 결정 enum을 신규 M1에 강제로 재사용하지 않는다.
 

@@ -1,0 +1,5 @@
+﻿schema_version,data_origin,plan_id,task_id,operation,equipment_id,input_batch_id,output_batch_id,specimen_id,status,operator_id,notes
+1,synthetic,DEMO-PLAN-01,DEMO-T01,extrusion,VIRTUAL-EXTRUDER,DEMO-MIX-01,DEMO-COMPOUND-01,,completed,DEMO-OPERATOR,가상 완료 기록; 실제 운전 아님
+1,synthetic,DEMO-PLAN-01,DEMO-T02,injection_molding,VIRTUAL-INJECTION,DEMO-COMPOUND-01,DEMO-MOLDED-01,,completed,DEMO-OPERATOR,가상 완료 기록; 실제 운전 아님
+1,synthetic,DEMO-PLAN-01,DEMO-T03,electrical_test,VIRTUAL-CONDUCTIVITY,DEMO-MOLDED-01,,DEMO-EC-01,completed,DEMO-OPERATOR,가상 시험 결과 전달 예시
+1,synthetic,DEMO-PLAN-01,DEMO-T04,mechanical_test,VIRTUAL-UTM,DEMO-MOLDED-01,,DEMO-MECH-01,completed,DEMO-OPERATOR,시험 종류·규격은 추후 확정

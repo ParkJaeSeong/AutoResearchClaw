@@ -1,0 +1,7 @@
+interface:
+  display_name: "Pilot"
+  short_description: "근거·가설·실험 계획을 기록하며 Pilot 연구를 시작하거나 재개합니다"
+  default_prompt: "Use $researchpilot to inspect the project and start or resume Pilot research toward an evidence-based experiment plan."
+
+policy:
+  allow_implicit_invocation: false

@@ -1,7 +1,7 @@
 # AutoResearchClaw Codex — Agent Guide
 
 This is the primary agent guide for the Codex-native derivative. Activate the
-workflow only after an explicit `$researchclaw` invocation or a request that
+workflow only after an explicit `$researchpilot` invocation or a request that
 names ResearchClaw. A general research request is not activation.
 
 ## Role and boundary
@@ -40,13 +40,13 @@ result-registration boundary; it is not an execution capability.
 4. Run `researchclaw-codex stage validate ROOT --json`. Use the returned issues, attempt number, retry state, and recommended action if revision is needed.
 5. At stage 5, show the validated shortlist and ask the user to approve or reject. Never decide for the user.
 6. Record the decision with `researchclaw-codex approve ROOT --decision approve|reject --note TEXT --json`, then run `resume`.
-7. When stage 6 is current, follow [the knowledge-extraction reference](skills/researchclaw/references/knowledge-extraction.md), write only the packet's two declared outputs, and validate them.
-8. At stage 7, read [the synthesis reference](skills/researchclaw/references/synthesis.md), write only `knowledge/synthesis.md`, and validate it.
-9. At stage 8, read [the hypothesis-generation reference](skills/researchclaw/references/hypothesis-generation.md), write only `hypotheses/candidates.jsonl`, and validate it.
-10. At stage 9, read [the validation-design reference](skills/researchclaw/references/validation-design.md), write only `experiment/design.json`, and validate it.
+7. When stage 6 is current, follow [the knowledge-extraction reference](skills/researchpilot/references/knowledge-extraction.md), write only the packet's two declared outputs, and validate them.
+8. At stage 7, read [the synthesis reference](skills/researchpilot/references/synthesis.md), write only `knowledge/synthesis.md`, and validate it.
+9. At stage 8, read [the hypothesis-generation reference](skills/researchpilot/references/hypothesis-generation.md), write only `hypotheses/candidates.jsonl`, and validate it.
+10. At stage 9, read [the validation-design reference](skills/researchpilot/references/validation-design.md), write only `experiment/design.json`, and validate it.
 11. Present the valid design and request an explicit approval or rejection. Record only the user's decision, then run `resume`.
-12. For an approved computational design at stage 10, follow [the computational-package reference](skills/researchclaw/references/computational-package.md), author only the six declared outputs, and run static validation. Policy-evidence and laboratory Stage 10 packages are unsupported.
-13. After valid Stage 10 output, run `resume`, prepare Stage 11, read [the resource-planning reference](skills/researchclaw/references/resource-planning.md), and author only `experiment/resources.json` from the packet inputs and `hardware_observation`.
+12. For an approved computational design at stage 10, follow [the computational-package reference](skills/researchpilot/references/computational-package.md), author only the six declared outputs, and run static validation. Policy-evidence and laboratory Stage 10 packages are unsupported.
+13. After valid Stage 10 output, run `resume`, prepare Stage 11, read [the resource-planning reference](skills/researchpilot/references/resource-planning.md), and author only `experiment/resources.json` from the packet inputs and `hardware_observation`.
 14. Validate Stage 11. For `needs_input`, ask the user to satisfy the listed prerequisites, then run `researchclaw-codex execution recheck ROOT --json`; for `ready_for_execution`, present the plan but wait to request approval until the known-answer self-test in step 15 is registered. A rejection requires an explicit later re-decision.
 15. Before Stage-12 approval, run `researchclaw-codex experiment prepare-self-test ROOT --json`. Have the user run only its returned authoritative `argv`, whose first item is the verified absolute interpreter, then use its `registration_argv` (the exact `experiment register-self-test` command) to register the report. No undocumented interpreter lookup or quoted display string is authoritative. Present the registered report and ready plan; never decide approval for the user.
 16. After explicit approval and only on the user's request, run `researchclaw-codex execution prepare-run ROOT --json`. Its JSON `argv` begins with the verified absolute interpreter. It writes the handoff but does not execute it; the user runs that exact authoritative argv in the project root without changing `PATH`.
@@ -67,9 +67,9 @@ absolute, traversing, symlinked, or undeclared artifact path.
 
 ## References
 
-The installed skill instructions are in [skills/researchclaw/SKILL.md](skills/researchclaw/SKILL.md),
+The installed skill instructions are in [skills/researchpilot/SKILL.md](skills/researchpilot/SKILL.md),
 with stage, approval, and evaluation details under
-[skills/researchclaw/references/](skills/researchclaw/references/).
+[skills/researchpilot/references/](skills/researchpilot/references/).
 
 The inherited upstream agent configuration is preserved at
 [LEGACY_UPSTREAM_AGENT_GUIDE.md](archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md). It describes

@@ -1,0 +1,151 @@
+{
+  "kind": "m1_poc_bundle",
+  "scope": "virtual_design_and_csv_validation",
+  "research_head": "6618da7521cf2b44424cd55a8315bc35212b98bf1f9fff9a07960b56dfbc115b",
+  "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+  "base_directory": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph",
+  "research_issues": {
+    "open": 25,
+    "resolved": 4
+  },
+  "real_experiments": 0,
+  "experiment_authorization": false,
+  "artifacts": [
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/m1-poc-result.md",
+      "sha256": "f1d142b3f46fa14e13672f5b2e3f4eb7232140b01812cc83fe50fb5affc748b0"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/m1-poc-issues.md",
+      "sha256": "bb9162002e622052f902ef08c2ba9a7b1b8e9e90f7258a0ecbd7c59987434110"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/atlas-review/atlas-qa.md",
+      "sha256": "e9e400c873bc5c1efbd139b726e6bfdaa48725bae6c13c4ded1f922a1154afed"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/atlas-review/synthesis-hypotheses.md",
+      "sha256": "97ee9ff476683b7905642d06d43a9c48aa0ae735d676ce06e9e16ad8db151ef5"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/manufacturing-contrast.md",
+      "sha256": "20e569aaddc04ac184c300382edf767f3971e73874bdfdf05f24d0fb4030d735"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/analysis-plan.md",
+      "sha256": "613f6ededbd7d632d6f36489f2aa4cdff3f1228c8bdce9ab4993ae94b0d96394"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/measurement-method.md",
+      "sha256": "e6fcbb997f1f3a418d01365ec91dabf5aa1f23af263427c91df1d40fb55a9858"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/electrode-layout-v2.md",
+      "sha256": "56e0d42f58e1a7accdb71f53dddde982ea8f98de877372b9a07feadae127e424"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/measurement-csv-binding-v2.md",
+      "sha256": "3e6496cf352e9ce587b469f21a503bedb4c4756a8d7e6d86a5d132fc4ab4818d"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/measurement-review-20260914.md",
+      "sha256": "d7dfff2e7e99411ec256c55881544eaf268c5c363f25663b26d94ee1a8545d90"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/d4-start-inputs-20260915.md",
+      "sha256": "01383679cb5f0674206bc1267a035885dafde8f96aaf463760589a74ab7f09a4"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/experiment-design/d4-start-inputs-20260915.csv",
+      "sha256": "da4dbcd1a092c43340f3ced2ec2945ce7096238115cacfefdc19ab86523582a6"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/README.md",
+      "sha256": "42436f2a916ca58733122a3c8593ca33de35ff920c4fd35c727c3241159c483d"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/conditions.csv",
+      "sha256": "d6147c49909bfbce4ab8b777304b779d423563874d1ae75561dd5ccff67a7975"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/raw/demo-0.csv",
+      "sha256": "e502903362429083d772f9ed94ec94d969e0c8713818d06703ae5585ca0a246a"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/raw/demo-1.csv",
+      "sha256": "e502903362429083d772f9ed94ec94d969e0c8713818d06703ae5585ca0a246a"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/results.csv",
+      "sha256": "18d671c49b06bd855f62e7b5c413fa5d6004cd1907cf61751e424479e1392a9c"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/specimens.csv",
+      "sha256": "062fbb6771073bd075f31978dc6b6f2a818d5f8588b5144579f172c7b3f98d02"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/examples/tasks.csv",
+      "sha256": "f24bf802b2950fbaae698974eb32f14b86747407c400d3f7904ebb564c03dfe4"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/templates/conditions.csv",
+      "sha256": "f966f21cf23b5ad5e144d31437131461131dcd2db0e4c0cbb8a35857fb4ebd95"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/templates/results.csv",
+      "sha256": "838e9e3750275f1b1120aa5d1e3a579c743fb001eb69bf36aa44ff6a5ebd9790"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/templates/specimens.csv",
+      "sha256": "3d552c73024638e312cf4f0a0b59a6c6d7bb5d25490e59ae638525070bdf209e"
+    },
+    {
+      "path": "docs/research/2026-09-10-polymer-sdl/virtual-lab/v2/templates/tasks.csv",
+      "sha256": "9da94b1defc96e8d35dcb5bf08997f4ad6f9d601f2c1ac4d764fd4573c192c83"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/domain-initial.md",
+      "sha256": "e3e69382c9df2deab7386e460f4d7716571f54b9d8a1d13805042bd914bbe1d9"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/execution-initial.md",
+      "sha256": "13a54d68fc9b5f89ee99972759917042ec70058d8bf464846542a07d0bb6b69f"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/method-initial.md",
+      "sha256": "dc97a4277ebe547133f8b763469484c14df6cfd1435cf52b041f6759d8e355a8"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/domain-response.md",
+      "sha256": "4758e7a8d39bfea082875497de534d8e28a41f0c6780f33a6be81e447d6c6d94"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/execution-response.md",
+      "sha256": "0572d406a898de3304a17391d23b2382d95a724ba6a000afd8d3028a7cd1db4f"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/method-response.md",
+      "sha256": "87dd7d8021b7140e60ee4245a73917ca409a893a17d5d7a2da506f5949dbfecf"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/domain-final.md",
+      "sha256": "71cab33982fb1abef205773a2f923b886b9c9144a6e29b8a582123fc456b569e"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/execution-final.md",
+      "sha256": "600326f7525c1a12e1630fc2e4b248901a03ccb873360a62c5b43628c0917b39"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/method-final.md",
+      "sha256": "054ed72569dd5c1bd34896191108bee3d6ce6de07bba37b139124dc609ead5a6"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/measurement-review-20260914/proposal-for-final.md",
+      "sha256": "4a1b4657a71b003d3fe1ff5e4cfa446a22aa417b0f5b3161e7f9081a218c3edc"
+    },
+    {
+      "path": ".superpowers/research/2026-09-10-polymer-sdl/m1-poc-close-20260915/csv-validation.json",
+      "sha256": "0408a5e11e587cfbeb215ed6f9802dc2bd9c1f17715818943188e472b21001be"
+    }
+  ]
+}

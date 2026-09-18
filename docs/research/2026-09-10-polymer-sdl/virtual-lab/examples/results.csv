@@ -1,0 +1,3 @@
+﻿schema_version,data_origin,measurement_id,task_id,specimen_id,attempt_id,metric,value,unit,quality_status,method_id,direction,contact_cycle_id,raw_file,supersedes_measurement_id,notes
+1,synthetic,DEMO-R01,DEMO-T03,DEMO-EC-01,DEMO-A01,electrical_conductivity,0.00001,S/cm,unverified,DEMO-METHOD-EC,D0,DEMO-CONTACT-01,,,형식 확인용 임의값; 연구 분석 제외
+1,synthetic,DEMO-R02,DEMO-T04,DEMO-MECH-01,DEMO-A02,tensile_strength,40,MPa,unverified,DEMO-METHOD-UTM,,,,,형식 확인용 임의값; 인장시험 채택·실측을 의미하지 않음

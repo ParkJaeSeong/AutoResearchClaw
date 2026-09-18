@@ -1,78 +1,246 @@
 {
-  "checked_at": "2026-09-12T10:27:59.698402+00:00",
-  "head_id": "27286961a2280f644310385cbb59241692d25aab9130bfe6f4a6f6c3fc0cae62",
+  "head_id": "f3b75ea8fe5d6d673fe7c6c31a83a547f55dcb76cd3c5908f607ad99f581655e",
   "registered_nodes": [
-    "questions",
     "scope",
+    "questions",
+    "search",
     "screen",
-    "search"
-  ],
-  "missing_nodes": [
-    "collect",
-    "extract",
     "synthesize",
-    "hypothesize",
-    "review"
+    "hypothesize"
   ],
-  "stale_input_refs": [
-    {
-      "node": "screen",
-      "input": "questions",
-      "reason": "issue_reference_stale",
-      "reference": {
-        "artifact_id": "m1/nodes/questions",
-        "head_id": "8b4bedc2fb844ec437e192ecbfb8fa54ef5243ffc4817155566ab166de929044",
-        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
-        "sha256": "fec929f647f9594bf1e243c4a91e81e60caad112c3de7568779d51099272927e"
+  "stale_question_refs": true,
+  "search_ready": false,
+  "screen_ready": false,
+  "screen_reasons": [
+    "issue_reference_stale"
+  ],
+  "evidence_ready": false,
+  "evidence_reasons": [
+    "issue_reference_stale"
+  ],
+  "new_native_submissions": 18,
+  "native_submission_total": 144,
+  "issue_total": 29,
+  "existing_issues_resolved": false,
+  "stage6_complete": true,
+  "experiment_runs": 0,
+  "new_web_searches": 0,
+  "counts": {
+    "total": 198,
+    "included": 24,
+    "deferred": 174
+  },
+  "corrected_selection_sha256": "8c9e23cdd5df1a3dbe22fdeee27e3be614039c4f798ff3b01591f66e023e77eb",
+  "original_discovery_preserved": true,
+  "browser_visual_check": "passed: actual synthesis/hypothesis drafts and 18 council statements",
+  "served_summary_verified": true,
+  "corpus_approved": false,
+  "latest_receipt": "experiment-design/README.md",
+  "resolved_selection_issue_ids": [
+    "40ec0ace-7f64-4e36-aff2-b5c5ee9b5d1e",
+    "acb199ea-51ba-4d0c-8d45-06d17c24b42f",
+    "ceea67c3-1052-4d34-8376-673550a41b0d",
+    "dba7d9bc-4dae-4abc-aea2-47b86cfa9779"
+  ],
+  "remaining_original_issues": 22,
+  "atlas_review": {
+    "decision": "atlas-review/decision.md",
+    "dialogue": "atlas-review/README.md",
+    "design": "atlas-review/minimal-design.md",
+    "actual_agent_responses": 9,
+    "native_submissions_added": 0,
+    "qa_id": "qa-abbasi-process-direction-20260912-001",
+    "native_registered": true,
+    "ui_updated": true,
+    "next_action": "D4 실제 준비 입력 확정, 최종 쟁점 검토와 외부 인계 정책 구현",
+    "collection_owner": "ResearchAtlas",
+    "registration": "atlas-review/registration.md",
+    "external_evidence_count": 1,
+    "external_review_count": 1,
+    "external_decision_count": 1,
+    "external_question_count": 1,
+    "question_sent": false,
+    "browser_visual_check": "passed: actual project desktop light/dark, synthetic workflow 1440/768/390 light/dark"
+  },
+  "atlas_case_application": {
+    "head_id": "685e0418021a0d40f56394a001cb8b184d154776c43566ce9a99e56b1d1e6623",
+    "question_count": 4,
+    "old_questions_preserved": true,
+    "issue_total": 26,
+    "old_issues_preserved": true,
+    "native_submission_total": 126,
+    "new_native_submissions": 18,
+    "question_review_submissions": 9,
+    "scope_review_submissions": 9,
+    "question_ready": true,
+    "scope_revalidated_issues": 8,
+    "review_and_handoff_holds_preserved": true,
+    "independent_initials_verified": true,
+    "all_three_rounds_disclosed": true,
+    "external_evidence_count": 1,
+    "evidence_basis_count": 1,
+    "basis_current": true,
+    "claim_count": 3,
+    "nodes": {
+      "scope": {
+        "status": "ready",
+        "reason_codes": []
+      },
+      "questions": {
+        "status": "ready",
+        "reason_codes": []
+      },
+      "search": {
+        "status": "stale",
+        "reason_codes": [
+          "issue_reference_stale"
+        ]
+      },
+      "screen": {
+        "status": "stale",
+        "reason_codes": [
+          "issue_reference_stale"
+        ]
+      },
+      "collect": {
+        "status": "not_started",
+        "reason_codes": [
+          "node_missing"
+        ]
+      },
+      "extract": {
+        "status": "not_started",
+        "reason_codes": [
+          "node_missing"
+        ]
+      },
+      "synthesize": {
+        "status": "not_started",
+        "reason_codes": [
+          "node_missing"
+        ]
+      },
+      "hypothesize": {
+        "status": "not_started",
+        "reason_codes": [
+          "node_missing"
+        ]
+      },
+      "review": {
+        "status": "not_started",
+        "reason_codes": [
+          "node_missing"
+        ]
       }
     },
-    {
-      "node": "search",
-      "input": "questions",
-      "reason": "issue_reference_stale",
-      "reference": {
-        "artifact_id": "m1/nodes/questions",
-        "head_id": "8b4bedc2fb844ec437e192ecbfb8fa54ef5243ffc4817155566ab166de929044",
-        "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
-        "sha256": "fec929f647f9594bf1e243c4a91e81e60caad112c3de7568779d51099272927e"
+    "handoffs": 0,
+    "served_head_matches": true,
+    "browser_visual_check": "passed",
+    "report": "atlas-review/case-application.md",
+    "external_synthesis_registered": false,
+    "next_action": "현재 질문과 근거 묶음으로 근거 종합 초안 작성·협의"
+  },
+  "atlas_reasoning": {
+    "head_id": "f3b75ea8fe5d6d673fe7c6c31a83a547f55dcb76cd3c5908f607ad99f581655e",
+    "nodes": {
+      "synthesize": {
+        "status": "ready",
+        "recommendations": [
+          "ready_with_limits",
+          "ready_with_limits",
+          "ready_with_limits"
+        ],
+        "submissions": 9,
+        "material_objects": 8
+      },
+      "hypothesize": {
+        "status": "ready",
+        "recommendations": [
+          "ready_with_limits",
+          "ready_with_limits",
+          "ready_with_limits"
+        ],
+        "submissions": 9,
+        "material_objects": 9
       }
-    }
-  ],
-  "evidence_check": {
-    "ready": false,
-    "error": "issue_reference_stale",
-    "note": "조회가 여기서 중단되어 후속 모든 게이트 원인을 평가한 것은 아님"
-  },
-  "native_mutations": 0,
-  "new_agent_reviews": 0,
-  "experiment_runs": 0,
-  "stage6_complete": false,
-  "input_decision_sha256": "78fbdb155ef02eb1785b4cf9c5797ab0caccb4ec72f13443a5fbf551fa109fb8",
-  "execution_spec_sha256": "26ebb9e1e89a3464c69752624683b428f57f3852619214d7eacbfebb9091b316",
-  "verification": {
-    "local_links_valid": true,
-    "prior_review_artifacts_preserved": true,
-    "six_condition_rows_present": true,
-    "head_unchanged": true,
-    "served_summary_matches": true,
-    "m1_complete": false,
-    "browser_visual_check": "not_performed",
-    "software_tests": "not_run_document_and_case_summary_change_only"
-  },
-  "ui_selection": {
-    "before_sha256": "fba3ec4b83e2cd566f58c33560b8406cd35ea5d9979efeeed49f621edeaf1b6f",
-    "after_sha256": "e5708e0d0edca2f3f2a7b11a655b00794c9f102459a2326de05e530951370de0",
-    "summary": "6단계의 근거 종합과 가설 교차 검토를 마치고 제조·측정 실행 명세를 작성했습니다. 정식 완료를 위해 이전 질문을 참조하는 검색·선정 기록과 수집·추출 결과를 연결해야 합니다. 장비·반복 수 확인은 후속 실험 준비에서 진행합니다.",
-    "reading_guide": [
-      "이번 요약은 소재·평가 방법·실행 담당의 실제 3회차 검토를 Pilot 조정자가 정리한 것입니다. 이번 대화 원문은 프로젝트의 hypothesis-review 문서에 있으며 기존 대화 탭에는 아직 등록하지 않았습니다.",
-      "제조와 구조: 제조의 전도도 효과와 구조 지표의 변화를 따로 판단합니다. 첫 구조 관측은 편광 Raman의 방향별 신호를 후보로 검토하되, 실제 감도와 관측 범위를 확인해야 합니다.",
-      "접촉과 방향: 접촉 절차를 바꾸었을 때 제조 간 차이가 얼마나 달라지는지 봅니다. 방향별 차이는 소재의 실제 특성일 수 있어 접촉 오류와 구분합니다.",
-      "PC 원료 구성: 기존 마스터배치와 희석 수지만으로는 CNT 함량과 PC 구성을 따로 바꿀 수 없습니다. 추가 원료와 배합 가능 범위를 확인할 때까지 이 대조의 실행을 보류합니다.",
-      "결과 해석: 차이를 못 봤다고 바로 반증하지 않습니다. 측정이 충분히 정밀했는지 확인하며, 예상과 다르다고 주 지표를 사후에 바꾸어 성공으로 처리하지 않습니다.",
-      "에이전트 성능: 물리 현상을 구별하는 일과 실험 선택법이 더 효율적인지 평가하는 일은 별도입니다. 같은 예산에서의 판정 도달률과 오류율을 우선안으로 검토합니다.",
-      "실행 명세: 제조·접촉 비교 네 조합과 보조 방향 비교 두 조합을 정리했습니다. 조건 조합 수이며 시편 수나 반복 횟수는 아닙니다. 실제 장비 설정과 반복 수는 미정입니다.",
-      "다음 작업: 기존 검색·선정 결과를 최신 질문에 맞게 연결하는 등록 수정안입니다. 6단계 정식 완료와 실제 실험 착수 준비를 따로 확인합니다."
+    },
+    "findings": 4,
+    "hypotheses": 2,
+    "new_native_submissions": 18,
+    "native_submission_total": 144,
+    "new_issues": [
+      {
+        "id": "17216c5d-98e5-4079-81d2-94324596e4e3",
+        "question": "F-CAUSE에 QA가 전달한 동반 관측과 저자의 기전 해석, 열화에 관한 제한적 반론을 각각 연결할 수 있는가?",
+        "severity": "optional"
+      },
+      {
+        "id": "78b9e114-6fc7-4fd0-81eb-3b7e59fbff54",
+        "question": "F-CAUSE에 Atlas가 전한 관측과 저자 해석을 분리해 연결하여, 배향 후보를 보존하는 근거와 단독 원인을 확정하지 못하는 이유를 함께 추적할 수 있는가?",
+        "severity": "optional"
+      },
+      {
+        "id": "95aed947-db68-460b-bc9d-472bbda2a5fa",
+        "question": "F-CAUSE에 연결된 근거의 출발점인 5 wt% 관측과 저자의 연결망 해석이 종합에서 생략되어, 해석을 제한하는 이유가 충분히 드러나지 않는가?",
+        "severity": "optional"
+      }
     ],
-    "discovery_revision": "58ce761251782250a3c890ca323bf6c7f06afbdb1c0c1e481773e1f1ff6504f7"
+    "issue_total": 29,
+    "old_issues_unchanged": true,
+    "questions_unchanged": true,
+    "basis_count": 1,
+    "claim_count": 3,
+    "actual_experiments": 0,
+    "served_head_matches": true,
+    "m1_complete": false,
+    "followup_task_groups": 1,
+    "preserved_optional_comments": 3,
+    "browser_verified": true,
+    "report": "atlas-review/synthesis-hypotheses.md",
+    "next_action": "제조 두 조건과 기대 관측 구체화; 관측·저자 설명의 근거 연결 보완"
+  },
+  "stage6_completion_scope": "현재 PC/CNT 제조 조건 비교 사례의 근거 종합과 자료 사용 판단. 기존 세 연구 질문 전체의 근거 충족이나 M1 전체 완료를 뜻하지 않는다.",
+  "stage6_completion_basis": {
+    "head_id": "f3b75ea8fe5d6d673fe7c6c31a83a547f55dcb76cd3c5908f607ad99f581655e",
+    "synthesize_revision_id": "6870bf33-80f3-443e-b5fd-ec09feab9492",
+    "council_id": "153d8d0d-c090-4bcd-bbae-3c5a5f6a263c",
+    "reason": "현재 외부 근거와 제한적 사용 판단을 연결한 종합의 실제 협의가 완료돼 ready다. 선택적 보완과 후속 실험 준비는 단계 완료를 막지 않는다."
+  },
+  "design_preparation": {
+    "head_id": "8d4e64f7ee9a5e0b251f3127735a8239338f624da877094a28c7f1f021869d23",
+    "D1": "complete",
+    "D2": "virtual_method_structure_complete",
+    "D3": "csv_contract_and_validator_verified",
+    "D4": "incomplete",
+    "m1_complete": false,
+    "review_draft_registered": true,
+    "review_ready": false,
+    "native_submission_total": 144,
+    "issue_total": 29,
+    "preparation_count": 1,
+    "missing_items": [
+      "design_analysis",
+      "data_lineage",
+      "material",
+      "manufacturing",
+      "measurement",
+      "repetition",
+      "resources_permissions"
+    ],
+    "external_handoff_supported": true,
+    "work_records": 20,
+    "accounting_reasons": [
+      "returns_exhausted"
+    ],
+    "returns_used": 7,
+    "max_returns": 3,
+    "experiment_runs": 0,
+    "dialogue": "experiment-design/README.md",
+    "remaining": "experiment-design/start-readiness.md",
+    "preparation_evidence_count": 0,
+    "preparation_verification_count": 0,
+    "handoff_count": 0,
+    "b5b_implementation": "verified",
+    "b5b_ui_verified_head": "8d4e64f7ee9a5e0b251f3127735a8239338f624da877094a28c7f1f021869d23"
   }
 }

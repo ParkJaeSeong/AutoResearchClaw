@@ -2,8 +2,8 @@
 
 완료일: 2026-09-08 (Asia/Seoul)
 
-- 설계: [단계별 에이전트 역할 보완](../specs/2026-09-07-stage-agent-roles-design.md)
-- 계획: [A 구현 계획](2026-09-07-stage-agent-roles.md)
+- 설계: [단계별 에이전트 역할 보완](../../../archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-07-stage-agent-roles-design.md)
+- 계획: [A 구현 계획](../../../archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-09-07-stage-agent-roles.md)
 - 브랜치: `codex/stage-agent-roles`
 - 기준: `1264553`
 - 검증한 제품 코드: `476172a89e1feae3df091805881a3f184409c95d`

@@ -246,8 +246,8 @@ M1 인계 확정과 기존 문헌 승인, M2 연구 방향 합의와 사용자 �
 
 ## 참고
 
-- [현재 개발 현황](../../CODEX_DEVELOPMENT_STATUS_KO.md)
-- [기존 단계별 역할 설계](2026-09-07-stage-agent-roles-design.md)
+- [현재 개발 현황](../../../archive/legacy/2026-09-19-project-cleanup/docs/CODEX_DEVELOPMENT_STATUS_KO.md)
+- [기존 단계별 역할 설계](../../../archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-07-stage-agent-roles-design.md)
 - [원본 단계 정의](https://github.com/aiming-lab/AutoResearchClaw/blob/main/researchclaw/pipeline/stages.py)
 - [원본 토론 설계](https://github.com/aiming-lab/AutoResearchClaw/blob/main/docs/debate_engine.md)
 - [원본 실행 흐름](https://github.com/aiming-lab/AutoResearchClaw/blob/main/researchclaw/pipeline/runner.py)

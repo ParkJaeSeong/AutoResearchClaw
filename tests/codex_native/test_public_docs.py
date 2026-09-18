@@ -8,15 +8,15 @@ from researchclaw.core.contracts import SUPPORTED_STAGE_MAX
 
 
 ROOT = Path(__file__).parents[2]
-SKILL_ROOT = ROOT / "skills" / "researchclaw"
+SKILL_ROOT = ROOT / "skills" / "researchpilot"
 SUPPORTED_BOUNDARY = re.compile(
     r"Codex-native supported execution boundary:\s*stages?\s*1\s*[\N{EN DASH}-]\s*(\d+)",
     re.IGNORECASE,
 )
-PUBLIC_BOUNDARY_FILES = (ROOT / "README.md", ROOT / "RESEARCHCLAW_AGENTS.md")
+PUBLIC_BOUNDARY_FILES = (ROOT / "docs" / "legacy-cli.md", ROOT / "RESEARCHCLAW_AGENTS.md")
 STAGE_TWELVE_PUBLIC_FILES = (
     *PUBLIC_BOUNDARY_FILES,
-    SKILL_ROOT / "SKILL.md",
+    SKILL_ROOT / "references" / "legacy-workflow.md",
     SKILL_ROOT / "references" / "computational-package.md",
     SKILL_ROOT / "references" / "resource-planning.md",
     SKILL_ROOT / "references" / "approval-policy.md",
@@ -244,14 +244,14 @@ def test_resource_planning_reference_contains_safety_literals():
 
 
 def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():
-    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    skill = (SKILL_ROOT / "references" / "legacy-workflow.md").read_text(encoding="utf-8")
     reference = (SKILL_ROOT / "references" / "computational-package.md").read_text(
         encoding="utf-8"
     )
     stages = STAGES_REFERENCE.read_text(encoding="utf-8")
 
-    assert "[references/computational-package.md](references/computational-package.md)" in skill
-    assert "[references/resource-planning.md](references/resource-planning.md)" in skill
+    assert "[references/computational-package.md](computational-package.md)" in skill
+    assert "[references/resource-planning.md](resource-planning.md)" in skill
     assert "authors but does not execute" in reference.lower()
     assert "statically validate" in reference.lower()
     assert "execution recheck ROOT --json" in skill
@@ -271,8 +271,8 @@ def test_stage_ten_and_eleven_docs_author_and_validate_without_execution():
 
 
 def test_public_docs_describe_the_explicit_development_run_boundary():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    readme = (ROOT / "docs" / "legacy-cli.md").read_text(encoding="utf-8")
+    skill = (SKILL_ROOT / "references" / "legacy-workflow.md").read_text(encoding="utf-8")
     reference = RESOURCE_REFERENCE.read_text(encoding="utf-8")
 
     for text in (readme, skill, reference):
@@ -295,9 +295,9 @@ def _markdown_section(text: str, heading: str) -> str:
 
 
 def test_public_docs_describe_explicit_research_result_registration_boundary():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "docs" / "legacy-cli.md").read_text(encoding="utf-8")
     agent_guide = (ROOT / "RESEARCHCLAW_AGENTS.md").read_text(encoding="utf-8")
-    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+    skill = (SKILL_ROOT / "references" / "legacy-workflow.md").read_text(encoding="utf-8")
     reference = RESOURCE_REFERENCE.read_text(encoding="utf-8")
     stages = STAGES_REFERENCE.read_text(encoding="utf-8")
     readme_handoff = _markdown_section(
@@ -386,7 +386,7 @@ def test_each_public_operator_file_states_verified_partial_temp_contract():
 
 
 def test_stage_twelve_public_contract_documents_order_and_recovery_routes():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "docs" / "legacy-cli.md").read_text(encoding="utf-8")
     normalized = " ".join(
         _markdown_section(
             readme, "Explicit Stage-12 research handoff and registration"

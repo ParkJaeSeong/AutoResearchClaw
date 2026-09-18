@@ -1,5 +1,6 @@
 """M1 public projection from one verified ancestor; never a raw state export."""
 from copy import deepcopy
+import base64
 import json
 from pathlib import Path
 
@@ -68,6 +69,17 @@ class _Public:
             while queue:
                 item = queue.pop()
                 if type(item) is dict:
+                    if (item.get('id') in self.inputs.state.get('m1_preparation_evidence', {})
+                            and 'content_base64' in item):
+                        # Encoded source bytes have the same disclosure boundary
+                        # as raw sources, including through indirect references.
+                        decoded = base64.b64decode(item['content_base64'], validate=True)
+                        if store._hash(decoded) != item['sha256']:
+                            return False
+                        source_ref = {**ref, 'artifact_id': 'preparation/raw/' + item['sha256'],
+                                      'sha256': item['sha256']}
+                        if not self._check(source_ref, visiting):
+                            return False
                     if set(item) == _FIELDS:
                         if item['project_id'] == self.inputs.project and not self._check(item, visiting):
                             return False
@@ -158,6 +170,7 @@ def _project(snapshot, current_head):
         'nodes': [], 'revisions': [], 'councils': [], 'issues': [], 'transitions': [],
         'verifications': [], 'results': [], 'source_checks': [], 'approvals': [], 'dependencies': [], 'handoffs': [],
         'external_evidence': [], 'external_reviews': [], 'external_decisions': [], 'external_questions': [],
+        'work_episodes': [], 'work_followups': [],
         'evidence': None, 'corpus': None, 'accounting': None, 'reason_codes': [], 'required_actions': []}
     # Registration order, not UUID sort order, is the actual revision/move order.
     prior_node = None
@@ -307,8 +320,31 @@ def _project(snapshot, current_head):
             entry = public.entry(collection, record)
             if entry is not None:
                 view[output].append(entry)
+    from .m1_preparation import project_preparations
+    view['m1_preparations'] = project_preparations(snapshot, public)
+    # project_preparations already replays both typed collections, including
+    # sources not yet attached to a preparation declaration.
+    for collection in ('m1_preparation_evidence', 'm1_preparation_verifications'):
+        view[collection] = []
+        for record in state.get(collection, {}).values():
+            entry = public.entry(collection, record)
+            if entry is not None:
+                if collection == 'm1_preparation_evidence':
+                    raw_ref = {**entry['ref'], 'artifact_id': 'preparation/raw/' + record['sha256'],
+                               'sha256': record['sha256']}
+                    raw_id = public.admit(raw_ref, '준비 자료 원문')
+                    if raw_id is not None:
+                        entry['source_ref'] = raw_ref
+                        entry['source_artifact_id'] = raw_id
+                view[collection].append(entry)
     from .m1_evidence_basis import project_bases
     view['m1_evidence_bases'] = project_bases(snapshot, public)
+    from .work_episodes import public_episodes
+    view['work_episodes'] = public_episodes(snapshot)
+    from .execution_view import public_execution
+    view['executions'] = public_execution(snapshot)
+    from .work_followups import public_followups
+    view['work_followups'] = public_followups(snapshot)
     from .issue_impacts import impact_records, current_impact_ids
     impacts = impact_records(snapshot)
     current_ids = current_impact_ids(snapshot, impacts)

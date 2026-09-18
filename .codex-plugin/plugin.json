@@ -27,6 +27,6 @@
       "Write"
     ],
     "websiteURL": "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex",
-    "defaultPrompt": "Use $researchclaw to start or resume a research milestone."
+    "defaultPrompt": "Use $researchpilot to start or resume a research milestone."
   }
 }

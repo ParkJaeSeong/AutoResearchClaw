@@ -1,0 +1,37 @@
+{
+  "head_id": "f751c688da5a2863c08a4ed0ba1cada82d9b12e37cadd30cfb56ac8ed3720a82",
+  "selection_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "d99bd4a98ad5ecb86fa0b0ebe1d5561237a3052fc5e62b0b51990e94d7c322d1",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "260ff4dff7e271e4bdf32138d65afc0c84de894d4fbae38aa05af8c0d3a91066"
+  },
+  "screen_ready": true,
+  "corpus_approved": false,
+  "resolved_selection_issue_ids": [
+    "40ec0ace-7f64-4e36-aff2-b5c5ee9b5d1e",
+    "acb199ea-51ba-4d0c-8d45-06d17c24b42f",
+    "ceea67c3-1052-4d34-8376-673550a41b0d",
+    "dba7d9bc-4dae-4abc-aea2-47b86cfa9779"
+  ],
+  "original_issues_unchanged": true,
+  "new_native_submissions": 9,
+  "native_submission_total": 108,
+  "new_issues": 0,
+  "m1_complete": false,
+  "new_searches": 0,
+  "experiments_run": 0,
+  "tests": {
+    "related": 150,
+    "independent_code_review": 33
+  },
+  "code_commit": "6e00b55",
+  "browser_visual_check": "not_performed",
+  "review_hosts": {
+    "domain": "codex-exec:01a0955b-1b14-7261-add1-ccf7518f79e3",
+    "methodology": "codex-exec:01a0955b-1ab9-79f3-bf7a-cf604d63a6b9",
+    "critical": "codex-exec:01a0955b-1b6f-79f3-82f4-a3ba6472d66e"
+  },
+  "input_manifest_sha256": "0a47616cc8db28a57e769f43a0de3727b610fc2fa801b170c061f86d1a4b7af5",
+  "served_summary_verified": true
+}

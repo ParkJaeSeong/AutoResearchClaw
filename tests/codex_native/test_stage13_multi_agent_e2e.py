@@ -22,7 +22,7 @@ from tests.codex_native.test_refinement import (
 
 
 ROOT = Path(__file__).parents[2]
-REFINEMENT_REFERENCE = ROOT / "skills" / "researchclaw" / "references" / "refinement.md"
+REFINEMENT_REFERENCE = ROOT / "skills" / "researchpilot" / "references" / "refinement.md"
 VOTING_ROLES = ("domain", "methodology", "critical_reproducibility")
 NETWORK_GUARD_ROOT = Path(__file__).parent / "fixtures" / "stage13_network_guard"
 

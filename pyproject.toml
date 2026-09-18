@@ -43,6 +43,12 @@ packages = ["researchclaw", "sibyl", "arc"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not large_evidence'"
+# Archived live-model scripts are historical source, not executable tests.
+# Preserve pytest's default exclusions and add local evidence/storage trees.
+norecursedirs = [
+    "*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}",
+    "archive", "workspaces", "output", "_workspace",
+]
 markers = [
     "large_evidence: opt-in 1 GiB immutable evidence streaming benchmark",
 ]

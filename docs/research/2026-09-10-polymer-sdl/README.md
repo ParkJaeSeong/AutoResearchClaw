@@ -1,10 +1,17 @@
 # 고분자 복합소재 가설 검증형 연구 에이전트와 SDL
 
-[최신 가설 교차 검토](hypothesis-review/decision.md): 세 설명의 예측·대조·약화 조건을 구체화하고, [실제 대화 3회차](hypothesis-review/README.md)를 보존했다. 다음은 A·B 제조·측정 실행 명세다.
+**2026-09-15 · [M1 POC 완료 결과](m1-poc-result.md)** — 가상 실험 설계·CSV 전달 검증 범위로 종료했다. 아래 장비·실제 착수 관련 기록은 후속 실증을 위한 것이며 POC를 계속 진행해야 한다는 뜻은 아니다.
+
+[현재 실행 환경 설계: 가상 장비·수동 작업·CSV 전달](virtual-lab/README.md). 장비 모델은 추후 결정하며 전기전도도와 기계적 물성을 같은 제조 배치의 별도 시편으로 연결한다. 빈 CSV 양식과 합성 예시를 제공한다.
+
+
+[이전 가설 교차 검토](hypothesis-review/decision.md): 세 설명의 예측·대조·약화 조건을 구체화하고, [실제 대화 3회차](hypothesis-review/README.md)를 보존했다. 다음은 A·B 제조·측정 실행 명세다.
 
 운영 기준: [연구 에이전트·조정자 가이드](../guides/README.md).
 
-현재: [6단계 상태와 남은 등록 작업](stage6-status.md). 근거 종합과 가설 교차 검토를 마쳤고 [제조·측정 실행 명세 v0.1](execution-spec.md)을 작성했다. 6단계 정식 완료는 이전 질문을 참조하는 검색·선정 기록과 수집·추출 등록을 연결한 뒤 판단한다.
+실제 연구 준비 상태: [Atlas 근거 종합·비교 가설 초안과 검토 결과](atlas-review/synthesis-hypotheses.md)를 확인한다. 근거 종합4항목과 비교 가설2개를 정식 등록하고, 각 단계의 실제 에이전트 검토를 마쳤다. [D1–D3 설계·CSV 검증](experiment-design/README.md)은 POC 결과에 포함했다. [D4 실제 착수 준비](experiment-design/start-readiness.md)는 실증을 재개할 때 확인한다. 수집·추출은 Atlas가 담당하며, POC 완료가 실제 연구의 착수 승인이나 M2 인계를 뜻하지는 않는다.
+
+이하 초기·이전 실행 기록은 당시 상태를 보존한다. 최신 판단은 위 링크를 기준으로 한다.
 
 [질문 단계의 진행 조건 변경](question-scope-review.md)은 보존한다. 쟁점 22개는 열린 상태이며, 조정한 8개는 최종 검토·M2 인계를 계속 차단한다.
 

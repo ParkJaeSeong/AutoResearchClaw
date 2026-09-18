@@ -1,0 +1,1 @@
+﻿schema_version,data_origin,plan_id,task_id,operation,equipment_id,input_batch_id,output_batch_id,specimen_id,status,operator_id,notes,manufacturing_run_id,block_id,condition_level,sequence_index,started_at,ended_at,parent_task_id

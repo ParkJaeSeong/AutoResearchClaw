@@ -1,0 +1,3 @@
+﻿schema_version,data_origin,specimen_id,manufacturing_batch_id,intended_test,sampling_location,notes,manufacturing_run_id
+2,synthetic,DEMO-SPEC-0,DEMO-MOLDED-0,electrical_test,DEMO-X,도면·형상 검증 전 합성 시편,DEMO-RUN-0
+2,synthetic,DEMO-SPEC-1,DEMO-MOLDED-1,electrical_test,DEMO-X,도면·형상 검증 전 합성 시편,DEMO-RUN-1

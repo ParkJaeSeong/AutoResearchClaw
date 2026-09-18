@@ -1,0 +1,76 @@
+{
+  "purpose": "Atlas 근거에 따른 가설 및 최소 가상 실험 설계 검토",
+  "native_registration": false,
+  "evidence_level": "Atlas 질답을 읽음; 이번 검토에서 원문 재독 없음",
+  "files": [
+    {
+      "path": "atlas-qa.md",
+      "origin": "/Users/jspark/orca/projects/ResearchAtlas/data/library/qa/records/qa-abbasi-process-direction-20260912-001.md",
+      "sha256": "e9e400c873bc5c1efbd139b726e6bfdaa48725bae6c13c4ded1f922a1154afed"
+    },
+    {
+      "path": "previous-decision.md",
+      "origin": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/hypothesis-review/decision.md",
+      "sha256": "78fbdb155ef02eb1785b4cf9c5797ab0caccb4ec72f13443a5fbf551fa109fb8"
+    },
+    {
+      "path": "previous-execution-spec.md",
+      "origin": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/execution-spec.md",
+      "sha256": "26ebb9e1e89a3464c69752624683b428f57f3852619214d7eacbfebb9091b316"
+    }
+  ],
+  "atlas_qa_id": "qa-abbasi-process-direction-20260912-001",
+  "atlas_project": null,
+  "pilot_project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+  "source_ref": {
+    "source_id": "source-274e322ab43944d1",
+    "version": 1,
+    "locator": "PDF 10쪽 §4.2 Raman spectroscopy",
+    "raw_path": "raw/articles/source-274e322ab43944d1/v1/abbasi-2010.pdf",
+    "sha256": "3d4e6bec0d17fec23c3c2ed38c2a3fc852c8f28eff629b247bed967b28da52b7"
+  },
+  "raw_bytes_hash_verified": true,
+  "raw_content_reread": false,
+  "atlas_candidate_status": "pending_ingest",
+  "consulted_page_refs_from_atlas": [
+    {
+      "path": "wiki/references/Flow-induced-orientation-of-multiwalled-carbon-nanotubes-in--source-274e322ab43944d1-v1.md",
+      "page_id": "page-23d3622f1c524198",
+      "sha256": "f68d90c10088193b6ce796b7c7f81414c4751a8b0a45dfb29ac6fa6511534afa"
+    },
+    {
+      "path": "wiki/concepts/필러-배향과-퍼콜레이션-page-3d08ab5c5315405c.md",
+      "page_id": "page-3d08ab5c5315405c",
+      "sha256": "cf72e995ffd04a97d4b51459e8718ae2c031eb78ca7d0daa5a59c029a917b4a9"
+    }
+  ],
+  "isolation": "instructions_only",
+  "review_phases": [
+    "independent",
+    "response",
+    "final"
+  ],
+  "native_submission_added": 0,
+  "round2_additional_inputs": [
+    {
+      "path": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/virtual-lab/README.md",
+      "sha256": "ed7112f74eb3cb99c836de51f778809d0adf64675048c75d5e95db03fe28511b"
+    },
+    {
+      "path": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/virtual-lab/templates/conditions.csv",
+      "sha256": "1ef0e1143d83c3297e8b1c1488bc483ee780f579387c9a2e05785242883be343"
+    },
+    {
+      "path": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/virtual-lab/templates/results.csv",
+      "sha256": "9b9708f5a0fc00bb7c3c438bddd31ee4b468e5b46b3578ba4e91a3b1fdd90d33"
+    },
+    {
+      "path": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/virtual-lab/templates/specimens.csv",
+      "sha256": "123ead1db3fecb48a5a61b735abf0f6d7c999e412b3693979634db39cc44ad7c"
+    },
+    {
+      "path": "/Users/jspark/orca/AutoResearchClaw/.worktrees/m1-research-graph/docs/research/2026-09-10-polymer-sdl/virtual-lab/templates/tasks.csv",
+      "sha256": "371f4c16eb1f8a0104b8a473326f7987033c6f158ae5cd32c167528e003a7e3f"
+    }
+  ]
+}

@@ -100,3 +100,17 @@ def test_cli_view_uses_loopback_server(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(api(), 'serve_view', lambda root, **kw: calls.append((root, kw)))
     assert main(['research', 'view', str(f.root), '--port', '8123']) == 0
     assert calls == [(f.root, {'host': '127.0.0.1', 'port': 8123})]
+
+
+def test_execution_module_is_served_by_http(tmp_path):
+    f = Fixture(tmp_path / 'execution-assets')
+    server = api()._make_server(f.root, host='127.0.0.1', port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body, headers = fetch(server, '/execution.js')
+        assert status == 200
+        assert 'javascript' in headers['Content-Type']
+        assert b'export function renderExecutions' in body
+    finally:
+        server.shutdown(); server.server_close(); thread.join()

@@ -145,6 +145,11 @@ def _question_ref(inputs, ref):
     except ValueError:
         pass
     try:
+        question = _resolve_record(inputs, ref, 'external_questions', 'external_review_question_invalid')
+        return _authored(inputs, 'external_questions', question, 'external_question_recorded')
+    except ValueError:
+        pass
+    try:
         _References(inputs).resolve(ref)
         data = inputs.objects[ref['sha256']]
         record = next(item for item in native_questions if store._canonical(item) == data)

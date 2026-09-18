@@ -6,8 +6,11 @@ previous_status}`. It never executes, increments counters, registers work or
 creates approval authority. Missing future prerequisite producers fail closed.
 A09 does not initialize a ledger. Synthetic fixture registration is test-only.
 
-Payload is exactly `{work, resource_request, correction_ref,
-correction_approval_ref, semantic_status, resume_ref}`. Nullable refs default to
+Payload contains exactly `{work, resource_request, correction_ref,
+correction_approval_ref, semantic_status, resume_ref}`, optionally plus `return_plan`.
+The 2026-09-15 [evidence-driven return policy](../../../research/guides/return-policy.md)
+requires that plan for declared returns in explicitly opted-in projects. It does
+not change the recorded work schema or historical snapshots. Nullable refs default to
 explicit null; semantic_status is `literal_only` or `uncertain`. Work is the common
 research-graph envelope plus exactly `{assignment_id, milestone, node, question,
 input_refs, work, acceptance_rule}`. The active owner assignment must match the
@@ -54,7 +57,9 @@ resource_request is exactly `{returns,verification_runs,estimated_cost,cost_stat
 Counts are nonnegative integers (booleans rejected). Cost is finite nonnegative
 numeric when `known`, null when `unknown`. State's max_returns/returns_used and
 max_verification_runs/verification_runs_used are checked separately against the
-requested increments. execution_cost_limit is null or finite nonnegative numeric;
+requested increments. An explicit `return_policy.mode=evidence_driven` exempts only
+the return-count limit; counts and their historical limit remain stored. It does
+not exempt verification or cost limits. execution_cost_limit is null or finite nonnegative numeric;
 observed_cost follows state's known/unknown cost_status. With a cost limit, unknown
 observed or estimated cost is `cost_unknown`/awaiting_input, never zero. A requested
 increment beyond a limit, or positive work against an exhausted limit, is

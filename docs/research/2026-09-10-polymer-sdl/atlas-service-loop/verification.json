@@ -1,0 +1,80 @@
+{
+  "head": "f085ff7e3fcb8c4ae2bf2e3f4df96483b3abfe3cdb9c26f0fa40be8368e6f529",
+  "request_key": "pilot-polymer-direction-20260913-01",
+  "job_id": "job-a69f83d2ddcd4758",
+  "qa_ref": {
+    "qa_id": "qa-job-a69f83d2ddcd4758",
+    "sha256": "40ff7e58a8e1114b62b918ba5a094f798446c5f01031d72b10f10e3aac72f21e"
+  },
+  "supporting": [
+    {
+      "kind": "page",
+      "ref": {
+        "path": "wiki/references/Flow-induced-orientation-of-multiwalled-carbon-nanotubes-in--source-274e322ab43944d1-v1.md",
+        "page_id": "page-23d3622f1c524198",
+        "sha256": "740a009423e20344dd4d65445ddbb08881591a4215722f8de090741b56f3a093"
+      },
+      "sha256": "740a009423e20344dd4d65445ddbb08881591a4215722f8de090741b56f3a093",
+      "received": true
+    },
+    {
+      "kind": "page",
+      "ref": {
+        "path": "projects/고분자-복합재-연구-project-95e043c2a0c341af/index.md",
+        "page_id": "project-95e043c2a0c341af",
+        "sha256": "7a9f4f3455dcbe20548215c2519da0ed0db46f1da5d6a0e61c4e92033fb1d313"
+      },
+      "sha256": "7a9f4f3455dcbe20548215c2519da0ed0db46f1da5d6a0e61c4e92033fb1d313",
+      "received": true
+    },
+    {
+      "kind": "source",
+      "ref": {
+        "source_id": "source-274e322ab43944d1",
+        "version": 1,
+        "sha256": "3d4e6bec0d17fec23c3c2ed38c2a3fc852c8f28eff629b247bed967b28da52b7",
+        "size_bytes": 1506084
+      },
+      "received": true
+    },
+    {
+      "kind": "source",
+      "ref": {
+        "source_id": "source-609368e2c3af44d7",
+        "version": 1,
+        "sha256": "b98142474a50703044b3f5dae64335973bf0b6e0e4ea569d52e01d36fc7d5dd7",
+        "size_bytes": 2492841
+      },
+      "received": true
+    }
+  ],
+  "packet_sha256": "d5338cbebcbd02b99eb4c3f6aab89dfbe692aad2666ca10a8e09bb2bbd194bc2",
+  "council_id": "3751628d-4585-430c-b907-38211787402f",
+  "review_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "80c329f039cf3604596dfc1d9488114fc06b52bcd56092a97ced3357e7c02b6f",
+    "artifact_id": "c6557a7c-827b-518d-9069-d55791c963d1",
+    "sha256": "85c6e2ab615d9d65f3b6a4bd25bed31ce600139a8ba2f64b8e35ac87969fcf56"
+  },
+  "outcome": {
+    "stage": "outcome_recorded",
+    "decision_ref": {
+      "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+      "head_id": "f085ff7e3fcb8c4ae2bf2e3f4df96483b3abfe3cdb9c26f0fa40be8368e6f529",
+      "artifact_id": "e397a1c6-ec80-5036-96ed-c8ed9c64cf0c",
+      "sha256": "d134bf7df40ab64a2a8448580b8256d056fbd7cc39326490d25b8fda17bf8bfe"
+    },
+    "next_action": "collect_materials",
+    "next_question_ref": null
+  },
+  "role_executions": 9,
+  "phases": [
+    "initial",
+    "response",
+    "final"
+  ],
+  "common_input_equal": true,
+  "observed_role_tools": 0,
+  "replay_head_unchanged": true,
+  "m1_nodes_issues_preparations_unchanged": true
+}

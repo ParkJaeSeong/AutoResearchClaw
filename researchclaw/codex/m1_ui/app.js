@@ -5,7 +5,7 @@ import {element, renderNodeDetail, renderTrace, renderComparison, renderInspecti
 const COLLECTIONS = ['nodes','edges','attempts','artifacts','sessions','issues','responses','decisions','approvals','next_actions'];
 
 export function validateView(view) {
-  if (!view || typeof view !== 'object') return ['기록이 올바른 객체가 아닙니다.'];
+  if (!view || typeof view !== 'object') return ['연구 기록의 형식을 읽을 수 없습니다.'];
   const errors = [];
   if (view.schema_version !== 1) errors.push('지원하지 않는 기록 버전입니다.');
   if (!['demo','registered'].includes(view.data_origin)) errors.push('기록의 출처 구분이 없습니다.');
@@ -126,14 +126,14 @@ export function renderResearchView(root, view, selection = {}) {
   if (view.budget) {
     const budget = element('div');
     budget.append(element('span', '복귀 사용', 'eyebrow'), element('strong', `${view.budget.returns_used} / ${view.budget.max_returns}회`));
-    budget.append(element('p', view.budget.exhausted ? '설정된 복귀 예산을 모두 사용했습니다.' : `${view.budget.remaining}회 남음`, 'secondary'));
+    budget.append(element('p', view.budget.exhausted ? '앞 단계로 돌아갈 수 있는 횟수를 모두 사용했습니다.' : `${view.budget.remaining}회 남음`, 'secondary'));
     overview.append(budget);
   }
   if (view.missing_references?.length) overview.append(element('p', `연결된 기록 ${view.missing_references.length}개를 찾을 수 없습니다. 상세 기록의 누락 표시를 확인해 주세요.`, 'warning'));
   overview.hidden = !overview.childElementCount;
   const workspace = element('div', undefined, 'workspace');
   const mapPanel = element('section', undefined, 'map-panel');
-  mapPanel.append(element('span', 'M1 작업 흐름', 'eyebrow'), element('h2', '어디서, 왜 돌아왔나'));
+  mapPanel.append(element('span', 'M1 작업 흐름', 'eyebrow'), element('h2', '어느 단계로 왜 돌아왔나요?'));
   const graph = element('div');
   mapPanel.append(graph);
   const detailPanel = element('div', undefined, 'detail-panel');

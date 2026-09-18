@@ -1,0 +1,10 @@
+# Search defaults only; use rg --no-ignore with a path to inspect preserved history.
+archive/
+.superpowers/
+workspaces/
+output/
+_workspace/
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/

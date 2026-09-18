@@ -11,6 +11,7 @@ from . import store
 from .dependencies import _References, _node
 from .gates import _approval
 from .issues import _Inputs, _require
+from .return_policy import return_mode, require_return_plan
 
 _ENVELOPE = {'schema_version', 'workflow_version', 'id', 'project_id', 'event_id',
              'producer_id', 'content_origin', 'provenance_status', 'observation_refs'}
@@ -133,6 +134,7 @@ def _correction(inputs, refs, ref):
 
 
 def _budget_reasons(state, request):
+    mode = return_mode(state)
     _require(all(_count(state.get(key)) for key in ('max_returns', 'returns_used', 'max_verification_runs', 'verification_runs_used')),
              'budget_invalid')
     limit, observed = state.get('execution_cost_limit'), state.get('observed_cost')
@@ -142,6 +144,8 @@ def _budget_reasons(state, request):
     reasons = []
     for used, maximum, increment, reason in [('returns_used', 'max_returns', 'returns', 'returns_exhausted'),
         ('verification_runs_used', 'max_verification_runs', 'verification_runs', 'verification_runs_exhausted')]:
+        if increment == 'returns' and mode == 'evidence_driven':
+            continue
         if request[increment] and state[used] + request[increment] > state[maximum]:
             reasons.append(reason)
     if limit is not None:
@@ -161,7 +165,7 @@ def assess_next_work(snapshot: dict, payload: dict) -> dict:
     if any(type(record['state'].get(name, {})) is not dict
            for _, record in inputs.history for name in _COLLECTIONS):
         return _output(['work_collection_invalid'])
-    if type(payload) is not dict or set(payload) != _PAYLOAD:
+    if type(payload) is not dict or set(payload) not in (_PAYLOAD, _PAYLOAD | {'return_plan'}):
         return _output(['work_payload_invalid'])
     try:
         refs = _References(inputs)
@@ -177,6 +181,15 @@ def assess_next_work(snapshot: dict, payload: dict) -> dict:
     except (KeyError, TypeError, ValueError):
         return _output(['work_ledger_invalid'])
     previous, reasons = None, []
+    try:
+        mode = return_mode(inputs.state)
+    except ValueError:
+        return _output(['return_policy_invalid'])
+    if 'return_plan' in payload or (mode == 'evidence_driven' and payload['resource_request']['returns']):
+        try:
+            require_return_plan(inputs, refs, payload.get('return_plan'), records)
+        except (KeyError, TypeError, ValueError, StopIteration):
+            reasons.append('return_plan_required')
     if payload['resume_ref'] is not None:
         try:
             prior = inputs.reference(payload['resume_ref'], 'work_records')

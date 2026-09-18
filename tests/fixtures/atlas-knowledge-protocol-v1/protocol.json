@@ -1,0 +1,948 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "transport": "loopback HTTP via uvicorn/httpx",
+  "model": "fake executable",
+  "update_proposal": "synthetic callback",
+  "indexer": "failure/recovery stub",
+  "captures": {
+    "info": {
+      "method": "GET",
+      "path": "/api/info",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "pilot-atlas/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "capabilities": [
+          "service_identity_v1",
+          "qa_export_v1",
+          "page_raw_v1",
+          "ask_knowledge_update_v1"
+        ],
+        "limits": {
+          "max_raw_bytes": 10485760,
+          "max_file_bytes": 536870912,
+          "max_upload_bytes": 536870912,
+          "max_chunk_bytes": 4194304,
+          "max_files": 32
+        },
+        "knowledge_update": {
+          "contract_version": "atlas-knowledge-update/1.0",
+          "limits": {
+            "request_bytes": 65536,
+            "manifest_bytes": 10485760,
+            "artifact_bytes": 10485760,
+            "package_bytes": 67108864,
+            "chunk_bytes": 4194304
+          },
+          "poll_interval_seconds": 5,
+          "allowed_project_ids": [
+            "project-3eff98dec16d4a29"
+          ],
+          "cancel_supported": false
+        }
+      }
+    },
+    "submit": {
+      "method": "POST",
+      "path": "/api/knowledge-jobs",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "revision": 1,
+        "phase": "accepted",
+        "payload": {
+          "client_ref": {
+            "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "request_id": "synthetic-request"
+          },
+          "contract_version": "atlas-knowledge-update/1.0",
+          "input_refs": [],
+          "operation": "ask_and_update",
+          "policy": "source_shared_interpretation_project_v1",
+          "project_id": "project-3eff98dec16d4a29",
+          "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+          "request_key": "synthetic-protocol-1",
+          "visibility": "shared_evidence_only"
+        },
+        "receipt": {
+          "consumer_id": "synthetic-pilot",
+          "operation": "ask_and_update",
+          "request_key": "synthetic-protocol-1",
+          "request_sha256": "ebee0da737ce7b8fe09139bb834cf91f27bb5cf55507216ec6c496301e38d93f"
+        },
+        "answer": {
+          "status": "pending",
+          "result": null
+        },
+        "knowledge": {
+          "status": "pending",
+          "result": null
+        },
+        "attempts": [],
+        "stage_results": [],
+        "error": null
+      },
+      "request": {
+        "contract_version": "atlas-knowledge-update/1.0",
+        "operation": "ask_and_update",
+        "request_key": "synthetic-protocol-1",
+        "project_id": "project-3eff98dec16d4a29",
+        "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+        "client_ref": {
+          "request_id": "synthetic-request",
+          "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "policy": "source_shared_interpretation_project_v1",
+        "input_refs": [],
+        "visibility": "shared_evidence_only"
+      }
+    },
+    "partial": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1",
+      "status_code": 200,
+      "body": {
+        "answer": {
+          "attempt": 1,
+          "job_ref": "job-d5bb9782e3424e5b",
+          "qa_ref": {
+            "qa_id": "qa-job-d5bb9782e3424e5b",
+            "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+          },
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 1,
+              "candidate_refs": [
+                {
+                  "candidate_id": "C1",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  }
+                }
+              ],
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "job_ref": "job-d5bb9782e3424e5b",
+              "job_status": "completed",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "schema_version": 1,
+              "stage": "answer"
+            },
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0"
+          },
+          "status": "ready"
+        },
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "attempts": [
+          {
+            "attempt": 1,
+            "stage": "answer",
+            "status": "ready"
+          },
+          {
+            "attempt": 1,
+            "stage": "knowledge",
+            "status": "partial"
+          }
+        ],
+        "contract_version": "atlas-knowledge-update/1.0",
+        "error": null,
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "knowledge": {
+          "attempt": 1,
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 1,
+              "candidate_results": [
+                {
+                  "attribution": "author_report",
+                  "candidate_id": "C1",
+                  "outcome": "applied",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  },
+                  "reason": "Synthetic fixture only",
+                  "source_refs": [
+                    {
+                      "locator": "line 1",
+                      "sha256": "12d323fb853734a366b5eeebb747bf3587ed1be73663913faa8ab2b042a113e7",
+                      "source_id": "source-76e7c713798a4ec6",
+                      "version": 1
+                    }
+                  ],
+                  "target_pages": [
+                    "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                  ]
+                }
+              ],
+              "changes": [
+                {
+                  "after_sha256": "3b94215e2ed95ba60fcbd601ea1e9307ee5ef2247a50beb5dc6848508302a5de",
+                  "before_sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+                  "history_ref": "history/knowledge-1630dc255dff4b969be3f651b36b92d1-1/wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md",
+                  "page_id": "page-381c6ad3a57c4ff8",
+                  "path": "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                }
+              ],
+              "index_status": {
+                "bm25": {
+                  "index_status": "failed"
+                },
+                "graph": {
+                  "index_status": "current"
+                },
+                "vector": {
+                  "index_status": "current"
+                }
+              },
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "persistence": "persisted",
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "read_scope": "QA candidate source locators; see candidate_results",
+              "schema_version": 1,
+              "stage": "knowledge",
+              "unresolved": [
+                "bm25_not_current"
+              ]
+            },
+            "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392"
+          },
+          "status": "partial"
+        },
+        "ok": true,
+        "payload": {
+          "client_ref": {
+            "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "request_id": "synthetic-request"
+          },
+          "contract_version": "atlas-knowledge-update/1.0",
+          "input_refs": [],
+          "operation": "ask_and_update",
+          "policy": "source_shared_interpretation_project_v1",
+          "project_id": "project-3eff98dec16d4a29",
+          "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+          "request_key": "synthetic-protocol-1",
+          "visibility": "shared_evidence_only"
+        },
+        "phase": "terminal",
+        "receipt": {
+          "consumer_id": "synthetic-pilot",
+          "operation": "ask_and_update",
+          "request_key": "synthetic-protocol-1",
+          "request_sha256": "ebee0da737ce7b8fe09139bb834cf91f27bb5cf55507216ec6c496301e38d93f"
+        },
+        "revision": 4,
+        "stage_results": [
+          {
+            "artifact_id": "answer-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0",
+            "stage": "answer"
+          },
+          {
+            "artifact_id": "knowledge-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392",
+            "stage": "knowledge"
+          }
+        ]
+      }
+    },
+    "resume": {
+      "method": "POST",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/resume",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "resume_receipt": {
+          "expected_revision": 4,
+          "stage": "knowledge",
+          "attempt": 2,
+          "accepted_revision": 5
+        },
+        "replayed": false
+      },
+      "request": {
+        "expected_revision": 4
+      }
+    },
+    "persisted": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1",
+      "status_code": 200,
+      "body": {
+        "answer": {
+          "attempt": 1,
+          "job_ref": "job-d5bb9782e3424e5b",
+          "qa_ref": {
+            "qa_id": "qa-job-d5bb9782e3424e5b",
+            "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+          },
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 1,
+              "candidate_refs": [
+                {
+                  "candidate_id": "C1",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  }
+                }
+              ],
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "job_ref": "job-d5bb9782e3424e5b",
+              "job_status": "completed",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "schema_version": 1,
+              "stage": "answer"
+            },
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0"
+          },
+          "status": "ready"
+        },
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "attempts": [
+          {
+            "attempt": 1,
+            "stage": "answer",
+            "status": "ready"
+          },
+          {
+            "attempt": 1,
+            "stage": "knowledge",
+            "status": "partial"
+          },
+          {
+            "attempt": 2,
+            "stage": "knowledge",
+            "status": "persisted"
+          }
+        ],
+        "contract_version": "atlas-knowledge-update/1.0",
+        "error": null,
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "knowledge": {
+          "attempt": 2,
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 2,
+              "candidate_results": [
+                {
+                  "attribution": "author_report",
+                  "candidate_id": "C1",
+                  "outcome": "applied",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  },
+                  "reason": "Synthetic fixture only",
+                  "source_refs": [
+                    {
+                      "locator": "line 1",
+                      "sha256": "12d323fb853734a366b5eeebb747bf3587ed1be73663913faa8ab2b042a113e7",
+                      "source_id": "source-76e7c713798a4ec6",
+                      "version": 1
+                    }
+                  ],
+                  "target_pages": [
+                    "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                  ]
+                }
+              ],
+              "changes": [
+                {
+                  "after_sha256": "3b94215e2ed95ba60fcbd601ea1e9307ee5ef2247a50beb5dc6848508302a5de",
+                  "before_sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+                  "history_ref": "history/knowledge-1630dc255dff4b969be3f651b36b92d1-1/wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md",
+                  "page_id": "page-381c6ad3a57c4ff8",
+                  "path": "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                }
+              ],
+              "index_status": {
+                "bm25": {
+                  "index_status": "current"
+                },
+                "graph": {
+                  "index_status": "current"
+                },
+                "vector": {
+                  "index_status": "current"
+                }
+              },
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "persistence": "persisted",
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "read_scope": "QA candidate source locators; see candidate_results",
+              "schema_version": 1,
+              "stage": "knowledge",
+              "unresolved": []
+            },
+            "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064"
+          },
+          "status": "persisted"
+        },
+        "ok": true,
+        "payload": {
+          "client_ref": {
+            "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "request_id": "synthetic-request"
+          },
+          "contract_version": "atlas-knowledge-update/1.0",
+          "input_refs": [],
+          "operation": "ask_and_update",
+          "policy": "source_shared_interpretation_project_v1",
+          "project_id": "project-3eff98dec16d4a29",
+          "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+          "request_key": "synthetic-protocol-1",
+          "visibility": "shared_evidence_only"
+        },
+        "phase": "terminal",
+        "receipt": {
+          "consumer_id": "synthetic-pilot",
+          "operation": "ask_and_update",
+          "request_key": "synthetic-protocol-1",
+          "request_sha256": "ebee0da737ce7b8fe09139bb834cf91f27bb5cf55507216ec6c496301e38d93f"
+        },
+        "revision": 6,
+        "stage_results": [
+          {
+            "artifact_id": "answer-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0",
+            "stage": "answer"
+          },
+          {
+            "artifact_id": "knowledge-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392",
+            "stage": "knowledge"
+          },
+          {
+            "artifact_id": "knowledge-result-2",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 2,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064",
+            "stage": "knowledge"
+          }
+        ]
+      }
+    },
+    "resume-replay": {
+      "method": "POST",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/resume",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "resume_receipt": {
+          "accepted_revision": 5,
+          "attempt": 2,
+          "expected_revision": 4,
+          "stage": "knowledge"
+        },
+        "replayed": true
+      },
+      "request": {
+        "expected_revision": 4
+      }
+    },
+    "submit-replay": {
+      "method": "POST",
+      "path": "/api/knowledge-jobs",
+      "status_code": 200,
+      "body": {
+        "answer": {
+          "attempt": 1,
+          "job_ref": "job-d5bb9782e3424e5b",
+          "qa_ref": {
+            "qa_id": "qa-job-d5bb9782e3424e5b",
+            "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+          },
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 1,
+              "candidate_refs": [
+                {
+                  "candidate_id": "C1",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  }
+                }
+              ],
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "job_ref": "job-d5bb9782e3424e5b",
+              "job_status": "completed",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "schema_version": 1,
+              "stage": "answer"
+            },
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0"
+          },
+          "status": "ready"
+        },
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "attempts": [
+          {
+            "attempt": 1,
+            "stage": "answer",
+            "status": "ready"
+          },
+          {
+            "attempt": 1,
+            "stage": "knowledge",
+            "status": "partial"
+          },
+          {
+            "attempt": 2,
+            "stage": "knowledge",
+            "status": "persisted"
+          }
+        ],
+        "contract_version": "atlas-knowledge-update/1.0",
+        "error": null,
+        "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+        "knowledge": {
+          "attempt": 2,
+          "result": {
+            "record": {
+              "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+              "attempt": 2,
+              "candidate_results": [
+                {
+                  "attribution": "author_report",
+                  "candidate_id": "C1",
+                  "outcome": "applied",
+                  "qa_ref": {
+                    "qa_id": "qa-job-d5bb9782e3424e5b",
+                    "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+                  },
+                  "reason": "Synthetic fixture only",
+                  "source_refs": [
+                    {
+                      "locator": "line 1",
+                      "sha256": "12d323fb853734a366b5eeebb747bf3587ed1be73663913faa8ab2b042a113e7",
+                      "source_id": "source-76e7c713798a4ec6",
+                      "version": 1
+                    }
+                  ],
+                  "target_pages": [
+                    "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                  ]
+                }
+              ],
+              "changes": [
+                {
+                  "after_sha256": "3b94215e2ed95ba60fcbd601ea1e9307ee5ef2247a50beb5dc6848508302a5de",
+                  "before_sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+                  "history_ref": "history/knowledge-1630dc255dff4b969be3f651b36b92d1-1/wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md",
+                  "page_id": "page-381c6ad3a57c4ff8",
+                  "path": "wiki/references/Synthetic-source-source-76e7c713798a4ec6-v1.md"
+                }
+              ],
+              "index_status": {
+                "bm25": {
+                  "index_status": "current"
+                },
+                "graph": {
+                  "index_status": "current"
+                },
+                "vector": {
+                  "index_status": "current"
+                }
+              },
+              "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+              "package_ref": {
+                "artifact_id": "manifest",
+                "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf"
+              },
+              "persistence": "persisted",
+              "qa_ref": {
+                "qa_id": "qa-job-d5bb9782e3424e5b",
+                "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873"
+              },
+              "read_scope": "QA candidate source locators; see candidate_results",
+              "schema_version": 1,
+              "stage": "knowledge",
+              "unresolved": []
+            },
+            "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064"
+          },
+          "status": "persisted"
+        },
+        "ok": true,
+        "payload": {
+          "client_ref": {
+            "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "request_id": "synthetic-request"
+          },
+          "contract_version": "atlas-knowledge-update/1.0",
+          "input_refs": [],
+          "operation": "ask_and_update",
+          "policy": "source_shared_interpretation_project_v1",
+          "project_id": "project-3eff98dec16d4a29",
+          "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+          "request_key": "synthetic-protocol-1",
+          "visibility": "shared_evidence_only"
+        },
+        "phase": "terminal",
+        "receipt": {
+          "consumer_id": "synthetic-pilot",
+          "operation": "ask_and_update",
+          "request_key": "synthetic-protocol-1",
+          "request_sha256": "ebee0da737ce7b8fe09139bb834cf91f27bb5cf55507216ec6c496301e38d93f"
+        },
+        "revision": 6,
+        "stage_results": [
+          {
+            "artifact_id": "answer-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0",
+            "stage": "answer"
+          },
+          {
+            "artifact_id": "knowledge-result-1",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 1,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392",
+            "stage": "knowledge"
+          },
+          {
+            "artifact_id": "knowledge-result-2",
+            "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+            "attempt": 2,
+            "job_id": "knowledge-1630dc255dff4b969be3f651b36b92d1",
+            "schema_version": 1,
+            "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064",
+            "stage": "knowledge"
+          }
+        ]
+      },
+      "request": {
+        "contract_version": "atlas-knowledge-update/1.0",
+        "operation": "ask_and_update",
+        "request_key": "synthetic-protocol-1",
+        "project_id": "project-3eff98dec16d4a29",
+        "question": "Synthetic fixture: preserve the evidence and update this QA candidate only.",
+        "client_ref": {
+          "request_id": "synthetic-request",
+          "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "policy": "source_shared_interpretation_project_v1",
+        "input_refs": [],
+        "visibility": "shared_evidence_only"
+      }
+    },
+    "conflict": {
+      "method": "POST",
+      "path": "/api/knowledge-jobs",
+      "status_code": 409,
+      "body": {
+        "ok": false,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "error": {
+          "code": "request_conflict",
+          "retryable": false,
+          "stage": null,
+          "details": {}
+        }
+      },
+      "request": {
+        "contract_version": "atlas-knowledge-update/1.0",
+        "operation": "ask_and_update",
+        "request_key": "synthetic-protocol-1",
+        "project_id": "project-3eff98dec16d4a29",
+        "question": "different",
+        "client_ref": {
+          "request_id": "synthetic-request",
+          "context_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "policy": "source_shared_interpretation_project_v1",
+        "input_refs": [],
+        "visibility": "shared_evidence_only"
+      }
+    },
+    "invalid-range": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/artifacts/manifest?offset=invalid",
+      "status_code": 400,
+      "body": {
+        "ok": false,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "error": {
+          "code": "invalid_request",
+          "retryable": false,
+          "stage": null,
+          "details": {}
+        }
+      }
+    },
+    "manifest": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/artifacts/manifest",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "manifest",
+        "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf",
+        "size": 1149,
+        "offset": 0,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "eyJhcnRpZmFjdHMiOlt7ImFydGlmYWN0X2lkIjoicWEtcmF3IiwiZW5jb2RpbmciOiJpZGVudGl0eSIsImtpbmQiOiJxYSIsIm1lZGlhX3R5cGUiOiJ0ZXh0L21hcmtkb3duOyBjaGFyc2V0PXV0Zi04Iiwic2hhMjU2IjoiM2I5OGMwNWU5NzQ4MGMzYjg2ZTdhODJlMzY3ODg5N2FhODdiYjc5NTNhY2Y1YjI0N2I1N2MxNDNiMTZlYTg3MyIsInNpemUiOjEyMzh9LHsiYXJ0aWZhY3RfaWQiOiJwYWdlLXJhdy0wMDAwIiwiZW5jb2RpbmciOiJpZGVudGl0eSIsImtpbmQiOiJwYWdlIiwibWVkaWFfdHlwZSI6InRleHQvbWFya2Rvd247IGNoYXJzZXQ9dXRmLTgiLCJzaGEyNTYiOiJhZWM0MGI3YzJmNmFjNTBhMjIxYzY1ZGY1Y2EzZWY5OTI5YzVjYjU1ZmY1MDgzZTc3NDEyYzhmMjBjNTIwZjJmIiwic2l6ZSI6MjEwOH1dLCJhdGxhc19pbnN0YW5jZV9pZCI6ImIxNzIwNTA4LTFkYmQtNDM0NC1iYWE2LTFhOGRhMjgxYjI3ZSIsImNhbmRpZGF0ZV9yZWZzIjpbeyJjYW5kaWRhdGVfaWQiOiJDMSIsInFhX3JlZiI6eyJxYV9pZCI6InFhLWpvYi1kNWJiOTc4MmUzNDI0ZTViIiwic2hhMjU2IjoiM2I5OGMwNWU5NzQ4MGMzYjg2ZTdhODJlMzY3ODg5N2FhODdiYjc5NTNhY2Y1YjI0N2I1N2MxNDNiMTZlYTg3MyJ9fV0sImNvbnN1bHRlZF9wYWdlcyI6W3siYXJ0aWZhY3RfaWQiOiJwYWdlLXJhdy0wMDAwIiwicGFnZV9pZCI6InBhZ2UtMzgxYzZhZDNhNTdjNGZmOCIsInNoYTI1NiI6ImFlYzQwYjdjMmY2YWM1MGEyMjFjNjVkZjVjYTNlZjk5MjljNWNiNTVmZjUwODNlNzc0MTJjOGYyMGM1MjBmMmYifV0sImpvYl9pZCI6Imtub3dsZWRnZS0xNjMwZGMyNTVkZmY0Yjk2OWJlM2Y2NTFiMzZiOTJkMSIsInFhX3JlZiI6eyJxYV9pZCI6InFhLWpvYi1kNWJiOTc4MmUzNDI0ZTViIiwic2hhMjU2IjoiM2I5OGMwNWU5NzQ4MGMzYjg2ZTdhODJlMzY3ODg5N2FhODdiYjc5NTNhY2Y1YjI0N2I1N2MxNDNiMTZlYTg3MyJ9LCJzY2hlbWFfdmVyc2lvbiI6MSwic291cmNlX3JlZnMiOlt7ImxvY2F0b3JzIjpbImxpbmUgMSJdLCJzaGEyNTYiOiIxMmQzMjNmYjg1MzczNGEzNjZiNWVlZWJiNzQ3YmYzNTg3ZWQxYmU3MzY2MzkxM2ZhYThhYjJiMDQyYTExM2U3Iiwic291cmNlX2lkIjoic291cmNlLTc2ZTdjNzEzNzk4YTRlYzYiLCJ2ZXJzaW9uIjoxfV19"
+      }
+    },
+    "eof": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/artifacts/manifest?offset=1149",
+      "status_code": 200,
+      "body": {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "manifest",
+        "sha256": "6f1f262d4d89cacaac35c116433754af9f9db641e2fc32a01a986d973651c7cf",
+        "size": 1149,
+        "offset": 1149,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": ""
+      }
+    },
+    "past-eof": {
+      "method": "GET",
+      "path": "/api/knowledge-jobs/knowledge-1630dc255dff4b969be3f651b36b92d1/artifacts/manifest?offset=1150",
+      "status_code": 416,
+      "body": {
+        "ok": false,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "error": {
+          "code": "range_not_satisfiable",
+          "retryable": false,
+          "stage": null,
+          "details": {}
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "qa-raw": [
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "qa-raw",
+        "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873",
+        "size": 1238,
+        "offset": 0,
+        "next_offset": 1024,
+        "eof": false,
+        "encoding": "base64",
+        "data": "LS0tCnNjaGVtYV92ZXJzaW9uOiAxCmlkOiBxYS1qb2ItZDViYjk3ODJlMzQyNGU1Ygp0eXBlOiBxYQpjcmVhdGVkX2F0OiAnMjAyNi0wOS0xOFQwNzo1NjoxOS4xNjk3MjgrMDA6MDAnCmlucHV0X3NoYTI1NjogZGM1YTk3ZjcyYTQzYzA0NDgwOTc1MTI1MDM4YWEzNzQ3ZTYwMzgyNGFmMGM1MTQyZWY0MmIwN2I0MmFjOGQxMwpxdWVzdGlvbjogJ1N5bnRoZXRpYyBmaXh0dXJlOiBwcmVzZXJ2ZSB0aGUgZXZpZGVuY2UgYW5kIHVwZGF0ZSB0aGlzIFFBIGNhbmRpZGF0ZSBvbmx5LicKYW5zd2VyOiAn64+Z7J28IOyhsOqxtOydmCDsmrDsiJjshLHsnYAg7ZmV7J247ZWgIOyImCDsl4bsirXri4jri6QuCgogICcKcHJvamVjdDogcHJvamVjdC0zZWZmOThkZWMxNmQ0YTI5CmNvbnN1bHRlZF9wYWdlczoKLSBwYXRoOiB3aWtpL3JlZmVyZW5jZXMvU3ludGhldGljLXNvdXJjZS1zb3VyY2UtNzZlN2M3MTM3OThhNGVjNi12MS5tZAogIHBhZ2VfaWQ6IHBhZ2UtMzgxYzZhZDNhNTdjNGZmOAogIHNoYTI1NjogYWVjNDBiN2MyZjZhYzUwYTIyMWM2NWRmNWNhM2VmOTkyOWM1Y2I1NWZmNTA4M2U3NzQxMmM4ZjIwYzUyMGYyZgpjYW5kaWRhdGVzOgotIGlkOiBDMQogIHRleHQ6IHN5bnRoZXRpYyBhZGRpdGlvbgogIHRhZzogYWRkaXRpb24KICBzb3VyY2VfcmVmczoKICAtIHNvdXJjZV9pZDogc291cmNlLTc2ZTdjNzEzNzk4YTRlYzYKICAgIHZlcnNpb246IDEKICAgIGxvY2F0b3I6IGxpbmUgMQogICAgcmF3X3BhdGg6IHJhdy9hcnRpY2xlcy9zb3VyY2UtNzZlN2M3MTM3OThhNGVjNi92MS9zb3VyY2UudHh0CiAgICBzaGEyNTY6IDEyZDMyM2ZiODUzNzM0YTM2NmI1ZWVlYmI3NDdiZjM1ODdlZDFiZTczNjYzOTEzZmFhOGFiMmIwNDJhMTEzZTcKICB0YXJnZXRfcGFnZXM6CiAgLSBwYXRoOiB3aWtpL3JlZmVyZW5jZXMvU3ludGhldGljLXNvdXJjZS1zb3VyY2UtNzZlN2M3MTM3OThhNGVjNi12MS5tZAogICAgcGFnZV9pZDogcGFnZS0zODFjNmFkM2E1N2M0ZmY4CiAgICBzaGEyNTY6IGFlYzQwYjdjMmY2YWM1MGEyMg=="
+      },
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "qa-raw",
+        "sha256": "3b98c05e97480c3b86e7a82e3678897aa87bb7953acf5b247b57c143b16ea873",
+        "size": 1238,
+        "offset": 1024,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "MWM2NWRmNWNhM2VmOTkyOWM1Y2I1NWZmNTA4M2U3NzQxMmM4ZjIwYzUyMGYyZgotLS0KCiMg7KeI66y4CgpTeW50aGV0aWMgZml4dHVyZTogcHJlc2VydmUgdGhlIGV2aWRlbmNlIGFuZCB1cGRhdGUgdGhpcyBRQSBjYW5kaWRhdGUgb25seS4KCiMg64u57IucIOuLteuzgAoK64+Z7J28IOyhsOqxtOydmCDsmrDsiJjshLHsnYAg7ZmV7J247ZWgIOyImCDsl4bsirXri4jri6QuCg=="
+      }
+    ],
+    "page-raw-0000": [
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "page-raw-0000",
+        "sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+        "size": 2108,
+        "offset": 0,
+        "next_offset": 1024,
+        "eof": false,
+        "encoding": "base64",
+        "data": "LS0tCmlkOiBwYWdlLTM4MWM2YWQzYTU3YzRmZjgKdHlwZTogcmVmZXJlbmNlcwp0aXRsZTogU3ludGhldGljIHNvdXJjZQphbGlhc2VzOiBbXQp0YWdzOiBbXQpzdW1tYXJ5OiAnJwpzb3VyY2VzOgotIHNvdXJjZS03NmU3YzcxMzc5OGE0ZWM2CmNyZWF0ZWRfYXQ6ICcyMDI2LTA5LTE4VDA3OjU2OjE2LjU5Mjc1MCswMDowMCcKcGFwZXJfcHJvZmlsZToKICBzY2hlbWFfdmVyc2lvbjogMQogIGRvY3VtZW50X3R5cGU6IHVua25vd24KICBjb3ZlcmFnZToKICAgIHRhcmdldHM6CiAgICAgIHN0YXR1czogdW5yZWFkCiAgICAgIHNjb3BlOiAnJwogICAgcXVlc3Rpb25zOgogICAgICBzdGF0dXM6IHVucmVhZAogICAgICBzY29wZTogJycKICAgIG1ldGhvZHM6CiAgICAgIHN0YXR1czogdW5yZWFkCiAgICAgIHNjb3BlOiAnJwogICAgb3V0Y29tZXM6CiAgICAgIHN0YXR1czogdW5yZWFkCiAgICAgIHNjb3BlOiAnJwogICAgZGF0YXNldHM6CiAgICAgIHN0YXR1czogdW5yZWFkCiAgICAgIHNjb3BlOiAnJwogIGxpbmtzOiBbXQogIGV2aWRlbmNlOiB7fQpzb3VyY2VfdmVyc2lvbnM6CiAgc291cmNlLTc2ZTdjNzEzNzk4YTRlYzY6IDEKc291cmNlX3R5cGU6IGFydGljbGUKcmVhZF9zdGF0dXM6IHVucmVhZApyZWFkX3Njb3BlOiAnJwpyZXZpZXdfc3RhdHVzOiB1bnJldmlld2VkCi0tLQoKPiDsnb3quLAg7KCEIMK3IOuzgO2ZmCDstqnsi6Trj4Qg66+46rKA7YagCgpbW3NvdXJjZXMvc291cmNlLTc2ZTdjNzEzNzk4YTRlYzYvdjF87JuQ67O4wrfstpzsspgg6riw66GdXV0KCjwhLS0g64W866y4IOygleumrCDtmJXsi50gdjIuIOq4sOyhtCBmcm9udG1hdHRlcuydmCBJRMK37Lac7LKYIOuyhOyghMK37J296riwIOyDge2DnOulvCDsnKDsp4DtlZzri6QuIC0tPgoKIyMg7J6Q66OMIOqwnOyalAoKLSDrrLjshJwg7ISx6rKpOiDrr7jtmZXsnbggKOybkOyggCDsl7DqtawgLyDrpqzrt7DCt+yEnOuyoOydtCAvIOuwqeuylSAvIOuNsOydtO2EsOyFi8K367Kk7LmY66eI7YGsIC8g7J2066GgIC8g6riw7YOAKQotIA=="
+      },
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "page-raw-0000",
+        "sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+        "size": 2108,
+        "offset": 1024,
+        "next_offset": 2048,
+        "eof": false,
+        "encoding": "base64",
+        "data": "7ZWcIOusuOyepSDsmpTslb06IOuvuOyekeyEsQoKIyMg7ISc7KeA7JmAIO2ZleyduCDstpzsspgKCi0g7KCA7J6QwrfrsJztkZwg7Jew64+EwrftlZntmowv7KCA64SQwrdET0nCt2FyWGl2IOuyhOyghDog66+47ZmV7J24Ci0g7ZmV7J247ZWcIOybkOusuCDsnITsuZgg65iQ64qUIOqzteyLnSDshJzsp4Ag7Lac7LKYOiDrr7jtmZXsnbgKCiMjIO2ZleuztMK37J297J2AIOuylOychAoKLSDtmZXrs7Qg67KU7JyEOiDrr7jtmZXsnbgKLSDsi6TsoJwg7J297J2AIOu2gOu2hDog66+464+FCi0g7J297KeAIOuqu+2VnCDrtoDrtoTqs7wg7J207JygOiDrr7jtmZXsnbgKLSDsm5DrrLgg64yA7KGwIOuylOychDog66+46rKA7YagCgo8IS0tIOqygOyDiSDtla3rqqnCt+yXre2VoMK36re86rGwIOychOy5mOuKlCDsg4Hri6ggcGFwZXJfcHJvZmlsZeyXkCDquLDroZ3tlZzri6QuIOuzuOusuOyXkCDrs4Trj4Qg6riw7KSAIO2RnOulvCDrp4zrk6Tsp4Ag7JWK64qU64ukLiAtLT4KCiMjIOuwsOqyveqzvCDrrLjsoJwKCiMjIO2VteyLrCDslYTsnbTrlJTslrQKCiMjIOuwqeuylQoKIyMg7Iuk7ZeYwrfqsrDqs7wKCjwhLS0g7IiY7LmYwrfri6jsnITCt+yhsOqxtMK367KU7JyE66W8IOq4sOuhne2VnOuLpC4g642w7J207YSwIOyImOulvCDrsJjrs7Ug7Iuk7ZeYIOyImOuhnCwg642w7J207YSwIOuylOychOulvCDsnbjqs7wg6rSA6rOE66GcIOuwlOq+uOyngCDslYrripTri6QuIC0tPgoKIyMg7ZWc6rOECgojIyDsl7TrprAg7KeI66y4CgojIyDtlbTshJ0gKOybkOusuOqzvCDqtazrtoQpCgojIyDrs4DtmZgg6rKA7Yagwrfrr7jtlbTqsrAg66y47KCcCgojIyDqt7zqsbDsmYAg7JuQ66y4IOychOy5mAoKPCEtLSBwYXBlcl9wcm9maWxlLmV2aWRlbmNl7J2YIElE7JeQIOuMgOydke2VmOuKlCAjIyMgRTEg7ZiV7YOc7J2YIOygiOydhCDrp4zrk6Dri6QuIC0tPgo8IS0tIOqwgSDsoIjsl5DripQg7JuQ66y4IOyduOyaqcK37ZGcIO2WiSDshKTrqoXqs7wg64yA7KGwIOuylOychOulvCDsk7Tri6QuIOychOy5mMK36w=="
+      },
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "page-raw-0000",
+        "sha256": "aec40b7c2f6ac50a221c65df5ca3ef9929c5cb55ff5083e77412c8f20c520f2f",
+        "size": 2108,
+        "offset": 2048,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "soTsoITsnZgg6riw7KSA7J2AIOyDgeuLqCBZQU1M7J2064ukLiAtLT4KCiMjIOq0gOugqCDsnpDro4wK"
+      }
+    ],
+    "answer-result-1": [
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "answer-result-1",
+        "sha256": "d712628f8ebcb284221b5a910a53294f1b77991dd8457bbb5a551a017a8b80a0",
+        "size": 620,
+        "offset": 0,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "eyJhdGxhc19pbnN0YW5jZV9pZCI6ImIxNzIwNTA4LTFkYmQtNDM0NC1iYWE2LTFhOGRhMjgxYjI3ZSIsImF0dGVtcHQiOjEsImNhbmRpZGF0ZV9yZWZzIjpbeyJjYW5kaWRhdGVfaWQiOiJDMSIsInFhX3JlZiI6eyJxYV9pZCI6InFhLWpvYi1kNWJiOTc4MmUzNDI0ZTViIiwic2hhMjU2IjoiM2I5OGMwNWU5NzQ4MGMzYjg2ZTdhODJlMzY3ODg5N2FhODdiYjc5NTNhY2Y1YjI0N2I1N2MxNDNiMTZlYTg3MyJ9fV0sImpvYl9pZCI6Imtub3dsZWRnZS0xNjMwZGMyNTVkZmY0Yjk2OWJlM2Y2NTFiMzZiOTJkMSIsImpvYl9yZWYiOiJqb2ItZDViYjk3ODJlMzQyNGU1YiIsImpvYl9zdGF0dXMiOiJjb21wbGV0ZWQiLCJwYWNrYWdlX3JlZiI6eyJhcnRpZmFjdF9pZCI6Im1hbmlmZXN0Iiwic2hhMjU2IjoiNmYxZjI2MmQ0ZDg5Y2FjYWFjMzVjMTE2NDMzNzU0YWY5ZjlkYjY0MWUyZmMzMmEwMWE5ODZkOTczNjUxYzdjZiJ9LCJxYV9yZWYiOnsicWFfaWQiOiJxYS1qb2ItZDViYjk3ODJlMzQyNGU1YiIsInNoYTI1NiI6IjNiOThjMDVlOTc0ODBjM2I4NmU3YTgyZTM2Nzg4OTdhYTg3YmI3OTUzYWNmNWIyNDdiNTdjMTQzYjE2ZWE4NzMifSwic2NoZW1hX3ZlcnNpb24iOjEsInN0YWdlIjoiYW5zd2VyIn0="
+      }
+    ],
+    "knowledge-result-1": [
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "knowledge-result-1",
+        "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392",
+        "size": 1562,
+        "offset": 0,
+        "next_offset": 1024,
+        "eof": false,
+        "encoding": "base64",
+        "data": "eyJhdGxhc19pbnN0YW5jZV9pZCI6ImIxNzIwNTA4LTFkYmQtNDM0NC1iYWE2LTFhOGRhMjgxYjI3ZSIsImF0dGVtcHQiOjEsImNhbmRpZGF0ZV9yZXN1bHRzIjpbeyJhdHRyaWJ1dGlvbiI6ImF1dGhvcl9yZXBvcnQiLCJjYW5kaWRhdGVfaWQiOiJDMSIsIm91dGNvbWUiOiJhcHBsaWVkIiwicWFfcmVmIjp7InFhX2lkIjoicWEtam9iLWQ1YmI5NzgyZTM0MjRlNWIiLCJzaGEyNTYiOiIzYjk4YzA1ZTk3NDgwYzNiODZlN2E4MmUzNjc4ODk3YWE4N2JiNzk1M2FjZjViMjQ3YjU3YzE0M2IxNmVhODczIn0sInJlYXNvbiI6IlN5bnRoZXRpYyBmaXh0dXJlIG9ubHkiLCJzb3VyY2VfcmVmcyI6W3sibG9jYXRvciI6ImxpbmUgMSIsInNoYTI1NiI6IjEyZDMyM2ZiODUzNzM0YTM2NmI1ZWVlYmI3NDdiZjM1ODdlZDFiZTczNjYzOTEzZmFhOGFiMmIwNDJhMTEzZTciLCJzb3VyY2VfaWQiOiJzb3VyY2UtNzZlN2M3MTM3OThhNGVjNiIsInZlcnNpb24iOjF9XSwidGFyZ2V0X3BhZ2VzIjpbIndpa2kvcmVmZXJlbmNlcy9TeW50aGV0aWMtc291cmNlLXNvdXJjZS03NmU3YzcxMzc5OGE0ZWM2LXYxLm1kIl19XSwiY2hhbmdlcyI6W3siYWZ0ZXJfc2hhMjU2IjoiM2I5NDIxNWUyZWQ5NWJhNjBmY2JkNjAxZWExZTkzMDdlZTVlZjIyNDdhNTBiZWI1ZGM2ODQ4NTA4MzAyYTVkZSIsImJlZm9yZV9zaGEyNTYiOiJhZWM0MGI3YzJmNmFjNTBhMjIxYzY1ZGY1Y2EzZWY5OTI5YzVjYjU1ZmY1MDgzZTc3NDEyYzhmMjBjNTIwZjJmIiwiaGlzdG9yeV9yZWYiOiJoaXN0b3J5L2tub3dsZWRnZS0xNjMwZGMyNTVkZmY0Yjk2OWJlM2Y2NTFiMzZiOTJkMS0xL3dpa2kvcmVmZXJlbmNlcy9TeW50aGV0aWMtc291cmNlLXNvdXJjZS03NmU3YzcxMzc5OGE0ZWM2LXYxLm1kIiwicGFnZV9pZCI6InBhZ2UtMzgxYzZhZDNhNTdjNGZmOCIsInBhdGgiOiJ3aWtpL3JlZmVyZW5jZXMvU3ludGhldGljLXNvdXJjZS1zb3VyY2UtNzZlN2M3MTM3OThhNGVjNi12MS5tZCJ9XSwiaW5kZXhfc3RhdHVzIjp7ImJtMjUiOnsiaW5kZXhfc3RhdHVzIjoiZg=="
+      },
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "knowledge-result-1",
+        "sha256": "d133331c3cc3b0ce538a0a26728cce534f37389bd865cda6c4571a177cd05392",
+        "size": 1562,
+        "offset": 1024,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "YWlsZWQifSwiZ3JhcGgiOnsiaW5kZXhfc3RhdHVzIjoiY3VycmVudCJ9LCJ2ZWN0b3IiOnsiaW5kZXhfc3RhdHVzIjoiY3VycmVudCJ9fSwiam9iX2lkIjoia25vd2xlZGdlLTE2MzBkYzI1NWRmZjRiOTY5YmUzZjY1MWIzNmI5MmQxIiwicGFja2FnZV9yZWYiOnsiYXJ0aWZhY3RfaWQiOiJtYW5pZmVzdCIsInNoYTI1NiI6IjZmMWYyNjJkNGQ4OWNhY2FhYzM1YzExNjQzMzc1NGFmOWY5ZGI2NDFlMmZjMzJhMDFhOTg2ZDk3MzY1MWM3Y2YifSwicGVyc2lzdGVuY2UiOiJwZXJzaXN0ZWQiLCJxYV9yZWYiOnsicWFfaWQiOiJxYS1qb2ItZDViYjk3ODJlMzQyNGU1YiIsInNoYTI1NiI6IjNiOThjMDVlOTc0ODBjM2I4NmU3YTgyZTM2Nzg4OTdhYTg3YmI3OTUzYWNmNWIyNDdiNTdjMTQzYjE2ZWE4NzMifSwicmVhZF9zY29wZSI6IlFBIGNhbmRpZGF0ZSBzb3VyY2UgbG9jYXRvcnM7IHNlZSBjYW5kaWRhdGVfcmVzdWx0cyIsInNjaGVtYV92ZXJzaW9uIjoxLCJzdGFnZSI6Imtub3dsZWRnZSIsInVucmVzb2x2ZWQiOlsiYm0yNV9ub3RfY3VycmVudCJdfQ=="
+      }
+    ],
+    "knowledge-result-2": [
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "knowledge-result-2",
+        "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064",
+        "size": 1545,
+        "offset": 0,
+        "next_offset": 1024,
+        "eof": false,
+        "encoding": "base64",
+        "data": "eyJhdGxhc19pbnN0YW5jZV9pZCI6ImIxNzIwNTA4LTFkYmQtNDM0NC1iYWE2LTFhOGRhMjgxYjI3ZSIsImF0dGVtcHQiOjIsImNhbmRpZGF0ZV9yZXN1bHRzIjpbeyJhdHRyaWJ1dGlvbiI6ImF1dGhvcl9yZXBvcnQiLCJjYW5kaWRhdGVfaWQiOiJDMSIsIm91dGNvbWUiOiJhcHBsaWVkIiwicWFfcmVmIjp7InFhX2lkIjoicWEtam9iLWQ1YmI5NzgyZTM0MjRlNWIiLCJzaGEyNTYiOiIzYjk4YzA1ZTk3NDgwYzNiODZlN2E4MmUzNjc4ODk3YWE4N2JiNzk1M2FjZjViMjQ3YjU3YzE0M2IxNmVhODczIn0sInJlYXNvbiI6IlN5bnRoZXRpYyBmaXh0dXJlIG9ubHkiLCJzb3VyY2VfcmVmcyI6W3sibG9jYXRvciI6ImxpbmUgMSIsInNoYTI1NiI6IjEyZDMyM2ZiODUzNzM0YTM2NmI1ZWVlYmI3NDdiZjM1ODdlZDFiZTczNjYzOTEzZmFhOGFiMmIwNDJhMTEzZTciLCJzb3VyY2VfaWQiOiJzb3VyY2UtNzZlN2M3MTM3OThhNGVjNiIsInZlcnNpb24iOjF9XSwidGFyZ2V0X3BhZ2VzIjpbIndpa2kvcmVmZXJlbmNlcy9TeW50aGV0aWMtc291cmNlLXNvdXJjZS03NmU3YzcxMzc5OGE0ZWM2LXYxLm1kIl19XSwiY2hhbmdlcyI6W3siYWZ0ZXJfc2hhMjU2IjoiM2I5NDIxNWUyZWQ5NWJhNjBmY2JkNjAxZWExZTkzMDdlZTVlZjIyNDdhNTBiZWI1ZGM2ODQ4NTA4MzAyYTVkZSIsImJlZm9yZV9zaGEyNTYiOiJhZWM0MGI3YzJmNmFjNTBhMjIxYzY1ZGY1Y2EzZWY5OTI5YzVjYjU1ZmY1MDgzZTc3NDEyYzhmMjBjNTIwZjJmIiwiaGlzdG9yeV9yZWYiOiJoaXN0b3J5L2tub3dsZWRnZS0xNjMwZGMyNTVkZmY0Yjk2OWJlM2Y2NTFiMzZiOTJkMS0xL3dpa2kvcmVmZXJlbmNlcy9TeW50aGV0aWMtc291cmNlLXNvdXJjZS03NmU3YzcxMzc5OGE0ZWM2LXYxLm1kIiwicGFnZV9pZCI6InBhZ2UtMzgxYzZhZDNhNTdjNGZmOCIsInBhdGgiOiJ3aWtpL3JlZmVyZW5jZXMvU3ludGhldGljLXNvdXJjZS1zb3VyY2UtNzZlN2M3MTM3OThhNGVjNi12MS5tZCJ9XSwiaW5kZXhfc3RhdHVzIjp7ImJtMjUiOnsiaW5kZXhfc3RhdHVzIjoiYw=="
+      },
+      {
+        "ok": true,
+        "contract_version": "atlas-knowledge-update/1.0",
+        "atlas_instance_id": "b1720508-1dbd-4344-baa6-1a8da281b27e",
+        "artifact_id": "knowledge-result-2",
+        "sha256": "80950e69051d6a75fb5e891126e5e28ea402f167d928094d929ff8bc18e40064",
+        "size": 1545,
+        "offset": 1024,
+        "next_offset": null,
+        "eof": true,
+        "encoding": "base64",
+        "data": "dXJyZW50In0sImdyYXBoIjp7ImluZGV4X3N0YXR1cyI6ImN1cnJlbnQifSwidmVjdG9yIjp7ImluZGV4X3N0YXR1cyI6ImN1cnJlbnQifX0sImpvYl9pZCI6Imtub3dsZWRnZS0xNjMwZGMyNTVkZmY0Yjk2OWJlM2Y2NTFiMzZiOTJkMSIsInBhY2thZ2VfcmVmIjp7ImFydGlmYWN0X2lkIjoibWFuaWZlc3QiLCJzaGEyNTYiOiI2ZjFmMjYyZDRkODljYWNhYWMzNWMxMTY0MzM3NTRhZjlmOWRiNjQxZTJmYzMyYTAxYTk4NmQ5NzM2NTFjN2NmIn0sInBlcnNpc3RlbmNlIjoicGVyc2lzdGVkIiwicWFfcmVmIjp7InFhX2lkIjoicWEtam9iLWQ1YmI5NzgyZTM0MjRlNWIiLCJzaGEyNTYiOiIzYjk4YzA1ZTk3NDgwYzNiODZlN2E4MmUzNjc4ODk3YWE4N2JiNzk1M2FjZjViMjQ3YjU3YzE0M2IxNmVhODczIn0sInJlYWRfc2NvcGUiOiJRQSBjYW5kaWRhdGUgc291cmNlIGxvY2F0b3JzOyBzZWUgY2FuZGlkYXRlX3Jlc3VsdHMiLCJzY2hlbWFfdmVyc2lvbiI6MSwic3RhZ2UiOiJrbm93bGVkZ2UiLCJ1bnJlc29sdmVkIjpbXX0="
+      }
+    ]
+  }
+}

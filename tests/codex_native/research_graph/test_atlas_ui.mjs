@@ -52,7 +52,7 @@ test('coordinator decision and Atlas question draft use the bound refs without c
   try{panel.update(view());enter('atlas-decision-title','방향 판단');enter('atlas-decision-conclusion','조건부 채택');enter('atlas-decision-rationale','검토 범위에 맞음');enter('atlas-decision-limitations','원문 미확인');await byKey(root,'atlas-decision-submit').events.click();
     assert.deepEqual(calls[0],['/api/atlas/decision',{expected_head:'h1',command_id:'cmd-2',review_ref:reviewRef,title:'방향 판단',conclusion:'조건부 채택',rationale:'검토 범위에 맞음',limitations:['원문 미확인'],submission_refs:[],prior_ref:null}]);
     enter('atlas-question-text','방향 정의는?');enter('atlas-question-missing','측정축');enter('atlas-question-impact','인용 범위');enter('atlas-question-scope','본문 표');await byKey(root,'atlas-question-submit').events.click();
-    assert.deepEqual(calls[1],['/api/atlas/question',{expected_head:'h1',command_id:'cmd-2',decision_ref:decisionRef,question:'방향 정의는?',missing_evidence:'측정축',decision_impact:'인용 범위',scope:'본문 표'}]);assert.match(root.textContent,/에이전트 의견을 대신 만들지 않습니다/);assert.match(root.textContent,/전송됐다는 상태는 만들지 않습니다/);
+    assert.deepEqual(calls[1],['/api/atlas/question',{expected_head:'h1',command_id:'cmd-2',decision_ref:decisionRef,question:'방향 정의는?',missing_evidence:'측정축',decision_impact:'인용 범위',scope:'본문 표'}]);assert.match(root.textContent,/에이전트 의견을 대신 만들지 않습니다/);assert.match(root.textContent,/Atlas에는 아직 보내지 않습니다/);
   }finally{delete globalThis.document;}
 });
 
@@ -68,8 +68,73 @@ test('failed import A never hides behind normal import after preview B',async()=
 
 test('evidence, versions, decisions, drafts and exact review-bound real council render as inert text',()=>{
   globalThis.document={createElement:t=>new Element(t)};try{const root=new Element('section'),panel=atlas.createAtlasPanel(root,{getCurrentView:view,request:async()=>({})}),snapshot=view();snapshot.external_evidence[0].latest=false;snapshot.external_evidence[0].newer_ref=ref('atlas/evidence/e2','new-sha');snapshot.external_evidence[0].possible_duplicate_refs=[ref('atlas/evidence/other','dup-sha')];snapshot.external_decisions[0].record.review_status='coordinator_only';panel.update(snapshot);
-    for(const text of ['Atlas 답변 가져오기','공정 방향은?','원문 미확인','조정자 판단','측정 방향을 확인해 주세요','실제 에이전트 대화','이전 버전 · 새 답변 있음','같은 내용일 수 있는 다른 QA','조정자 기록 · 연결된 에이전트 제출 없음','연결된 결정 보기'])assert.match(root.textContent,new RegExp(text));
+    for(const text of ['Atlas에 질문하고 답변 가져오기','공정 방향은?','원문 미확인','조정자 판단','측정 방향을 확인해 주세요','실제 에이전트 대화','이전 버전 · 새 답변 있음','같은 내용일 수 있는 다른 QA','조정자 기록 · 연결된 에이전트 의견 없음','연결된 결정 보기'])assert.match(root.textContent,new RegExp(text));
     assert.equal(all(root).filter(n=>n.tagName==='SCRIPT').length,0);assert.equal(all(root).filter(n=>n.tagName==='A').some(n=>String(n.textContent).includes('/Users/name/private.pdf')),false);
     assert.ok(all(root).filter(n=>n.tagName==='A').some(n=>String(n.href).startsWith('#atlas-review-')));
   }finally{delete globalThis.document;}
+});
+
+test('preparation cards disclose missing and stale inputs and link exact source decisions without execution controls',()=>{
+  globalThis.document={createElement:t=>new Element(t)};
+  try{
+    const root=new Element('section'),panel=atlas.createAtlasPanel(root,{getCurrentView:view}),snapshot=view();
+    snapshot.m1_preparations=[{ref:ref('prep','prep-sha'),current:false,superseded:false,preparation_ready:false,missing_items:['measurement'],record:{id:'prep',decision_refs:{design:decisionRef,data_lineage:decisionRef},items:{measurement:{status:'missing',reason:'측정자와 교정 기록 미확인',owner_id:'owner',verification_refs:[]}}}}];
+    panel.update(snapshot);
+    assert.match(root.textContent,/실험 착수 준비/);
+    assert.match(root.textContent,/검토에 사용한 자료가 바뀌었습니다/);
+    assert.match(root.textContent,/측정자와 교정 기록 미확인/);
+    assert.match(root.textContent,/준비 완료와 실험 실행 승인은 아직 확인되지 않았습니다/);
+    assert.ok(all(root).some(n=>n.tagName==='A'&&n.textContent==='설계·분석 결정 보기'&&n.href==='#atlas-decision-d1'));
+    assert.equal(all(root).some(n=>n.tagName==='BUTTON'&&n.textContent==='실험 시작'),false);
+    snapshot.m1_preparations[0].current=true;snapshot.m1_preparations[0].superseded=true;panel.update(snapshot);
+    assert.match(root.textContent,/이전 준비 기록/);
+  }finally{delete globalThis.document;}
+});
+
+test('preparation assessment distinguishes checked evidence from M2 acceptance and old records',()=>{
+  globalThis.document={createElement:t=>new Element(t)};
+  try{
+    const root=new Element('section'),panel=atlas.createAtlasPanel(root,{getCurrentView:view}),snapshot=view();
+    snapshot.m1_preparations=[{ref:ref('prep','prep-sha'),current:true,superseded:false,preparation_ready:true,review_ready:true,external_handoff_supported:true,missing_items:[],record:{id:'prep',decision_refs:{design:decisionRef,data_lineage:decisionRef},items:{measurement:{status:'verified',reason:'교정 및 측정 범위 확인',owner_id:'owner',verification_refs:[ref('check','check-sha')]}}}}];
+    snapshot.m1_preparation_verifications=[{ref:ref('check','check-sha'),record:{id:'check',evidence_ref:ref('source','source-sha'),rationale:'교정 기록과 단위를 확인했습니다',excerpt:'교정 확인 기록'}}];
+    snapshot.m1_preparation_evidence=[{ref:ref('source','source-sha'),record:{id:'source',source_version:'2026-09-13'},source_ref:ref('raw','raw-sha')}];
+    panel.update(snapshot);
+    assert.match(root.textContent,/교정 기록과 단위를 확인했습니다/);
+    assert.match(root.textContent,/자료 버전: 2026-09-13/);
+    assert.match(root.textContent,/준비 증거 확인됨/);
+    assert.match(root.textContent,/M2로 넘겼는지/);
+    assert.doesNotMatch(root.textContent,/아직 구현되지 않았습니다/);
+    snapshot.m1_preparations[0].current=false;panel.update(snapshot);
+    assert.match(root.textContent,/다시 검토해야 합니다/);
+    assert.doesNotMatch(root.textContent,/준비 증거 확인됨/);
+  }finally{delete globalThis.document;}
+});
+
+test('Atlas service controls connect and preserve question key for retry',async()=>{
+  const {createAtlasService}=await import('../../../researchclaw/codex/research_ui/atlas_service.js');
+  globalThis.document={createElement:t=>new Element(t)};const root=new Element('section'),calls=[];
+  try{
+    const panel=createAtlasService(root,{getCurrentView:view,request:async(path,payload)=>{
+      calls.push([path,payload]);if(path.endsWith('connect'))return {projects:[{id:'P',title:'Polymer'}],binding:{project:'P',title:'Polymer'},requests:[]};
+      if(path.endsWith('ask'))throw Error('atlas_transport_unavailable');return {requests:[]};
+    }});
+    await byKey(root,'atlas-service-connect').events.click();
+    assert.equal(byKey(root,'atlas-service-ask').textContent,'질문 보내기');
+    byKey(root,'atlas-service-question').value='공정 조건은?';
+    await byKey(root,'atlas-service-ask').events.click();assert.equal(byKey(root,'atlas-service-ask').textContent,'접수 다시 확인');await byKey(root,'atlas-service-ask').events.click();
+    assert.equal(calls[1][1].key,calls[2][1].key);assert.match(root.textContent,/연결|확인/);
+    panel.setHistorical(true);assert.equal(byKey(root,'atlas-service-ask').disabled,true);
+  }finally{delete globalThis.document;}
+});
+
+test('stored service records load without a remote connect and historical views skip refresh',async()=>{
+ globalThis.document={createElement:t=>new Element(t)};
+ const calls=[],root=new Element('section');
+ // Empty query is enough for the stored-knowledge renderer in this DOM test double.
+ const original=Element.prototype.querySelectorAll;Element.prototype.querySelectorAll=()=>[];
+ try {
+  const panel=atlas.createAtlasPanel(root,{getCurrentView:view,request:async(path)=>{calls.push(path);return {requests:[],knowledge_jobs:[]};}});
+  await panel.refresh();assert.deepEqual(calls,['/api/atlas/service-status']);
+  panel.setHistorical(true);await panel.refresh();assert.equal(calls.length,1);
+ } finally {if(original)Element.prototype.querySelectorAll=original;else delete Element.prototype.querySelectorAll;delete globalThis.document;}
 });

@@ -1,0 +1,83 @@
+{
+  "checks": [
+    "3 frozen input hashes match",
+    "Atlas original QA equals frozen input",
+    "9 actual role response files present",
+    "50 local links resolve (frozen input links resolved at original locations)",
+    "Native HEAD unchanged: approvals and issues preserved",
+    "Existing CSV contracts unchanged"
+  ],
+  "responses": [
+    {
+      "role": "domain",
+      "phase": "initial",
+      "path": "domain-initial.md",
+      "sha256": "02c8754f7339f0252b30787a12c50cf211182f5ada8c945a331b231bc5e0b6fc"
+    },
+    {
+      "role": "domain",
+      "phase": "response",
+      "path": "domain-response.md",
+      "sha256": "30ef79fdcbac2f5e21062f68e0dcefe4198a20152a0b8665a5eced0a6f33790e"
+    },
+    {
+      "role": "domain",
+      "phase": "final",
+      "path": "domain-final.md",
+      "sha256": "bc05cfdd3081491d330e94a70d437886897d9ee0bbab7c5058aa4b3d08c952af"
+    },
+    {
+      "role": "method",
+      "phase": "initial",
+      "path": "method-initial.md",
+      "sha256": "be74532abb8fb8094e53ca99a9419165ba152d68b2ca6022e5f3a4e02564cf30"
+    },
+    {
+      "role": "method",
+      "phase": "response",
+      "path": "method-response.md",
+      "sha256": "b9992e1cf21a4de70c731d18567357e8a69fe4e6662798de95818d0839d38b88"
+    },
+    {
+      "role": "method",
+      "phase": "final",
+      "path": "method-final.md",
+      "sha256": "0be183fa442ca83719244796951ba32e8a834cf1ae15fcaa6d6afab4dae8b8b4"
+    },
+    {
+      "role": "execution",
+      "phase": "initial",
+      "path": "execution-initial.md",
+      "sha256": "f707618dee65ee5094f779146df0d5efc29a632acef16e3aa04690d858672b0c"
+    },
+    {
+      "role": "execution",
+      "phase": "response",
+      "path": "execution-response.md",
+      "sha256": "cdfff5ea7d6b4338730010378084aecc1da994921e78a7a7734f31c3b80b3c26"
+    },
+    {
+      "role": "execution",
+      "phase": "final",
+      "path": "execution-final.md",
+      "sha256": "25e9fe07f9a0c0a3404fba58edee111552108b9fd24ec99aa749c9ca8b73aeb8"
+    }
+  ],
+  "agent_handles": [
+    "/root/atlas_domain",
+    "/root/atlas_method",
+    "/root/atlas_execution"
+  ],
+  "exposure_order": "all initials completed before responses; all responses completed before finals",
+  "native_council_submissions_added": 0,
+  "experiments": 0,
+  "ui_updated": false,
+  "software_tests": "not run: research documents and operating guidance only",
+  "limitations": [
+    "instruction-level isolation only",
+    "PDF content not reread",
+    "Atlas pending additions not ingested",
+    "final coordinator wording not a fourth review round",
+    "frozen historical input links retain original relative paths"
+  ]
+}

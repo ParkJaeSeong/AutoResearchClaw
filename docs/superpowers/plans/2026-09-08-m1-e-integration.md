@@ -18,7 +18,7 @@
 
 ## Task 17: 목적·검색·선별·종합 협의 연결
 
-**Files:** Modify `researchclaw/core/m1/contracts.py`, roles.py, packets.py, artifacts.py, council.py, m1_cli.py; Create `tests/codex_native/m1/test_early_councils.py`, `skills/researchclaw/references/m1-workflow.md`.
+**Files:** Modify `researchclaw/core/m1/contracts.py`, roles.py, packets.py, artifacts.py, council.py, m1_cli.py; Create `tests/codex_native/m1/test_early_councils.py`, `skills/researchpilot/references/m1-workflow.md`.
 
 **Interfaces:** `review_mode(node_id: str) -> str`(contracts.py), `register_verification(root: Path, *, attempt_id: str, assignment_id: str, payload: dict, command_id: str) -> dict`(council.py). 반환 mode는 `judgment_council`, `work_and_verify`, `authoring`, `handoff`.
 
@@ -133,7 +133,7 @@ def test_budget_exhaustion_is_not_success(tmp_path):
 
 ## Task 20: 설치본·문서·실제 사용자 수용 검사
 
-**Files:** Modify `pyproject.toml`(필요한 package data만), `tests/codex_native/test_plugin_package.py`, `README.md`, `RESEARCHCLAW_AGENTS.md`, `CONTRIBUTING.md`, `skills/researchclaw/SKILL.md`, `skills/researchclaw/references/agent-roles.md`; Create `tests/codex_native/m1/test_installed_package.py`, `docs/M1_USER_GUIDE_KO.md`.
+**Files:** Modify `pyproject.toml`(필요한 package data만), `tests/codex_native/test_plugin_package.py`, `README.md`, `RESEARCHCLAW_AGENTS.md`, `CONTRIBUTING.md`, `skills/researchpilot/SKILL.md`, `skills/researchpilot/references/agent-roles.md`; Create `tests/codex_native/m1/test_installed_package.py`, `docs/M1_USER_GUIDE_KO.md`.
 
 **Interfaces:** 설치된 `researchclaw-codex m1 --help`, `m1 status/inspect/view`가 checkout 밖에서 같은 기능을 제공한다. 기존 `roles describe`는 guidance_only를 유지한다. m1 전용 명령·참고 문서로 실제 협의와 구분한다.
 

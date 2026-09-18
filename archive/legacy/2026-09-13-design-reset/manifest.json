@@ -1,0 +1,160 @@
+{
+  "reason": "고정 단계 기반 과거 개발 이력 및 Zotero 철회 제안 분리",
+  "files": [
+    {
+      "from": "docs/superpowers/plans/2026-08-27-codex-native-foundation.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-27-codex-native-foundation.md",
+      "original_sha256": "e7c397bff9fc62ffece53225845b6dde739dd2a0579faecc98694b180d5b3b0b",
+      "archived_sha256": "5004f650f30249265b7dd0ef76628df0fe62020536647d12d1e6a1b98cda426f"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-27-codex-native-knowledge-extraction.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-27-codex-native-knowledge-extraction.md",
+      "original_sha256": "0a7157133d21a063f5c89524e4a36f842f87754d4b7dd7f277eda5a3ab7be0f5",
+      "archived_sha256": "d5db30b9716a24f9c2a15bd81e8a32e10e042a6005f344fdc361154162ddc098"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-29-codex-native-computational-package.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-29-codex-native-computational-package.md",
+      "original_sha256": "e8921429d406aa0b64702fc921fb49623482f134d5dfd8b8dfe10284871c2dbc",
+      "archived_sha256": "d8b413540b0482af73125923ad3025b74032fdcec0b119e3a805acdd03d7703a"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-29-codex-native-development-execution.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-29-codex-native-development-execution.md",
+      "original_sha256": "df4954c770ec602d0e59e15df7cb81ea254a4bf10198a4c770bd0a89b1c63b88",
+      "archived_sha256": "61ce8c3c1d9397cbb84ac02e0a8a2fdd312afd0dd50ba204cef5de372690a84b"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-29-codex-native-resource-planning.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-29-codex-native-resource-planning.md",
+      "original_sha256": "5bcdac3f0199e83128b7f584d65c1ced3ec319ce16a09e9a5241d47149c100c6",
+      "archived_sha256": "880ff0631bbc59cd00b256d2eb9ac4f13d29876c0359815a4937c875963dc693"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-29-codex-native-stage-12-research-result.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-29-codex-native-stage-12-research-result.md",
+      "original_sha256": "16bc410787fb3280cb6d9ac326eed58ffa02f91e27ef0f29d6cf50e1c9e1b6e4",
+      "archived_sha256": "b1e58176441beb2f5b689d08a8733cde865721125e2a76165b909c5bede1d57b"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-08-30-stage12-trustworthy-execution-evidence.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-08-30-stage12-trustworthy-execution-evidence.md",
+      "original_sha256": "e6cea9c20e96162f553e48dc6e414750b6b45d362991e7b47ec113f2f7b66fa3",
+      "archived_sha256": "bce0ae628a379edcd00d355050d8cc3d227b5bdde832ab1760740413945841e4"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-09-01-stage13-multi-agent-refinement.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-09-01-stage13-multi-agent-refinement.md",
+      "original_sha256": "6cd55550fc4784e658558b6444319054d1c1dc0d29bbbafb5a04754a6d720874",
+      "archived_sha256": "62bdf8a1b534ee045c6656ca25563e787d71a58bf828310dce4c58767babbd76"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-09-05-agent-experiment-bridge.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-09-05-agent-experiment-bridge.md",
+      "original_sha256": "4cb2f8b4862849ee016bc1b091d2508b88994d055131cd51a911b1c12eac5bd3",
+      "archived_sha256": "701de5a5469728d29cd33d6a838fa77759b5968dd72e8c0fa3dcb777ecef3e7e"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-09-06-stage15-research-decision.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-09-06-stage15-research-decision.md",
+      "original_sha256": "8a94a79424439815c0af853eab1516c4f1a1155a418b7685553b2738a33ad3a8",
+      "archived_sha256": "a25db0aff02aafbb44d9e8f65e56e0ce0060dd46ad309f3ed1e5a31c1acb4cfe"
+    },
+    {
+      "from": "docs/superpowers/plans/2026-09-07-stage-agent-roles.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/plans/2026-09-07-stage-agent-roles.md",
+      "original_sha256": "3146e741f94b552e4850efe5960f41288e77be6731fe0f1ce13d7ad29b5d29f4",
+      "archived_sha256": "d6a0bdf955f660123d9c0e7ad01cd1d48df39eb9c413efe159cb420827b33a3f"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-27-autoresearchclaw-codex-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-27-autoresearchclaw-codex-design.md",
+      "original_sha256": "ace4cb23b33503ebd0a420da08f32b307a2b3cf272d3aecb0b1850e06ed2bb24",
+      "archived_sha256": "2f1ed220e78818e068bd4e9ac434f2e392d25b0d9648c7aa866c93af3037e437"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-27-codex-native-knowledge-extraction-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-27-codex-native-knowledge-extraction-design.md",
+      "original_sha256": "4cb7f9d42d9037695e73451b6ae6dc2e4a845a1a77875b8d904bdb7993da41dd",
+      "archived_sha256": "184635c4eae3d7c48689788acff779b14a0f599bb43a5d173d80e4ac038e3879"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-29-codex-native-computational-package-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-29-codex-native-computational-package-design.md",
+      "original_sha256": "0677845d4582b7121817e48d60825fc15b0da8760129a15ec50b0f507b652d79",
+      "archived_sha256": "6a7f136c89ed6304084c9c9b3e3ee898ccdef6bdfd7bafcce9444b84714f9779"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-29-codex-native-development-execution-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-29-codex-native-development-execution-design.md",
+      "original_sha256": "b6f9ddfea6a8f48b76692a37da031a9f420a7ccdc594f52b7ef772a6944a97cc",
+      "archived_sha256": "ec11acb7746b543e5f30531ac4d89f0a217fa114cc9a072c7cfa52f974ee6828"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-29-codex-native-resource-planning-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-29-codex-native-resource-planning-design.md",
+      "original_sha256": "9a6173124082b8a2df6062dd84a8b91d88420b69703778ecf1ff9378db6e34f5",
+      "archived_sha256": "9fe6f7132253aca9c360e47c871484b97f4b36faf2740690f7c16be7ee4fa78f"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-29-codex-native-stage-12-research-result-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-29-codex-native-stage-12-research-result-design.md",
+      "original_sha256": "507bb4329e40ea02243159fa65d80c1d50fa830efa67ae55d3d309446bc42106",
+      "archived_sha256": "8c6524f61dcdd7eef802703b6f2724c699a63b39f70dd811ba3955ab730d283c"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-08-30-stage12-trustworthy-execution-evidence-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-08-30-stage12-trustworthy-execution-evidence-design.md",
+      "original_sha256": "d1e7ee9ed152a21ae9fb70e051450bb1760092866cfa5e5735292b9595cf3f30",
+      "archived_sha256": "dd48b91f846a1032d01e04708a492340266253aeca4dff406c66ef7cfb0d6af6"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-09-01-stage13-multi-agent-refinement-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-01-stage13-multi-agent-refinement-design.md",
+      "original_sha256": "e7e7ab747d87939f49591adb6e1a070a1fe966a7554b4b51a27186085c76b0af",
+      "archived_sha256": "d6813e931330d0ac6c533f7a52c6861deab53b6d07a556849b0e9cb4f30b03df"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-09-05-agent-experiment-bridge.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-05-agent-experiment-bridge.md",
+      "original_sha256": "92e5c4a1e2eb31f2043396c9478f49116159ac6931074a9cd2c45fd341bf8fc4",
+      "archived_sha256": "98eb98f19d0cf152f21a39c3242d19b8f341ff3f6cda786a65d812531c26bb63"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-09-06-stage15-research-decision-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-06-stage15-research-decision-design.md",
+      "original_sha256": "3cc5dc57141edf66e0a54403425c7228bb5f4c95d41225e23d8aaac18a69727f",
+      "archived_sha256": "1258e71bedf0b590de858ddc02be20d8b2a9bc1b2cb405b8176e01a160e38051"
+    },
+    {
+      "from": "docs/superpowers/specs/2026-09-07-stage-agent-roles-design.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/superpowers/specs/2026-09-07-stage-agent-roles-design.md",
+      "original_sha256": "28c52deb1e29ce980dd5d624c2532168bab3be40db47e9b920961e8a1cae0f22",
+      "archived_sha256": "17cc1a909ccd4c4d5d84bfc240795716ea10c9cd8708475770759dfa84379c30"
+    },
+    {
+      "from": "docs/integrations/researchatlas/zotero-collection-flow-2026-09-13.md",
+      "to": "archive/legacy/2026-09-13-design-reset/docs/integrations/researchatlas/zotero-collection-flow-2026-09-13.md",
+      "original_sha256": "8d16cfb90ab6ded9390f0bbacdac40a5f739e9ee8a1b801b588328821584c0fc",
+      "archived_sha256": "7f49b84e5ab7c3c3363219be8551f37247921e5cc6b2e671acbbceea22084e8e"
+    }
+  ],
+  "updated_reference_files": [
+    "archive/README.md",
+    "docs/CODEX_DEVELOPMENT_STATUS_KO.md",
+    "docs/README.md",
+    "docs/integrations/researchatlas/README.md",
+    "docs/superpowers/plans/2026-09-08-stage-agent-roles-verification.md",
+    "docs/superpowers/specs/2026-09-08-three-milestone-research-graph-design.md"
+  ],
+  "markdown_link_edits": 6,
+  "verification": {
+    "moved_files": 23,
+    "all_destinations_present": true,
+    "all_original_paths_removed": true,
+    "diff_check": "passed",
+    "preserved_example_link": "2026-09-07-stage-agent-roles.md 안 references/agent-roles.md는 스킬 문서에 삽입할 인용 예문이다. 실제 대상 skills/researchclaw/references/agent-roles.md가 존재하며 예문은 유지했다.",
+    "runtime_and_research_records_changed": false
+  }
+}

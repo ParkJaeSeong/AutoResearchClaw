@@ -3,10 +3,16 @@ HANDOFF_METACLAW_SKILL_LOOP.md
 .venv_arc/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 *.egg-info/
 dist/
 build/
 workspaces/
+# Local research journals and scratch work stay on this machine. Existing
+# explicitly tracked historical reports remain tracked.
+.superpowers/
+_workspace/
 .claude/*
 !.claude/agents/
 !.claude/agents/*.md

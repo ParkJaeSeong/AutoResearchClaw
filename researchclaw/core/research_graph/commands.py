@@ -14,13 +14,19 @@ from .m1_nodes import register_node
 from .m1_review import materialize_imported_issue
 from .handoffs import issue_handoff, assign_receiver, accept_handoff
 from .work_accounting import record_work, refresh_ledger
+from .return_policy import set_return_policy
+from .work_execution import set_policy as set_execution_policy, assign as assign_execution, followup as plan_service_followup, start_followup
 from .m1_search import decide_corpus, bind_corpus
 from .m1_evidence import assign_evidence, observe_evidence
 from .source_intake import capture_sources
 from .issue_impacts import record_impacts
 from .issue_scopes import propose_scope, apply_scope
 from .m1_evidence_basis import register_basis
+from .m1_preparation import register_preparation
+from .m1_preparation_verification import capture_evidence, verify_evidence
 from .external_evidence import import_evidence, record_review, record_decision, record_question
+from .execution_lifecycle import begin, record, finish, revise
+from .work_episodes import start_episode, note_episode, conclude_episode, review_episode
 
 _HANDLERS = {'verification.budget.register': register_verification_budget, 'issue.scope.propose': propose_scope, 'issue.scope.apply': apply_scope, 'issue.impact.record': record_impacts, 'm1.source.capture': capture_sources, 'm1.handoff.issue': issue_handoff, 'm1.handoff.receiver.assign': assign_receiver,
              'm1.handoff.accept': accept_handoff, 'm1.work.record': record_work, 'work_ledger.refresh': refresh_ledger,
@@ -31,9 +37,14 @@ _HANDLERS = {'verification.budget.register': register_verification_budget, 'issu
              'council.prepare': prepare_council, 'council.submit': register_submission,
              'm1.evidence.assign': assign_evidence, 'm1.evidence.observe': observe_evidence,
              'm1.node.register': register_node, 'm1.corpus.decide': decide_corpus, 'm1.corpus.bind': bind_corpus}
-_HANDLERS.update({'m1.evidence_basis.register': register_basis, 'external.evidence.import': import_evidence, 'external.review.record': record_review,
-                  'external.decision.record': record_decision, 'external.question.record': record_question})
+_HANDLERS.update({'m1.preparation.evidence.capture': capture_evidence, 'm1.preparation.evidence.verify': verify_evidence, 'm1.preparation.register': register_preparation, 'm1.evidence_basis.register': register_basis, 'external.evidence.import': import_evidence, 'external.review.record': record_review,
+                  'external.decision.record': record_decision, 'external.question.record': record_question,
+                  'episode.start': start_episode, 'episode.note': note_episode,
+                  'episode.conclude': conclude_episode, 'episode.review': review_episode})
+_HANDLERS.update({'execution.begin':begin,'execution.record':record,'execution.finish':finish,'execution.revise':revise})
 _COUNCIL_OPERATIONS = {'council.prepare', 'council.submit'}
+_HANDLERS['work.return_policy.set'] = set_return_policy
+_HANDLERS.update({'work.execution.policy':set_execution_policy,'work.execution.assign':assign_execution,'work.execution.followup':plan_service_followup,'work.execution.start':start_followup})
 
 
 def _hydrate_policy_snapshot(base, history):
@@ -90,8 +101,8 @@ def apply_command(root: Path, *, operation: str, payload: dict, expected_head: s
         if operation in ('issue.scope.propose', 'issue.scope.apply', 'issue.impact.record', 'm1.source.capture', 'm1.handoff.issue', 'm1.handoff.receiver.assign', 'm1.handoff.accept',
                          'm1.work.record', 'work_ledger.refresh', 'm1.issue.materialize', 'issue.event', 'verification.budget.register', 'verification.prepare', 'verification.result', 'm1.node.register',
                          'm1.corpus.decide', 'm1.corpus.bind', 'm1.evidence.assign', 'm1.evidence.observe',
-                         'm1.evidence_basis.register', 'external.evidence.import', 'external.review.record', 'external.decision.record',
-                         'external.question.record') or operation in _COUNCIL_OPERATIONS:
+                         'm1.preparation.evidence.capture', 'm1.preparation.evidence.verify', 'm1.preparation.register', 'm1.evidence_basis.register', 'external.evidence.import', 'external.review.record', 'external.decision.record',
+                         'external.question.record') or operation in _COUNCIL_OPERATIONS or operation.startswith('execution.'):
             handler_snapshot = _hydrate_policy_snapshot(base, history)
         plan = _HANDLERS[operation](handler_snapshot, payload)
         event = json.loads(store._canonical(plan['event']))

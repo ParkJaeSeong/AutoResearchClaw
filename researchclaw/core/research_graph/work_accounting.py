@@ -5,6 +5,7 @@ from uuid import UUID, uuid5
 
 from . import store
 from .budgets import _ledger
+from .return_policy import return_mode
 from .councils import _COUNCIL_FIELDS, _common, _fresh_ids, _record_ref, _session, _submissions, _valid
 from .dependencies import _References, _node
 from .gates import _status
@@ -51,10 +52,100 @@ def _counts(inputs):
     return returns, begun
 
 
+def _atlas_review_input(prior, source, session, author):
+    """Authenticate the frozen Atlas review through its original import context."""
+    from .external_evidence import _resolve_record, _authored, _REVIEW_FIELDS, record_review
+
+    historical = _context(prior)
+    review = _resolve_record(historical, session['input_binding'], 'external_reviews', 'work_source_invalid')
+    _authored(historical, 'external_reviews', review, 'external_review_recorded')
+    index = next(i for i, (_, old) in enumerate(historical.history)
+                 if review['id'] in old['state'].get('external_reviews', {}))
+    _require(index > 0, 'work_source_invalid')
+    # Replays native import-byte, version, evidence and question checks where
+    # the review was authored, rather than applying today's research context.
+    replay = record_review(at(historical, index - 1), {key: review[key] for key in _REVIEW_FIELDS})
+    _require(replay['state_patch']['external_reviews'][review['id']] == review
+             and review['producer_id'] == author['actor_id'] == source['producer_id'], 'work_source_invalid')
+    expected = {store._canonical(review[key]) for key in ('evidence_ref', 'question_ref')}
+    _require({store._canonical(ref) for ref in source['allowed_evidence_refs']} == expected,
+             'work_source_invalid')
+
+
+def _non_node_council(inputs, source, record_id):
+    """Account explicit native preparation reviews, without inventing M1 nodes."""
+    from .councils import prepare_council, register_submission
+    from .issue_scopes import _proposal
+    from .source_intake import captured_records
+
+    _require(_common(source, _COUNCIL_FIELDS, inputs.project)
+             and source['milestone'] == 'M1', 'work_source_invalid')
+    prepared = _native(inputs, 'councils', source, 'council_prepared',
+                       dict(council_id=source['id'], session_id=source['session_id']))
+    index = next(index for index, (_, old) in enumerate(inputs.history) if old is prepared)
+    _require(index > 0, 'work_source_invalid')
+    session = _session(inputs, source)
+    authors = [inputs.assignment(key) for key in source['author_assignment_ids']]
+    reviewers = [inputs.assignment(key) for key in session['participant_assignment_ids']]
+    _require(len(authors) == 1 and set(source['required_roles']) == {'domain', 'methodology', 'critical'}
+             and prepared['state']['review_sessions'].get(session['id']) == session
+             and all(prepared['state']['assignments'].get(a['id']) == a for a in [*authors, *reviewers]),
+             'work_source_invalid')
+    # Replay at the immutable pre-command context: validates reference availability,
+    # owner/resolver roles, distinct actors and frozen assignment/session binding.
+    prior = at(inputs, index - 1)
+    prepare_council(prior, dict(council=source, review_session=session, assignments=[*authors, *reviewers]))
+    consumed = [session['input_binding']]
+    consumed.extend(ref for ref in source['allowed_evidence_refs'] if ref not in consumed)
+    if source['node'] == 'issue_scope':
+        proposal = _proposal(_context(prior), session['input_binding'])
+        _require(source['attempt'] == proposal['id'] and authors[0]['actor_id'] == proposal['producer_id']
+                 and set(source['issue_ids']) == {r['issue_ref']['artifact_id'] for r in proposal['changes']},
+                 'work_source_invalid')
+        # Disagreement and historical proposal staleness do not erase real work.
+        question = 'Review M1 issue scope proposal'
+    elif source['node'] == 'source_analysis':
+        captures = captured_records(prior)
+        captured = {('m1/intake/blobs/' + row['sha256'], row['sha256']) for row in captures}
+        _require(all((ref['artifact_id'], ref['sha256']) in captured for ref in consumed), 'work_source_invalid')
+        question = 'Review M1 captured sources'
+    else:
+        _require(source['node'] == 'atlas-evidence-review', 'work_source_invalid')
+        _atlas_review_input(prior, source, session, authors[0])
+        question = 'Review Atlas evidence for the research question'
+    submissions = _submissions(inputs, source)
+    for phase, members in submissions.items():
+        for submission in members.values():
+            registered = _native(inputs, 'council_submissions', submission, 'council_submission_registered',
+                dict(submission_id=submission['id'], session_id=session['id'], phase=phase))
+            step = next(i for i, (_, old) in enumerate(inputs.history) if old is registered)
+            _require(step > index, 'work_source_invalid')
+            # This also rechecks phase ordering, actual author, disclosed responses
+            # and evidence against the input context used by that submission.
+            register_submission(at(inputs, step - 1), {'submission': submission})
+    required = set(session['participant_assignment_ids'])
+    _require(all(set(submissions[phase]) == required for phase in ('initial', 'response', 'final')),
+             'work_source_incomplete')
+    finals = {row['recommendation'] for row in submissions['final'].values()}
+    status = 'awaiting_input' if 'defer' in finals else ('inconclusive' if 'revise' in finals else 'completed')
+    owner = authors[0]
+    envelope = {key: source[key] for key in ('schema_version', 'workflow_version', 'content_origin')}
+    work = dict(**envelope, id=identity(record_id, 'work'), event_id=identity(record_id, 'event'),
+        project_id=inputs.project, producer_id=owner['actor_id'], provenance_status='declared_only',
+        observation_refs=[], assignment_id=owner['id'], milestone='M1', node=source['node'],
+        question=question, input_refs=deepcopy(consumed), work='Independent council review',
+        acceptance_rule='All required perspectives record final judgments')
+    return dict(id=record_id, project_id=inputs.project, work=work,
+                resource_request=dict(returns=0, verification_runs=0, estimated_cost=None, cost_status='unknown'),
+                status=status, correction_ref=None)
+
+
 def _source(inputs, kind, ref, record_id):
     collection = 'councils' if kind == 'council' else 'verifications'
     source = inputs.reference(ref, collection, 'Verification' if kind == 'verification' else None)
     canonical_ref = _record_ref(inputs, collection, source)
+    if kind == 'council' and source.get('node') in ('issue_scope', 'source_analysis', 'atlas-evidence-review'):
+        return _non_node_council(inputs, source, record_id), canonical_ref
     if kind == 'council':
         _require(_common(source, _COUNCIL_FIELDS, inputs.project), 'work_source_invalid')
         prepared = _native(inputs, 'councils', source, 'council_prepared',
@@ -206,6 +297,11 @@ def refresh_ledger(snapshot: dict, payload: dict) -> dict:
 def accounting_status(snapshot: dict) -> dict:
     inputs = _context(snapshot)
     reasons = []
+    try:
+        mode = return_mode(inputs.state)
+    except ValueError:
+        mode = None
+        reasons.append('return_policy_invalid')
     if any(not source['recorded'] for source in work_sources(snapshot)):
         reasons.append('work_record_required')
     try:
@@ -223,7 +319,9 @@ def accounting_status(snapshot: dict) -> dict:
                                   (len(begun), 'max_verification_runs', 'verification_runs_exhausted')):
         if type(inputs.state.get(maximum)) is not int or inputs.state[maximum] < 0:
             reasons.append('budget_invalid')
-        elif used > inputs.state[maximum]:
+        elif used > inputs.state[maximum] and not (maximum == 'max_returns' and mode == 'evidence_driven'):
             reasons.append(reason)
     return dict(ready=not reasons, reason_codes=list(dict.fromkeys(reasons)),
+                return_policy=dict(mode=mode, returns_used=returns,
+                                   count_limit=None if mode == 'evidence_driven' else inputs.state.get('max_returns')),
                 required_actions=[f'Complete {reason} using explicit work record/ledger commands.' for reason in dict.fromkeys(reasons)])

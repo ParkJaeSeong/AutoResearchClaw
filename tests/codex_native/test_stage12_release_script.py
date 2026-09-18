@@ -38,9 +38,11 @@ def _run(
         environment.pop("PYTHON_BIN", None)
     else:
         environment["PYTHON_BIN"] = python_bin
+    # Isolate project-local interpreter discovery from the developer checkout.
+    script = _executable(tmp_path / "scripts/verify_stage12_evidence.sh", SCRIPT.read_text())
     return subprocess.run(
-        [str(SCRIPT), *arguments],
-        cwd=ROOT,
+        [str(script), *arguments],
+        cwd=tmp_path,
         env=environment,
         check=False,
         capture_output=True,
@@ -179,7 +181,7 @@ def test_responsive_spoof_cannot_satisfy_mandatory_pytest_output_gate(tmp_path):
 
 
 def test_release_contract_documents_trusted_executable_boundary():
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme = (ROOT / "docs/legacy-cli.md").read_text(encoding="utf-8")
     script = SCRIPT.read_text(encoding="utf-8")
     assert "trusted, operator-controlled" in readme
     assert "cannot authenticate a responsive same-user executable" in readme

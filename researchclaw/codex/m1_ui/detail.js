@@ -116,8 +116,8 @@ export function renderInspection(container, view, kind, id, sourceLink = () => n
     const status = {open:'미해소', resolved:'해소 확인'}[item.status] ?? item.status;
     if (severity || status) container.append(element('p', [severity, status].filter(Boolean).join(' · '), 'limitation'));
   }
-  if (item.resolution_condition) container.append(element('p', `해소 조건: ${item.resolution_condition}`, 'secondary'));
-  if (item.content_truncated) container.append(element('p', `미리보기 · 전체 ${item.content_length}자 중 일부입니다. 등록된 원문에서 전체 내용을 확인할 수 있습니다.`, 'secondary'));
+  if (item.resolution_condition) container.append(element('p', `해결됐다고 판단할 기준: ${item.resolution_condition}`, 'secondary'));
+  if (item.content_truncated) container.append(element('p', `미리보기 · 전체 ${item.content_length}자 중 일부입니다. 전체 내용은 원문 보기에서 확인하세요.`, 'secondary'));
   if (item.content_status === 'non_utf8') container.append(element('p', '텍스트로 표시할 수 없는 등록 자료입니다.', 'secondary'));
   if (item.locator) container.append(element('p', `원문 위치: ${item.locator}`, 'secondary'));
   if (item.access_level) container.append(element('p', `접근 수준: ${item.access_level}`, 'secondary'));
@@ -176,7 +176,7 @@ export function renderCouncil(container, sessions, onInspect) {
       role.append(element('h3', ROLE_LABELS[assignment.role_id] ?? assignment.role_id));
       role.append(element('p', `${assignment.id} · ${assignment.provenance_status ?? 'declared_only'}`, 'secondary'));
       if (!initial) {
-        const state = {submitted:'제출 완료 · 전체 공개 대기', waiting:'제출 대기', failed:'배정 실패 · 대체 검토 필요'}[assignment.initial_status] ?? '최초 의견 공개 대기';
+        const state = {submitted:'제출 완료 · 전체 공개 대기', waiting:'제출 대기', failed:'검토자 배정 실패 · 다른 검토자 필요'}[assignment.initial_status] ?? '최초 의견 공개 대기';
         role.append(element('p', `${state} · 필수 역할의 제출이 모이면 공개됩니다.`, 'empty'));
       }
       for (const [label, record] of [['최초 의견', initial], ['다른 의견을 읽은 뒤', response], ['최종 입장', final]]) {
@@ -185,7 +185,7 @@ export function renderCouncil(container, sessions, onInspect) {
         entry.dataset.disclosureId = `${session.id}:${assignment.id}:${label}`;
         entry.append(element('summary', label + (record.recommendation ? ` · ${RECOMMENDATIONS[record.recommendation] ?? record.recommendation}` : '')));
         entry.append(element('p', narrative(record.rationale), 'record-content'));
-        if (record.change_rationale) entry.append(element('p', `의견 변화 이유: ${record.change_rationale}`, 'change-reason'));
+        if (record.change_rationale) entry.append(element('p', `의견을 바꾼 이유: ${record.change_rationale}`, 'change-reason'));
         for (const issue of record.open_issues ?? record.new_issues ?? []) {
           const button = element('button', `쟁점: ${issue.question}`, 'response-button');
           button.type = 'button'; button.addEventListener('click', () => onInspect('issue', issue.id)); entry.append(button);

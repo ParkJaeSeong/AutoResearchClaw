@@ -1,0 +1,291 @@
+{
+  "selection_ref": {
+    "project_id": "51437801-4992-4580-a341-65d46d8f5a58",
+    "head_id": "d99bd4a98ad5ecb86fa0b0ebe1d5561237a3052fc5e62b0b51990e94d7c322d1",
+    "artifact_id": "m1/nodes/screen",
+    "sha256": "260ff4dff7e271e4bdf32138d65afc0c84de894d4fbae38aa05af8c0d3a91066"
+  },
+  "selection_records": 24,
+  "records_with_registered_files": 2,
+  "note": "기존 정식 capture와의 연결 준비표. 파일이 없는 항목도 과거에 아무 자료도 읽지 않았다는 뜻은 아니다. 자료 검색·수집 완료·사용 승인 아님.",
+  "sources": [
+    {
+      "source_id": "discovery-b8912b736310a334",
+      "title": "Machine-Learning-Assisted Understanding of Polymer Nanocomposites Composition–Property Relationship: A Case Study of NanoMine Database",
+      "source_key": "doi:10.1021/acs.macromol.2c02249",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-f3e29df232142267",
+      "title": "Prevention of Leakage in Machine Learning Prediction for Polymer Composite Properties",
+      "source_key": "doi:10.1021/acs.jcim.3c01894",
+      "declared_access": "unavailable",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-94d1ee36a2c8e59b",
+      "title": "Benchmarking the performance of Bayesian optimization across multiple experimental materials science domains",
+      "source_key": "doi:10.1038/s41524-021-00656-9",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-ef110abd3eac805e",
+      "title": "Autonomous platform for solution processing of electronic polymers",
+      "source_key": "doi:10.1038/s41467-024-55655-3",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-47313ac38c2e6835",
+      "title": "Superlative mechanical energy absorbing efficiency discovered through self-driving lab-human partnership",
+      "source_key": "doi:10.1038/s41467-024-48534-4",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-cdccf81944ba6013",
+      "title": "Automated Hypothesis Validation with Agentic Sequential Falsifications",
+      "source_key": "url:https://proceedings.mlr.press/v267/huang25n.html",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-574e24ac32dae7be",
+      "title": "POPPER author repository",
+      "source_key": "url:https://github.com/snap-stanford/POPPER",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-f5dbe3c423b47058",
+      "title": "PANDA: a self-driving lab for studying electrodeposited polymer films",
+      "source_key": "doi:10.1039/d4mh00797b",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-64f6e179260725fb",
+      "title": "Machine learning guided resolution of mechanical trade-off in polymer composites via stress adaptive interface",
+      "source_key": "doi:10.1038/s41467-026-69872-5",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-355d23ed146a045d",
+      "title": "A Bayesian experimental autonomous researcher for mechanical design",
+      "source_key": "doi:10.1126/sciadv.aaz1708",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-b5a39e94d7c9eae3",
+      "title": "Performance metrics to unleash the power of self-driving labs in chemistry and materials science",
+      "source_key": "doi:10.1038/s41467-024-45569-5",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-792f18c4871f998e",
+      "title": "Benchmarking Self-Driving Labs",
+      "source_key": "doi:10.1039/d5dd00337g",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-9dfc3cace99905f1",
+      "title": "Probing out-of-distribution generalization in machine learning for materials",
+      "source_key": "doi:10.1038/s43246-024-00731-w",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-5eea74ae2830f183",
+      "title": "Annealing-induced particle reorientation enhanced through-plane thermal conductivity in PPS/h-BN composites",
+      "source_key": "doi:10.1016/j.compositesb.2026.113845",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-8feeb21a884830da",
+      "title": "Highly Thermally Conductive yet Electrically Insulating Polymer/Boron Nitride Nanosheets Nanocomposite Films for Improved Thermal Management Capability",
+      "source_key": "doi:10.1021/acsnano.8b06290",
+      "declared_access": "unavailable",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-bfd8b1a9b03bab7a",
+      "title": "Thermal Percolation Threshold and Thermal Properties of Composites With High Loading of Graphene and Boron Nitride Fillers",
+      "source_key": "doi:10.1021/acsami.8b16616",
+      "declared_access": "unavailable",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-3626d245d4ad6f1f",
+      "title": "Stretchable Heat-Dissipation Sheet Based on Insulating Graphene and Boron Nitride Composites: Asymmetric Elastomeric Networks for Stable Thermal Conductivity Under Repeated Tensile Strain",
+      "source_key": "doi:10.1039/d5na00373c",
+      "declared_access": "unavailable",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-e2e73e719bd7b19f",
+      "title": "expt-group-partitioning — 누출 방지 논문 저자 저장소",
+      "source_key": "url:https://github.com/shimakawa-hvg/expt-group-partitioning",
+      "declared_access": "full_text",
+      "registered_files": [
+        {
+          "capture_id": "339bcd90-3558-5cf0-a231-885151af6251",
+          "filename": "S2-reading-excerpt.txt",
+          "sha256": "d3f25979efe4b682b14671e05b02777c9a5ce483eaf25f4873fea2730ec06c96",
+          "reading_scope": "Abbasi 논문에 대응하는 원자료 행; source-analysis-01 mechanical excerpt. Full source hash is embedded."
+        },
+        {
+          "capture_id": "33d68d26-c300-58d8-9cda-d3118e723704",
+          "filename": "data_EC.csv",
+          "sha256": "19896c37279f78d44d5a3a08773fdfa57af2b1e6a9373137fae6889de0872396",
+          "reading_scope": "공개 가공 EC 표 확보. 기존 열·행·시료 대응 감사 범위를 읽었으며 사용 적합성은 미확정."
+        },
+        {
+          "capture_id": "6bdc9157-4781-5e61-9aad-1496a0e901a2",
+          "filename": "upstream-README.md",
+          "sha256": "c635b99304bb9fee07ffc54b1801b5a4ca7f0e017210eb609616001e23700535",
+          "reading_scope": "기존 전처리 검토에서 README 전체를 읽음."
+        },
+        {
+          "capture_id": "cb332de2-b615-5000-b2e7-bbcdaaee82f5",
+          "filename": "upstream-make_expt_id.ipynb",
+          "sha256": "69052745e6ab7c35a8367f86e5e1c7c3ce27c4849f8f823a93abaf568a6a54fb",
+          "reading_scope": "기존 전처리 검토에서 코드 셀 5개를 읽음. 실행하지 않음."
+        },
+        {
+          "capture_id": "cce98473-1fc7-5f25-ad59-09032f7c5821",
+          "filename": "S1-reading-excerpt.txt",
+          "sha256": "b541f026708ea170e00610e118269bbf809b3427c3cab48638f431d8a2a2b286",
+          "reading_scope": "PC/CNT 전체 처리 데이터의 선택 열; source-analysis-01 mechanical excerpt. Full source hash is embedded."
+        },
+        {
+          "capture_id": "e37fc143-ad41-55e8-b04b-62b16f08729f",
+          "filename": "S5-reading-excerpt.txt",
+          "sha256": "9f56002ab2983bec9a6fe807b844afdf02bfe20dbb15ed0bb1d947fbcd95f637",
+          "reading_scope": "저자 공개 그룹 생성 노트북의 전체 셀; source-analysis-01 mechanical excerpt. Full source hash is embedded."
+        },
+        {
+          "capture_id": "e5e142d9-2e0b-59f9-be78-8737ce1ebfd4",
+          "filename": "sample_detail_EC.csv",
+          "sha256": "f6c26096b9f9a87bb89f130e00b1874e135921cc4e214c320f90052e2a0a1783",
+          "reading_scope": "공개 상세 EC 표 확보. 기존 시료별 대응 감사 범위만 확인."
+        },
+        {
+          "capture_id": "e69585bb-e37c-5f0b-8234-162a34191872",
+          "filename": "S4-reading-excerpt.txt",
+          "sha256": "8fa4c08a946aee6921d5f058e4bc25dea20705f34de203b4a51c6e9e77f6bfd2",
+          "reading_scope": "저자 저장소 README; source-analysis-01 mechanical excerpt. Full source hash is embedded."
+        }
+      ],
+      "next_action": "기존 보존 원문·발췌를 수집과 추출 주장에 연결",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-dab608d88096014a",
+      "title": "Model Discrimination between RAFT Polymerization Models Using Sequential Bayesian Methodology",
+      "source_key": "doi:10.1002/mats.201800016",
+      "declared_access": "abstract",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-1de4081b885401d5",
+      "title": "Autonomous scanning probe microscopy with hypothesis learning: Exploring the physics of domain switching in ferroelectric materials",
+      "source_key": "doi:10.1016/j.patter.2023.100704",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-b0913116fa9e0ccf",
+      "title": "LLM-Guided Open Hypothesis Learning from Autonomous Scanning Probe Microscopy Experiments",
+      "source_key": "url:https://arxiv.org/pdf/2605.06839",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-35262a4a776160c1",
+      "title": "The reusable holdout: Preserving validity in adaptive data analysis",
+      "source_key": "doi:10.1126/science.aaa9375",
+      "declared_access": "metadata_only",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "discovery-e7446eb598342a1e",
+      "title": "mathsphy/probing-ood — OOD 평가 저자 저장소",
+      "source_key": "url:https://github.com/mathsphy/probing-ood",
+      "declared_access": "full_text",
+      "registered_files": [],
+      "next_action": "기존 탐색 작업 공간의 원문 보존 여부 확인; 없으면 접근한 범위와 원문 미확보를 구분해 등록",
+      "new_source_retrieval_required": null
+    },
+    {
+      "source_id": "abbasi-2010",
+      "title": "Abbasi 2010 PC/CNT 제조·전기전도도 원문 (기존 검토 자료)",
+      "source_key": "doi:10.1016/j.polymer.2009.12.041",
+      "declared_access": "full_text",
+      "registered_files": [
+        {
+          "capture_id": "8c69b0d8-9d1f-57a9-89f1-91efcc8a8f64",
+          "filename": "abbasi-2010.pdf",
+          "sha256": "3d4e6bec0d17fec23c3c2ed38c2a3fc852c8f28eff629b247bed967b28da52b7",
+          "reading_scope": "전체 PDF 확보; 읽기 확인 범위는 §2.2·§2.6·그림12. 전 페이지 검토 완료를 뜻하지 않음"
+        },
+        {
+          "capture_id": "d27f8adc-d326-5eac-91fd-8bdfe49a3d86",
+          "filename": "S3-reading-excerpt.txt",
+          "sha256": "4888faa41f7ba4cb9f147865aa7d58ddc285ebf1c7b4bd01991c04696b793b8d",
+          "reading_scope": "Abbasi 2010 제조·측정 방법과 그림12 주변 본문; source-analysis-01 mechanical excerpt. Full source hash is embedded."
+        }
+      ],
+      "next_action": "기존 보존 원문·발췌를 수집과 추출 주장에 연결",
+      "new_source_retrieval_required": null
+    }
+  ]
+}

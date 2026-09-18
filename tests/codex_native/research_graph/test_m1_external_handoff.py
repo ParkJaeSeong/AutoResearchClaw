@@ -32,8 +32,8 @@ def test_external_chain_handoff(f):
                 a['content']['prior_issue_dispositions'].append(dict(issue_id=issue['id'],disposition='native_resolved',owner_assignment_id=row['owner_assignment_id'],hypothesis_ids=['h1'],rationale='Native result',verification_refs=event['verification_refs']))
         f.register(a);f.council_prepare();f.complete();refs[node]=f.node_ref()
     before=store.read_head(f.root)['id']
-    with pytest.raises(ValueError,match='external_handoff_not_supported'):
+    with pytest.raises(ValueError,match='preparation_required'):
         _eligibility(f.snapshot())
-    with pytest.raises(ValueError,match='external_handoff_not_supported'):
+    with pytest.raises(ValueError,match='preparation_required'):
         f.apply('m1.handoff.issue',dict(publication=f.envelope(),review_ref=refs['review']))
     assert store.read_head(f.root)['id']==before

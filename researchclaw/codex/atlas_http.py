@@ -5,6 +5,7 @@ import json
 
 from researchclaw.core.research_graph import commands, store
 from .atlas_intake import mutation_result
+from .atlas_service_http import FIELDS as SERVICE_FIELDS, dispatch as service_dispatch
 
 MAX_REQUEST_BYTES = ((10 * 1024 * 1024 + 2) // 3) * 4 + 65536
 _FIELDS = {
@@ -29,6 +30,8 @@ def decode_qa(value):
 
 def dispatch_atlas(root, action, payload):
     """Transport cannot set authorship or submit arbitrary graph operations."""
+    if action in SERVICE_FIELDS:
+        return service_dispatch(root,action,payload)
     required = _FIELDS[action] | (set() if action == 'preview' else {'expected_head', 'command_id'})
     if type(payload) is not dict or set(payload) != required:
         raise ValueError('atlas_request_invalid')
@@ -48,7 +51,7 @@ def _invalid_constant(value):
 def handle_post(handler, root):
     """Return False for every unrelated route; it remains read-only."""
     action = handler.path.removeprefix('/api/atlas/')
-    if handler.path != '/api/atlas/' + action or action not in _FIELDS:
+    if handler.path != '/api/atlas/' + action or action not in _FIELDS and action not in SERVICE_FIELDS:
         return False
     if not handler._origin_allowed():
         handler.close_connection = True

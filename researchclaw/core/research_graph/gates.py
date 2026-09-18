@@ -117,7 +117,7 @@ def assess_gate(snapshot: dict, *, milestone: str, gate_id: str) -> dict:
     try:
         _require(type(gate_id) is str and str(UUID(gate_id)) == gate_id, 'gate_invalid')
         gate = inputs.registered('gate_requirements', gate_id)
-        if gate.get('profile') == 'native_m1_handoff':
+        if gate.get('profile') in ('native_m1_handoff', 'external_m1_handoff'):
             from .handoffs import assess_native_handoff
             _require(milestone == 'M1', 'gate_invalid')
             return assess_native_handoff(snapshot, gate)

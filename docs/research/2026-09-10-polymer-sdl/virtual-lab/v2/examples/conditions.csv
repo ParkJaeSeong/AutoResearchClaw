@@ -1,0 +1,6 @@
+﻿schema_version,data_origin,task_id,parameter,planned_value,actual_value,unit,value_status,notes,condition_id,scope_type,scope_id,method_id
+2,synthetic,DEMO-MAKE-0,speed_multiplier,,,ratio,unknown,배율 실제 수치는 미정; 조건 기호는 tasks에 보존,DEMO-COND-M0,task,DEMO-MAKE-0,
+2,synthetic,DEMO-TEST-0,contact_procedure,P0,,,unknown,가상 방법; 실제 접촉 적합성 미확인,DEMO-COND-A0,attempt,DEMO-A0,PILOT-EC-LONGITUDINAL-4T-v1
+2,synthetic,DEMO-MAKE-1,speed_multiplier,,,ratio,unknown,배율 실제 수치는 미정; 조건 기호는 tasks에 보존,DEMO-COND-M1,task,DEMO-MAKE-1,
+2,synthetic,DEMO-TEST-1,contact_procedure,P0,,,unknown,가상 방법; 실제 접촉 적합성 미확인,DEMO-COND-A1,attempt,DEMO-A1,PILOT-EC-LONGITUDINAL-4T-v1
+2,synthetic,DEMO-TEST-1,contact_procedure,P0,,,unknown,합성 재시도,DEMO-COND-A1-RETRY,attempt,DEMO-A1-RETRY,PILOT-EC-LONGITUDINAL-4T-v1

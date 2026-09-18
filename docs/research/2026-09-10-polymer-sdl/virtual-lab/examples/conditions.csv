@@ -1,0 +1,5 @@
+﻿schema_version,data_origin,task_id,parameter,planned_value,actual_value,unit,value_status,notes
+1,synthetic,DEMO-T01,extrusion_profile,,,,unknown,실제 공정 조건은 미정
+1,synthetic,DEMO-T02,manufacturing_condition,M0,M0,,provided,M0는 설계 기호이며 장비 설정값이 아님
+1,synthetic,DEMO-T03,contact_procedure,P0,P0,,provided,접촉 방법의 상세 조건은 미정
+1,synthetic,DEMO-T04,test_procedure,,,,unknown,UTM 시험 종류·속도·시편 형상은 미정

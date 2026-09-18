@@ -1,393 +1,212 @@
 # Pilot
 
-Pilot은 근거를 검토하고, 에이전트 토론으로 연구 방향을 정해 실험으로 이어가는 자율 연구 프로젝트입니다. ResearchAtlas는 지식 축적을 담당합니다.
+> **2026-09-19 실행 상태:** M1 전체 자동 실행은 아직 연결되지 않았습니다. 새 실행 생명주기는 근거 검토 한 단계에 한정되며, 단계별 모델·추론 설정과 후속 자동 배정은 미완성입니다. 프로젝트 생성이나 UI 표시를 연구 실행 시작으로 해석하지 마세요. 개발 진입점은 [현재 실행 경로와 남은 통합 작업](docs/development.md)입니다.
 
-제품명은 **Pilot**입니다. 기존 설치·연구 기록과의 호환성을 위해 Python 패키지와 CLI(`researchclaw-codex`), 스킬 호출명(`$researchclaw`), 저장 경로는 유지합니다. GitHub 주소는 실제 저장소 주소를 사용합니다.
+**근거를 모으고, 에이전트가 토론하며, 연구의 다음 방향을 정합니다.**
 
-현재 작업 문서는 [프로젝트 문서 안내](docs/README.md), 원본·이전 자료는 [보관함](archive/README.md)에서 확인합니다.
+Pilot은 자료 수집 및 토론으로 연구 방향을 정하고 전문 도구에 작업을 의뢰하는 도메인 전문가 에이전트 오케스트레이터입니다. 어떤 결론이 나왔는지뿐 아니라 **왜 그런 결정을 내렸는지**를 대화·근거·도구 사용 기록으로 확인할 수 있습니다.
 
-Pilot (formerly AutoResearchClaw Codex) is a Codex-native research orchestration plugin derived
-from [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw). Codex
-does the reasoning and tool-using work in the active session; a small local
-Python engine provides deterministic task packets, validation, durable state,
-hash-bound approvals, resume, and evaluation records.
+현재는 **M1: 자료 수집 및 토론**을 중심으로 개발하고 있습니다. 연구 경로에서는 실험 설계와 착수 준비까지 포함합니다. 프로젝트 관리, 연구 기록 UI, 에이전트 검토 기록, ResearchAtlas 연결을 구현했습니다. M2의 실험 실행, M3의 논문 작성, M4의 보고서·계획서 작성은 후속 개발 범위입니다.
 
-For the implemented scope, verification results, and next work, see the
-[Korean development status snapshot (2026-09-08)](docs/CODEX_DEVELOPMENT_STATUS_KO.md).
+## 연구 흐름
 
-The Codex-native path does not call an external LLM API or start a nested
-Codex, Claude, Gemini, OpenClaw, or ACP agent. The plugin activates only when
-the user invokes `$researchclaw` or clearly requests the Pilot (ResearchClaw) workflow by name.
+| 마일스톤 | 목적 | 단계 |
+| --- | --- | --- |
+| **M1 · 자료 수집 및 토론** | 질문·근거·방향과 실행 계획 정리 | 범위와 질문 → 자료 수집·분석·토론 → 판단 → 목적별 실행·작성 준비 |
+| **M2 · 실험과 분석** | 결과로 가설을 검토하고 다음 방향 결정 | 실행 계획 확인 → 실험 → 품질 검토 → 분석 → 가설 검토 → 다음 방향 |
+| **M3 · 논문 작성** | 연구 결과를 논문으로 완성 | 방향 설정 → 구조 설계 → 초안 → 교차 검토 → 수정·투고 준비 |
+| **M4 · 보고서·계획서 작성** | 근거와 추진 계획을 문서로 완성 | 목적·독자·양식 확인 → 구성·초안 → 검토·수정 → 제출 준비 |
 
-Codex-native supported execution boundary: stages 1–11 through generic stage
-commands, plus the dedicated Stage-12 experiment and Stage-13 refinement
-protocols described below. Stages 14 and 15 use dedicated evidence-bound
-analysis and research-decision registration protocols. Stage 16 is the read-only
-unsupported boundary. This release continues
-past the user-approved literature-screen gate to provenance-aware knowledge
-extraction, evidence synthesis, and provenance-linked hypothesis generation
-without an external LLM API key, then creates a reproducible validation design
-for policy evidence, computational, or laboratory work. Stage 9 is an approval
-gate. After an approved computational design, Stage 10 authors and statically
-validates an agent-authored scalar regression v2 package or the retained six-file
-v1 planning scaffold, without executing either during Stage 10.
-Policy-evidence and laboratory Stage 10 packages are unsupported. Stage 11
-authors and validates only `experiment/resources.json` from declared inputs
-and passive local hardware facts. Stage 12 begins with an explicit user
-approval that records a hash-bound decision but does not execute the
-experiment. After approval, Stage 12 supports an explicit handoff and
-contract-bound user-result registration; Pilot never executes the
-experiment from a preparation command. The exact returned command runs the
-repository-owned regression runtime and authored `fit`/`predict` algorithm.
-Stage 13 supports bounded candidate refinement with explicit council decisions,
-self-tests and immutable result registration. Stage 14 supports independent
-result analysis and Stage 15 records a three-role research direction plus a
-deterministic report without executing follow-up. Full-paper production remains
-roadmap work; later declared contracts are not claims of implemented capability.
+**연구는 M1→M2→M3, 조사 보고서·사업 계획서는 M1→M4, 실험 결과 보고서는 M1→M2→M4**로 진행합니다. M4는 M3 다음에 반드시 거치는 단계가 아닙니다. M3·M4는 같은 문서 작성 프로젝트에 유형별 작업을 의뢰하는 설계입니다.
 
-Stages 1–11 are implemented planning and validation work. Stage 12 additionally
-supports only the explicit approved handoff and contract-bound result
-registration boundary. The v2 runtime supports one CSV, declared scalar features
-and target, train-only fitting, disjoint cell/group partitions and MAE in the
-approved unit. It supports no provider APIs or dynamic dependencies. The pure
-numerical subset is not a general Python sandbox. See the
-[computational package authoring reference](skills/researchclaw/references/computational-package.md).
+현재 UI에는 기존 M1–M3 구조와 명칭이 남아 있습니다. 새 M1 분기·명칭과 M4는 설계 기준이며 아직 UI·저장 계약에 적용되지 않았습니다. M2·M3 실행도 후속 개발입니다.
 
-## Install the CLI
+```mermaid
+flowchart LR
+    M1["M1 · 자료 수집 및 토론"] --> M2["M2 · 실험과 분석"]
+    M2 --> M3["M3 · 논문 작성"]
+    M1 --> M4["M4 · 보고서·계획서 작성"]
+    M2 --> M4
+    M2 -->|전제·설계 수정| M1
+    M3 -->|근거 보완| M1
+    M4 -->|근거·계획 보완| M1
+```
 
-The Python distribution is `researchclaw-codex`, and its supported Codex-native
-command is `researchclaw-codex`.
+M1의 목적별 경로는 **M1-1 연구 설계 / M1-2 조사·평가 / M1-3 계획 수립**입니다. [목적별 프롬프트 설계](docs/research/prompts/m1/README.md)에서 공통 규칙과 각 경로의 전문가·자료·해석·산출물 요구를 구분합니다. 현재는 설계 템플릿이며 런타임에 자동 적용되지 않습니다.
 
-```bash
-git clone https://github.com/ParkJaeSeong/AutoResearchClaw-Codex.git
-cd AutoResearchClaw-Codex
+세부 책임과 목적별 산출물은 [M1–M4 운영 흐름](docs/research/guides/milestones.md)에 정리했습니다. 자료 수집은 현재 Pilot에 두며 필요할 때 분리합니다.
+
+연구 단계와 실제 수행 순서는 별개입니다. 자료가 부족해 이전 단계로 돌아가면, 기존 결과를 덮어쓰지 않고 **돌아간 이유와 새 수행 회차**를 기록합니다. 위 흐름은 연구 설계이며, 모든 연결이 자동 실행되는 상태는 아닙니다.
+
+## 주요 기능
+
+| 기능 | 현재 할 수 있는 일 |
+| --- | --- |
+| **프로젝트 관리** | 프로젝트 생성·선택, 연구별 저장 경로와 요청 분리, 기존 연구 등록 |
+| **단계별 탐색** | M1 단계의 기록 조회, 단계와 실제 수행 회차 구분, 전체 수행 이력 보기 |
+| **진행 과정 보기** | 최근 작업부터 쌓이는 회차 목록에서 목적·결론·남은 문제·다음 작업 확인 |
+| **에이전트 대화** | 처음 의견 → 서로의 의견 검토 → 최종 판단을 나눠 조회하고, 접힌 발언을 펼쳐 원문과 근거 확인 |
+| **판단과 문제 추적** | 결정의 근거, 단계별 확인할 문제, 상태와 변경 이력 조회 |
+| **자료와 근거 관리** | 후보 자료 검색, DOI·출처·확인 범위 조회, 근거 원형과 버전 연결 |
+| **ResearchAtlas 연결** | 기존 지식 프로젝트 연결, 질문·후속 질문, 진행 조회, 답변과 참고 원문 수신·등록 |
+| **개발 중 사람의 검토** | 대상 회차의 결론에 의견과 후속 진행·수정 요청 기록 |
+| **프로젝트 자료** | 공개 문서·입력·산출물의 파일 목록 검색과 다운로드 |
+| **기록 보존과 재개** | 과거 기록 시점 조회, 변경 충돌 검사, 요청 재시도와 중단 후 재개 |
+| **화면 설정** | 밝게·어둡게, 왼쪽 메뉴 접기·펼치기, 모바일 메뉴, 본문 전체 폭 사용 |
+
+프로젝트를 바꿀 때 선택과 작성 중인 입력을 연구별로 구분합니다. 답변·검토의 저장 결과가 불확실하면 같은 요청으로 확인하여 중복 실행을 방지합니다.
+
+## 에이전트는 어떻게 연구하나요?
+
+다음 여섯 가지 책임을 기준으로 작업에 필요한 역할을 배정합니다. 항상 여섯 에이전트가 동시에 실행되는 구성은 아닙니다.
+
+| 역할 | 책임 |
+| --- | --- |
+| 조정자 | 연구 질문과 범위를 유지하고, 결과를 평가해 다음 작업 배정 |
+| 자료 탐색·서지 관리 | 필요한 자료 탐색·확보, 출처·버전·원문 접근 상태 기록 |
+| 분야 전문가 | 자료의 의미와 연구 대상에 대한 적용 가능성 검토 |
+| 평가 방법 검토자 | 반증 조건, 비교 방법, 편향과 불확실성 검토 |
+| 연구 설계·실행 검토자 | 변수·대조군·측정·분석·실행 조건 검토 |
+| 판단 정리 담당 | 합의와 이견, 판단 이유, 남은 문제와 다음 행동 정리 |
+
+같은 입력 버전으로 첫 의견을 작성한 뒤 서로의 의견을 검토합니다. 의견이 같다는 사실을 새로운 증거로 취급하지 않으며, 해결하지 못한 이견도 보존합니다. 추가 검토는 대화 횟수보다 **무엇이 부족하고 어떤 결정을 바꿀 수 있는가**를 기준으로 정합니다.
+
+현재 연구 수행은 Codex 세션과 연결 도구를 사용합니다. UI를 켜거나 프로젝트를 만드는 것만으로 에이전트가 연구를 시작하지 않습니다. Codex·Claude·Ollama 등을 연결해 상시 토론하는 다중 모델 실행기는 아직 제공하지 않습니다.
+
+## Pilot과 ResearchAtlas
+
+| 구성 요소 | 역할 |
+| --- | --- |
+| **Pilot** | 연구 질문, 외부 자료 탐색·확보, 분석 의뢰, 가설 검토, 실험 설계, 연구 판단 |
+| **ResearchAtlas** | 자료 분석과 지식 축적, 자료실 검색·질답, 출처와 미확인 범위 제공 |
+| **Documents** | Atlas와 연결하는 문서 변환·추출 도구. 별도 프로젝트에서 관리 |
+| **셀프드라이빙랩** | 향후 실험 실행을 맡을 별도 에이전트·장비 계층 |
+
+Pilot 연구 프로젝트와 Atlas 지식 프로젝트는 별도로 관리하고 연결합니다. Atlas의 답변을 받는 일과 그 답변을 연구에 사용할 수 있는지 판단하는 일을 구분합니다. 원문을 받지 못한 경우에는 누락 상태를 보존하고 다시 받을 수 있습니다.
+
+현재 Pilot의 서비스 연결은 **HTTP 클라이언트**를 사용합니다. Atlas의 API·MCP 계약 전체를 Pilot이 모두 구현했다는 뜻은 아닙니다. 지원 명령과 연결 절차는 [Atlas 연결 사용법](docs/integrations/researchatlas/pilot-t1-implementation.md), 후속 흐름은 [Atlas 연구 왕복 기록](docs/integrations/researchatlas/pilot-atlas-loop.md)을 참고하세요.
+
+## 시작하기
+
+### 1. 설치
+
+Python 3.11 이상이 필요합니다. 저장소 폴더에서 실행합니다.
+
+```sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 researchclaw-codex --help
 ```
 
-Installing the Python distribution provides the CLI. It does not install,
-enable, or implicitly activate the Codex plugin.
+제품 이름은 Pilot이며, 기존 기록과의 호환성을 위해 Python 패키지와 CLI 이름은 `researchclaw-codex`를 유지합니다.
 
-## Use the plugin
+### 2. 첫 연구와 UI 열기
 
-Install and enable this repository as a Codex plugin through an explicit local
-plugin workflow. No marketplace action is required for development. Once the
-plugin is enabled, invoke it by name:
+```sh
+researchclaw-codex research init workspaces/first-research \
+  --topic "검증할 연구 질문" \
+  --content-origin real
+
+researchclaw-codex research view workspaces/first-research \
+  --workspace workspaces/pilot \
+  --port 8771
+```
+
+브라우저에서 **http://127.0.0.1:8771**을 엽니다. 첫 연구가 목록에 등록되며, 이후에는 왼쪽의 **+ 새 프로젝트**에서 추가할 수 있습니다. 이미 연구가 있다면 `init` 대신 기존 프로젝트 경로로 `view`를 실행합니다.
+
+UI에서 만든 프로젝트는 근거 중심 재검토 정책을 사용합니다. 위의 첫 연구처럼 CLI `init`으로 만든 프로젝트에는 기존 횟수 설정이 유지되므로, [재검토 진행 기준](docs/research/guides/return-policy.md)에 따라 정책을 확인합니다. 프로젝트 생성은 연구 실행이나 실험 승인을 뜻하지 않습니다.
+
+### 3. 에이전트와 연구 시작·재개
+
+프로젝트 스킬이 노출된 Codex 환경에서 다음과 같이 요청합니다.
 
 ```text
-$researchclaw Start a materials research project on formation-energy prediction.
+$researchpilot
+workspaces/first-research의 현재 기록을 확인하고,
+연구 질문과 범위를 구체화하는 작업부터 시작해줘.
 ```
 
-Ordinary research questions do not activate the skill.
+스킬은 저장소의 [skills/researchpilot](skills/researchpilot/SKILL.md)에 있습니다. CLI 설치와 스킬 활성화는 별개이며, 스킬이 목록에 없다면 해당 파일을 안내 기준으로 지정할 수 있습니다. 같은 연구를 재개할 때는 기존 프로젝트 경로를 사용합니다.
 
-## Codex-native CLI workflow
+### 4. Atlas 연결하기 — 선택 사항
 
-All paths returned in task packets are relative to the project root. JSON mode
-writes one JSON value to stdout; diagnostics go to stderr.
+Atlas 서비스가 제공한 로컬 연결 파일을 서버에 지정합니다.
 
-```bash
-researchclaw-codex init ./demo-research \
-  --topic "Formation-energy prediction" --profile materials_ai --json
-researchclaw-codex status ./demo-research --json
-
-researchclaw-codex stage prepare ./demo-research --json
-# Read every required input and create only the declared outputs.
-researchclaw-codex stage validate ./demo-research --json
+```sh
+PILOT_ATLAS_CONNECTION_FILE=/path/to/atlas-connection.json \
+  researchclaw-codex research view workspaces/first-research \
+  --workspace workspaces/pilot --port 8771
 ```
 
-Repeat `prepare` → artifact creation → `validate` through stage 5. After the
-stage-5 output validates, stop for the user's explicit decision. An approval
-advances to stage 6; prepare the extraction packet, create only its declared
-knowledge artifacts, and validate them:
+`/path/to/atlas-connection.json`을 실제 연결 파일 경로로 바꿉니다. UI의 **Atlas 연결**에서 연결을 확인하고 기존 지식 프로젝트를 선택합니다. 연결 파일과 인증 정보는 서버에서 읽으며 브라우저 입력란에 토큰을 넣지 않습니다.
 
-```bash
-researchclaw-codex approve ./demo-research \
-  --decision approve --note "Literature corpus accepted" --json
-researchclaw-codex resume ./demo-research --json
-researchclaw-codex stage prepare ./demo-research --json
-# Access permitted source material and write only the two declared outputs.
-researchclaw-codex stage validate ./demo-research --json
-researchclaw-codex resume ./demo-research --json
-# Prepare stage 7, then have Codex write only knowledge/synthesis.md.
-researchclaw-codex stage prepare ./demo-research --json
-researchclaw-codex stage validate ./demo-research --json
-researchclaw-codex resume ./demo-research --json
-# Prepare stage 8, then have Codex write only hypotheses/candidates.jsonl.
-researchclaw-codex stage prepare ./demo-research --json
-researchclaw-codex stage validate ./demo-research --json
-researchclaw-codex resume ./demo-research --json
-# Prepare stage 9, then have Codex write only experiment/design.json.
-researchclaw-codex stage prepare ./demo-research --json
-researchclaw-codex stage validate ./demo-research --json
-# Stop here and ask the user to approve or reject the validated design.
-researchclaw-codex approve ./demo-research \
-  --decision approve --note "Validation design accepted" --json
-researchclaw-codex resume ./demo-research --json
-# For an approved computational design, prepare and author the declared v2 or v1 outputs.
-researchclaw-codex stage prepare ./demo-research --json
-researchclaw-codex stage validate ./demo-research --json
-researchclaw-codex resume ./demo-research --json
-# Prepare Stage 11, author only experiment/resources.json, then validate it.
-researchclaw-codex stage prepare ./demo-research --json
-researchclaw-codex stage validate ./demo-research --json
-# If validation reports needs_input, have the user satisfy prerequisites first.
-researchclaw-codex execution recheck ./demo-research --json
-# Stop. Do not run the deferred experiment command.
+## 프로젝트 저장 구조
+
+UI에서 생성한 연구는 작업 공간 아래의 별도 폴더에 저장됩니다. 프로젝트 이름이 같아도 기록을 합치지 않습니다.
+
+```text
+workspaces/pilot/
+├── catalog.json                 # 프로젝트 목록과 경로 연결
+└── projects/<고유 폴더 ID>/
+    ├── project.json             # 이름·주제·프로젝트 ID
+    ├── documents/               # 설명·검토 문서
+    ├── materials/               # 공개할 입력 자료
+    ├── outputs/
+    │   ├── M1/                  # 실험 준비 산출물
+    │   ├── M2/                  # 실험·분석 산출물용 위치
+    │   └── M3/                  # 논문 산출물용 위치
+    ├── runs/                    # 실행 작업 파일
+    ├── .researchclaw/           # 연구 상태·버전·대화·판단 원기록
+    └── .atlas-link/             # Atlas 연결 기록 — 연결 시 생성
 ```
 
-To validate a small synthetic fixture while developing the Stage-12 flow,
-select it explicitly without changing the approved research input or execution
-gate:
+M2·M3 폴더가 생성됐다고 해당 기능이 실행되거나 완료된 것은 아닙니다. 기존 프로젝트는 원래 위치에 연결하며, 해시로 참조하는 기록을 이동하거나 덮어쓰지 않습니다.
 
-```bash
-researchclaw-codex execution recheck ./demo-research \
-  --input-manifest experiment/input_manifest.dev.json \
-  --development --json
-```
+UI의 파일 목록에는 `documents`, `materials`, `outputs`만 공개합니다. 백업할 때는 작업 공간 목록과 프로젝트 폴더를 함께 보관하고, 외부 경로에 연결한 기존 연구도 포함합니다. 자세한 규칙은 [프로젝트 화면과 보관 기준](docs/research/guides/project-storage.md)에 있습니다.
 
-This development-only check verifies the manifest, referenced CSV row counts
-and hashes, group isolation, and feature cutoffs. It returns
-`ready_for_development` with `approval_eligible: false`; it never executes the
-experiment or makes synthetic data eligible as research evidence.
+## 현재 범위와 다음 개발
 
-To run the bounded development evaluation itself, make the same synthetic
-intent explicit for every run:
+현재는 **M1을 실제 사례로 검증하는 POC**입니다. 기능 구현, 특정 사례의 가상 설계 검증, 실제 연구의 M1 완료를 별도로 판단합니다.
 
-```bash
-researchclaw-codex execution run ./demo-research \
-  --input-manifest experiment/input_manifest.dev.json \
-  --development --confirm-development-run --max-seconds 120 --json
-```
-
-This runs only the fixed local NumPy-only Ridge model and writes
-`experiment/dev_results.json`. It reports `development_run_complete` with
-`approval_eligible: false` and leaves the research approval gate unchanged. It neither
-creates `experiment/results.json` nor makes synthetic results research
-evidence.
-
-## Explicit Stage-12 research handoff and registration
-
-Stage 12 is a non-executing trust boundary. ResearchClaw validates and records
-evidence; it does not compute research metrics. Use this order:
-
-1. Ask ResearchClaw for the complete known-answer self-test argv:
-
-   ```bash
-   researchclaw-codex experiment prepare-self-test ROOT --json
-   ```
-
-   This pre-approval command validates the current package and environment and
-   returns `readiness`, `argv`, `environment_fingerprint`,
-   `package_contract_sha256`, `report_path`, and `registration_argv`. Run the returned `argv` array exactly
-   outside ResearchClaw. Its first item is the verified **absolute
-   interpreter**; the authoritative argv requires no undocumented interpreter
-   lookup and is never reconstructed from a quoted display string.
-2. Register the externally written report explicitly:
-
-   ```bash
-   researchclaw-codex experiment register-self-test ROOT \
-     --report experiment/self_test_report.json --confirm-self-test --json
-   ```
-
-   Success JSON has exactly `path`, `sha256`, and `size`. Registration verifies
-   the exact known-answer metric value and package, fixture, and environment
-   identities; it does not rerun the self-test.
-3. Show the ready plan and registered self-test to the user. The user must
-   review the execution approval and decide explicitly:
-
-   ```bash
-   researchclaw-codex approve ROOT \
-     --decision approve|reject --note "User-reviewed execution decision" --json
-   ```
-
-4. Only after approval, prepare the durable handoff:
-
-```bash
-researchclaw-codex execution prepare-run ROOT --json
-```
-
-This writes `experiment/execution_contract.json`. JSON mode returns an `argv`
-array whose first element is the verified absolute interpreter path. That
-**authoritative argv** array, not a shell alias or the non-JSON quoted display
-string, is the execution contract. ResearchClaw does not execute it. The user
-runs the array exactly, without changing `PATH`, from the project root. The
-entry point verifies every binding and exclusively creates
-`experiment/results.json`; stdout and development results are not evidence.
-
-5. Register only that contract-bound result:
-
-```bash
-researchclaw-codex execution register-result ROOT --result experiment/results.json --confirm-research-result --json
-```
-
-Registration performs a descriptor-based disk preflight, reuses already
-published content by hash (deduplication), streams every accepted source into
-the content-addressed object store, and publishes a closed **immutable
-manifest**. State, event, and manifest recovery form one transaction. Stage 13
-is grounded only in the manifest and immutable objects, never in mutable
-working-tree inputs or `experiment/results.json`. Successful JSON reports the
-registered result identity and Stage-13 transition.
-
-For compatibility, `register-result --json` preserves the public keys
-`readiness`, `approval_eligible`, `result_path`, `result_sha256`,
-`current_stage`, and `next_action`; immutable-manifest details are obtained
-with `evidence audit`. `prepare-run --json` returns exactly `readiness`,
-`approval_eligible`, `argv`, `environment_fingerprint`, `result_path`,
-`contract_path`, `contract_sha256`, `bindings`, `inputs`, and
-`result_template`. Errors keep their existing category string on stderr as
-`error: CATEGORY` and exit with status 2, including
-`execution_environment_changed`, `execution_contract_stale`,
-`research_result_file_invalid`, and
-`research_result_registration_recovery_invalid`.
-
-If recovery identifies an invalid unregistered result, the confirmed
-`execution quarantine-result` command copies the exact descriptor-validated
-bytes into the private evidence quarantine and removes the result only from
-durable project state. It deliberately does **not** move, overwrite, or delete
-the mutable `experiment/results.json` pathname. Before rerunning the exclusive
-external command, the handoff requires the separately confirmed
-`execution cleanup-quarantined-result` action. Cleanup revalidates the exact
-no-symlink single-link source identity and preserves it under the private
-quarantine before clearing the pathname; a replacement, symlink, or ambiguous
-hardlink is refused. This explicit second confirmation keeps quarantine itself
-non-mutating while making cleanup honest and actionable.
-
-Result quarantine is intentionally retained evidence, not garbage-collected
-capacity. Before either copy or confirmed pathname cleanup, ResearchClaw uses
-descriptor-based filesystem capacity plus bounded no-follow scans of both
-`quarantine/copies` and `quarantine/results`. Entry-count, retained-byte, unsafe
-entry, and free-space limits fail before the requested mutation and direct the
-operator to the structured inventory:
-
-```bash
-researchclaw-codex evidence quarantine-inventory ROOT --json
-researchclaw-codex evidence quarantine-operator-cleanup ROOT --confirm --json
-```
-
-The confirmed operator route does not unlink, truncate, or claim to reclaim
-same-user quarantine files: it returns `reclaimed_bytes: 0`, preserves every
-listed path, and reports when manual filesystem/operator action is required.
-Unknown or crash-abandoned copy candidates are likewise inventoried and left
-untouched. This policy prefers unrelated-byte safety over automatic capacity
-recovery.
-
-The enforced recovery behavior is that a published partial quarantine temp is
-never resumed or written: recovery preserves that inode and starts with a
-fresh inode when capacity permits, otherwise failing closed with explicit
-manual/operator action. A complete read-only candidate may be verified and
-published without mutation. The adversarial release gate verifies this guarantee.
-
-### Stage-12 recovery routes
-
-| Condition | Safe action |
+| 구분 | 상태 |
 | --- | --- |
-| Environment drift | Keep Stage 12 unchanged; rerun the known-answer self-test with the verified current environment, register it, obtain a new approval, and prepare again. |
-| Existing result | Run `execution quarantine-result ROOT --reason invalid_result --confirm --json`, inspect the retained copy, then use the separately confirmed cleanup route before a rerun. |
-| Stale contract | Keep Stage 12; run `execution prepare-run ROOT --json` to replace only the stale contract after current bindings validate. |
-| Insufficient disk | Make no evidence mutation; inspect `evidence quarantine-inventory ROOT --json` and arrange operator-managed capacity. Evidence objects are never operator-deleted. |
-| Interrupted registration | Run `status`, `resume`, or the same registration command; recovery verifies the pending immutable transaction and either completes it or restores Stage 12. |
-| Legacy Stage 13 evidence | Run `researchclaw-codex evidence audit ROOT --json`; `classification: "legacy_untrusted"` is audit-only and cannot be registered or silently migrated. Return to Stage 10 package validation for new trusted evidence. |
-| Published partial quarantine temp | Preserve it unchanged and use a fresh inode if capacity permits; otherwise stop for manual/operator action. A complete read-only candidate may be verified and published without mutation. |
+| 프로젝트 중심 UI·저장·검토 기록·Atlas 질문 왕복 | 구현 및 검증 |
+| M1 연구 수행 | Codex 세션에서 도구와 기록 엔진을 사용하는 방식으로 진행 |
+| UI에서 연구 전체를 무인 실행 | 미지원 |
+| 자동 장비 제어·셀프드라이빙랩 연결 | 후속 개발 |
+| M2 실험·해석 전체 흐름 | 설계 단계. 이전 엔진의 일부 실행 프로토콜과 구분 |
+| M3 논문 및 M4 보고서·계획서 작성 | 설계 단계. 별도 작성 프로젝트에 위임 |
 
-`evidence audit` returns exactly `project_id`, `classification`, and
-`registration`. `classification` is `immutable_registered` only when the
-closed manifest and its objects ground the current registration; otherwise it
-is `legacy_untrusted` and `registration` is `null`. Legacy generic execution
-contracts, mutable results, and Stage-13 artifact references are audit-only,
-non-registerable evidence. Automatic migration is intentionally unsupported.
+다음 개발에서는 좁고 검증 가능한 질문으로 M1을 시험하고, 근거에서 가설·실험 설계로 이어지는 판단의 품질을 확인합니다. 이후 M2 실행 계층과 M3·M4 문서 작성 프로젝트를 연결합니다.
 
-Successful registration records the validated result and advances the project
-to Stage 13. Stage 13 refinement remains a separate boundary; this CLI does
-not refine or execute research on the user's behalf.
+## 문서와 개발
 
-## Evidence-bound Stage-15 research decision
+- [문서 안내](docs/README.md)
+- [에이전트·프로젝트 운영 기준](AGENTS.md)
+- [연구 운영 가이드](docs/research/guides/README.md)
+- [UI 기준과 검수 기록](docs/ui/README.md)
+- [현재 실행 경로와 이전 엔진 구분](skills/researchpilot/references/pilot-runtime.md)
+- [이전 README 보관본](archive/legacy/pilot-readme-before-milestones-2026-09-15.md)
 
-After the explicitly requested Stage-14 analysis protocol completes, root
-`status` or `resume` reports the next dedicated `decision` command. Stage 15
-uses three independent roles, one disclosed response round, and a distinct
-non-voting coordinator to register `proceed`, `refine`, `pivot`, or an
-unresolved null decision. It publishes `analysis/decision.json` and the
-deterministic `analysis/decision.md`; it does not run an experiment, roll back a
-stage, execute follow-up, or create a paper outline.
+프로젝트 관리와 UI 관련 검사는 다음과 같이 실행할 수 있습니다.
 
-Use this workflow only after an explicit `$researchclaw` or named ResearchClaw
-decision request. The complete record schemas, exact five permitted submission
-files, commands, and stop conditions are in the
-[Stage-15 decision reference](skills/researchclaw/references/research-decision.md).
-Generic `stage prepare` and `stage validate` reject Stages 15 and 16. A PROCEED
-decision reaches `unsupported_stage_16`; REFINE/PIVOT only report required and
-optional follow-up, and unresolved agreement requests user direction.
+```sh
+python -m pip install -e '.[dev]'
+python -m pytest tests/codex_native/research_graph/test_project_workspace.py \
+  tests/codex_native/research_graph/test_viewer.py \
+  tests/codex_native/research_graph/test_episode_http.py -q
 
-Approval is tied to exact validated artifact hashes. Changing an approved
-artifact rewinds the durable workflow to its producing stage; changing the
-approved shortlist also requires a new user decision. After an unchanged
-approval, `resume` points to stage-6 extraction. After valid stage-6 output it
-points to stage-7 synthesis, after valid stage 7 it points to stage-8 hypothesis
-generation, and after valid stage 8 it reports the hypothesis milestone and
-points to stage-9 validation design. A valid stage-9 design requires the user's
-explicit approval or rejection. After approval of a computational design,
-`resume` points to Stage 10. Codex authors and statically validates only the
-declared computational package, without execution. A valid Stage 10 advances
-to Stage 11, where Codex reads only packet-declared inputs and the passive
-hardware observation, and authors only `experiment/resources.json`. A valid
-ready plan reaches Stage 12 for the user's explicit approval or rejection;
-approval does not execute the deferred command. After approval, the explicit
-handoff may return a user-run command and a contract-bound result may be
-registered, but ResearchClaw never executes the experiment. A valid
-`needs_input` plan lists prerequisites, which the user must satisfy before the
-constrained `execution recheck`.
+# UI 검사에는 Node.js가 필요합니다.
+node --test tests/codex_native/research_graph/*.mjs
+```
 
-## Durable project data
+브라우저에서 프로젝트 생성·전환까지 확인하는 검사는 별도의 임시 작업 공간을 사용합니다. 실행 방법과 화면별 검증 근거는 [UI 검수 기록](docs/ui/review.md)에 정리합니다.
 
-A project stores its canonical state at `.researchclaw/state.json`, approvals
-under `approvals/`, and append-only evaluation events under `evaluation/`.
-Conversation history is never required to resume. Artifact reads reject
-absolute paths, traversal, symlinks, and paths that resolve outside the project.
+## 원본과 라이선스
 
-## Versioning and identity
+Pilot은 [AutoResearchClaw](https://github.com/aiming-lab/AutoResearchClaw)에서 출발했습니다. 원본의 고정 단계 흐름에서 프로젝트별 연구 그래프와 근거·대화 중심의 구조로 발전시키고 있습니다.
 
-The Python distribution and Codex plugin use the same derivative release
-version. This derivative is `0.1.0`. Upstream AutoResearchClaw release numbers
-are tracked separately and do not determine the derivative's version.
+라이선스는 [MIT](LICENSE)입니다. 원본·이전 문서와 예시는 [보관함](archive/README.md)에 남깁니다.
 
-### Stage-12 release verification trust boundary
-
-Run `scripts/verify_stage12_evidence.sh` only in a trusted, operator-controlled
-local environment. Set `PYTHON_BIN` to the preferred Python 3.11+ interpreter;
-it must import pytest. Project virtual environments and PATH executables are
-also treated as trusted candidates. The script validates Python/pytest
-capability and catches accidental no-op or malformed wrappers, but portable
-shell cannot authenticate a responsive same-user executable that can observe
-and emulate every probe. Such a malicious local executable is outside this
-release gate's threat model.
-
-Candidate validation alone is insufficient for success. Each mandatory pytest
-run must emit executed test-node markers and a positive, clean pass summary with
-no skips, xfails, xpasses, deselections, or errors. Compileall must emit its
-exact per-run marker. Missing, empty, malformed, or oversized command output
-fails the release gate even when the selected executable returns status zero.
-
-Product identity:
-
-- Repository: `AutoResearchClaw-Codex`
-- Python distribution: `researchclaw-codex`
-- CLI: `researchclaw-codex`
-- Plugin ID: `autoresearchclaw-codex`
-- Explicit skill: `$researchclaw`
-
-## Upstream attribution and legacy workflow
-
-This project retains the upstream MIT license and attribution. The inherited
-autonomous/API-backed workflow remains in the repository during migration but
-is not the default Codex-native path. Its original documentation is preserved
-in [LEGACY_UPSTREAM_README.md](archive/upstream/LEGACY_UPSTREAM_README.md), and its original
-agent bootstrap guide is preserved in
-[LEGACY_UPSTREAM_AGENT_GUIDE.md](archive/upstream/LEGACY_UPSTREAM_AGENT_GUIDE.md). Those files
-are labeled legacy and may describe external LLM credentials, nested agents,
-or automatic approval; their instructions do not apply to `$researchclaw`.
-
-See [LICENSE](LICENSE) for licensing terms and
-[the upstream project](https://github.com/aiming-lab/AutoResearchClaw) for its
-current releases and documentation.
+이전 단계 기반 CLI의 승인·실행·복구 계약은 [호환 경로 운영 안내](docs/legacy-cli.md)에 별도로 보존합니다. 현재 M1 자동 실행과 구분합니다.

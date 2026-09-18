@@ -623,6 +623,14 @@ print(
 )
 '''
 
+    # A copied venv sees the base interpreter's packages, not this test venv's.
+    # Supply the installed application dependencies to reach the launcher-race check.
+    import os
+    import sysconfig
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        item for item in (sysconfig.get_path("purelib"), environment.get("PYTHONPATH", "")) if item
+    )
     completed = subprocess.run(
         [
             str(interpreter),
@@ -634,6 +642,7 @@ print(
             str(replacement),
         ],
         cwd=Path(__file__).parents[2],
+        env=environment,
         check=False,
         capture_output=True,
         text=True,

@@ -1,0 +1,3 @@
+﻿schema_version,data_origin,specimen_id,manufacturing_batch_id,intended_test,sampling_location,notes
+1,synthetic,DEMO-EC-01,DEMO-MOLDED-01,electrical_test,,전기시험 전용 가상 시편; 위치 미정
+1,synthetic,DEMO-MECH-01,DEMO-MOLDED-01,mechanical_test,,기계시험 전용 가상 시편; 위치 미정

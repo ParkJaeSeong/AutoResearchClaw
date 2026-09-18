@@ -42,9 +42,14 @@ def _eligibility(snapshot):
     from .m1_review import prepare_hypothesis_review
     from .m1_search import corpus_status
     inputs = _context(snapshot)
-    _require_native_evidence_route(inputs)
-    evidence, corpus = current_evidence(snapshot), corpus_status(snapshot)
-    _require(evidence['ready'] and corpus['approved'], 'handoff_evidence_required')
+    from .external_handoffs import is_external, route_evidence, NODES as EXTERNAL_NODES
+    external = is_external(inputs)
+    if external:
+        evidence, corpus = route_evidence(snapshot, inputs), None
+    else:
+        _require_native_evidence_route(inputs)
+        evidence, corpus = current_evidence(snapshot), corpus_status(snapshot)
+        _require(evidence['ready'] and corpus['approved'], 'handoff_evidence_required')
     review = prepare_hypothesis_review(snapshot)
     artifact, review_ref = current_node(inputs, 'review')
     dispositions = {row['issue_id']: row for row in artifact['content']['prior_issue_dispositions']}
@@ -66,7 +71,7 @@ def _eligibility(snapshot):
     _require(not remaining, remaining[0] if remaining else 'handoff_review_required')
     # Every upstream node is checked separately. A generic upstream reason is
     # deferrable only after all concrete scoped blockers are proven empirical.
-    for node in _NODES:
+    for node in (EXTERNAL_NODES if external else _NODES):
         result = review_node(snapshot, node)
         _require(not set(result['reason_codes']) - {'blocking_issue_unresolved', 'upstream_review_required'},
                  'handoff_review_required')
@@ -107,6 +112,9 @@ def _budget(snapshot, inputs, review_ref, publication):
 
 
 def _build(snapshot, publication, supplied_review, *, check_policy=True):
+    from .external_handoffs import is_external, build
+    if is_external(_context(snapshot)):
+        return build(snapshot, publication, supplied_review, check_policy=check_policy)
     if check_policy:
         inputs, artifact, ref, review, evidence, corpus, eligible = _eligibility(snapshot)
         owner = _budget(snapshot, inputs, ref, publication)
@@ -196,9 +204,13 @@ def _current(snapshot, inputs, handoff, manifest, gate):
     resolver = _References(inputs)
     try:
         _require(all(resolver.resolve(ref) for ref in handoff['artifact_refs']), 'stale_handoff')
-        corpus = corpus_status(snapshot)
-        _require(corpus['approved'] and corpus['corpus_ref'] == gate['corpus_ref']
-                 and corpus['approval_ref'] == gate['approval_ref'], 'stale_handoff')
+        from .external_handoffs import PROFILE, require_current
+        if gate['profile'] == PROFILE:
+            require_current(snapshot, inputs, manifest, gate)
+        else:
+            corpus = corpus_status(snapshot)
+            _require(corpus['approved'] and corpus['corpus_ref'] == gate['corpus_ref']
+                     and corpus['approval_ref'] == gate['approval_ref'], 'stale_handoff')
         _require(all(current_node(inputs, node)[1] == ref for node, ref in manifest['node_refs'].items()), 'stale_handoff')
     except ValueError as error:
         raise ValueError('stale_handoff') from error
@@ -383,7 +395,9 @@ def handoff_status(snapshot: dict, *, handoff_id: str) -> dict:
 
 
 def assess_native_handoff(snapshot: dict, gate: dict) -> dict:
-    _require(set(gate) == _PROFILE_FIELDS and gate['profile'] == 'native_m1_handoff'
+    from .external_handoffs import PROFILE, PROFILE_FIELDS
+    fields = PROFILE_FIELDS if gate.get('profile') == PROFILE else _PROFILE_FIELDS
+    _require(set(gate) == fields and gate['profile'] in ('native_m1_handoff', PROFILE)
              and gate['milestone'] == 'M1' and gate['kind'] == 'handoff' and gate['target_id'] == 'M2', 'gate_invalid')
     inputs = _context(snapshot)
     matches = [identity_ for identity_ in inputs.state.get('handoffs', {}) if identity(identity_, 'gate') == gate['id']]

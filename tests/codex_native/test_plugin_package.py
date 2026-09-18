@@ -12,7 +12,7 @@ from researchclaw.core.agent_roles import describe_stage_roles
 
 ROOT = Path(__file__).parents[2]
 FORK_URL = "https://github.com/ParkJaeSeong/AutoResearchClaw-Codex"
-SKILL_ROOT = ROOT / "skills" / "researchclaw"
+SKILL_ROOT = ROOT / "skills" / "researchpilot"
 MARKDOWN_LINK = re.compile(r"(?<!!)\[[^]]+\]\(([^)]+)\)")
 SUPPORTED_BOUNDARY = re.compile(
     r"Codex-native supported execution boundary:\s*stages?\s*1\s*[\N{EN DASH}-]\s*(\d+)",
@@ -31,9 +31,9 @@ def _local_markdown_links(path: Path) -> tuple[Path, ...]:
 
 def test_plugin_manifest_and_skill_are_explicit_and_api_free():
     manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text())
-    skill = (ROOT / "skills" / "researchclaw" / "SKILL.md").read_text()
+    skill = (ROOT / "skills" / "researchpilot" / "SKILL.md").read_text()
     skill_ui = yaml.safe_load(
-        (ROOT / "skills" / "researchclaw" / "agents" / "openai.yaml").read_text()
+        (ROOT / "skills" / "researchpilot" / "agents" / "openai.yaml").read_text()
     )
 
     assert manifest["name"] == "autoresearchclaw-codex"
@@ -42,6 +42,10 @@ def test_plugin_manifest_and_skill_are_explicit_and_api_free():
     assert manifest["repository"] == FORK_URL
     assert manifest["interface"]["websiteURL"] == FORK_URL
     assert skill_ui["policy"]["allow_implicit_invocation"] is False
+    frontmatter = yaml.safe_load(skill.split("---", 2)[1])
+    assert frontmatter["name"] == SKILL_ROOT.name == "researchpilot"
+    assert "$researchpilot" in skill_ui["interface"]["default_prompt"]
+    assert not (ROOT / "skills" / "researchclaw").exists()
     assert "explicit" in skill.lower()
     forbidden = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "acpx", "--auto-approve")
     assert not any(token in skill for token in forbidden)
@@ -54,7 +58,7 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
         block for block in fenced_blocks if "pip install -e ." in block
     ]
     plugin_invocation_blocks = [
-        block for block in fenced_blocks if "$researchclaw" in block
+        block for block in fenced_blocks if "$researchpilot" in block
     ]
 
     assert any(
@@ -63,11 +67,11 @@ def test_readme_separates_cli_installation_from_plugin_invocation():
     )
     assert plugin_invocation_blocks
     assert all(
-        "$researchclaw" not in block for block in editable_install_blocks
+        "$researchpilot" not in block for block in editable_install_blocks
     )
 
 
-@pytest.mark.parametrize("document", ("README.md", "RESEARCHCLAW_AGENTS.md"))
+@pytest.mark.parametrize("document", ("docs/legacy-cli.md", "RESEARCHCLAW_AGENTS.md"))
 def test_public_document_matches_the_supported_stage_boundary(document):
     text = (ROOT / document).read_text(encoding="utf-8")
     match = SUPPORTED_BOUNDARY.search(text)
